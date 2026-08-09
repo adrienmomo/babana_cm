@@ -1,0 +1,94 @@
+import { z } from 'zod';
+import { UserIdSchema } from './common';
+
+/**
+ * POST /auth/google
+ * Échange d'un ID token Google contre un jeton applicatif (D4). Seul endpoint du contrat
+ * qui n'exige pas d'en-tête Authorization.
+ */
+export const GoogleAuthRequestSchema = z.object({
+  idToken: z.string().min(1),
+});
+export type GoogleAuthRequest = z.infer<typeof GoogleAuthRequestSchema>;
+
+export const AuthSessionSchema = z.object({
+  accessToken: z.string(),
+  refreshToken: z.string(),
+  expiresIn: z.number().int().positive().describe('secondes avant expiration de accessToken'),
+  user: z.object({
+    id: UserIdSchema,
+    role: z.enum(['client', 'driver']),
+    displayName: z.string(),
+    photoUrl: z.string().url().nullable(),
+    phoneVerified: z.boolean(),
+  }),
+});
+export type AuthSession = z.infer<typeof AuthSessionSchema>;
+
+export const GoogleAuthResponseSchema = AuthSessionSchema;
+export type GoogleAuthResponse = z.infer<typeof GoogleAuthResponseSchema>;
+
+export const GoogleAuthErrors = ['INVALID_GOOGLE_TOKEN', 'DRIVER_NOT_APPROVED'] as const;
+
+export const googleAuthRequestExample: GoogleAuthRequest = {
+  idToken: 'eyJhbGciOiJSUzI1NiIsImtpZCI6ImFiYzEyMyJ9.mock-signed-by-mock-google-identity',
+};
+
+export const googleAuthResponseExample: GoogleAuthResponse = {
+  accessToken: 'app_at_9f1c2e3d4b5a',
+  refreshToken: 'app_rt_1a2b3c4d5e6f',
+  expiresIn: 3600,
+  user: {
+    id: '3f6a2b1c-4d5e-4f6a-8b9c-0d1e2f3a4b5c',
+    role: 'client',
+    displayName: 'Amina N.',
+    photoUrl: 'https://lh3.googleusercontent.com/mock/amina.jpg',
+    phoneVerified: false,
+  },
+};
+
+/**
+ * POST /auth/refresh
+ * Renouvellement du jeton applicatif à partir du jeton de renouvellement.
+ */
+export const RefreshRequestSchema = z.object({
+  refreshToken: z.string().min(1),
+});
+export type RefreshRequest = z.infer<typeof RefreshRequestSchema>;
+
+export const RefreshResponseSchema = AuthSessionSchema;
+export type RefreshResponse = z.infer<typeof RefreshResponseSchema>;
+
+export const RefreshErrors = ['TOKEN_EXPIRED', 'TOKEN_REVOKED', 'UNAUTHORIZED'] as const;
+
+export const refreshRequestExample: RefreshRequest = {
+  refreshToken: 'app_rt_1a2b3c4d5e6f',
+};
+
+export const refreshResponseExample: RefreshResponse = googleAuthResponseExample;
+
+/**
+ * POST /auth/logout
+ * Révocation du jeton de renouvellement fourni. L'accessToken en circulation reste valide
+ * jusqu'à son expiration naturelle (courte, cf. expiresIn) — pas de liste de révocation
+ * temps réel pour un jeton de si courte durée.
+ */
+export const LogoutRequestSchema = z.object({
+  refreshToken: z.string().min(1),
+});
+export type LogoutRequest = z.infer<typeof LogoutRequestSchema>;
+
+export const LogoutResponseSchema = z.object({
+  revoked: z.literal(true),
+});
+export type LogoutResponse = z.infer<typeof LogoutResponseSchema>;
+
+export const LogoutErrors = ['UNAUTHORIZED'] as const;
+
+export const logoutRequestExample: LogoutRequest = {
+  refreshToken: 'app_rt_1a2b3c4d5e6f',
+};
+
+export const logoutResponseExample: LogoutResponse = {
+  revoked: true,
+};

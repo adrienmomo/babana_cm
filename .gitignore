@@ -1,0 +1,13 @@
+# Dépendances et artefacts de build — reconstruits par `make` / `npm run build`, jamais commités.
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+
+# Secrets locaux (invariant 5 : aucun secret dans le dépôt).
+.env
+.env.local
+*.env.local
+
+# Système
+.DS_Store

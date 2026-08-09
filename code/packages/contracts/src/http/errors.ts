@@ -1,0 +1,136 @@
+import { z } from 'zod';
+
+/**
+ * Catalogue nommé des erreurs métier de l'API mobile <-> Odoo (C-01).
+ * Indépendant du HTTP : le code est la clé stable, le statut HTTP n'est qu'une projection.
+ * Aucun endpoint ne peut renvoyer un code absent de ce catalogue (critère d'acceptation 4).
+ */
+export const ErrorCode = z.enum([
+  // Générique
+  'VALIDATION_ERROR',
+  'INTERNAL_ERROR',
+  'RATE_LIMITED',
+
+  // Authentification
+  'INVALID_GOOGLE_TOKEN',
+  'TOKEN_EXPIRED',
+  'TOKEN_REVOKED',
+  'UNAUTHORIZED',
+  'DRIVER_NOT_APPROVED',
+
+  // Rattachement du numéro de téléphone
+  'PHONE_ALREADY_VERIFIED',
+  'PHONE_NOT_VERIFIED',
+  'OTP_INVALID',
+  'OTP_EXPIRED',
+
+  // Estimation
+  'QUOTE_EXPIRED',
+  'QUOTE_NOT_FOUND',
+  'PROMO_CODE_INVALID',
+
+  // Cycle de vie de la course
+  'RIDE_NOT_FOUND',
+  'RIDE_INVALID_TRANSITION',
+  'RIDE_NOT_OWNED',
+  'NO_DRIVER_AVAILABLE',
+  'DRIVER_ALREADY_TAKEN',
+  'DRIVER_NOT_IN_PROPOSAL',
+  'PROPOSAL_EXPIRED',
+  'RATING_ALREADY_SUBMITTED',
+  'RATING_NOT_ALLOWED',
+
+  // Caisse
+  'CASH_LIMIT_REACHED',
+  'SETTLEMENT_AMOUNT_MISMATCH',
+
+  // Position et disponibilité
+  'LOCATION_REQUIRED',
+]);
+
+export type ErrorCode = z.infer<typeof ErrorCode>;
+
+/** Statut HTTP associé à chaque code — une seule projection possible par code. */
+export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
+  VALIDATION_ERROR: 400,
+  INTERNAL_ERROR: 500,
+  RATE_LIMITED: 429,
+
+  INVALID_GOOGLE_TOKEN: 401,
+  TOKEN_EXPIRED: 401,
+  TOKEN_REVOKED: 401,
+  UNAUTHORIZED: 401,
+  DRIVER_NOT_APPROVED: 403,
+
+  PHONE_ALREADY_VERIFIED: 409,
+  PHONE_NOT_VERIFIED: 403,
+  OTP_INVALID: 400,
+  OTP_EXPIRED: 410,
+
+  QUOTE_EXPIRED: 410,
+  QUOTE_NOT_FOUND: 404,
+  PROMO_CODE_INVALID: 400,
+
+  RIDE_NOT_FOUND: 404,
+  RIDE_INVALID_TRANSITION: 409,
+  RIDE_NOT_OWNED: 403,
+  NO_DRIVER_AVAILABLE: 404,
+  DRIVER_ALREADY_TAKEN: 409,
+  DRIVER_NOT_IN_PROPOSAL: 403,
+  PROPOSAL_EXPIRED: 410,
+  RATING_ALREADY_SUBMITTED: 409,
+  RATING_NOT_ALLOWED: 403,
+
+  CASH_LIMIT_REACHED: 409,
+  SETTLEMENT_AMOUNT_MISMATCH: 400,
+
+  LOCATION_REQUIRED: 400,
+};
+
+/** Description courte, pour la documentation générée et les messages par défaut. */
+export const ERROR_DESCRIPTION: Record<ErrorCode, string> = {
+  VALIDATION_ERROR: "Le corps de la requête ne correspond pas au schéma attendu.",
+  INTERNAL_ERROR: "Erreur inattendue côté serveur.",
+  RATE_LIMITED: "Trop de requêtes ; réessayer après un délai.",
+
+  INVALID_GOOGLE_TOKEN: "L'ID token Google est invalide, expiré, ou sa signature ne correspond à aucune clé publiée.",
+  TOKEN_EXPIRED: "Le jeton applicatif a expiré ; utiliser /auth/refresh.",
+  TOKEN_REVOKED: "Le jeton applicatif a été révoqué par /auth/logout.",
+  UNAUTHORIZED: "En-tête Authorization manquant ou malformé.",
+  DRIVER_NOT_APPROVED: "Le compte chauffeur n'est pas encore validé par le back-office.",
+
+  PHONE_ALREADY_VERIFIED: "Un numéro est déjà rattaché et vérifié pour ce compte ; un seul OTP dans la vie du compte (01-architecture.md §5).",
+  PHONE_NOT_VERIFIED: "Cette action nécessite un numéro de téléphone vérifié.",
+  OTP_INVALID: "Le code OTP fourni ne correspond pas à celui envoyé.",
+  OTP_EXPIRED: "Le code OTP a expiré ; relancer /phone/verify/start.",
+
+  QUOTE_EXPIRED: "L'estimation a dépassé sa date d'expiration ; en redemander une.",
+  QUOTE_NOT_FOUND: "Aucune estimation active pour cet identifiant.",
+  PROMO_CODE_INVALID: "Le code promotionnel est inconnu, expiré, ou déjà épuisé.",
+
+  RIDE_NOT_FOUND: "Aucune course pour cet identifiant.",
+  RIDE_INVALID_TRANSITION: "La transition demandée n'est pas permise depuis l'état courant de la course (voir docs/contracts/ride-state-machine.md).",
+  RIDE_NOT_OWNED: "Cette course n'appartient pas à l'appelant.",
+  NO_DRIVER_AVAILABLE: "Aucun chauffeur disponible dans le rayon de recherche.",
+  DRIVER_ALREADY_TAKEN: "Le chauffeur vient d'être réservé par un autre client (réservation atomique, L3-06).",
+  DRIVER_NOT_IN_PROPOSAL: "Le chauffeur qui répond n'est pas celui de la proposition active de cette course.",
+  PROPOSAL_EXPIRED: "Le délai d'acceptation de la proposition est dépassé.",
+  RATING_ALREADY_SUBMITTED: "Cette course a déjà été notée.",
+  RATING_NOT_ALLOWED: "Une course ne peut être notée qu'une fois encaissée (settled).",
+
+  CASH_LIMIT_REACHED: "Cet encaissement dépasserait le plafond de caisse du chauffeur (D8).",
+  SETTLEMENT_AMOUNT_MISMATCH: "Le montant déclaré ne correspond pas au montant dû.",
+
+  LOCATION_REQUIRED: "Une position (latitude, longitude) est requise pour cette requête.",
+};
+
+/** Enveloppe d'erreur commune à toutes les réponses non-2xx de l'API. */
+export const ApiErrorSchema = z.object({
+  error: z.object({
+    code: ErrorCode,
+    message: z.string(),
+    details: z.unknown().optional(),
+  }),
+});
+
+export type ApiError = z.infer<typeof ApiErrorSchema>;
