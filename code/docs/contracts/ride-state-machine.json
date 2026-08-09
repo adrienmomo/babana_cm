@@ -1,0 +1,120 @@
+{
+  "$comment": "Source canonique de la machine à états de babana.ride. Voir ride-state-machine.md pour le détail narratif de chaque transition. Consommé par verify-ride-state-machine.js et, plus tard, par L4-02/L4-10 pour générer les tests de la machine à états implémentée.",
+  "states": [
+    "draft",
+    "requested",
+    "proposed",
+    "assigned",
+    "in_progress",
+    "completed",
+    "settled",
+    "rejected",
+    "cancelled"
+  ],
+  "neverTarget": ["draft"],
+  "neverSource": ["settled", "cancelled"],
+  "odooPartitionMoments": [
+    { "order": 1, "transition": ["draft", "requested"], "label": "creation_demande" },
+    { "order": 2, "transition": ["proposed", "assigned"], "label": "affectation" },
+    { "order": 3, "transition": ["in_progress", "completed"], "label": "fin_de_course" },
+    { "order": 4, "transition": ["completed", "settled"], "label": "encaissement" }
+  ],
+  "transitions": [
+    {
+      "from": "draft",
+      "to": "requested",
+      "trigger": "client valide l'estimation",
+      "actor": "client",
+      "odooWrite": "partition_moment",
+      "irreversible": false
+    },
+    {
+      "from": "requested",
+      "to": "proposed",
+      "trigger": "select-driver",
+      "actor": "client",
+      "odooWrite": "none",
+      "irreversible": false
+    },
+    {
+      "from": "proposed",
+      "to": "assigned",
+      "trigger": "proposal.accept",
+      "actor": "driver",
+      "odooWrite": "partition_moment",
+      "irreversible": false
+    },
+    {
+      "from": "proposed",
+      "to": "rejected",
+      "trigger": "proposal.reject | proposal.expired",
+      "actor": "driver_or_system",
+      "odooWrite": "none",
+      "irreversible": false
+    },
+    {
+      "from": "rejected",
+      "to": "proposed",
+      "trigger": "select-driver (nouvelle sélection, même course)",
+      "actor": "client",
+      "odooWrite": "none",
+      "irreversible": false
+    },
+    {
+      "from": "assigned",
+      "to": "in_progress",
+      "trigger": "ride.start",
+      "actor": "driver",
+      "odooWrite": "none",
+      "irreversible": false
+    },
+    {
+      "from": "in_progress",
+      "to": "completed",
+      "trigger": "ride.complete",
+      "actor": "driver",
+      "odooWrite": "partition_moment",
+      "irreversible": true
+    },
+    {
+      "from": "completed",
+      "to": "settled",
+      "trigger": "settle",
+      "actor": "driver",
+      "odooWrite": "partition_moment",
+      "irreversible": true
+    },
+    {
+      "from": "requested",
+      "to": "cancelled",
+      "trigger": "cancel",
+      "actor": "client_or_supervisor",
+      "odooWrite": "closure",
+      "irreversible": true
+    },
+    {
+      "from": "proposed",
+      "to": "cancelled",
+      "trigger": "cancel",
+      "actor": "client_or_supervisor",
+      "odooWrite": "closure",
+      "irreversible": true
+    },
+    {
+      "from": "assigned",
+      "to": "cancelled",
+      "trigger": "cancel",
+      "actor": "client_or_driver_or_supervisor",
+      "odooWrite": "closure",
+      "irreversible": true
+    },
+    {
+      "from": "rejected",
+      "to": "cancelled",
+      "trigger": "cancel",
+      "actor": "client_or_supervisor",
+      "odooWrite": "closure",
+      "irreversible": true
+    }
+  ]
+}
