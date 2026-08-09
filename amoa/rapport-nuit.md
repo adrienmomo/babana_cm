@@ -7,7 +7,7 @@ Démarrage : 2026-08-09.
 | ID | Statut | Branche | Commentaire |
 |---|---|---|---|
 | C-03 | finie | `C-03-ride-state-machine` | Table de transitions complète en `code/docs/contracts/ride-state-machine.md` + source JSON + script de vérification. Deux écarts consignés (voir Questions ouvertes) |
-| C-01 | non commencée | — | — |
+| C-01 | finie | `C-01-http-contracts` | `@babana/contracts` (Zod), 19 endpoints, 27 codes d'erreur, `docs/contracts/http-api.md`. Bootstrap minimal du monorepo npm en avance sur L0-03 |
 | C-02 | non commencée | — | — |
 | L0-01 | non commencée | — | — |
 | L0-02 | non commencée | — | — |
@@ -18,7 +18,17 @@ Démarrage : 2026-08-09.
 
 ## Ce qui tourne
 
-_(à compléter)_
+Depuis `code/` :
+
+```bash
+npm install    # 9 paquets, aucune vulnérabilité signalée
+npm test       # 48 tests (node:test via tsx) + vérification structurelle de la machine à états — tout vert
+npm run build --workspaces --if-present   # compile @babana/contracts, génère dist/json-schema/ (19 endpoints x 2 + errors.json)
+npm run typecheck --workspaces --if-present   # tsc --noEmit propre
+```
+
+`make` n'existe pas encore (arrive avec L0-01) : les commandes ci-dessus sont l'équivalent
+provisoire de `make test` / `make lint` tant que le Makefile n'est pas créé.
 
 ## Ce qui ne tourne pas
 
@@ -47,7 +57,18 @@ _(à compléter)_
   spécifié) — une fois le trajet démarré physiquement, la course va jusqu'à `completed` ; un
   incident se traite via `babana.incident`, hors machine à états. À confirmer.
 - **C-03** : le script `verify-ride-state-machine.js` n'est pas encore branché sur `make test`
-  (le Makefile n'existe pas avant L0-01). À intégrer dès que L0-01 crée le Makefile.
+  (le Makefile n'existe pas avant L0-01) — **mis à jour** : branché sur `npm test` à la racine
+  de `code/` pendant C-01, reste à raccorder à `make test` quand L0-01 crée le Makefile.
+- **C-01** : bootstrap minimal du monorepo npm (`code/package.json`, workspaces
+  `["packages/*"]`) créé en avance sur L0-03, seulement ce qui est nécessaire pour que
+  `@babana/contracts` compile. L0-03 étendra les workspaces.
+- **C-01** : ajout de `driver.ts`, `phone.ts`, `common.ts` — non listés dans l'arborescence de
+  C-01, qui ne couvre que 6 des 8 familles d'endpoints. Détail dans le message de commit.
+- **C-01** : authentification lue littéralement — seul `/auth/google` est public ;
+  `/auth/refresh` et `/auth/logout` exigent aussi `Authorization: Bearer`.
+- **C-01** : `NO_DRIVER_AVAILABLE` conservé au catalogue (exigé par la spécification) mais
+  n'est émis par aucun endpoint de ce lot, puisque D10 fait choisir le client sur une liste qui
+  peut être vide plutôt que de renvoyer une erreur.
 
 ## Ce que je ferais ensuite
 
