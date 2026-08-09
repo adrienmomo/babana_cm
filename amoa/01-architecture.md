@@ -1,0 +1,274 @@
+# babana.cm — Document d'architecture
+
+**Version** 1.2 — 9 août 2026
+**Statut** À valider
+**Source** Cahier des charges « Application de transport en moto » (C. Mbong, 8 juillet 2026)
+
+Ce document fige les décisions d'architecture avant découpage en tâches techniques. Il ne décrit pas le *quoi* (le CDC s'en charge) mais le *comment*, et surtout les *pourquoi* — pour que chaque tâche technique en dérive sans réinterprétation.
+
+---
+
+## 1. Décisions retenues
+
+| # | Décision | Alternative écartée | Raison |
+|---|---|---|---|
+| D1 | Deux apps **React Native** distinctes (Client, Chauffeur), monorepo à code partagé | App unique bi-mode | Parcours, permissions et cycles de release trop différents |
+| D2 | **Odoo 18 Community auto-hébergé** comme backend métier et back-office | Odoo.sh, Odoo Online | Odoo Online interdit le code custom ; auto-hébergement requis pour cohabiter avec le service temps réel |
+| D3 | **Service temps réel dédié** (WebSocket + Redis) pour GPS et dispatch | Tout dans Odoo (`bus.bus`) | Odoo sature dès quelques centaines de chauffeurs actifs sur des écritures haute fréquence |
+| D4 | **Google Sign-In** comme unique moyen d'authentification | OTP SMS (prévu au CDC §VII.1) | Choix maître d'ouvrage : zéro coût SMS, zéro friction. Voir écart É1 |
+| D5 | **Chauffeurs salariés** en phase 1 | Commission par course, abonnement | Décision maître d'ouvrage. Commission et/ou abonnement en phase ultérieure |
+| D6 | **Motos propriété de l'entreprise**, affectation durable chauffeur–moto | Motos personnelles | Cohérent avec D5. Voir écart É2 |
+| D7 | Disponibilité chauffeur par **interrupteur en ligne / hors ligne** | Prise et fin de service, planning admin | Décision maître d'ouvrage. Impose la conséquence C1, traitée au §7 |
+| D8 | **Compte courant chauffeur** avec plafond d'encaisse bloquant | Remise liée à la fin de service | Conséquence de D7 : sans clôture de service, le contrôle doit être un plafond |
+| D9 | MVP pilote : boucle de course complète, **paiement espèces uniquement** | Mobile Money dès le MVP | Les agréments marchands MTN/Orange sont un délai administratif hors de notre contrôle |
+| D10 | **Le client choisit son chauffeur** en v1 (CDC §II.2) | Matching automatique par proximité (CDC §IV.2) | Décision maître d'ouvrage. Supprime le moteur de matching de la v1, introduit la conséquence C2 |
+| D11 | En cas de refus, **retour à la sélection manuelle**, sans attribution automatique | Bouton « prenez le plus proche » en repli | Décision maître d'ouvrage. Risque d'abandon à surveiller en pilote |
+| D12 | Navigation par **lien profond vers Google Maps** en v1, navigation assistée in-app prévue en v2 | Turn-by-turn embarqué dès la v1 | Coût et consommation batterie disproportionnés au MVP. Impose l'abstraction C3 |
+| D13 | **Google Maps** comme fournisseur de carte, derrière une abstraction interne | Mapbox | Couverture des points d'intérêt à Douala nettement supérieure ; plugin Navigation React Native officiel. Voir `02-comparatif-cartographie.md` |
+| D14 | Le client se voit proposer les **5 chauffeurs les plus proches** | Tous les chauffeurs du rayon | Décision maître d'ouvrage. Limite l'exposition de la flotte (C2b) et rend le choix praticable sur un petit écran |
+| D15 | Tarif = **base + distance × prix au km**, majoré par un **coefficient de zone et d'heure de pointe**. **Pas de prix à la minute** | Facturation à la minute, prix ferme calculé sur le devis | Conséquence directe d'É8 : la durée disponible avant la course est une durée voiture. Le salariat (D5) retire au terme temps sa raison d'être. Voir écart É9 |
+
+---
+
+## 2. La règle de partition
+
+C'est la décision la plus structurante du projet. Tout le découpage en découle.
+
+> **Une écriture Odoo par événement métier, jamais par tick GPS.**
+
+Une course écrit dans Odoo à **quatre moments** :
+
+1. Création de la demande (client valide l'estimation)
+2. Affectation du chauffeur (un chauffeur a accepté)
+3. Fin de course — distance et durée consolidées, polyline archivée en une seule fois
+4. Encaissement
+
+Entre ces moments, tout vit dans Redis et sur le WebSocket : positions, chronomètre, distance en cours, propositions en attente, timeouts.
+
+**Corollaire, à traiter comme un invariant de conception :** le service temps réel ne possède **aucune donnée durable**. S'il tombe, on perd les positions de l'instant et les courses en cours de matching — jamais une course confirmée ni un franc encaissé. Cet invariant doit être vérifiable par un test : couper le service temps réel en pleine course, le redémarrer, la course doit se retrouver et se terminer correctement.
+
+**Ce qui appartient à qui**
+
+| Donnée | Propriétaire | Durabilité |
+|---|---|---|
+| Position chauffeur, géo-index des disponibles | Redis | Éphémère, TTL court |
+| Proposition de course en attente, timeout d'acceptation | Redis | Éphémère |
+| Distance et durée en cours d'accumulation | Redis | Éphémère jusqu'à la fin de course |
+| Course, tarif appliqué, facture, encaissement | Odoo / PostgreSQL | Source de vérité |
+| Chauffeur, moto, affectation, documents | Odoo / PostgreSQL | Source de vérité |
+| Grille tarifaire, zones, promotions | Odoo / PostgreSQL | Source de vérité |
+| Compte courant chauffeur, remises de caisse | Odoo / PostgreSQL | Source de vérité, écritures comptables |
+
+---
+
+## 3. Sélection du chauffeur par le client
+
+D10 remplace le moteur de matching par une sélection manuelle. C'est un simplificateur majeur — plus de broadcast, plus de règle de priorité, plus de stratégie de repli — mais il introduit trois problèmes qui n'existent pas dans un système à attribution automatique.
+
+**C2a — La réservation du chauffeur est une section critique.**
+Deux clients qui sélectionnent le même chauffeur au même instant doivent produire un gagnant et un perdant, jamais deux gagnants. La réservation doit être une **opération atomique unique** côté service temps réel : le chauffeur est retiré du pool disponible dans le même geste que la création de la proposition. Un contrôle en deux temps — lire l'état puis écrire — laisse une fenêtre de course. Le bug qui en résulte est intermittent, invisible en test unitaire et coûteux en production : deux clients persuadés d'avoir le même chauffeur.
+
+À traiter comme une exigence testable : un test de charge qui lance N sélections concurrentes sur le même chauffeur doit produire exactement un succès.
+
+**C2b — La flotte devient publiquement observable.**
+Pour choisir, le client doit voir la position, la photo, la note et le type de moto de chaque chauffeur disponible autour de lui. N'importe quel client peut donc cartographier la flotte en continu. Garde-fous à intégrer dès la conception, pas après : rayon de recherche plafonné, nombre de chauffeurs retournés plafonné, position arrondie à une précision utile mais non exploitable, et limitation de débit sur l'endpoint.
+
+**C2c — L'utilisation de la flotte sera inégale.**
+Les chauffeurs bien notés seront choisis, les nouveaux ne démarreront jamais. Sur un modèle à la commission, ce serait le problème du chauffeur ; avec D5, c'est l'entreprise qui paie des salariés que personne ne sélectionne. Le back-office doit donc exposer un **indicateur de courses par chauffeur** dès le pilote — c'est la donnée qui dira s'il faut réintroduire une attribution automatique.
+
+Combiné à D11, l'enchaînement de refus n'a aucun filet : le client rechoisit à la main autant de fois que nécessaire. Le **taux d'abandon après refus** est à instrumenter dès le pilote, c'est l'indicateur qui déclenchera la réouverture de D11.
+
+---
+
+## 4. Couches et responsabilités
+
+**Apps React Native (Client, Chauffeur)**
+Rendu, carte, capture GPS, WebSocket. Aucune règle métier : ni calcul de tarif, ni décision d'affectation, ni validation de solde. L'app affiche ce que le serveur décide. Cette discipline est ce qui permet de corriger une règle tarifaire sans passer par les stores.
+
+**Service temps réel**
+Ingestion des positions, géo-index des chauffeurs disponibles, **réservation atomique du chauffeur** (§3), diffusion du suivi au client, accumulation distance et durée. Sans état durable. Pas de moteur de matching en v1, conséquence de D10.
+
+**Module Odoo `babana`**
+Modèle de domaine, règles métier, contrôleurs exposés au mobile, back-office. Source de vérité.
+
+**Back-office Odoo natif**
+Validation des chauffeurs, gestion de flotte, grilles tarifaires, promotions, validation des remises de caisse, rapports. Vues Odoo standard — c'est ici que le choix d'Odoo se rentabilise : §V du CDC est couvert quasi sans développement d'interface.
+
+**Services externes**
+Google Identity (authentification), Google Maps SDK et API de routage (carte, itinéraire, ETA — D13), Firebase Cloud Messaging (notifications push, CDC §III.4 et §IV.1). Chacun est un point de défaillance externe : aucun ne doit pouvoir bloquer une course en cours. Une notification push perdue ne doit jamais être le seul canal d'information — l'état est toujours re-lisible depuis le serveur à l'ouverture de l'app.
+
+**C3 — Abstraction carte et navigation (D12, D13)**
+Aucun écran n'importe directement le SDK de carte. Une interface interne — afficher une carte, tracer un tracé, ouvrir un guidage vers un point, chercher un lieu — avec une implémentation par fournisseur. En v1, l'implémentation « ouvrir un guidage » est un lien profond vers Google Maps ; en v2, elle devient le Navigation SDK sans qu'aucun écran ne change. Sans cette abstraction, le choix de fournisseur devient irréversible et la navigation in-app promise en v2 se paie en réécriture. Le comparatif détaillé est dans `02-comparatif-cartographie.md`.
+
+**Partage de trajet (CDC §II.6)**
+Le partage d'un trajet avec un proche implique une **route publique non authentifiée**, consultable dans un navigateur par quelqu'un qui n'a pas l'application. Conséquences de conception : jeton opaque non devinable, expiration à la fin de la course plus un délai court, et exposition stricte du minimum — position et ETA, jamais l'identité du client ni son historique.
+
+---
+
+## 5. Authentification
+
+Google Sign-In seul (D4) impose deux points techniques non négociables.
+
+**Un contrôleur Odoo custom est inévitable.** Le endpoint natif `/web/session/authenticate` attend `db / login / password`. Aucun mécanisme Odoo standard n'accepte un ID token Google. Il faut donc un contrôleur qui vérifie la signature du token auprès des certificats Google, contrôle `aud` et `iss`, puis ouvre la session ou émet un jeton applicatif.
+
+**Conséquence de portée :** dès lors qu'un module custom avec contrôleurs existe, l'argument du « JSON-RPC natif pour tout » perd son intérêt. Recommandation : **JSON-RPC natif pour les lectures secondaires** (historique, factures, profil), **contrôleurs explicites pour les chemins critiques** — authentification, cycle de vie de la course, encaissement, remise de caisse. Ces chemins doivent avoir un contrat d'API stable et testable, indépendant du modèle de données Odoo.
+
+**Vérification du numéro de téléphone.** Google Sign-In ne fournit pas de numéro vérifié. Le numéro reste indispensable : le chauffeur doit pouvoir appeler le client, et le Mobile Money de la phase 2 en dépendra. Un numéro saisi au clavier et jamais vérifié est un risque à assumer explicitement. Mitigation recommandée, à coût quasi nul : **un seul OTP dans la vie du compte**, au moment du rattachement du numéro — pas à chaque connexion.
+
+---
+
+## 6. Modèle de domaine — esquisse
+
+Les noms sont indicatifs, à figer au démarrage du développement.
+
+- **`babana.driver`** — hérite ou référence `hr.employee` (D5). Statut de validation, documents, note moyenne, état en ligne / hors ligne, plafond d'encaisse, solde courant, compteur de courses (indicateur d'équité de §3).
+- **`babana.motorcycle`** — flotte de l'entreprise (D6) : immatriculation, carte grise, assurance et son échéance, gamme (standard / premium, cf. CDC §II.2), affectation au chauffeur.
+- **`babana.ride`** — la course. Machine à états explicite : `brouillon → demandée → proposée → affectée → en_cours → terminée → encaissée`, plus `annulée` et `refusée`. L'état `proposée` existe parce que le client désigne un chauffeur précis (D10) qui peut refuser ; `refusée` ramène le client à la sélection (D11) sans créer une nouvelle course, afin que les refus successifs restent traçables sur une même demande. Départ, arrivée, distance, durée, tarif appliqué, polyline, moyen de paiement, chauffeur sélectionné, historique des refus.
+- **`babana.fare.rule`** — grille tarifaire : base, prix au km, zone, plage horaire, coefficient d'heure de pointe (CDC §V.3). **Pas de prix à la minute** (D15). Le champ durée reste néanmoins enregistré sur la course, pour calibrer l'ETA, mesurer la productivité et rendre possible une réintroduction ultérieure du terme temps.
+- **`babana.promotion`** — code promo, conditions, compteur d'usage.
+- **`babana.cash.remittance`** — remise de caisse : chauffeur, montant, superviseur, écriture comptable liée.
+- **`babana.incident`** — bouton d'urgence et signalements (CDC §II.6, §VII.4).
+- Facturation : réutiliser `account.move` d'Odoo plutôt qu'un modèle maison. Le PDF, la numérotation légale et l'envoi par email demandés au CDC §III.3 sont alors gratuits.
+
+**Machine à états de la course.** Les transitions doivent être les seules portes d'écriture sur `babana.ride`. Toute écriture directe de champ contournant une transition est un bug de conception. C'est ce qui garantit qu'une course ne peut pas être encaissée deux fois, ni terminée sans avoir démarré, ni affectée à deux chauffeurs.
+
+---
+
+## 7. Gestion de la recette espèces
+
+Point absent du cahier des charges, et risque numéro un du pilote.
+
+Un chauffeur salarié qui encaisse des espèces détient des fonds appartenant à l'entreprise. Sans traçabilité, il n'existe aucun moyen de savoir si la recette rentre.
+
+**Mécanisme retenu (D8)**
+
+1. Chaque course payée en espèces incrémente le solde courant du chauffeur.
+2. Le solde est un compte courant permanent, pas un solde de session — cohérent avec D7.
+3. Un plafond d'encaisse est paramétré dans le back-office. Au-delà, le chauffeur ne peut plus accepter de nouvelle course.
+4. La remise à un superviseur remet le solde à zéro et génère l'écriture comptable Odoo.
+5. Tout écart entre montant attendu et montant remis est enregistré, jamais absorbé silencieusement.
+
+Le plafond remplace la clôture de service comme mécanisme de contrôle. Il ne coûte qu'une règle métier et un champ de configuration.
+
+---
+
+## 8. Écarts assumés avec le cahier des charges
+
+Ces écarts sont des décisions, pas des oublis. Ils doivent être validés par le maître d'ouvrage.
+
+**É1 — Authentification (CDC §VII.1, §X.3.a)**
+Le CDC impose inscription et connexion par numéro de téléphone avec OTP SMS. D4 retient Google Sign-In seul. Conséquence : numéro non vérifié, et exclusion des utilisateurs sans compte Google actif — population non négligeable sur la cible chauffeurs. À réévaluer si le taux d'échec d'inscription observé en pilote est élevé.
+
+**É2 — Documents chauffeur (CDC §IV.1)**
+Le CDC prévoit le téléversement de la carte grise par le chauffeur. Avec D6, la carte grise est un actif géré par l'admin. L'onboarding chauffeur se limite au permis et à la pièce d'identité, et une gestion de flotte apparaît en contrepartie.
+
+**É3 — Statut chauffeur (CDC §VIII.1, §X.3.b)**
+Le CDC évoque une commission par course et un abonnement chauffeur par Mobile Money — deux modèles économiques différents et mutuellement incompatibles dans le modèle de données. D5 tranche pour le salariat en phase 1. Wallet, moteur de payout, commissions et abonnements sortent du périmètre. Le modèle de domaine doit néanmoins ne pas rendre leur ajout ultérieur coûteux.
+
+**É4 — Paiement (CDC §II.4, §VI.4)**
+Mobile Money et carte bancaire sont reportés en phase 2 (D9). Le MVP est espèces uniquement.
+
+**É5 — Choix technique du CDC (§VI.2, §VI.5)**
+Le CDC recommande un backend sur mesure, PostgreSQL, et une infrastructure AWS ou Azure. L'architecture retenue est compatible sur le fond (PostgreSQL, cloud, scalabilité) mais introduit Odoo, non mentionné au CDC. Le gain est le back-office §V et la comptabilité quasi gratuits ; le coût est une contrainte de performance sur le chemin temps réel, traitée par D3.
+
+**É6 — Tableau de bord des revenus chauffeur (CDC §II.5, §IV.4)**
+Le CDC prévoit un suivi des « revenus journaliers, hebdomadaires et mensuels » et un export pour usage fiscal. Avec D5, un salarié n'a pas de revenu variable par course : ce qu'il voit n'est pas son revenu mais **la recette qu'il a encaissée pour le compte de l'entreprise**. Le libellé et la finalité de l'écran changent complètement — il devient un outil de suivi d'activité et de réconciliation de caisse, non un relevé de gains. L'export fiscal §IV.4 perd son objet.
+
+**É7 — Priorité par proximité (CDC §IV.2)**
+Le CDC prévoit « un système de priorité pour les chauffeurs les plus proches ». Avec D10, c'est le client qui choisit : cette exigence devient sans objet en v1. Elle redeviendra pertinente si l'attribution automatique est réintroduite, ce que les indicateurs de §3 diront.
+
+**É8 — Itinéraire moto (CDC §I.3, §II.1, §III.2)**
+Ni Google ni Mapbox ne calculent d'itinéraire deux-roues au Cameroun : Google n'y active pas son mode deux-roues, Mapbox n'en propose dans aucun pays. Les itinéraires, distances et durées seront donc calculés sur un modèle **voiture**, alors que la proposition de valeur du CDC §I.3 est précisément que la moto ne subit pas ce que subit la voiture. Conséquences retenues : le tarif s'appuie sur la distance et sur la durée **réellement mesurée**, jamais sur la durée estimée par le routeur ; l'ETA affiché nécessite un facteur de correction calibré en pilote. Détail dans `02-comparatif-cartographie.md`.
+
+**É9 — Formule tarifaire (CDC §II.3)**
+Le CDC impose un tarif « basé sur la distance parcourue **et** le temps de trajet ». D15 retire le terme temps. Justification : la durée connaissable avant la course est une durée voiture (É8), donc un devis incluant un prix à la minute surfacture structurellement aux heures de pointe — précisément quand l'avantage de la moto devrait se voir. Avec des chauffeurs salariés (D5), le terme temps ne protège plus le chauffeur du temps immobilisé, il ne protège que la marge de l'entreprise ; le coefficient d'heure de pointe du CDC §V.3 remplit ce rôle et il est, lui, exactement calculable d'avance. Bénéfice second : le devis devient exact au franc près et vérifiable de tête par le client, ce qui compte sur un marché où la négociation à l'arrivée est la norme.
+
+---
+
+## 9. Sécurité et exploitation
+
+Exigences du CDC §VII.2 et §VII.3, à traiter comme des tâches et non comme des intentions.
+
+- **Transport** : TLS obligatoire sur toutes les liaisons, WebSocket inclus. Aucun endpoint en clair, y compris en environnement de test.
+- **Au repos** : chiffrement du volume PostgreSQL et du stockage de documents. Les pièces d'identité et permis de conduire (§IV.1) ne sont jamais servis en URL publique — accès signé et à durée limitée uniquement.
+- **Secrets** : clés Google, identifiants FCM, jetons marchands hors du dépôt de code, injectés à l'exécution.
+- **Sauvegardes** : sauvegarde automatique quotidienne de PostgreSQL et du stockage, avec **restauration testée** — une sauvegarde jamais restaurée n'est pas une sauvegarde. Redis n'est pas sauvegardé, par construction (règle de partition, §2).
+- **Rôles** : le mobile n'accède jamais à un modèle Odoo hors de ce que les règles d'enregistrement autorisent pour son utilisateur. Un chauffeur ne lit pas la course d'un autre chauffeur ; un client ne lit pas les documents d'un chauffeur. À vérifier par des tests, pas par relecture.
+- **Journalisation** : toute transition de course et toute opération sur le compte courant chauffeur sont journalisées de manière non modifiable. C'est ce qui permettra de trancher un litige.
+
+---
+
+## 10. Risques ouverts
+
+| Risque | Impact | Traitement proposé |
+|---|---|---|
+| Consommation batterie et données de l'émission GPS continue (CDC §VI.3) | Chauffeurs qui désinstallent l'app | Fréquence adaptative selon la vitesse, agrégation avant envoi, mesure obligatoire en pilote |
+| Coût du quota Google Maps à l'échelle | Coût variable non maîtrisé, croissant avec le volume de courses | Cache des itinéraires par paire de zones, plafonds de quota dans la console, abstraction C3 pour garder Mapbox atteignable |
+| Tarif « Navigation Request » de Google non public | Inconnue d'un facteur vingt sur le coût de la v2 | Obtenir un devis avant tout engagement sur la navigation in-app |
+| Itinéraires calculés sur un modèle voiture (É8) | ETA pessimiste, tarif temps surévalué, crédibilité entamée | Tarif sur distance et durée mesurée ; facteur de correction d'ETA calibré en pilote |
+| Sélection concurrente du même chauffeur (§3) | Deux clients avec le même chauffeur | Réservation atomique et test de charge dédié |
+| Observabilité de la flotte par les clients (§3) | Cartographie de la flotte par un tiers | Rayon et nombre de résultats plafonnés, position arrondie, limitation de débit |
+| Utilisation inégale de la flotte (§3) | Salariés payés sans être choisis | Indicateur de courses par chauffeur dès le pilote ; réouverture de D10 si nécessaire |
+| Abandon du client après refus en chaîne (D11) | Course perdue, client perdu | Instrumenter le taux d'abandon après refus ; réouverture de D11 si nécessaire |
+| Qualité GPS en zone dense (Douala) | Tarif contesté par le client | Distance de référence calculée par l'API de routage, pas par sommation des points GPS |
+| Absence de `hr_payroll` en Odoo Community | Paie non calculable dans Odoo | Module OCA, ou paie traitée hors application — à trancher, hors périmètre MVP |
+| Réseau mobile intermittent | Course perdue, tarif faux | Mode dégradé côté app avec file d'attente locale et rejeu ; à concevoir dès le départ, pas après |
+| Google Sign-In requiert les Google Play Services | Exclusion de terminaux d'entrée de gamme et reconditionnés | Mesurer le taux d'échec en pilote ; É1 à rouvrir si significatif |
+
+---
+
+## 11. Ce que ce document ne tranche pas encore
+
+À arbitrer avant ou pendant le découpage en tâches. Les trois blocages de la version 1.0 — choix du chauffeur, navigation, algorithme de matching — sont levés par D10 à D13.
+
+**Paramètres provisoires, à confirmer avant le développement**
+
+Le nombre de chauffeurs proposés est fixé (D14). Trois paramètres de dispatch restent ouverts ; en l'absence d'arbitrage, les valeurs ci-dessous seront retenues par défaut. Aucune n'est structurante : toutes doivent être configurables dans le back-office, pas codées en dur.
+
+| Paramètre | Valeur par défaut | Remarque |
+|---|---|---|
+| Délai d'acceptation par le chauffeur | 30 secondes | Assez pour qu'un chauffeur arrêté lise la course, assez court pour que le client ne décroche pas |
+| Rayon de recherche initial | À calibrer en pilote | Dépend de la densité de la flotte à Bonanjo |
+| Aucun chauffeur disponible | Élargir le rayon et proposer 5 autres chauffeurs | Garde le client dans le parcours sans réintroduire d'attribution automatique |
+
+**Non bloquants**
+
+- Valeurs de la grille tarifaire : base, prix au km, coefficients de zone et d'heure de pointe
+- Règle d'arrondi du tarif en FCFA
+- Stratégie de test : niveau de couverture attendu, et quels scénarios de bout en bout sont non négociables
+- Environnements et chaîne de déploiement
+- Politique de conservation des données de localisation (CDC §VII.4, conformité RGPD ou équivalent local)
+- Traitement de la paie : module OCA ou hors application (cf. §10)
+- Facturation de la distance calculée ou de la distance parcourue, l'écart étant plus élevé que dans une app voiture (É8)
+
+---
+
+## 12. Couverture du cahier des charges
+
+| Section CDC | Traitement |
+|---|---|
+| II.1 Géolocalisation temps réel | D3, §2 |
+| II.2 Commande de course | D10, D14, §3 |
+| II.3 Facturation automatique | D15, `babana.fare.rule`, `account.move` ; É9 sur le retrait du terme temps |
+| II.4 Paiement intégré | É4, reporté phase 2 |
+| II.5 Profil chauffeur | `babana.driver` ; É6 sur les revenus |
+| II.6 Sécurité, partage de trajet, bouton d'urgence | §4, `babana.incident` |
+| III.1 à III.3 Interface et historique | D1, `account.move` |
+| III.4 Notifications push | §4, Firebase Cloud Messaging |
+| IV.1 Inscription et documents chauffeur | É2, §9 |
+| IV.2 Réception des demandes | D10, §3 ; É7 sur la priorité par proximité |
+| IV.3 GPS intégré | D12, §4 |
+| IV.4 Suivi des revenus | É6 |
+| V.1 à V.3 Administration | Back-office Odoo natif, §4 |
+| VI.1 Développement mobile | D1 |
+| VI.2 Base de données | D2, PostgreSQL |
+| VI.3 API de géolocalisation | §4, risques §10 ; voir `02-comparatif-cartographie.md` |
+| VI.4 Paiements locaux | É4 |
+| VI.5 Hébergement cloud | D2 |
+| VII.1 Authentification OTP | É1, écart assumé |
+| VII.2 Chiffrement | §9 |
+| VII.3 Sauvegardes | §9 |
+| VII.4 Conformité réglementaire | §9, §11 pour la conservation des données |
+| VIII Planning | Hors périmètre de ce document |
+| IX Budget | Hors périmètre de ce document |
+| X Diagrammes et scénario | Machine à états §6, cohérente avec le scénario §X.2 |
