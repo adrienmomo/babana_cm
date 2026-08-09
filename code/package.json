@@ -1,0 +1,17 @@
+{
+  "name": "babana",
+  "private": true,
+  "description": "Monorepo babana.cm — espaces de travail npm. Arborescence complétée au fil des tâches L0-*.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present && node docs/contracts/verify-ride-state-machine.js",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present"
+  }
+}

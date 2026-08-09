@@ -1,0 +1,25 @@
+{
+  "name": "@babana/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Source unique des contrats C-01 (API mobile <-> Odoo) et C-02 (événements temps réel). Types TypeScript et schémas de validation Zod, plus schémas JSON générés pour les contrôleurs Odoo en Python (D17).",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && tsx scripts/generate-json-schema.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "zod": "^3.23.8",
+    "zod-to-json-schema": "^3.23.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4",
+    "@types/node": "^20.14.15",
+    "tsx": "^4.16.5"
+  }
+}
