@@ -30,6 +30,12 @@ npm run typecheck --workspaces --if-present   # tsc --noEmit propre
 `make` n'existe pas encore (arrive avec L0-01) : les commandes ci-dessus sont l'équivalent
 provisoire de `make test` / `make lint` tant que le Makefile n'est pas créé.
 
+**Accès back-office Odoo** (`https://admin.localhost`, base `babana`) : `admin` / `admin`. C'est
+le compte de démo qu'Odoo crée par défaut à la création de la base (`-i babana` charge les
+données de démo) — je n'ai fixé aucun mot de passe nulle part (invariant 5, aucun secret dans le
+dépôt), donc c'est un défaut Odoo, pas un choix. Vérifié par `POST /web/session/authenticate`,
+`uid: 2`, `is_admin: true`. À changer avant toute exposition au-delà du poste de développement.
+
 **Mise à jour L0-01** — depuis `code/`, sur cette machine, à l'instant du commit :
 
 ```bash
