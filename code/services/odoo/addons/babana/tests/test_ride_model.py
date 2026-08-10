@@ -131,4 +131,9 @@ class TestBabanaRideModel(TransactionCase):
         )
 
         self.assertEqual(len(ride.rejection_ids), 2)
-        self.assertEqual(self.env["babana.ride"].search_count([]), 1)
+        # Filtré sur la référence de cette course précisément, pas un décompte global : la
+        # suite contient par ailleurs un test de concurrence qui committe hors transaction
+        # (test_ride_state_concurrency.py), un search_count([]) global serait fragile.
+        self.assertEqual(
+            self.env["babana.ride"].search_count([("reference", "=", ride.reference)]), 1
+        )
