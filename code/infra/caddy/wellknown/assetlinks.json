@@ -1,0 +1,13 @@
+[
+  {
+    "_comment": "Valeurs provisoires (D21) : package_name et empreinte à remplacer par les vraies valeurs de signature Android dès qu'elles existent (L0-03 crée le paquet applicatif, la clé de signature est une tâche ultérieure hors du lot de cette nuit). Sans ce fichier correct en production, les liens profonds (D12) ouvrent un sélecteur d'application au lieu de babana (amoa/04-monorepo-et-services.md §6).",
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "cm.babana.client",
+      "sha256_cert_fingerprints": [
+        "00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00"
+      ]
+    }
+  }
+]

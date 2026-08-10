@@ -1,0 +1,40 @@
+{
+	email {$ACME_EMAIL}
+}
+
+# Apex — partage de trajet public et liens d'application
+{$BABANA_DOMAIN:localhost} {
+	handle /.well-known/assetlinks.json {
+		root * /srv/wellknown
+		uri strip_prefix /.well-known
+		file_server
+	}
+
+	handle /s/* {
+		reverse_proxy realtime:3000
+	}
+
+	handle {
+		respond "babana.cm" 200
+	}
+}
+
+# API mobile et temps réel
+api.{$BABANA_DOMAIN:localhost} {
+	handle /rt/* {
+		reverse_proxy realtime:3000
+	}
+
+	handle {
+		reverse_proxy odoo:8069
+	}
+}
+
+# Back-office — accès restreint
+admin.{$BABANA_DOMAIN:localhost} {
+	@allowed remote_ip {$ADMIN_ALLOWED_IPS:0.0.0.0/0}
+	handle @allowed {
+		reverse_proxy odoo:8069
+	}
+	respond 403
+}

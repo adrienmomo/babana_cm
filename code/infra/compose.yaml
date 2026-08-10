@@ -1,0 +1,123 @@
+name: babana
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: postgres
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "no", "--maxmemory-policy", "noeviction"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  odoo:
+    build:
+      context: ../services/odoo
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      HOST: postgres
+      USER: ${POSTGRES_USER}
+      PASSWORD: ${POSTGRES_PASSWORD}
+      GOOGLE_OAUTH_CLIENT_IDS: ${GOOGLE_OAUTH_CLIENT_IDS}
+      GOOGLE_JWKS_URL: ${GOOGLE_JWKS_URL:-https://www.googleapis.com/oauth2/v3/certs}
+      JWT_SECRET: ${JWT_SECRET}
+      REALTIME_INTERNAL_URL: http://realtime:3000
+      REALTIME_SHARED_SECRET: ${REALTIME_SHARED_SECRET}
+      S3_ENDPOINT: http://minio:9000
+      S3_BUCKET: babana-documents
+      S3_ACCESS_KEY: ${MINIO_ROOT_USER}
+      S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
+    volumes:
+      - ../services/odoo/addons:/mnt/extra-addons
+      - ../services/odoo/config/odoo.conf:/etc/odoo/odoo.conf:ro
+      - odoo-filestore:/var/lib/odoo
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8069/web/health || exit 1"]
+      interval: 10s
+      retries: 20
+    restart: unless-stopped
+
+  realtime:
+    build:
+      context: ..
+      dockerfile: services/realtime/Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+      odoo:
+        condition: service_started
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: "3000"
+      REDIS_URL: redis://redis:6379
+      ODOO_INTERNAL_URL: http://odoo:8069
+      REALTIME_SHARED_SECRET: ${REALTIME_SHARED_SECRET}
+      JWT_SECRET: ${JWT_SECRET}
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health || exit 1"]
+      interval: 10s
+      retries: 10
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    depends_on:
+      - odoo
+      - realtime
+    environment:
+      BABANA_DOMAIN: ${BABANA_DOMAIN:-localhost}
+      ACME_EMAIL: ${ACME_EMAIL}
+      ADMIN_ALLOWED_IPS: ${ADMIN_ALLOWED_IPS:-0.0.0.0/0}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./caddy/wellknown:/srv/wellknown:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    volumes:
+      - miniodata:/data
+      - ./minio/bootstrap.sh:/bootstrap.sh:ro
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      retries: 10
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  odoo-filestore:
+  miniodata:
+  caddy-data:
+  caddy-config:
