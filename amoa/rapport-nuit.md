@@ -14,7 +14,7 @@ Démarrage : 2026-08-09.
 | L0-08 | finie | `L0-08-mocks` | mock-google-identity (JWKS + 5 variantes invalides, vérifiées par signature réelle) et mock-maps (routage déterministe, recherche Douala, panne simulée). Critères 1 et 5 hors de portée ce soir (dépendances non traitées), documenté dans `services/mocks/README.md` |
 | L0-03 | partielle | `L0-03-react-native-monorepo` | 6/7 critères vérifiés contre les outils réels (npm install, Metro, tsc, jest, eslint, config de build). Critère 4 (APK release) bloqué : aucun SDK Android sur cette machine, voir `amoa/questions/L0-03.md` |
 | L0-04 | finie | `L0-04-realtime-skeleton` | Serveur HTTP + WebSocket, config validée, client Odoo avec réessais, zéro client PostgreSQL. Tous les critères vérifiés contre la pile réelle. Deux bugs Docker trouvés et corrigés (ws mal résolu, tsconfig.base.json manquant) |
-| L0-06 | non commencée | — | — |
+| L0-06 | finie | `L0-06-env-secrets` | `.env.example` étendu à toutes les variables listées, `infra/env/README.md` (table complète + rotation par secret). Vérifié : `cp .env.example .env && make up` reproduit les 9 services sains. Écart mailpit/production documenté |
 
 ## Ce qui tourne
 
@@ -110,6 +110,11 @@ _(à compléter)_
 
 ## Questions ouvertes
 
+- `amoa/questions/L0-06.md` — `mailpit` fait partie des sept services de `infra/compose.yaml`
+  (censé tourner identiquement en dev et en production selon D18), mais capture le courrier sans
+  jamais le relayer : les factures réelles de production (CDC §III.3) ne partiraient jamais.
+  Aucune bascule vers un vrai relais SMTP n'existe. **Bloquant avant L0-07**, pas avant.
+  Écart secondaire mineur : fournisseurs SMS et FCM non nommés, pour information de L1-09.
 - **Note d'exploitation, pas un fichier de question** : un bind mount Docker Desktop (macOS,
   gRPC-FUSE) s'est figé à trois reprises cette nuit après une recréation de conteneur ailleurs
   dans le projet compose (`services/odoo/addons` pendant L0-02, `infra/caddy/wellknown` puis
@@ -215,6 +220,14 @@ _(à compléter)_
   4000-4999 réservée par RFC 6455 §7.4.2), en écho à HTTP 401.
 - **L0-04** : forme des claims du jeton applicatif (`sub`, `role`, `exp`) posée par hypothèse —
   L1-01, qui les émettra réellement, n'a pas tourné ce soir. À confirmer à ce moment-là.
+- **L0-06** : adresse Redis interne et URL interne d'Odoo volontairement absentes de `.env` —
+  fixées en dur dans `infra/compose.yaml` parce qu'elles décrivent la topologie du réseau Docker,
+  identique dans les trois environnements par construction (D18). Explicité dans le README pour
+  qu'un futur lecteur ne les cherche pas en vain.
+- **L0-06** : `GOOGLE_OAUTH_CLIENT_IDS` reste une variable unique (liste séparée par des
+  virgules) plutôt que trois variables distinctes par plateforme — c'est ce que
+  `infra/compose.yaml` consomme déjà tel quel depuis L0-01 ; les trois identifiants sources sont
+  documentés dans le README sans changer la variable que le service lit réellement.
 - **L0-04** : `services/realtime/Dockerfile` n'installe pas depuis `package-lock.json` de la
   racine — ce lockfile encode tout l'arbre du monorepo (apps/* compris), absent de ce contexte
   de build ; le copier faisait hoister un `ws` transitif de react-native au lieu du `ws` déclaré
@@ -239,6 +252,39 @@ _(à compléter)_
   passer inaperçu indéfiniment. Ajout de `tsconfig.typecheck.json` qui couvre aussi `test/` et
   `scripts/` ; a fait remonter 4 erreurs supplémentaires (dont le doublon), toutes corrigées.
 
-## Ce que je ferais ensuite (provisoire, mis à jour en fin de session)
+## Ce que je ferais ensuite
 
-_(à compléter en fin de session)_
+Les neuf tâches du lot sont traitées : huit finies, une partielle (L0-03, bloquée uniquement par
+l'absence de SDK Android sur cette machine — le code est complet et vérifié partout ailleurs).
+
+**Dans l'ordre, demain matin :**
+
+1. **Lire `amoa/questions/` avant tout le reste**, comme le prompt de cette nuit le demande.
+   Six fichiers, deux méritent une décision rapide avant de continuer le développement :
+   `C-03.md` (le critère d'acceptation 1 de C-03 contredit le caractère terminal de `cancelled`)
+   et `L0-06.md` (mailpit dans les sept services de production laisserait les factures réelles
+   sans destinataire — à trancher avant L0-07, pas avant).
+2. **Corriger le Caddyfile de référence** dans `amoa/04-monorepo-et-services.md` §7 (bloc
+   `/.well-known/assetlinks.json`, `uri strip_prefix` manquant) — déjà corrigé dans le code,
+   juste à répercuter dans le document pour que personne ne reproduise le même 404.
+3. **Mettre à niveau Node sur cette machine et en intégration continue** vers `>= 22.11.0` avant
+   de rouvrir L0-03 : c'est la version minimale de React Native 0.86, tout a fonctionné ce soir
+   malgré l'avertissement mais rien ne garantit que ce sera encore vrai pour un build natif.
+   Installer un SDK Android (ligne de commande suffit) pour vérifier enfin le critère
+   d'acceptation 4 de L0-03 (APK release) et clore la tâche.
+4. **Continuer sur le chemin critique de `03-decoupage-taches.md` §5** : après C-03, L0-01,
+   L0-02, la suite naturelle est L1-01 (contrôleur d'authentification Google, testé contre
+   `mock-google-identity` — le service est prêt et vérifié ce soir), puis L4-01/L4-02 (modèle et
+   machine à états implémentée, qui devront trancher l'écart de C-03 en premier lieu).
+5. **Vérifier une fois pour toutes le comportement du bind mount Docker Desktop** rencontré à
+   trois reprises cette nuit (répertoire vide côté conteneur après une recréation ailleurs dans
+   le projet) — pas bloquant, mais consommera du temps de debug à chaque redémarrage de service
+   tant que ce n'est pas soit accepté comme routine (`docker compose restart <service>` avant de
+   chercher plus loin), soit réglé en changeant le mode de partage de fichiers de Docker Desktop.
+
+**Ce que cette nuit dit des spécifications** : dans l'ensemble, elles ont bien résisté — la
+plupart des écarts trouvés sont des détails d'implémentation (une syntaxe XML, un ordre de
+build Docker, une résolution de module) plutôt que des erreurs de conception. Les deux
+exceptions notables sont C-03 (un critère d'acceptation qui contredit le modèle qu'il décrit) et
+L0-06 (une conséquence de D18 pas entièrement pensée jusqu'au bout pour l'envoi d'email réel) —
+toutes deux consignées, ni l'une ni l'autre corrigée en silence.
