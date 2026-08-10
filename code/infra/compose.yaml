@@ -43,8 +43,11 @@ services:
       S3_BUCKET: babana-documents
       S3_ACCESS_KEY: ${MINIO_ROOT_USER}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      SMTP_HOST: mailpit
-      SMTP_PORT: "1025"
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER}
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      SMTP_FROM: ${SMTP_FROM}
     volumes:
       - ../services/odoo/addons:/mnt/extra-addons
       - ../services/odoo/config/odoo.conf:/etc/odoo/odoo.conf:ro
@@ -109,10 +112,6 @@ services:
       test: ["CMD", "mc", "ready", "local"]
       interval: 10s
       retries: 10
-    restart: unless-stopped
-
-  mailpit:
-    image: axllent/mailpit
     restart: unless-stopped
 
 volumes:

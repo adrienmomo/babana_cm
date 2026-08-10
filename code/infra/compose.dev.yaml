@@ -14,7 +14,14 @@ services:
     command: ["npm", "run", "dev", "-w", "@babana/realtime"]
   minio:
     ports: ["9000:9000", "9001:9001"]
+
+  # SMTP de test — développement uniquement (L0-06/L0-01R). En production, SMTP_HOST/PORT/
+  # USER/PASSWORD pointent vers un relais SMTP réel injecté par la plateforme d'hébergement ;
+  # même mécanisme que GOOGLE_JWKS_URL pour mock-google-identity (D19) : le code Odoo qui
+  # envoie l'email est identique dans les deux cas, seule l'adresse change.
   mailpit:
+    image: axllent/mailpit
+    restart: unless-stopped
     ports: ["8025:8025"]
 
   # Services simulés — développement uniquement (D19, L0-08)
