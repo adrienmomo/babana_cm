@@ -14,6 +14,7 @@ racine du dépôt pour le contexte complet.
     'data': [
         'security/babana_groups.xml',
         'security/ir.model.access.csv',
+        'data/babana_ride_sequence.xml',
     ],
     'installable': True,
     'application': True,
