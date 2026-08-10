@@ -131,4 +131,9 @@ class TestBabanaRideModel(TransactionCase):
         )
 
         self.assertEqual(len(ride.rejection_ids), 2)
-        self.assertEqual(self.env["babana.ride"].search_count([]), 1)
+        # Filtré sur la référence de cette course précisément, pas un décompte global : fragile
+        # dès que la base de développement porte des lignes d'une exécution antérieure (trouvé
+        # en pratique -- une session de diagnostic manuel avait laissé des babana.ride résiduels).
+        self.assertEqual(
+            self.env["babana.ride"].search_count([("reference", "=", ride.reference)]), 1
+        )
