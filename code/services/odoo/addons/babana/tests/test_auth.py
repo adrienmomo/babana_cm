@@ -153,3 +153,72 @@ class TestGoogleAuth(HttpCase):
         )
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["error"]["code"], "VALIDATION_ERROR")
+
+
+@tagged("post_install", "-at_install")
+class TestAuthRefreshAndLogout(HttpCase):
+    @classmethod
+    def _request_handler(cls, s, r, **kw):
+        if r.url.startswith(_mock_google_base_url()):
+            return _super_send(s, r, **kw)
+        return super()._request_handler(s, r, **kw)
+
+    def _login(self, sub):
+        token = _mint_google_token(sub=sub, email=f"{sub}@example.invalid")
+        response = self.url_open(
+            "/api/v1/auth/google",
+            data=json.dumps({"idToken": token, "role": "client"}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        return response.json()
+
+    def _post(self, path, payload):
+        return self.url_open(
+            path, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}
+        )
+
+    def test_refresh_rotates_and_old_refresh_token_becomes_unusable(self):
+        session = self._login("sub-refresh-flow")
+        first_refresh = session["refreshToken"]
+
+        response = self._post("/api/v1/auth/refresh", {"refreshToken": first_refresh})
+        self.assertEqual(response.status_code, 200)
+        new_session = response.json()
+        self.assertNotEqual(new_session["refreshToken"], first_refresh)
+        self.assertTrue(new_session["accessToken"])
+
+        # Critère 3 : réutiliser l'ancien jeton (déjà consommé) révoque toute la famille.
+        replay = self._post("/api/v1/auth/refresh", {"refreshToken": first_refresh})
+        self.assertEqual(replay.status_code, 401)
+        self.assertEqual(replay.json()["error"]["code"], "TOKEN_REVOKED")
+
+        # La famille entière est révoquée : le second jeton, pourtant jamais rejoué, ne
+        # fonctionne plus non plus.
+        second_attempt = self._post(
+            "/api/v1/auth/refresh", {"refreshToken": new_session["refreshToken"]}
+        )
+        self.assertEqual(second_attempt.status_code, 401)
+        self.assertEqual(second_attempt.json()["error"]["code"], "TOKEN_REVOKED")
+
+    def test_refresh_with_unknown_token_is_unauthorized(self):
+        response = self._post("/api/v1/auth/refresh", {"refreshToken": "jamais-emis"})
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["error"]["code"], "UNAUTHORIZED")
+
+    def test_logout_revokes_the_token(self):
+        session = self._login("sub-logout-flow")
+
+        logout_response = self._post(
+            "/api/v1/auth/logout", {"refreshToken": session["refreshToken"]}
+        )
+        self.assertEqual(logout_response.status_code, 200)
+        self.assertEqual(logout_response.json(), {"revoked": True})
+
+        replay = self._post("/api/v1/auth/refresh", {"refreshToken": session["refreshToken"]})
+        self.assertEqual(replay.status_code, 401)
+        self.assertEqual(replay.json()["error"]["code"], "TOKEN_REVOKED")
+
+    def test_refresh_missing_body_field_is_validation_error(self):
+        response = self._post("/api/v1/auth/refresh", {})
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"]["code"], "VALIDATION_ERROR")

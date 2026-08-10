@@ -15,7 +15,11 @@ Schémas JSON pour les contrôleurs Odoo (Python) : générés par `npm run buil
 **Préfixe** : `/api/v1`, figé (voir « Versionnement » ci-dessous).
 
 **Authentification** : en-tête `Authorization: Bearer <accessToken>` sur tous les endpoints
-**sauf** `POST /auth/google`, qui est le seul point d'entrée public de ce contrat.
+**sauf** `POST /auth/google`, `POST /auth/refresh` et `POST /auth/logout` — ces trois routes
+s'authentifient par le jeton transmis dans le corps de la requête (`idToken` ou `refreshToken`
+selon le cas), pas par l'en-tête. Un `accessToken` déjà expiré est précisément ce qui amène un
+client à appeler `/auth/refresh` ; l'exiger valide sur cette route la rendrait inutilisable au
+moment où elle sert (écart relevé en implémentant L1-02, `amoa/questions/L1-02.md`).
 
 **Format** : JSON en requête et en réponse, `Content-Type: application/json`.
 
