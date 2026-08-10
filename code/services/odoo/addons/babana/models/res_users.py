@@ -44,13 +44,6 @@ class ResUsers(models.Model):
         "L1-03 doit le remplacer par une délégation à babana.driver.state — ne pas construire "
         "de nouvelle logique dessus, il est appelé à disparaître (amoa/questions/L1-01.md).",
     )
-    babana_refresh_token_hash = fields.Char(
-        string="Empreinte du jeton de renouvellement (champ-pont)",
-        copy=False,
-        help="Un seul jeton de renouvellement actif par compte, en attendant babana.token "
-        "(L1-02) qui apporte la rotation et la révocation de famille.",
-    )
-
     _sql_constraints = [
         (
             "babana_google_sub_unique",
