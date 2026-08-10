@@ -89,4 +89,15 @@ class ResUsers(models.Model):
         }
         if role == "driver":
             vals["babana_driver_state"] = "pending"
-        return self.sudo().with_context(no_reset_password=True).create(vals)
+        user = self.sudo().with_context(no_reset_password=True).create(vals)
+
+        if role == "client":
+            # res.users crée automatiquement son partner_id (mécanisme natif Odoo) ; L1-04
+            # marque ce partenaire comme client babana et y reporte le sub Google, pour que le
+            # client soit retrouvable depuis la facturation (account.move, L4-06) sans passer
+            # par le compte de connexion.
+            user.partner_id.sudo().write(
+                {"babana_is_customer": True, "babana_google_sub": sub}
+            )
+
+        return user
