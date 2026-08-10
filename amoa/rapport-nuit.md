@@ -10,7 +10,7 @@ Démarrage : 2026-08-09.
 | C-01 | finie | `C-01-http-contracts` | `@babana/contracts` (Zod), 19 endpoints, 27 codes d'erreur, `docs/contracts/http-api.md`. Bootstrap minimal du monorepo npm en avance sur L0-03 |
 | C-02 | finie | `C-02-realtime-contracts` | 22 messages WebSocket (`z.discriminatedUnion`), politique de reconnexion dans `docs/contracts/realtime-events.md`. Réutilise `NearbyDriverSchema`/`RideStateSchema` de C-01. Bug de test trouvé grâce à un trou de couverture `tsc` (voir hypothèses) |
 | L0-01 | finie | `L0-01-docker-infra` | 7 services sains vérifiés en vrai (`make up`, `make reset && make up`). Bug trouvé et corrigé dans le Caddyfile de référence (assetlinks.json 404). Squelettes minimaux pour realtime/mocks, complétés par L0-04/L0-08 ce soir |
-| L0-02 | non commencée | — | — |
+| L0-02 | finie | `L0-02-odoo-module-skeleton` | Module babana : 3 groupes, catégorie dédiée. Installation/désinstallation/réinstallation et `--test-enable` vérifiés contre le conteneur réel. Deux bugs trouvés (commentaire XML `--`, `make test` cassé depuis L0-01) |
 | L0-08 | non commencée | — | — |
 | L0-03 | non commencée | — | — |
 | L0-04 | non commencée | — | — |
@@ -126,6 +126,16 @@ _(à compléter)_
 - **L0-01** : deux nouvelles cibles Makefile non listées dans `CLAUDE.md` (`make verify`,
   `make secrets-scan`) — ajouts additifs pour rendre vérifiables les critères d'acceptation 2,
   4, 5, 6 de L0-01, pas une redéfinition d'une commande existante.
+- **L0-02** : licence `LGPL-3` pour le module (choix non spécifié — aligné sur la licence d'Odoo
+  Community lui-même, à revoir si l'éditeur souhaite une licence propriétaire).
+- **L0-02** : noms de groupe en français (« Superviseur », « Gestionnaire », « Administrateur »)
+  plutôt que les identifiants techniques anglais de la spécification — cohérent avec la
+  convention `CLAUDE.md` « interface en français », puisque ces noms s'affichent dans le
+  back-office.
+- **L0-02** : `make test` a révélé un défaut qui existait déjà silencieusement depuis L0-01 —
+  `docker compose exec` ne passe pas par l'entrypoint qui traduit HOST/USER/PASSWORD en
+  arguments `--db_*`. La cible `test` du Makefile n'avait jamais été exécutée jusqu'à ce que
+  L0-02 fournisse un module à tester. Corrigé (voir message de commit).
 - **C-02** : incidemment, `tsconfig.json` de `@babana/contracts` ne couvrait que `src/` —
   `npm run typecheck` ne voyait jamais `test/`. Un doublon d'import dans un test aurait pu
   passer inaperçu indéfiniment. Ajout de `tsconfig.typecheck.json` qui couvre aussi `test/` et
