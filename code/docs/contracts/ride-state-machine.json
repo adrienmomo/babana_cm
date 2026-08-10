@@ -1,5 +1,5 @@
 {
-  "$comment": "Source canonique de la machine à états de babana.ride. Voir ride-state-machine.md pour le détail narratif de chaque transition. Consommé par verify-ride-state-machine.js et, plus tard, par L4-02/L4-10 pour générer les tests de la machine à états implémentée.",
+  "$comment": "Source canonique de la machine à états de babana.ride. Voir ride-state-machine.md pour le détail narratif de chaque transition. Consommé par verify-ride-state-machine.js et, plus tard, par L4-02/L4-10 pour générer les tests de la machine à états implémentée. Révision C-03R du 10 août 2026 : la règle de partition n'est plus un compte de quatre moments (voir amoa/01-architecture.md §2, révision du 10 août) mais une liste de sept catégories d'événement métier, chacune déclenchée par une décision humaine, jamais par le temps ou la distance.",
   "states": [
     "draft",
     "requested",
@@ -13,11 +13,22 @@
   ],
   "neverTarget": ["draft"],
   "neverSource": ["settled", "cancelled"],
-  "odooPartitionMoments": [
-    { "order": 1, "transition": ["draft", "requested"], "label": "creation_demande" },
-    { "order": 2, "transition": ["proposed", "assigned"], "label": "affectation" },
-    { "order": 3, "transition": ["in_progress", "completed"], "label": "fin_de_course" },
-    { "order": 4, "transition": ["completed", "settled"], "label": "encaissement" }
+  "businessEvents": [
+    { "id": "request_creation", "label": "Création de la demande" },
+    { "id": "proposal", "label": "Proposition à un chauffeur" },
+    { "id": "acceptance", "label": "Acceptation" },
+    { "id": "refusal", "label": "Refus ou expiration" },
+    { "id": "cancellation", "label": "Annulation, depuis n'importe quel état" },
+    { "id": "ride_completion", "label": "Fin de course" },
+    { "id": "settlement", "label": "Encaissement" }
+  ],
+  "neverWritingTriggers": [
+    "position.update",
+    "driver.position",
+    "eta.recompute",
+    "distance.accumulate",
+    "countdown.tick",
+    "proposal.timer.tick"
   ],
   "transitions": [
     {
@@ -25,7 +36,8 @@
       "to": "requested",
       "trigger": "client valide l'estimation",
       "actor": "client",
-      "odooWrite": "partition_moment",
+      "odooWrite": true,
+      "businessEvent": "request_creation",
       "irreversible": false
     },
     {
@@ -33,7 +45,8 @@
       "to": "proposed",
       "trigger": "select-driver",
       "actor": "client",
-      "odooWrite": "none",
+      "odooWrite": true,
+      "businessEvent": "proposal",
       "irreversible": false
     },
     {
@@ -41,7 +54,8 @@
       "to": "assigned",
       "trigger": "proposal.accept",
       "actor": "driver",
-      "odooWrite": "partition_moment",
+      "odooWrite": true,
+      "businessEvent": "acceptance",
       "irreversible": false
     },
     {
@@ -49,7 +63,8 @@
       "to": "rejected",
       "trigger": "proposal.reject | proposal.expired",
       "actor": "driver_or_system",
-      "odooWrite": "none",
+      "odooWrite": true,
+      "businessEvent": "refusal",
       "irreversible": false
     },
     {
@@ -57,7 +72,8 @@
       "to": "proposed",
       "trigger": "select-driver (nouvelle sélection, même course)",
       "actor": "client",
-      "odooWrite": "none",
+      "odooWrite": true,
+      "businessEvent": "proposal",
       "irreversible": false
     },
     {
@@ -65,7 +81,7 @@
       "to": "in_progress",
       "trigger": "ride.start",
       "actor": "driver",
-      "odooWrite": "none",
+      "odooWrite": false,
       "irreversible": false
     },
     {
@@ -73,7 +89,8 @@
       "to": "completed",
       "trigger": "ride.complete",
       "actor": "driver",
-      "odooWrite": "partition_moment",
+      "odooWrite": true,
+      "businessEvent": "ride_completion",
       "irreversible": true
     },
     {
@@ -81,7 +98,8 @@
       "to": "settled",
       "trigger": "settle",
       "actor": "driver",
-      "odooWrite": "partition_moment",
+      "odooWrite": true,
+      "businessEvent": "settlement",
       "irreversible": true
     },
     {
@@ -89,7 +107,8 @@
       "to": "cancelled",
       "trigger": "cancel",
       "actor": "client_or_supervisor",
-      "odooWrite": "closure",
+      "odooWrite": true,
+      "businessEvent": "cancellation",
       "irreversible": true
     },
     {
@@ -97,7 +116,8 @@
       "to": "cancelled",
       "trigger": "cancel",
       "actor": "client_or_supervisor",
-      "odooWrite": "closure",
+      "odooWrite": true,
+      "businessEvent": "cancellation",
       "irreversible": true
     },
     {
@@ -105,7 +125,8 @@
       "to": "cancelled",
       "trigger": "cancel",
       "actor": "client_or_driver_or_supervisor",
-      "odooWrite": "closure",
+      "odooWrite": true,
+      "businessEvent": "cancellation",
       "irreversible": true
     },
     {
@@ -113,7 +134,17 @@
       "to": "cancelled",
       "trigger": "cancel",
       "actor": "client_or_supervisor",
-      "odooWrite": "closure",
+      "odooWrite": true,
+      "businessEvent": "cancellation",
+      "irreversible": true
+    },
+    {
+      "from": "in_progress",
+      "to": "cancelled",
+      "trigger": "cancel (panne, incident, agression)",
+      "actor": "driver",
+      "odooWrite": true,
+      "businessEvent": "cancellation",
       "irreversible": true
     }
   ]
