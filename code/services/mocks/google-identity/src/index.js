@@ -92,6 +92,12 @@ const server = http.createServer(async (req, res) => {
       sub: body.sub ?? `mock-user-${crypto.randomUUID()}`,
       email: body.email ?? 'mock.user@example.invalid',
       email_verified: body.email_verified ?? true,
+      // name/picture : claims standard d'un ID token Google réel (profil minimal consommé par
+      // L1-01 pour displayName/photoUrl). Absents de la première version de ce service, ajoutés
+      // en préparant L1-01 -- même principe que les autres champs : l'appelant les fournit,
+      // aucune valeur n'est inventée côté vérification.
+      name: body.name ?? 'Mock User',
+      picture: body.picture ?? null,
       aud: body.aud ?? DEFAULT_AUD,
       iss: body.iss ?? REAL_GOOGLE_ISS,
       iat: now,
@@ -111,7 +117,7 @@ const server = http.createServer(async (req, res) => {
     // "l'appelant fournit sub, email, email_verified, aud, iss, exp" (spécification, au pied de
     // la lettre), la variante "invalid" n'est qu'un raccourci pour les cas les plus fréquents.
     const claims = { ...result.claims };
-    for (const key of ['sub', 'email', 'email_verified', 'aud', 'iss', 'exp']) {
+    for (const key of ['sub', 'email', 'email_verified', 'name', 'picture', 'aud', 'iss', 'exp']) {
       if (Object.prototype.hasOwnProperty.call(body, key)) claims[key] = body[key];
     }
 

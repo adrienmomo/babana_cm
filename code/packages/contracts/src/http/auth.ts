@@ -8,6 +8,12 @@ import { UserIdSchema } from './common';
  */
 export const GoogleAuthRequestSchema = z.object({
   idToken: z.string().min(1),
+  /**
+   * Rôle du premier appel : décide, à la création du compte, s'il faut créer un
+   * `babana.driver` ou rattacher un `res.partner` client (L1-01). Rien d'autre dans le jeton
+   * Google ne porte cette information. Écart relevé et tranché : amoa/questions/L1-01.md.
+   */
+  role: z.enum(['client', 'driver']),
 });
 export type GoogleAuthRequest = z.infer<typeof GoogleAuthRequestSchema>;
 
@@ -21,6 +27,14 @@ export const AuthSessionSchema = z.object({
     displayName: z.string(),
     photoUrl: z.string().url().nullable(),
     phoneVerified: z.boolean(),
+    /**
+     * Statut de validation du dossier, présent seulement quand role vaut 'driver' (L1-01,
+     * spécification : "pour un chauffeur, son statut de validation"). Absent du schéma
+     * d'origine — champ manquant relevé en implémentant L1-01, voir amoa/questions/L1-01.md.
+     * Un chauffeur non approuvé reçoit tout de même un jeton (critère d'acceptation 8) ; c'est
+     * ce champ qui porte l'information, pas un rejet de l'authentification.
+     */
+    driverStatus: z.enum(['pending', 'approved', 'rejected', 'suspended']).optional(),
   }),
 });
 export type AuthSession = z.infer<typeof AuthSessionSchema>;
@@ -28,10 +42,15 @@ export type AuthSession = z.infer<typeof AuthSessionSchema>;
 export const GoogleAuthResponseSchema = AuthSessionSchema;
 export type GoogleAuthResponse = z.infer<typeof GoogleAuthResponseSchema>;
 
-export const GoogleAuthErrors = ['INVALID_GOOGLE_TOKEN', 'DRIVER_NOT_APPROVED'] as const;
+// DRIVER_NOT_APPROVED n'est jamais renvoyée par cet endpoint : un chauffeur non approuvé reçoit
+// tout de même un jeton, avec un statut `pending` explicite (L1-01, critère d'acceptation 8) —
+// ce sont les endpoints métier qui refusent ses actions, pas l'authentification. Retirée du
+// catalogue de cet endpoint (contrat corrigé pendant l'implémentation de L1-01).
+export const GoogleAuthErrors = ['INVALID_GOOGLE_TOKEN'] as const;
 
 export const googleAuthRequestExample: GoogleAuthRequest = {
   idToken: 'eyJhbGciOiJSUzI1NiIsImtpZCI6ImFiYzEyMyJ9.mock-signed-by-mock-google-identity',
+  role: 'client',
 };
 
 export const googleAuthResponseExample: GoogleAuthResponse = {
