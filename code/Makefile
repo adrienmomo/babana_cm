@@ -23,7 +23,7 @@ logs:            ## Journaux agrégés
 	$(COMPOSE) logs -f
 
 seed:            ## Jeu de données de démonstration
-	$(COMPOSE) exec -T odoo odoo shell -d babana --no-http < services/odoo/scripts/seed.py
+	$(COMPOSE) exec -T odoo sh -c 'odoo shell -d babana --no-http --db_host="$$HOST" --db_user="$$USER" --db_password="$$PASSWORD"' < services/odoo/scripts/seed.py
 
 client:          ## Démarre l'app Client
 	npm run start -w @babana/client
@@ -33,7 +33,12 @@ driver:          ## Démarre l'app Chauffeur
 
 test:            ## Tests de tous les paquets et services, plus la suite Odoo
 	npm test
-	$(COMPOSE) exec -T odoo odoo -d babana --test-enable --stop-after-init -i babana
+	# sh -c '... --db_host=...' : `docker compose exec` ne passe pas par l'entrypoint de
+	# l'image, qui est ce qui traduit HOST/USER/PASSWORD en --db_host/--db_user/--db_password
+	# d'habitude -- sans ça, odoo tente une connexion locale et échoue (trouvé en vérifiant
+	# L0-02). --http-port=8070 : le process principal du conteneur écoute déjà 8069, et
+	# --test-enable démarre un serveur HTTP même avec --stop-after-init.
+	$(COMPOSE) exec -T odoo sh -c 'odoo -d babana --test-enable --stop-after-init -i babana --http-port=8070 --db_host="$$HOST" --db_user="$$USER" --db_password="$$PASSWORD"'
 
 lint:            ## Lint de tous les espaces de travail
 	npm run lint --workspaces --if-present

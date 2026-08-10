@@ -3,6 +3,8 @@ node_modules/
 dist/
 build/
 *.tsbuildinfo
+__pycache__/
+*.pyc
 
 # Secrets locaux (invariant 5 : aucun secret dans le dépôt).
 .env
