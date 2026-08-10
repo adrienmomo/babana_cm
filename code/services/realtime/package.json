@@ -1,10 +1,26 @@
 {
   "name": "@babana/realtime",
   "private": true,
-  "version": "0.0.0-placeholder",
-  "description": "Squelette minimal créé par L0-01 pour que `make up` démarre un service temps réel dès ce soir. Remplacé par l'implémentation TypeScript complète de L0-04 (src/index.ts, server.ts, ws/connection.ts, redis/client.ts, odoo/client.ts, config.ts).",
+  "version": "0.1.0",
+  "description": "Service temps réel (D3, D16) : positions, réservation atomique, suivi. Sans état durable -- aucun client PostgreSQL en dépendance, garantie mécanique de la règle de partition (01-architecture.md §2, invariant 1).",
+  "main": "dist/index.js",
   "scripts": {
-    "start": "node src/index.js",
-    "dev": "node src/index.js"
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc -p tsconfig.typecheck.json",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@babana/contracts": "*",
+    "ioredis": "^6.0.0",
+    "ws": "^8.21.3",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.16.5",
+    "typescript": "^5.8.3"
   }
 }

@@ -1,0 +1,8 @@
+# Réduit le contexte envoyé au démon Docker pour les builds dont le contexte est code/ (L0-04).
+node_modules
+**/node_modules
+dist
+**/dist
+apps
+**/.git
+**/*.log
