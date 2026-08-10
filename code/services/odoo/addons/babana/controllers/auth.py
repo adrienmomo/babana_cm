@@ -176,11 +176,18 @@ def _build_session(user, refresh_token: str, *, picture=None) -> dict:
         "role": user.babana_role,
         "displayName": user.name,
         "photoUrl": picture,
-        # Champ-pont : toujours faux tant que L1-04 (res.partner) et L1-09 (OTP) n'existent pas.
         "phoneVerified": False,
     }
+    if user.babana_role == "client":
+        # L1-04 : le vrai champ existe côté partenaire. Toujours faux tant que L1-09 (OTP,
+        # hors de ce lot) ne l'écrit jamais -- mais ce n'est plus un champ-pont, c'est la valeur
+        # réelle d'un champ qui n'a simplement jamais été mis à vrai.
+        user_payload["phoneVerified"] = user.partner_id.babana_phone_verified
     if user.babana_role == "driver":
         user_payload["driverStatus"] = user.babana_driver_state
+        # Champ-pont encore ouvert côté chauffeur : babana.driver.phone_verified (L1-03) existe,
+        # mais rien ne relie aujourd'hui res.users à sa fiche babana.driver pour le lire ici sans
+        # une recherche supplémentaire non justifiée tant que L1-09 ne l'alimente jamais.
 
     return {
         "accessToken": access_token,
