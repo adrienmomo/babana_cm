@@ -35,7 +35,9 @@ injecte les variables directement dans l'environnement du conteneur au démarrag
 | `REALTIME_SHARED_SECRET` | Authentifie les appels du service temps réel vers Odoo | texte, secret, haute entropie | `dev-only-not-a-real-secret` | Généré aléatoirement, distinct de `JWT_SECRET` |
 | `MINIO_ROOT_USER` | Identifiant racine MinIO / S3 | texte | `babana-dev` | Généré à la création de l'instance |
 | `MINIO_ROOT_PASSWORD` | Mot de passe racine MinIO / S3 | texte, secret | `dev-only-not-a-real-secret` | Généré aléatoirement, gestionnaire de secrets |
-| `SMTP_PROD_HOST`, `SMTP_PROD_PORT`, `SMTP_PROD_USER`, `SMTP_PROD_PASSWORD`, `SMTP_PROD_FROM` | Relais SMTP réel pour l'envoi de facture (CDC §III.3) | hôte, port, identifiants, adresse d'expédition | vides, non consommées (mailpit capture tout en développement) | Fournisseur SMTP retenu (à choisir, hors de ce soir) ; voir l'écart ci-dessous |
+| `SMTP_HOST`, `SMTP_PORT` | Adresse du relais SMTP pour l'envoi de facture (CDC §III.3) — même mécanisme que `GOOGLE_JWKS_URL` : une seule variable, une valeur différente par environnement (L0-01R, 10 août) | nom d'hôte, port | `mailpit` / `1025` (L0-08, `infra/compose.dev.yaml`) | Relais SMTP retenu (fournisseur à choisir, hors de ce soir) ; voir l'écart ci-dessous |
+| `SMTP_USER`, `SMTP_PASSWORD` | Identifiants du relais SMTP | texte, secret | vides (mailpit n'authentifie pas) | Fournisseur SMTP retenu, gestionnaire de secrets |
+| `SMTP_FROM` | Adresse d'expédition des emails de facture | adresse email | `no-reply@babana.cm` | Adresse définitive du domaine `babana.cm` |
 | `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY` | Compte de service Firebase Cloud Messaging (API HTTP v1), notifications push | identifiants de compte de service | vides, non consommées (L1-09/L7-01 journalisent, D19) | Console Firebase du projet babana.cm, compte de service dédié aux notifications |
 | `SMS_GATEWAY_API_KEY`, `SMS_GATEWAY_SENDER_ID` | Passerelle SMS pour l'OTP de rattachement de numéro | clé API, identifiant expéditeur | vides, non consommées (L1-09 journalise, D19) | Fournisseur SMS retenu (à choisir, hors de ce soir) |
 | `GOOGLE_MAPS_API_KEY` | Clé API Google Maps consommée par les apps au build natif (D13) | clé API | vide, non consommée (mock-maps sert de doublure complète, D19) | Console Google Cloud, restreinte par empreinte de signature Android / bundle iOS |
@@ -79,9 +81,9 @@ révoquer l'ancien (`mc admin user remove`). Ne jamais changer l'utilisateur rac
 sur une instance en production sans ce détour : la racine perdue sans utilisateur de secours
 rend le compartiment inaccessible.
 
-**`SMTP_PROD_PASSWORD`** — Régénérer depuis la console du fournisseur SMTP retenu ; mettre à
-jour la variable ; aucune coupure, l'ancien mot de passe reste généralement valide quelques
-minutes le temps de la bascule.
+**`SMTP_PASSWORD`** — Régénérer depuis la console du fournisseur SMTP retenu ; mettre à jour la
+variable ; aucune coupure, l'ancien mot de passe reste généralement valide quelques minutes le
+temps de la bascule. Sans objet en développement (mailpit n'authentifie pas).
 
 **`FCM_PRIVATE_KEY`** — Créer une nouvelle clé de compte de service dans la console Firebase,
 mettre à jour les trois variables `FCM_*` ensemble (`project_id`, `client_email`, `private_key`
