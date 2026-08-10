@@ -1,0 +1,34 @@
+services:
+  postgres:
+    ports: ["5432:5432"]
+  redis:
+    ports: ["6379:6379"]
+  odoo:
+    ports: ["8069:8069"]
+    command: ["odoo", "--dev=reload,qweb,xml"]
+  realtime:
+    ports: ["3000:3000"]
+    volumes:
+      - ../services/realtime/src:/app/services/realtime/src
+      - ../packages/contracts:/app/packages/contracts
+    command: ["npm", "run", "dev", "-w", "@babana/realtime"]
+  minio:
+    ports: ["9000:9000", "9001:9001"]
+  mailpit:
+    ports: ["8025:8025"]
+
+  # Services simulés — développement uniquement (D19, L0-08)
+  mock-google-identity:
+    build:
+      context: ..
+      dockerfile: services/mocks/google-identity/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+    ports: ["4000:4000"]
+  mock-maps:
+    build:
+      context: ..
+      dockerfile: services/mocks/maps/Dockerfile
+    environment:
+      NODE_ENV: ${NODE_ENV:-development}
+    ports: ["4001:4001"]

@@ -1,0 +1,10 @@
+{
+  "name": "@babana/realtime",
+  "private": true,
+  "version": "0.0.0-placeholder",
+  "description": "Squelette minimal créé par L0-01 pour que `make up` démarre un service temps réel dès ce soir. Remplacé par l'implémentation TypeScript complète de L0-04 (src/index.ts, server.ts, ws/connection.ts, redis/client.ts, odoo/client.ts, config.ts).",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js"
+  }
+}
