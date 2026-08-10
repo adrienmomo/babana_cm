@@ -49,7 +49,7 @@ Un seul dépôt git, à la racine `babana.cm/`. Les corrections de spécificatio
 Ils priment sur toute considération de commodité. Une solution qui viole un invariant n'est pas une solution, même si elle fonctionne.
 
 **1. Une écriture Odoo par événement métier, jamais par tick GPS.**
-Une course écrit dans Odoo à quatre moments : demande, affectation, fin, encaissement. Entre les deux, tout vit dans Redis. Le service temps réel ne possède aucune donnée durable et n'a aucune dépendance à un client PostgreSQL.
+Le nombre d'écritures d'une course est **borné par le nombre de décisions humaines** qu'elle a comportées — jamais par sa durée ni par sa distance. Écrivent : demande, proposition, acceptation, refus, annulation, fin de course, encaissement. N'écrivent jamais : position, ETA, distance en cours, compte à rebours. Le service temps réel ne possède aucune donnée durable et n'a aucune dépendance à un client PostgreSQL. Voir `amoa/01-architecture.md` §2 — ne pas compter les écritures, vérifier qu'elles ne dépendent ni du temps ni de la distance.
 
 **2. Les transitions sont les seules portes d'écriture sur une course.**
 Aucune écriture directe de `state`. Aucune modification après `settled`. Si un besoin semble exiger le contraire, c'est le besoin qui est mal formulé.
@@ -94,6 +94,8 @@ make client      # bundler de l'app Client
 make driver      # bundler de l'app Chauffeur
 make test        # suite complète
 make lint
+make verify      # vérifications de bout en bout de l'infrastructure
+make secrets-scan # recherche de secrets dans les fichiers suivis
 ```
 
 Tout fonctionne **sans aucun compte externe** : les dépendances tierces sont simulées par défaut (D19). Un scénario complet de course est parcourable dès le premier `make up`.

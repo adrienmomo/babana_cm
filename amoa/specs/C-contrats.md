@@ -49,18 +49,22 @@ Transitions à couvrir au minimum :
 - `assigned → in_progress` — le chauffeur démarre la course
 - `in_progress → completed` — le chauffeur termine ; consolidation distance, durée, montant
 - `completed → settled` — encaissement confirmé
-- `requested → cancelled`, `proposed → cancelled`, `assigned → cancelled` — annulations, règles distinctes selon l'état
+- `requested → cancelled`, `proposed → cancelled`, `assigned → cancelled`, `rejected → cancelled` — annulations, règles distinctes selon l'état et l'acteur
+- `in_progress → cancelled` — **par le chauffeur uniquement**, cas exceptionnel : panne, accident, agression. Motif obligatoire, signalement au back-office, course sans encaissement isolée dans les indicateurs. Interdite au client : une fois le trajet commencé, il ne peut pas y mettre fin unilatéralement (voir L4-07)
 
-Documenter également la **liste des transitions interdites** et la raison de chacune. Notamment : rien ne sort de `settled` ; `completed` ne revient jamais à `in_progress` ; une course ne passe jamais de `requested` à `assigned` sans passer par `proposed`.
+Documenter également la **liste des transitions interdites** et la raison de chacune. Notamment : rien ne sort de `settled` ni de `cancelled` ; `completed` ne revient jamais à `in_progress` ; une course ne passe jamais de `requested` à `assigned` sans passer par `proposed` ; le client ne peut pas annuler depuis `in_progress`.
+
+**`draft` n'est jamais persisté.** L'objet antérieur à la course est l'estimation (`babana.quote`, L2-04) ; le premier enregistrement `babana.ride` naît directement en `requested`. `draft` figure dans la liste pour décrire le cycle conceptuel, pas pour exister en base — le documenter explicitement évite qu'un développeur crée un état mort.
 
 Préciser pour chaque état **quels champs deviennent immuables**. Après `completed`, la distance et le montant ne changent plus. Après `settled`, plus rien ne change.
 
 ### Critères d'acceptation
 
-1. Chaque état de la liste apparaît au moins une fois en source et une fois en cible, sauf `draft` (jamais cible) et `settled` (jamais source).
+1. Chaque état de la liste apparaît au moins une fois en source et une fois en cible, sauf `draft` (jamais cible, jamais persisté) et `settled` et `cancelled` (jamais source — états terminaux).
 2. L'historique des refus est explicitement porté par la course, pas par une nouvelle course à chaque refus.
-3. Les quatre moments d'écriture Odoo de la règle de partition sont identifiables dans la colonne Effets, et il n'y en a pas un cinquième.
-4. Un développeur qui lit ce document peut implémenter L4-02 sans poser de question.
+3. Chaque transition dont la colonne Effets comporte une écriture Odoo correspond à un **événement métier** de la liste du §2 de l'architecture. Aucune écriture n'est déclenchée par le temps écoulé, la distance parcourue ou l'expiration d'un compte à rebours sans effet métier.
+4. `in_progress → cancelled` est autorisée pour le chauffeur, interdite pour le client, et son effet inclut un signalement au back-office.
+5. Un développeur qui lit ce document peut implémenter L4-02 sans poser de question.
 
 ### Piège
 
@@ -83,14 +87,18 @@ D17 : le contrat est du code, pas un document que quelqu'un oublie de mettre à 
 ### Fichiers
 
 ```
-packages/contracts/src/http/
-├── auth.ts
-├── quote.ts
-├── ride.ts
-├── settlement.ts
-├── remittance.ts
-├── errors.ts
-└── index.ts
+packages/contracts/src/
+├── errors.ts                 # catalogue partagé C-01 + C-02
+└── http/
+    ├── auth.ts
+    ├── quote.ts
+    ├── ride.ts
+    ├── settlement.ts
+    ├── remittance.ts
+    ├── driver.ts
+    ├── phone.ts
+    ├── common.ts
+    └── index.ts
 docs/contracts/http-api.md        # généré ou rédigé, lisible
 ```
 
@@ -125,6 +133,8 @@ Endpoints à spécifier :
 Pour chaque endpoint : schéma de requête, schéma de réponse, codes HTTP, erreurs possibles.
 
 **Codes d'erreur** — un catalogue nommé, stable, indépendant du HTTP. Au minimum : `DRIVER_ALREADY_TAKEN`, `CASH_LIMIT_REACHED`, `RIDE_INVALID_TRANSITION`, `NO_DRIVER_AVAILABLE`, `QUOTE_EXPIRED`, `PHONE_ALREADY_VERIFIED`, `TOKEN_EXPIRED`, `DRIVER_NOT_APPROVED`.
+
+Le catalogue est **partagé entre C-01 et C-02** : un même code peut être émis par un endpoint HTTP ou par un message WebSocket. `NO_DRIVER_AVAILABLE`, par exemple, n'est émis par aucun endpoint HTTP — il vient du service temps réel après épuisement de l'élargissement du rayon (L3-08). Le catalogue vit donc dans `packages/contracts/src/errors.ts`, à la racine du paquet, pas sous `http/`.
 
 **Versionnement** — le préfixe `/v1` est figé. Toute rupture de compatibilité crée `/v2`, elle ne modifie pas `/v1`. Documenter cette règle explicitement : une app installée sur le téléphone d'un chauffeur ne se met pas à jour à la demande.
 

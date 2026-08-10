@@ -35,15 +35,26 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 C'est la décision la plus structurante du projet. Tout le découpage en découle.
 
 > **Une écriture Odoo par événement métier, jamais par tick GPS.**
+>
+> **Le nombre d'écritures d'une course est borné par le nombre de décisions humaines qu'elle a comportées — jamais par sa durée ni par sa distance.**
 
-Une course écrit dans Odoo à **quatre moments** :
+**Révision du 10 août 2026.** La première version de cette règle énumérait « quatre moments » d'écriture. Ce compte a été invalidé par D10 : la sélection du chauffeur par le client introduit une boucle proposition–refus–resélection, et l'annulation possède quatre points d'entrée. Compter les écritures était fragile ; l'intention, elle, n'a pas changé. La formulation ci-dessus l'exprime sans compteur, et elle reste vraie quel que soit le nombre d'événements métier ajoutés plus tard.
 
-1. Création de la demande (client valide l'estimation)
-2. Affectation du chauffeur (un chauffeur a accepté)
-3. Fin de course — distance et durée consolidées, polyline archivée en une seule fois
-4. Encaissement
+**Événements qui écrivent dans Odoo**
 
-Entre ces moments, tout vit dans Redis et sur le WebSocket : positions, chronomètre, distance en cours, propositions en attente, timeouts.
+| Événement | Écrit |
+|---|---|
+| Création de la demande | La course, à l'état `requested` |
+| Proposition à un chauffeur | Le chauffeur sélectionné, l'horodatage |
+| Acceptation | L'affectation |
+| Refus ou expiration | Une ligne à l'historique des refus de la course |
+| Annulation, depuis n'importe quel état | L'état terminal, l'acteur, le motif |
+| Fin de course | Distance, durée, tracé archivé en une seule écriture |
+| Encaissement | Le règlement, le mouvement de compte courant, la facture |
+
+**Ce qui n'écrit jamais** : position, ETA, distance en cours d'accumulation, compte à rebours, expiration d'une réservation non suivie d'effet. Tout cela vit dans Redis et sur le WebSocket.
+
+**L'invariant est testable, et il doit l'être.** Une course de cinq minutes et une course de quarante-cinq minutes, comportant le même nombre de décisions, produisent exactement le même nombre d'écritures Odoo. Un test qui compte les écritures sur deux courses de durées très différentes échoue si quelqu'un ajoute une écriture proportionnelle au temps. C'est cette vérification qui protège la règle, pas le fait de l'avoir écrite ici.
 
 **Corollaire, à traiter comme un invariant de conception :** le service temps réel ne possède **aucune donnée durable**. S'il tombe, on perd les positions de l'instant et les courses en cours de matching — jamais une course confirmée ni un franc encaissé. Cet invariant doit être vérifiable par un test : couper le service temps réel en pleine course, le redémarrer, la course doit se retrouver et se terminer correctement.
 

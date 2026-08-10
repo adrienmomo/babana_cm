@@ -432,7 +432,7 @@ Les actions métier — acceptation, démarrage, fin de course — sont rejouée
 
 ### Objectif
 
-Matérialiser la règle de partition : quatre écritures Odoo par course, pas une de plus.
+Matérialiser la règle de partition : les écritures Odoo sont déclenchées par des événements métier, jamais par le temps.
 
 ### Contexte
 

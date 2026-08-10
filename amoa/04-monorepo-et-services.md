@@ -1,6 +1,6 @@
 # babana.cm — Monorepo et services
 
-**Version** 1.4 — 9 août 2026
+**Version** 1.5 — 10 août 2026
 **Complète** `01-architecture.md` (D1 à D15), `03-decoupage-taches.md` et `05-prerequis-et-simulation.md` (D19 à D21)
 
 ---
@@ -95,7 +95,7 @@ Tous les chemins de ce document et des spécifications sont **relatifs à `code/
 
 ## 3. Services Docker
 
-Sept services. Chacun correspond à un composant de l'architecture ou à une dépendance externe qu'il faut pouvoir simuler localement.
+**Six services de base** dans `compose.yaml`, communs à tous les environnements. Les dépendances simulées sont dans `compose.dev.yaml` et n'existent qu'en développement.
 
 | Service | Image | Rôle | Correspond à |
 |---|---|---|---|
@@ -105,7 +105,8 @@ Sept services. Chacun correspond à un composant de l'architecture ou à une dé
 | `realtime` | Construit, Node 22 | Positions, réservation, suivi | Service temps réel |
 | `caddy` | `caddy:2` | Entrée unique, TLS automatique | Exigence L8-06 |
 | `minio` | `minio/minio` | Stockage de documents compatible S3 | L1-05, accès signés |
-| `mailpit` | `axllent/mailpit` | SMTP de test | CDC §III.3, envoi de facture |
+
+**Correction du 10 août 2026.** `mailpit` figurait dans cette liste, donc dans la pile de production. Or il **capture** le courrier sans le relayer : les factures du CDC §III.3 ne seraient jamais parties. Le défaut était visible dans ce document même, qui le décrivait comme « SMTP de test » tout en le plaçant parmi les services communs. Il rejoint désormais les services simulés, et la configuration SMTP passe par variables d'environnement — le même mécanisme que `GOOGLE_JWKS_URL` pour le mock d'identité. L'incohérence venait de là : j'avais appliqué le bon motif à l'un et un littéral à l'autre.
 
 ### Justification des trois services non évidents
 
@@ -115,7 +116,7 @@ Routage par hôte : l'apex sert le partage de trajet public (L8-03) et les liens
 
 **`minio`** — Les documents chauffeurs (permis, pièce d'identité) ne doivent jamais être servis par URL publique, seulement par accès signé à durée limitée. Le filestore Odoo ne fournit pas ça nativement. MinIO parle le protocole S3 : le même code fonctionnera en production contre S3 ou équivalent, sans branche conditionnelle.
 
-**`mailpit`** — La facture doit être envoyable par email (CDC §III.3). Sans SMTP local, cette fonction n'est jamais testée avant la production, ou pire, testée en envoyant de vrais emails depuis un poste de développement.
+**`mailpit`** (développement uniquement) — La facture doit être envoyable par email (CDC §III.3). Sans SMTP local, cette fonction n'est jamais testée avant la production, ou pire, testée en envoyant de vrais emails depuis un poste de développement. En production, `SMTP_HOST` et `SMTP_PORT` pointent sur un vrai relais.
 
 ### Ce qui n'est délibérément pas un service
 
@@ -131,6 +132,7 @@ Deux services supplémentaires figurent dans `compose.dev.yaml` et **jamais** da
 |---|---|
 | `mock-google-identity` | Sert un jeu de clés JWKS et émet des jetons d'identité signés, valides comme volontairement invalides |
 | `mock-maps` | Renvoie des itinéraires et des résultats de recherche de lieu depuis des doublures de Douala, et sait simuler une panne |
+| `mailpit` | Capture le courrier sortant pour inspection. En production, `SMTP_*` pointe sur un vrai relais |
 
 Principe : **on simule le fournisseur, jamais notre logique.** Le contrôleur d'authentification vérifie une vraie signature contre un vrai jeu de clés — seul l'émetteur change, via la variable `GOOGLE_JWKS_URL`. Aucune branche conditionnelle dans le code de production. Détail dans `05-prerequis-et-simulation.md` §2.
 
@@ -187,8 +189,11 @@ services:
       S3_BUCKET: babana-documents
       S3_ACCESS_KEY: ${MINIO_ROOT_USER}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
-      SMTP_HOST: mailpit
-      SMTP_PORT: "1025"
+      GOOGLE_JWKS_URL: ${GOOGLE_JWKS_URL}
+      SMTP_HOST: ${SMTP_HOST}
+      SMTP_PORT: ${SMTP_PORT}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
     volumes:
       - ../services/odoo/addons:/mnt/extra-addons
       - ../services/odoo/config/odoo.conf:/etc/odoo/odoo.conf:ro
@@ -254,10 +259,6 @@ services:
       retries: 10
     restart: unless-stopped
 
-  mailpit:
-    image: axllent/mailpit
-    restart: unless-stopped
-
 volumes:
   pgdata:
   odoo-filestore:
@@ -287,8 +288,12 @@ services:
     command: ["npm", "run", "dev", "-w", "@babana/realtime"]
   minio:
     ports: ["9000:9000", "9001:9001"]
+
+  # Dépendances simulées — développement uniquement (D19, L0-08)
   mailpit:
+    image: axllent/mailpit
     ports: ["8025:8025"]
+    restart: unless-stopped
 
   # Services simulés — développement uniquement (D19, L0-08)
   mock-google-identity:
@@ -318,8 +323,7 @@ COMPOSE = docker compose -f infra/compose.yaml -f infra/compose.dev.yaml --env-f
 
 up:              ## Démarre tous les services
 	@test -f infra/env/.env || cp infra/env/.env.example infra/env/.env
-	$(COMPOSE) up -d --build
-	@$(MAKE) --no-print-directory wait
+	$(COMPOSE) up -d --build --wait
 	@echo "Odoo         http://localhost:8069"
 	@echo "API          https://api.localhost"
 	@echo "Back-office  https://admin.localhost"
@@ -327,8 +331,11 @@ up:              ## Démarre tous les services
 	@echo "MinIO        http://localhost:9001"
 	@echo "Mailpit      http://localhost:8025"
 
-wait:            ## Attend que les services soient sains
-	$(COMPOSE) ps --format json | grep -q healthy || sleep 5
+verify:          ## Vérifications de bout en bout de l'infrastructure
+	infra/smoke-test.sh
+
+secrets-scan:    ## Recherche de secrets dans les fichiers suivis
+	tools/secret-scan/scan.sh
 
 down:            ## Arrête tout
 	$(COMPOSE) down
@@ -356,7 +363,9 @@ lint:
 	npm run lint --workspaces --if-present
 ```
 
-**Critère de fin de L0-01** : sur une machine vierge, `git clone` puis `make up` produit sept services sains, Odoo répond, le service temps réel répond, et aucune configuration manuelle n'a été nécessaire.
+`docker compose up --wait` attend que **tous** les healthchecks passent. Une boucle maison qui échantillonne puis dort une fois ne suffit pas : Odoo peut mettre plusieurs minutes à devenir sain avec les paramètres de healthcheck donnés. Défaut relevé pendant L0-01.
+
+**Critère de fin de L0-01** : sur une machine vierge, `git clone` puis `make up` produit six services de base sains, plus trois services simulés en développement, Odoo répond, le service temps réel répond, et aucune configuration manuelle n'a été nécessaire.
 
 ---
 
@@ -393,6 +402,7 @@ Domaine racine : **babana.cm**.
 {$BABANA_DOMAIN:localhost} {
 	handle /.well-known/assetlinks.json {
 		root * /srv/wellknown
+		uri strip_prefix /.well-known
 		file_server
 	}
 
@@ -425,6 +435,8 @@ admin.{$BABANA_DOMAIN:localhost} {
 	respond 403
 }
 ```
+
+**Sur `uri strip_prefix`** : `root` change la racine du système de fichiers, il ne réécrit pas le chemin de la requête. Sans cette directive, `file_server` cherche `/srv/wellknown/.well-known/assetlinks.json` alors que le fichier est monté à `/srv/wellknown/assetlinks.json` — un 404 sur un fichier pourtant présent, plus trompeur à diagnostiquer qu'une absence. Défaut relevé et corrigé pendant L0-01.
 
 En développement, `BABANA_DOMAIN` vaut `localhost` et Caddy émet un certificat interne. En production, la variable vaut `babana.cm` et Caddy obtient et renouvelle les certificats automatiquement, y compris pour les sous-domaines.
 

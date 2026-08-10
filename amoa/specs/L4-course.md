@@ -154,7 +154,7 @@ Figer distance, durée, tracé et montant définitif.
 
 ### Contexte
 
-Troisième des quatre écritures Odoo de la règle de partition.
+Une des écritures de la règle de partition (§2 de l'architecture).
 
 ### Fichiers
 

@@ -1,6 +1,6 @@
 # babana.cm — Prérequis externes et stratégie de simulation
 
-**Version** 1.1 — 9 août 2026
+**Version** 1.2 — 10 août 2026
 **Objet** Permettre à Claude Code d'avancer sans attendre les comptes externes, et poser la politique de valeurs par défaut.
 
 ---
@@ -138,6 +138,35 @@ Les valeurs métier ne sont donc **pas** dans le `.env`. Elles sont dans des don
 ### Zones de Douala
 
 Cas particulier : les polygones de zones ne peuvent pas être « plausibles ». La réponse simple pour le pilote est **une zone unique couvrant Douala**, avec la grille tarifaire de repli. Le découpage fin viendra quand les données de L9-07 montreront où sont les heures de pointe réelles — le deviner d'avance serait de la fiction.
+
+---
+
+## 4 bis. Outillage requis sur les machines de développement et d'intégration continue
+
+Ajouté le 10 août 2026, après que L0-03 s'est révélée invérifiable faute d'outillage. Ce n'était pas une erreur de spécification mais une omission : les spécifications décrivaient quoi construire sans dire avec quoi.
+
+| Outil | Version minimale | Pourquoi | Bloque |
+|---|---|---|---|
+| Node | **22.11.0** | Exigé par `engines` de React Native 0.86. Node 20 fonctionne pour Metro, TypeScript et les tests, mais rien ne garantit qu'un build natif passe | L0-03, L0-05 |
+| SDK Android, ligne de commande | API 34 ou ultérieure | Build d'APK. Android Studio complet n'est pas nécessaire | L0-03 critère 4, L0-05, L10-07 |
+| Java | Selon la version de Gradle du projet | Chaîne de build Android | L0-03, L0-05 |
+| Docker | Récent, avec `compose` intégré | Toute la pile | L0-01 et suivantes |
+
+**L'intégration continue a les mêmes besoins que le poste de développement.** L0-05 construit un APK en release à chaque commit : sans SDK Android sur l'agent, cette étape est impossible. À vérifier au moment d'écrire la chaîne, pas après.
+
+**Note d'exploitation macOS** : trois blocages de bind mount Docker Desktop ont été observés pendant la nuit du 9 août (répertoire vu vide côté conteneur après recréation d'un autre service). `docker compose restart <service>` résout à chaque fois. Si le phénomène gêne, basculer le partage de fichiers de Docker Desktop sur VirtioFS. Ce n'est pas un défaut du dépôt — le réflexe est de redémarrer le conteneur avant de chercher plus loin.
+
+---
+
+## 4 ter. Données de démonstration et compte administrateur
+
+**Données de démonstration Odoo : activées en développement, jamais ailleurs.** Elles rendent l'exploration du back-office plus commode. Deux conséquences à tenir :
+
+- Les environnements de recette et de production s'installent avec `--without-demo=all`. Des partenaires et des factures fictifs dans une base de production sont ingérables.
+- **Le scénario de bout en bout de L10-01 crée ses propres données** et ne s'appuie jamais sur celles d'Odoo. Un test qui dépend des données de démonstration échoue dès qu'on installe sans elles — c'est-à-dire en recette, au pire moment.
+- `make seed` fournit un jeu de démonstration **maison** : chauffeurs, motos, zones, grille tarifaire. C'est celui-là qui sert aux démonstrations, pas celui d'Odoo.
+
+**Compte administrateur.** Odoo crée `admin` / `admin` à la création de la base. C'est acceptable sur un poste de développement, jamais au-delà. Le mot de passe est généré aléatoirement au premier démarrage à partir d'une variable d'environnement, et la procédure de mise en production (L0-07) vérifie qu'il a été changé. Un back-office en `admin`/`admin` derrière une liste d'adresses autorisées reste un back-office en `admin`/`admin`.
 
 ---
 

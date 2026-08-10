@@ -8,7 +8,7 @@ Référence complète du monorepo et des services : `amoa/04-monorepo-et-service
 
 ### Objectif
 
-`git clone` puis `make up` produit sept services sains sur une machine vierge, sans configuration manuelle.
+`git clone` puis `make up` produit une pile saine sur une machine vierge, sans configuration manuelle : six services de base, plus trois services simulés en développement.
 
 ### Fichiers
 
@@ -28,6 +28,8 @@ Makefile
 
 Implémenter les fichiers `compose.yaml`, `compose.dev.yaml`, `Caddyfile` et `Makefile` tels que décrits dans `amoa/04-monorepo-et-services.md` §4 à §7.
 
+**Note de séquencement** : `compose.yaml` référence `services/realtime/Dockerfile` et, via `compose.dev.yaml`, `services/mocks/*/Dockerfile` — produits par L0-04 et L0-08. Créer pour cette tâche des squelettes minimaux clairement marqués (un `/health` qui répond, rien d'autre), que L0-04 et L0-08 remplaceront entièrement. Sans eux, le critère 1 est invérifiable.
+
 Les trois hôtes — apex, `api.` et `admin.` — sont servis dès le développement sur `localhost`, avec les mêmes chemins qu'en production. Une application qui fonctionne sur `localhost` mais casse sur `babana.cm` parce que les hôtes diffèrent est le défaut que cette structure évite.
 
 `services/odoo/Dockerfile` part de `odoo:18` et ajoute les dépendances Python du module : bibliothèque de vérification de jeton Google, client S3, client HTTP.
@@ -38,7 +40,7 @@ Les trois hôtes — apex, `api.` et `admin.` — sont servis dès le développe
 
 ### Critères d'acceptation
 
-1. Sur une machine sans image préexistante, `make up` termine sans erreur et les sept services sont sains.
+1. Sur une machine sans image préexistante, `make up` termine sans erreur : six services de base sains, plus trois services simulés en développement.
 2. `curl -k https://api.localhost/web/health` répond ; `curl -k https://api.localhost/rt/health` répond ; `https://admin.localhost` sert le back-office.
 3. `make reset && make up` reconstruit un environnement complet et vierge.
 4. Aucune valeur secrète n'est présente dans un fichier suivi par git. Vérifié par une recherche automatisée.
@@ -76,7 +78,11 @@ services/odoo/addons/babana/
 
 ### Spécification
 
-Manifeste : nom, version `18.0.1.0.0`, dépendances `base`, `mail`, `hr`, `account`. Licence, auteur.
+Manifeste : nom, version `18.0.1.0.0`, dépendances `base`, `mail`, `hr`, `account`. Licence `LGPL-3`, alignée sur Odoo Community. Auteur.
+
+**Données de démonstration** : activées en développement, jamais en recette ni en production (`--without-demo=all`). Le `Makefile` doit rendre ce choix explicite par environnement, pas dépendre d'un défaut Odoo. Voir `amoa/05-prerequis-et-simulation.md` §4 ter.
+
+**Mot de passe administrateur** : jamais `admin`/`admin` au-delà du poste de développement. Généré depuis une variable d'environnement au premier démarrage.
 
 Groupes de sécurité à créer, dans une catégorie `Babana` :
 
@@ -94,6 +100,8 @@ Les utilisateurs mobiles (clients et chauffeurs) n'appartiennent à **aucun** de
 2. Désinstallation puis réinstallation sans erreur.
 3. Les trois groupes apparaissent dans l'interface, dans une catégorie dédiée.
 4. `--test-enable` s'exécute et trouve la suite de tests, même vide.
+5. Une installation avec `--without-demo=all` réussit et ne crée aucun partenaire fictif.
+6. Le mot de passe administrateur vient d'une variable d'environnement, il n'est pas laissé au défaut Odoo.
 
 ---
 
@@ -106,6 +114,8 @@ Deux applications qui démarrent, consommant un paquet partagé, avec un build A
 ### Contexte
 
 **C'est la tâche la plus sous-estimée du projet.** Un monorepo React Native mal posé se paie pendant toute la durée du développement, en résolution de modules, en duplication de dépendances natives et en builds qui marchent sur une machine et pas sur une autre.
+
+**Prérequis d'outillage, à vérifier avant de commencer** : Node ≥ 22.11.0 (exigé par React Native 0.86), SDK Android en ligne de commande, Java. Détail dans `amoa/05-prerequis-et-simulation.md` §4 bis. Le critère 4 est invérifiable sans SDK Android — si l'outillage manque, le signaler immédiatement plutôt que de livrer une tâche partielle en fin de session.
 
 ### Fichiers
 
@@ -141,7 +151,7 @@ Règles de lint implémentant les frontières de `amoa/04-monorepo-et-services.m
 1. `npm install` à la racine installe tout l'arbre.
 2. `npm run start -w @babana/client` et `-w @babana/driver` démarrent chacun leur bundler.
 3. Un symbole exporté par `@babana/ui` s'importe et s'affiche dans les deux apps.
-4. Le build Android en mode release produit un APK pour chaque app.
+4. Le build Android en mode release produit un APK pour chaque app. **Prérequis** : SDK Android présent et `ANDROID_HOME` défini.
 5. Une tentative d'import direct d'un SDK de carte dans `apps/client` fait échouer le lint.
 6. `tsc --noEmit` passe sur tout l'arbre.
 7. Aucune adresse de serveur n'est codée en dur : les apps lisent l'hôte depuis leur configuration de build, avec `api.babana.cm` en production.
