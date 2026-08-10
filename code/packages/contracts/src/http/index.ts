@@ -47,7 +47,7 @@ export interface HttpEndpointDescriptor {
  * docs/contracts/http-api.md pour rester synchronisé avec le code (D17 : le contrat est du
  * code, pas un document qu'on oublie de mettre à jour).
  */
-export const HTTP_ENDPOINTS: Record<string, HttpEndpointDescriptor> = {
+export const HTTP_ENDPOINTS = {
   authGoogle: {
     method: 'POST',
     path: '/api/v1/auth/google',
@@ -238,4 +238,4 @@ export const HTTP_ENDPOINTS: Record<string, HttpEndpointDescriptor> = {
     requestExample: remittance.createRemittanceRequestExample,
     responseExample: remittance.createRemittanceResponseExample,
   },
-};
+} satisfies Record<string, HttpEndpointDescriptor>;

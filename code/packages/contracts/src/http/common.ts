@@ -26,3 +26,17 @@ export const IsoDateTimeSchema = z.string().datetime({ offset: true });
 export const RideIdSchema = z.string().uuid();
 export const DriverIdSchema = z.string().uuid();
 export const UserIdSchema = z.string().uuid();
+
+/**
+ * Précision des positions diffusées à un client pour la sélection de chauffeur (D14, C2b) :
+ * assez fine pour un affichage crédible, assez grossière pour empêcher la cartographie de la
+ * flotte. Utilisé à la fois par GET /drivers/nearby (C-01) et par nearby.drivers (C-02,
+ * realtime) — même règle, une seule définition. 4 décimales ≈ 11 m à l'équateur : suffisant
+ * pour situer un point sur une carte, insuffisant pour re-suivre précisément un véhicule.
+ */
+export const NEARBY_POSITION_PRECISION_DECIMALS = 4;
+
+export function roundToNearbyPrecision(value: number): number {
+  const factor = 10 ** NEARBY_POSITION_PRECISION_DECIMALS;
+  return Math.round(value * factor) / factor;
+}

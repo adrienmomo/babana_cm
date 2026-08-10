@@ -8,7 +8,7 @@ Démarrage : 2026-08-09.
 |---|---|---|---|
 | C-03 | finie | `C-03-ride-state-machine` | Table de transitions complète en `code/docs/contracts/ride-state-machine.md` + source JSON + script de vérification. Deux écarts consignés (voir Questions ouvertes) |
 | C-01 | finie | `C-01-http-contracts` | `@babana/contracts` (Zod), 19 endpoints, 27 codes d'erreur, `docs/contracts/http-api.md`. Bootstrap minimal du monorepo npm en avance sur L0-03 |
-| C-02 | non commencée | — | — |
+| C-02 | finie | `C-02-realtime-contracts` | 22 messages WebSocket (`z.discriminatedUnion`), politique de reconnexion dans `docs/contracts/realtime-events.md`. Réutilise `NearbyDriverSchema`/`RideStateSchema` de C-01. Bug de test trouvé grâce à un trou de couverture `tsc` (voir hypothèses) |
 | L0-01 | non commencée | — | — |
 | L0-02 | non commencée | — | — |
 | L0-08 | non commencée | — | — |
@@ -69,6 +69,19 @@ _(à compléter)_
 - **C-01** : `NO_DRIVER_AVAILABLE` conservé au catalogue (exigé par la spécification) mais
   n'est émis par aucun endpoint de ce lot, puisque D10 fait choisir le client sur une liste qui
   peut être vide plutôt que de renvoyer une erreur.
+- **C-02** : `client-to-server.ts` / `server-to-client.ts` regroupent chacun les deux familles
+  d'émetteurs (chauffeur + client) de la spécification, qui n'en prévoit que deux fichiers pour
+  quatre familles décrites en prose.
+- **C-02** : `ride.cancelled` a un seul émetteur (le serveur) mais deux destinataires possibles
+  (chauffeur et/ou client) — un seul message, pas deux, le critère d'acceptation 1 portant sur
+  l'émetteur, pas sur le nombre de destinataires.
+- **C-02** : ajout de `session.resync` / `session.synced`, absents des listes de messages
+  nommées par la spécification mais nécessaires pour que la politique de reconnexion (exigée en
+  prose par le critère d'acceptation 2) soit du code exécutable, pas seulement un paragraphe.
+- **C-02** : incidemment, `tsconfig.json` de `@babana/contracts` ne couvrait que `src/` —
+  `npm run typecheck` ne voyait jamais `test/`. Un doublon d'import dans un test aurait pu
+  passer inaperçu indéfiniment. Ajout de `tsconfig.typecheck.json` qui couvre aussi `test/` et
+  `scripts/` ; a fait remonter 4 erreurs supplémentaires (dont le doublon), toutes corrigées.
 
 ## Ce que je ferais ensuite
 
