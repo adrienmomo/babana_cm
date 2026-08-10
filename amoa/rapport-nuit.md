@@ -11,7 +11,7 @@ Démarrage : 2026-08-09.
 | C-02 | finie | `C-02-realtime-contracts` | 22 messages WebSocket (`z.discriminatedUnion`), politique de reconnexion dans `docs/contracts/realtime-events.md`. Réutilise `NearbyDriverSchema`/`RideStateSchema` de C-01. Bug de test trouvé grâce à un trou de couverture `tsc` (voir hypothèses) |
 | L0-01 | finie | `L0-01-docker-infra` | 7 services sains vérifiés en vrai (`make up`, `make reset && make up`). Bug trouvé et corrigé dans le Caddyfile de référence (assetlinks.json 404). Squelettes minimaux pour realtime/mocks, complétés par L0-04/L0-08 ce soir |
 | L0-02 | finie | `L0-02-odoo-module-skeleton` | Module babana : 3 groupes, catégorie dédiée. Installation/désinstallation/réinstallation et `--test-enable` vérifiés contre le conteneur réel. Deux bugs trouvés (commentaire XML `--`, `make test` cassé depuis L0-01) |
-| L0-08 | non commencée | — | — |
+| L0-08 | finie | `L0-08-mocks` | mock-google-identity (JWKS + 5 variantes invalides, vérifiées par signature réelle) et mock-maps (routage déterministe, recherche Douala, panne simulée). Critères 1 et 5 hors de portée ce soir (dépendances non traitées), documenté dans `services/mocks/README.md` |
 | L0-03 | non commencée | — | — |
 | L0-04 | non commencée | — | — |
 | L0-06 | non commencée | — | — |
@@ -51,6 +51,15 @@ recréant le conteneur caddy avec une plage n'incluant pas l'appelant). Objet Mi
 `make client`, `make driver` et `make seed` ne fonctionnent pas encore : `@babana/client`,
 `@babana/driver` (L0-03) et `services/odoo/scripts/seed.py` (hors lot de cette nuit) n'existent
 pas. Attendu à ce stade, pas un défaut de L0-01.
+
+**Mise à jour L0-08** — vérifié contre les conteneurs réels (`docker compose up -d --build
+mock-google-identity mock-maps`) : jeton valide vérifié avec succès (`node:crypto.verify`)
+contre le JWKS publié par `GET http://localhost:4000/.well-known/jwks.json` ; les cinq variantes
+`invalid` (`aud`, `exp`, `email_verified`, `signature`, `iss`) produisent chacune exactement
+l'altération attendue, `signature` échoue bien la vérification. `GET /route` déterministe sur
+appels répétés identiques ; `GET /search?q=bepanda` trouve « Bépanda » malgré l'absence
+d'accent. `POST /_control/fail` fait passer `/route` de 200 à 503 puis retour à 200.
+`docker run -e NODE_ENV=production` sur chacune des deux images : exit 1, message explicite.
 
 ## Ce qui ne tourne pas
 
@@ -132,6 +141,16 @@ _(à compléter)_
   plutôt que les identifiants techniques anglais de la spécification — cohérent avec la
   convention `CLAUDE.md` « interface en français », puisque ces noms s'affichent dans le
   back-office.
+- **L0-08** : signature JWT (RS256) écrite à la main avec `node:crypto` plutôt qu'une
+  bibliothèque JWT — aucune dépendance nouvelle, et contrôle total nécessaire pour produire
+  précisément les cinq variantes invalides exigées sans lutter contre les garde-fous d'une
+  bibliothèque qui refuserait de construire un jeton volontairement mal formé.
+- **L0-08** : polyline encodée au format Google standard (précision 1e5) plutôt qu'un format
+  maison — pour que `packages/maps` (L6-01) se développe dès sa création contre un format
+  réaliste, cohérent avec l'esprit de l'abstraction C3/D13.
+- **L0-08** : critères d'acceptation 1 et 5 non vérifiables ce soir (scénario complet L10-01,
+  endpoints d'inspection OTP/notification de L1-09/L7-01) — dépendances hors du lot autorisé,
+  documenté dans `services/mocks/README.md`, pas un défaut de ce qui a été construit ce soir.
 - **L0-02** : `make test` a révélé un défaut qui existait déjà silencieusement depuis L0-01 —
   `docker compose exec` ne passe pas par l'entrypoint qui traduit HOST/USER/PASSWORD en
   arguments `--db_*`. La cible `test` du Makefile n'avait jamais été exécutée jusqu'à ce que
