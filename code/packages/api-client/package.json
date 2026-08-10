@@ -1,0 +1,19 @@
+{
+  "name": "@babana/api-client",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Client REST + JSON-RPC + WebSocket, typé contre @babana/contracts. Export minimal fonctionnel ce soir (L0-03) ; consommé par apps/client et apps/driver dès maintenant, complété au fil des lots L1/L3/L6.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "dependencies": {
+    "@babana/contracts": "*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}
