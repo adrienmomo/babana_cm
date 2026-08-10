@@ -13,7 +13,7 @@ Démarrage : 2026-08-09.
 | L0-02 | finie | `L0-02-odoo-module-skeleton` | Module babana : 3 groupes, catégorie dédiée. Installation/désinstallation/réinstallation et `--test-enable` vérifiés contre le conteneur réel. Deux bugs trouvés (commentaire XML `--`, `make test` cassé depuis L0-01) |
 | L0-08 | finie | `L0-08-mocks` | mock-google-identity (JWKS + 5 variantes invalides, vérifiées par signature réelle) et mock-maps (routage déterministe, recherche Douala, panne simulée). Critères 1 et 5 hors de portée ce soir (dépendances non traitées), documenté dans `services/mocks/README.md` |
 | L0-03 | partielle | `L0-03-react-native-monorepo` | 6/7 critères vérifiés contre les outils réels (npm install, Metro, tsc, jest, eslint, config de build). Critère 4 (APK release) bloqué : aucun SDK Android sur cette machine, voir `amoa/questions/L0-03.md` |
-| L0-04 | non commencée | — | — |
+| L0-04 | finie | `L0-04-realtime-skeleton` | Serveur HTTP + WebSocket, config validée, client Odoo avec réessais, zéro client PostgreSQL. Tous les critères vérifiés contre la pile réelle. Deux bugs Docker trouvés et corrigés (ws mal résolu, tsconfig.base.json manquant) |
 | L0-06 | non commencée | — | — |
 
 ## Ce qui tourne
@@ -83,12 +83,41 @@ par défaut `https://api.babana.cm`.
 machine (`ANDROID_HOME` non défini, aucun dossier SDK trouvé). Détail dans
 `amoa/questions/L0-03.md`.
 
+**Mise à jour L0-04** — service réel, reconstruit et vérifié contre `make up` :
+
+```bash
+curl -k https://api.localhost/rt/health
+# {"ok":true,"dependencies":{"redis":"ok","odoo":"ok"}}
+```
+
+Lancé sans les variables requises (`node dist/index.js` avec seulement `PORT` et `REDIS_URL`
+positionnés) : sortie exacte —
+
+```
+Configuration invalide, le service refuse de démarrer :
+  - ODOO_INTERNAL_URL : Required
+  - REALTIME_SHARED_SECRET : Required
+  - JWT_SECRET : Required
+exit=1
+```
+
+Connexion WebSocket réelle sans jeton vers `wss://api.localhost/rt/ws` : fermée avec le code
+`4401`. `make test` complet (paquets + apps + service temps réel + suite Odoo) : exit 0.
+
 ## Ce qui ne tourne pas
 
 _(à compléter)_
 
 ## Questions ouvertes
 
+- **Note d'exploitation, pas un fichier de question** : un bind mount Docker Desktop (macOS,
+  gRPC-FUSE) s'est figé à trois reprises cette nuit après une recréation de conteneur ailleurs
+  dans le projet compose (`services/odoo/addons` pendant L0-02, `infra/caddy/wellknown` puis
+  `services/odoo/addons` à nouveau pendant L0-04) — le répertoire apparaît vide côté conteneur
+  alors qu'il ne l'est pas côté hôte. `docker compose restart <service>` le résout à chaque fois.
+  Si ça se reproduit demain : ce n'est pas un défaut du dépôt, vérifier d'abord avec un
+  redémarrage du conteneur concerné avant de chercher plus loin. Envisager de vérifier le mode
+  de partage de fichiers de Docker Desktop (VirtioFS plutôt que gRPC-FUSE) si ça devient gênant.
 - `amoa/questions/L0-03.md` — critère d'acceptation 4 (APK Android release) non vérifiable :
   aucun SDK Android sur cette machine. Node 20.15.1 également sous la version minimale de
   React Native 0.86 (>= 22.11.0). **Bloquant pour clore complètement L0-03**, non bloquant pour
@@ -178,6 +207,19 @@ _(à compléter)_
   en entier, qui exposerait toute l'API Node comme si elle existait sur React Native.
 - **L0-03** : `apps/*/.eslintrc.js` n'a plus `root: true`, pour se combiner avec
   `code/.eslintrc.cjs` (racine du monorepo) plutôt que l'ignorer.
+- **L0-04** : ioredis, `ws`, `fetch` natif de Node — pas de framework HTTP (Express, Fastify)
+  pour un service qui n'expose qu'un `/health` et une mise à niveau WebSocket ce soir.
+- **L0-04** : jeton applicatif transmis en `?token=` sur l'URL WebSocket, pas en en-tête —
+  méthode la plus largement supportée au handshake par les clients web et React Native.
+- **L0-04** : code de fermeture WebSocket `4401` pour une connexion non authentifiée (plage
+  4000-4999 réservée par RFC 6455 §7.4.2), en écho à HTTP 401.
+- **L0-04** : forme des claims du jeton applicatif (`sub`, `role`, `exp`) posée par hypothèse —
+  L1-01, qui les émettra réellement, n'a pas tourné ce soir. À confirmer à ce moment-là.
+- **L0-04** : `services/realtime/Dockerfile` n'installe pas depuis `package-lock.json` de la
+  racine — ce lockfile encode tout l'arbre du monorepo (apps/* compris), absent de ce contexte
+  de build ; le copier faisait hoister un `ws` transitif de react-native au lieu du `ws` déclaré
+  par `@babana/realtime` lui-même. `npm install` frais, résolu contre les seuls `package.json`
+  présents dans le contexte.
 - **L0-08** : signature JWT (RS256) écrite à la main avec `node:crypto` plutôt qu'une
   bibliothèque JWT — aucune dépendance nouvelle, et contrôle total nécessaire pour produire
   précisément les cinq variantes invalides exigées sans lutter contre les garde-fous d'une
