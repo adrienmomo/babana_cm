@@ -53,9 +53,14 @@ rupture ; le rendre obligatoire l'est.
 
 Échange l'ID token Google contre un jeton applicatif (D4). Seul endpoint public de ce contrat.
 
-- Requête : `{ idToken: string }`
+- Requête : `{ idToken: string, role: 'client' | 'driver' }` — `role` détermine, au premier appel
+  seulement, s'il faut créer un `babana.driver` ou rattacher un `res.partner` (rien d'autre dans
+  le jeton Google ne le permet ; champ ajouté par L1-01, écart documenté dans
+  `amoa/questions/L1-01.md`)
 - Réponse : `{ accessToken, refreshToken, expiresIn, user: { id, role, displayName, photoUrl, phoneVerified } }`
-- Erreurs : `INVALID_GOOGLE_TOKEN`, `DRIVER_NOT_APPROVED`
+- Erreurs : `INVALID_GOOGLE_TOKEN` (jamais `DRIVER_NOT_APPROVED` — un chauffeur non approuvé
+  reçoit tout de même un jeton, avec un statut `pending` explicite ; ce sont les endpoints
+  métier qui refusent ses actions, pas l'authentification, L1-01 critère 8)
 
 ### `POST /auth/refresh`
 
