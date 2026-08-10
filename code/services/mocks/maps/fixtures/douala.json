@@ -1,0 +1,17 @@
+{
+  "_comment": "Repères de Douala à des coordonnées plausibles (quartiers réels, positions approximatives) -- pas des valeurs arbitraires (L0-08, critère d'acceptation 7). Utilisé par GET /search. GET /route ne consulte pas ce fichier : toute paire de points, connue ou non, reçoit une réponse déterministe dérivée de la distance à vol d'oiseau (critère d'acceptation 1 de L0-08 tel qu'appliqué au minimum requis).",
+  "places": [
+    { "id": "akwa", "name": "Akwa", "latitude": 4.0483, "longitude": 9.6934 },
+    { "id": "bonanjo", "name": "Bonanjo", "latitude": 4.0524, "longitude": 9.6930 },
+    { "id": "bonapriso", "name": "Bonapriso", "latitude": 4.0270, "longitude": 9.7040 },
+    { "id": "deido", "name": "Deïdo", "latitude": 4.0680, "longitude": 9.7050 },
+    { "id": "bali", "name": "Bali", "latitude": 4.0450, "longitude": 9.6800 },
+    { "id": "new-bell", "name": "New-Bell", "latitude": 4.0530, "longitude": 9.7150 },
+    { "id": "bepanda", "name": "Bépanda", "latitude": 4.0750, "longitude": 9.7250 },
+    { "id": "ndokoti", "name": "Ndokoti", "latitude": 4.0800, "longitude": 9.7400 },
+    { "id": "aeroport-douala", "name": "Aéroport International de Douala", "latitude": 4.0061, "longitude": 9.7195 },
+    { "id": "marche-central", "name": "Marché Central", "latitude": 4.0500, "longitude": 9.7000 },
+    { "id": "bonaberi", "name": "Bonabéri", "latitude": 4.0850, "longitude": 9.6600 },
+    { "id": "makepe", "name": "Makepe", "latitude": 4.0730, "longitude": 9.7550 }
+  ]
+}
