@@ -4,7 +4,8 @@
   "description": "Monorepo babana.cm — espaces de travail npm. Arborescence complétée au fil des tâches L0-*.",
   "workspaces": [
     "packages/*",
-    "services/realtime"
+    "services/realtime",
+    "apps/*"
   ],
   "engines": {
     "node": ">=20"

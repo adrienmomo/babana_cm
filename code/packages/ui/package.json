@@ -1,0 +1,23 @@
+{
+  "name": "@babana/ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Design system partagé. Uniquement des composants compatibles React Native Web (D22, contrainte de L0-03) : l'application Client sera exportée en web (L6-18), y adapter les composants après coup coûterait une reprise complète.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "peerDependencies": {
+    "react": ">=19",
+    "react-native": ">=0.86"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "react": "19.2.3",
+    "react-native": "0.86.2",
+    "typescript": "^5.8.3"
+  }
+}

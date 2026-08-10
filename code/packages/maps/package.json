@@ -1,0 +1,16 @@
+{
+  "name": "@babana/maps",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Abstraction carte et navigation (C3, D12, D13). Aucun écran de apps/* n'importe un SDK de carte directement -- seulement cette interface. Export minimal fonctionnel ce soir (L0-03) ; l'implémentation Google Maps et le lien profond de navigation arrivent avec L6-01.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  }
+}

@@ -12,7 +12,7 @@ Démarrage : 2026-08-09.
 | L0-01 | finie | `L0-01-docker-infra` | 7 services sains vérifiés en vrai (`make up`, `make reset && make up`). Bug trouvé et corrigé dans le Caddyfile de référence (assetlinks.json 404). Squelettes minimaux pour realtime/mocks, complétés par L0-04/L0-08 ce soir |
 | L0-02 | finie | `L0-02-odoo-module-skeleton` | Module babana : 3 groupes, catégorie dédiée. Installation/désinstallation/réinstallation et `--test-enable` vérifiés contre le conteneur réel. Deux bugs trouvés (commentaire XML `--`, `make test` cassé depuis L0-01) |
 | L0-08 | finie | `L0-08-mocks` | mock-google-identity (JWKS + 5 variantes invalides, vérifiées par signature réelle) et mock-maps (routage déterministe, recherche Douala, panne simulée). Critères 1 et 5 hors de portée ce soir (dépendances non traitées), documenté dans `services/mocks/README.md` |
-| L0-03 | non commencée | — | — |
+| L0-03 | partielle | `L0-03-react-native-monorepo` | 6/7 critères vérifiés contre les outils réels (npm install, Metro, tsc, jest, eslint, config de build). Critère 4 (APK release) bloqué : aucun SDK Android sur cette machine, voir `amoa/questions/L0-03.md` |
 | L0-04 | non commencée | — | — |
 | L0-06 | non commencée | — | — |
 
@@ -61,12 +61,38 @@ appels répétés identiques ; `GET /search?q=bepanda` trouve « Bépanda » mal
 d'accent. `POST /_control/fail` fait passer `/route` de 200 à 503 puis retour à 200.
 `docker run -e NODE_ENV=production` sur chacune des deux images : exit 1, message explicite.
 
+**Mise à jour L0-03** — depuis `code/` :
+
+```bash
+npm install                                    # 868+ paquets, symlinks node_modules/@babana/* confirmés
+npm run build --workspaces --if-present        # packages/{contracts,ui,maps,api-client} compilent
+npm run typecheck --workspaces --if-present    # exit 0, les 4 paquets + les 2 apps
+npm run lint --workspaces --if-present         # exit 0
+npm test                                       # exit 0, jest inclus (App.tsx rendu, react-test-renderer)
+npm run start -w @babana/client                # Metro sur :8081, /status -> 200, bundle Android ~4,1 Mo
+npm run start -w @babana/driver                # idem sur :8082
+```
+
+Bundle Android de chaque app vérifié par téléchargement direct
+(`curl .../index.bundle?platform=android&dev=true`) et recherche du texte de l'écran et d'une
+constante de `@babana/ui` dedans — présents dans les deux. `BABANA_API_URL=https://api.localhost
+npm run start -w @babana/client` change bien l'URL figée dans le bundle par rapport à la valeur
+par défaut `https://api.babana.cm`.
+
+**Ne tourne pas** : `npm run android` / `./gradlew assembleRelease` — aucun SDK Android sur cette
+machine (`ANDROID_HOME` non défini, aucun dossier SDK trouvé). Détail dans
+`amoa/questions/L0-03.md`.
+
 ## Ce qui ne tourne pas
 
 _(à compléter)_
 
 ## Questions ouvertes
 
+- `amoa/questions/L0-03.md` — critère d'acceptation 4 (APK Android release) non vérifiable :
+  aucun SDK Android sur cette machine. Node 20.15.1 également sous la version minimale de
+  React Native 0.86 (>= 22.11.0). **Bloquant pour clore complètement L0-03**, non bloquant pour
+  la suite (le reste du monorepo fonctionne).
 - `amoa/questions/L0-01.md` — le bloc `/.well-known/assetlinks.json` du Caddyfile donné « tel
   quel » par `04-monorepo-et-services.md` §7 ne sert pas le fichier (404, `root` sans réécriture
   de chemin). Corrigé dans le code, non bloquant, à corriger dans le document de référence.
@@ -141,6 +167,17 @@ _(à compléter)_
   plutôt que les identifiants techniques anglais de la spécification — cohérent avec la
   convention `CLAUDE.md` « interface en français », puisque ces noms s'affichent dans le
   back-office.
+- **L0-03** : projets Android/iOS générés par `@react-native-community/cli`
+  (`--skip-git-init --package-name cm.babana.client` / `cm.babana.driver`) plutôt qu'écrits à la
+  main — un projet natif correct à la main est précisément le genre de détail qui se règle mal
+  en reprise.
+- **L0-03** : `babel-plugin-transform-inline-environment-variables` (nouvelle dépendance,
+  signalée) plutôt que `react-native-config`, pour éviter une liaison native supplémentaire pour
+  un besoin aussi simple qu'une URL de base injectée au build.
+- **L0-03** : `env.d.ts` déclare uniquement `process.env` plutôt que d'installer `@types/node`
+  en entier, qui exposerait toute l'API Node comme si elle existait sur React Native.
+- **L0-03** : `apps/*/.eslintrc.js` n'a plus `root: true`, pour se combiner avec
+  `code/.eslintrc.cjs` (racine du monorepo) plutôt que l'ignorer.
 - **L0-08** : signature JWT (RS256) écrite à la main avec `node:crypto` plutôt qu'une
   bibliothèque JWT — aucune dépendance nouvelle, et contrôle total nécessaire pour produire
   précisément les cinq variantes invalides exigées sans lutter contre les garde-fous d'une
@@ -160,6 +197,6 @@ _(à compléter)_
   passer inaperçu indéfiniment. Ajout de `tsconfig.typecheck.json` qui couvre aussi `test/` et
   `scripts/` ; a fait remonter 4 erreurs supplémentaires (dont le doublon), toutes corrigées.
 
-## Ce que je ferais ensuite
+## Ce que je ferais ensuite (provisoire, mis à jour en fin de session)
 
 _(à compléter en fin de session)_
