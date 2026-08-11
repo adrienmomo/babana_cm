@@ -1,6 +1,22 @@
-pluginManagement { includeBuild("../node_modules/@react-native/gradle-plugin") }
+// Résolution du plugin Gradle React Native via Node plutôt qu'un chemin relatif fixe (L0-03R,
+// amoa/questions/REPONSES-2026-08-11.md) : les espaces de travail npm remontent les dépendances
+// à code/node_modules, alors que le CLI React Native générait ce fichier pour une app autonome
+// où ../node_modules/@react-native/gradle-plugin existe directement. La résolution Node suit le
+// remontage quel que soit l'endroit où npm a effectivement installé le paquet.
+//
+// Répétée deux fois plutôt que factorisée dans une variable : `pluginManagement {}` doit être la
+// toute première instruction du script (contrainte Gradle), avant même un `def` local.
+pluginManagement {
+    includeBuild(new File(
+        ["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json')"]
+            .execute(null, rootDir).text.trim()
+    ).getParentFile().absolutePath)
+}
 plugins { id("com.facebook.react.settings") }
 extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
 rootProject.name = 'cm.babana.client'
 include ':app'
-includeBuild('../node_modules/@react-native/gradle-plugin')
+includeBuild(new File(
+    ["node", "--print", "require.resolve('@react-native/gradle-plugin/package.json')"]
+        .execute(null, rootDir).text.trim()
+).getParentFile().absolutePath)

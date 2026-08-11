@@ -2,6 +2,15 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+// Résolution via Node plutôt que les chemins relatifs par défaut du gabarit React Native
+// (L0-03R, amoa/questions/REPONSES-2026-08-11.md) : ../../node_modules n'existe pas dans ce
+// monorepo, les dépendances sont remontées à code/node_modules par les espaces de travail npm.
+def resolveNodePackageDir(String pkg) {
+    new File(
+        ["node", "--print", "require.resolve('${pkg}/package.json')"].execute(null, rootDir).text.trim()
+    ).getParentFile()
+}
+
 /**
  * This is the configuration block to customize your React Native Android app.
  * By default you don't need to apply any configuration, just uncomment the lines you need.
@@ -11,9 +20,9 @@ react {
     //   The root of your project, i.e. where "package.json" lives. Default is '../..'
     // root = file("../../")
     //   The folder where the react-native NPM package is. Default is ../../node_modules/react-native
-    // reactNativeDir = file("../../node_modules/react-native")
+    reactNativeDir = resolveNodePackageDir("react-native")
     //   The folder where the react-native Codegen package is. Default is ../../node_modules/@react-native/codegen
-    // codegenDir = file("../../node_modules/@react-native/codegen")
+    codegenDir = resolveNodePackageDir("@react-native/codegen")
     //   The cli.js file which is the React Native CLI entrypoint. Default is ../../node_modules/react-native/cli.js
     // cliFile = file("../../node_modules/react-native/cli.js")
 
