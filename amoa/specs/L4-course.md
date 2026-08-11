@@ -39,12 +39,20 @@ Champs principaux :
 
 Index sur `state`, sur le chauffeur, sur le client, sur la date de création. Ce sont les axes de toutes les requêtes de L9.
 
-Contraintes de base de données, pas seulement applicatives : un chauffeur ne peut avoir qu'une course dans un état actif — `proposed`, `assigned`, `in_progress`. Un client de même. C'est une garantie de dernier recours si une transition est contournée.
+Contraintes de base de données, pas seulement applicatives. **Les états actifs diffèrent selon la partie** — correction du 11 août, l'énoncé initial appliquait la même liste aux deux :
+
+| Partie | États actifs | Pourquoi |
+|---|---|---|
+| Chauffeur | `proposed`, `assigned`, `in_progress` | En `requested`, aucun chauffeur n'est encore désigné — l'état ne le concerne pas |
+| Client | `requested`, `proposed`, `assigned`, `in_progress` | Dès la demande, le client a une course en cours ; deux demandes simultanées du même client n'ont aucun sens métier |
+
+C'est une garantie de dernier recours si une transition est contournée. L'écart entre les deux listes explique pourquoi un contrôle applicatif seul ne suffisait pas côté client.
 
 ### Critères d'acceptation
 
 1. La référence est générée par séquence et unique.
-2. Un second enregistrement de course active pour le même chauffeur échoue au niveau base.
+2. Un second enregistrement de course active pour le même chauffeur échoue au niveau base, avec la liste d'états propre au chauffeur.
+2 bis. Un second enregistrement de course active pour le même client échoue au niveau base, **`requested` compris**.
 3. La règle tarifaire figée survit à la modification de la règle d'origine.
 4. Les index existent et sont utilisés par les requêtes de L9.
 5. Les refus sont portés par la course, pas par des courses distinctes.
@@ -82,6 +90,8 @@ Chaque méthode, dans cet ordre :
 
 **Verrouillage de l'enregistrement** pendant la transition, pour empêcher deux transitions concurrentes sur la même course. Deux appels simultanés à `action_accept` ne doivent pas produire deux affectations.
 
+Le mécanisme est implémenté ici ; sa **preuve** est portée par L4-11. Ne pas écrire de test de concurrence dans le harnais Odoo : `TransactionCase` enveloppe le test dans une transaction annulée à la fin, si bien qu'une seconde connexion réelle ne voit jamais les lignes créées ou attend un verrou qui ne se libère qu'à la fin du test. Le test paraît alors instable alors que le mécanisme est correct — constaté pendant la nuit du 10 au 11 août.
+
 Surcharger `write` pour **interdire l'écriture directe de `state`** hors des méthodes de transition. C'est le point qui rend l'invariant réel plutôt que conventionnel.
 
 Rendre immuables les champs figés selon l'état : après `completed`, distance et montant ne changent plus ; après `settled`, plus rien ne change. Interdit au niveau du modèle, y compris pour un administrateur.
@@ -93,7 +103,7 @@ Le champ `state` porte les transitions autorisées depuis l'état courant, expos
 1. **Chaque** transition valide de C-03 a un test qui passe.
 2. **Chaque** transition interdite de C-03 a un test qui échoue avec `RIDE_INVALID_TRANSITION`.
 3. Une écriture directe de `state` par `write` échoue.
-4. Deux `action_accept` concurrents ne produisent qu'une affectation.
+4. Deux `action_accept` concurrents ne produisent qu'une affectation. **Ce critère est vérifié par L4-11, pas ici** — un test de concurrence a besoin de transactions réellement validées, ce que le harnais Odoo ne permet pas (voir L4-11).
 5. Modifier le montant d'une course `completed` échoue.
 6. Modifier quoi que ce soit sur une course `settled` échoue.
 7. `rejected → proposed` conserve l'historique des refus.
@@ -284,7 +294,10 @@ services/odoo/addons/babana/tests/test_cancellation.py
 | `assigned` | Client | Libère le chauffeur ; motif enregistré ; comptabilisé |
 | `assigned` | Chauffeur | Libère le chauffeur ; motif obligatoire ; comptabilisé sur le chauffeur |
 | `in_progress` | Chauffeur | Cas exceptionnel : panne, incident. Motif obligatoire, signalement au back-office |
+| `rejected` | Client | **Abandon après refus.** Aucune réservation à libérer — elle l'a été en entrant dans `rejected`. Motif non obligatoire, mais la course porte une **catégorie d'annulation dédiée** (`abandon_after_rejection`) et le rang du refus au moment de l'abandon |
 | `in_progress` | Client | Interdit — le trajet a commencé, il se termine ou fait l'objet d'un incident (L8-04) |
+
+**Sur la catégorie `abandon_after_rejection`** : L9-09 mesure le taux d'abandon après un ou plusieurs refus, et c'est cet indicateur qui décidera s'il faut rouvrir D11. Traiter cette annulation comme une annulation ordinaire priverait l'indicateur de son signal principal et obligerait à le reconstituer en croisant l'historique des refus — fragile et coûteux. La catégorie et le rang du refus sont donc enregistrés au moment de l'annulation, pas déduits après coup.
 
 **Aucun frais d'annulation en v1.** Le mécanisme serait mal accepté au lancement et compliquerait la comptabilité pour un enjeu faible au volume du pilote. Les annulations sont comptées pour préparer une éventuelle politique ultérieure.
 
@@ -292,7 +305,8 @@ Une annulation en `in_progress` par le chauffeur laisse une course sans encaisse
 
 ### Critères d'acceptation
 
-1. Chaque combinaison état × acteur du tableau est testée.
+1. Chaque combinaison état × acteur du tableau est testée, `rejected` compris.
+1 bis. Une annulation depuis `rejected` porte la catégorie `abandon_after_rejection` et le rang du refus, exploitables par L9-09 sans reconstitution.
 2. L'annulation en `in_progress` par le client est refusée.
 3. Une annulation en `proposed` libère effectivement la réservation côté temps réel.
 4. Le motif est obligatoire quand le tableau l'exige.
@@ -405,3 +419,52 @@ Couvrir en plus :
 2. Ajouter une transition à la table sans l'implémenter fait échouer la suite.
 3. Toutes les combinaisons état × action sont couvertes, valides comme interdites.
 4. Les cinq cas supplémentaires sont testés.
+
+---
+
+## L4-11 — Test de concurrence sur les transitions
+
+### Objectif
+
+Prouver que deux transitions concurrentes sur la même course n'en produisent qu'une.
+
+### Contexte
+
+**Extrait de L4-02 le 11 août 2026.** Le mécanisme de verrouillage a été implémenté et vérifié manuellement, mais le test qui devait le prouver vivait dans le harnais Odoo, où il prenait 60 à 185 secondes et échouait par intermittence.
+
+La cause est structurelle : `TransactionCase` enveloppe chaque test dans une transaction annulée à la fin. Une seconde connexion réelle ne voit pas les lignes créées par la première, ou attend un verrou qui ne se libérera qu'à la fin du test. **Le harnais était en cause, pas le mécanisme.**
+
+Même raisonnement que L3-13 pour la réservation atomique : un test de concurrence a besoin de transactions réellement validées, donc d'un environnement réel.
+
+### Fichiers
+
+```
+test/concurrency/
+├── ride-transitions.test.ts
+└── helpers/odoo-session.ts
+```
+
+### Spécification
+
+Contre la pile démarrée par `make up`, pas contre le harnais Odoo.
+
+**Scénario 1 — acceptation concurrente.** N sessions authentifiées appellent `action_accept` sur la même course `proposed`, réellement simultanément. Exactement un succès, N−1 échecs avec un code d'erreur explicite. Répéter un grand nombre de fois : une fenêtre de course étroite ne se manifeste pas au premier essai.
+
+**Scénario 2 — transitions divergentes.** Un client annule pendant qu'un chauffeur accepte. Une seule des deux transitions gagne, l'état final est cohérent, et le perdant reçoit une erreur compréhensible plutôt qu'un état intermédiaire.
+
+**Scénario 3 — encaissement concurrent.** Deux `action_settle` simultanés sur la même course. Un seul mouvement de compte courant, une seule facture.
+
+Chaque scénario vérifie l'état final en base, pas seulement les codes de retour.
+
+### Critères d'acceptation
+
+1. Les tests s'exécutent contre une pile réelle, avec des transactions validées.
+2. Sur toutes les itérations, exactement un succès par scénario.
+3. L'état final en base est cohérent à chaque itération.
+4. Le temps d'exécution est stable — pas de variation d'un facteur trois entre deux exécutions.
+5. Une implémentation volontairement naïve, sans verrouillage, fait échouer les trois scénarios. À vérifier une fois, sinon le test ne prouve rien.
+6. Le test tourne en intégration continue.
+
+### Piège
+
+Le critère 5 est ce qui distingue un test utile d'un test décoratif — même exigence que L3-13. Un test de concurrence qui passerait aussi sans verrou ne teste rien.

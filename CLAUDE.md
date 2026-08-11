@@ -49,7 +49,7 @@ Un seul dépôt git, à la racine `babana.cm/`. Les corrections de spécificatio
 Ils priment sur toute considération de commodité. Une solution qui viole un invariant n'est pas une solution, même si elle fonctionne.
 
 **1. Une écriture Odoo par événement métier, jamais par tick GPS.**
-Le nombre d'écritures d'une course est **borné par le nombre de décisions humaines** qu'elle a comportées — jamais par sa durée ni par sa distance. Écrivent : demande, proposition, acceptation, refus, annulation, fin de course, encaissement. N'écrivent jamais : position, ETA, distance en cours, compte à rebours. Le service temps réel ne possède aucune donnée durable et n'a aucune dépendance à un client PostgreSQL. Voir `amoa/01-architecture.md` §2 — ne pas compter les écritures, vérifier qu'elles ne dépendent ni du temps ni de la distance.
+Le nombre d'écritures d'une course est **borné par le nombre de décisions humaines** qu'elle a comportées — jamais par sa durée ni par sa distance. Écrivent : demande, proposition, acceptation, refus, **démarrage**, annulation, fin de course, encaissement. N'écrivent jamais : position, ETA, distance en cours, compte à rebours. Le service temps réel ne possède aucune donnée durable et n'a aucune dépendance à un client PostgreSQL. Voir `amoa/01-architecture.md` §2 — ne pas compter les écritures, vérifier qu'elles ne dépendent ni du temps ni de la distance.
 
 **2. Les transitions sont les seules portes d'écriture sur une course.**
 Aucune écriture directe de `state`. Aucune modification après `settled`. Si un besoin semble exiger le contraire, c'est le besoin qui est mal formulé.
@@ -113,6 +113,13 @@ Tout fonctionne **sans aucun compte externe** : les dépendances tierces sont si
 **Une branche par tâche**, nommée d'après son identifiant : `L3-06-atomic-reservation`. Message de commit préfixé de l'identifiant.
 
 **Différences de plateforme dans les paquets partagés, jamais dans les écrans.** L'application Client est exportée en web (D22) ; ses différences vivent dans `@babana/maps` et `@babana/api-client`. Un `Platform.OS === 'web'` dans un écran annonce quinze écrans dans le même état six mois plus tard.
+
+**Champs-pont : tracés, datés, condamnés.** L'ordre des tâches oblige parfois à créer un champ transitoire en attendant le modèle qui le portera vraiment — un compteur calculé qui renvoie zéro, un champ plat en attendant un `Many2one`. C'est légitime : un `Many2one` vers un modèle absent empêche l'installation du module. Deux règles alors, sans exception :
+
+- Le champ porte dans son `help` la mention `[PONT — remplacé par <ID-TACHE>]`
+- Il est inscrit dans `code/docs/bridge-fields.md`, avec la tâche qui doit le faire disparaître
+
+La tâche cible commence par supprimer les champs-pont qui la nomment. Un champ-pont qui survit à sa tâche cible devient un champ permanent que personne n'ose retirer, et le modèle porte alors deux vérités pour la même donnée.
 
 **Pas de dépendance nouvelle sans nécessité.** Chaque paquet ajouté est une surface à maintenir. Si une dépendance lourde semble nécessaire, le signaler avant de l'ajouter.
 
@@ -186,7 +193,9 @@ Une spécification peut être fausse, incomplète, ou en contradiction avec une 
 
 **Comment signaler.** Décrire l'écart, ce que la spécification demande, pourquoi cela pose problème, et une ou deux options avec leurs conséquences. Ne pas se contenter de « cette spécification est ambiguë » — proposer.
 
-Les écarts relevés sont déposés dans `amoa/questions/<ID-TACHE>.md`. Une fois arbitrés, ils sont consignés dans `amoa/01-architecture.md` comme décisions ou écarts numérotés. Une décision non écrite sera reprise différemment dans trois mois.
+Les écarts relevés sont déposés dans `amoa/questions/<ID-TACHE>.md`, **et commités sur `master`, jamais uniquement sur la branche de la tâche**. Une tâche qui n'est pas fusionnée laisserait sinon son fichier d'écart invisible — c'est précisément quand une tâche demande une revue que sa question doit être lisible. Constaté le 11 août : le fichier d'écart de L4-02 est resté sur sa branche non fusionnée.
+
+Une fois arbitrés, ils sont consignés dans `amoa/01-architecture.md` comme décisions ou écarts numérotés. Une décision non écrite sera reprise différemment dans trois mois.
 
 ---
 

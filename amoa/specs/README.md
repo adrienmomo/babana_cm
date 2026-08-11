@@ -31,7 +31,9 @@ Respecter l'ordre des dépendances de `amoa/03-decoupage-taches.md` §5. Les tro
 
 Elles s'appliquent à toutes les tâches et n'ont pas à être répétées dans chacune.
 
-**Tout le code va dans `code/`.** `amoa/` est en lecture, sauf pour déposer un écart dans `amoa/questions/`.
+**Tout le code va dans `code/`.** `amoa/` est en lecture, sauf pour déposer un écart dans `amoa/questions/` — **toujours commité sur `master`**, même quand la tâche elle-même reste sur une branche non fusionnée.
+
+**Les champs-pont sont tracés.** Quand l'ordre des tâches impose un champ transitoire, il porte `[PONT — remplacé par <ID-TACHE>]` dans son `help` et figure dans `code/docs/bridge-fields.md`. La tâche cible commence par le supprimer.
 
 **Aucune règle métier dans les applications.** Ni calcul de tarif, ni décision d'affectation, ni validation de solde. L'application affiche ce que le serveur décide.
 

@@ -104,7 +104,15 @@ docs/contracts/http-api.md        # généré ou rédigé, lisible
 
 ### Spécification
 
-Préfixe commun `/api/v1`. Authentification par jeton applicatif en en-tête `Authorization: Bearer`, sauf sur `/auth/google`.
+Préfixe commun `/api/v1`. Authentification par jeton applicatif en en-tête `Authorization: Bearer`, **sauf sur les trois routes de gestion de jeton** — `/auth/google`, `/auth/refresh` et `/auth/logout` — qui s'authentifient par le jeton transmis dans le corps.
+
+**Pourquoi cette exception** (relevée en implémentant L1-02) : `/auth/refresh` existe précisément pour le cas où le jeton d'accès a expiré. Exiger un jeton d'accès valide pour le renouveler rend le mécanisme inutilisable au moment exact où il sert. Le jeton de renouvellement transmis dans le corps est déjà la preuve de possession suffisante ; sa vérification se fait contre le hachage stocké côté serveur.
+
+**Corps de `/auth/google`** : `{ idToken, role }` où `role` vaut `client` ou `driver`. Le rôle est **obligatoire** — rien d'autre dans la requête ne permet de savoir s'il faut créer un chauffeur ou un client au premier appel, et l'email ne peut pas servir d'indice puisqu'il n'est jamais l'identifiant (L1-01).
+
+**Réponse d'une session** : elle porte, quand `role` vaut `driver`, le statut de validation du chauffeur (`pending`, `approved`, `rejected`, `suspended`). L'authentification ne rejette jamais un chauffeur non approuvé — elle lui renvoie un jeton et un statut explicite, et ce sont les endpoints métier qui refusent ses actions. `DRIVER_NOT_APPROVED` n'est donc **jamais** émis par `/auth/google`.
+
+**Casse des champs** : le contrat est en camelCase (`idToken`), y compris quand une spécification de tâche écrit le nom en snake_case dans sa prose. Le contrat fait foi sur le format de fil (D17).
 
 Endpoints à spécifier :
 

@@ -24,7 +24,7 @@ services/odoo/addons/babana/tests/test_auth.py
 
 ### Spécification
 
-`POST /api/v1/auth/google`, corps `{ id_token, role }` où `role` vaut `client` ou `driver`.
+`POST /api/v1/auth/google`, corps `{ idToken, role }` où `role` vaut `client` ou `driver`. Le contrat C-01 fait foi sur la casse des champs (D17).
 
 Vérifications, **toutes obligatoires**, dans cet ordre :
 
@@ -128,7 +128,7 @@ Champs principaux :
 | `cash_balance` | Monétaire | Solde dû à l'entreprise (D8) |
 | `cash_limit` | Monétaire | Plafond d'encaisse, hérité d'un défaut de configuration |
 | `phone_verified` | Booléen | Résultat de L1-09 |
-| `motorcycle_id` | Many2one `babana.motorcycle` | Affectation courante |
+| `motorcycle_id` | Many2one `babana.motorcycle` | Affectation courante. **Ajouté par L1-07** — un `Many2one` vers un modèle absent empêche l'installation |
 
 Contraintes : `is_online` ne peut passer à vrai que si `state` vaut `approved`. `cash_balance` ne peut jamais être négatif — un solde négatif signale une erreur de calcul, pas un cas métier.
 
@@ -138,9 +138,11 @@ Contraintes : `is_online` ne peut passer à vrai que si `state` vaut `approved`.
 
 1. Un chauffeur `pending` ne peut pas passer `is_online` à vrai.
 2. Un chauffeur suspendu passe automatiquement hors ligne.
-3. `rating_avg` se recalcule à chaque nouvel avis.
+3. `rating_avg` se recalcule à chaque nouvel avis. **Vérifiable seulement après L4-09** ; jusque-là, le champ est un pont tracé (voir `CLAUDE.md`, conventions).
 4. Une tentative d'écriture directe de `cash_balance` échoue.
 5. Revue : l'ajout ultérieur d'un solde de commission ou d'un abonnement ne demanderait pas de migration structurelle (É3).
+6. Tout champ transitoire est inscrit dans `docs/bridge-fields.md` et porte la mention `[PONT]` dans son `help`.
+7. **L1-03 supprime les champs-pont posés sur `res.users` par L1-01** (`babana_role`, `babana_driver_state`) : le statut du chauffeur vient désormais de `babana.driver`, pas d'une copie sur l'utilisateur.
 
 ---
 

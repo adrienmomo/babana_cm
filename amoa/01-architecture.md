@@ -48,11 +48,16 @@ C'est la décision la plus structurante du projet. Tout le découpage en découl
 | Proposition à un chauffeur | Le chauffeur sélectionné, l'horodatage |
 | Acceptation | L'affectation |
 | Refus ou expiration | Une ligne à l'historique des refus de la course |
+| **Démarrage de la course** | Le passage en course, horodaté |
 | Annulation, depuis n'importe quel état | L'état terminal, l'acteur, le motif |
 | Fin de course | Distance, durée, tracé archivé en une seule écriture |
 | Encaissement | Le règlement, le mouvement de compte courant, la facture |
 
 **Ce qui n'écrit jamais** : position, ETA, distance en cours d'accumulation, compte à rebours, expiration d'une réservation non suivie d'effet. Tout cela vit dans Redis et sur le WebSocket.
+
+**Complément du 11 août 2026 — le démarrage.** L'énumération initiale omettait le démarrage de la course. L'oubli a été révélé par le code : sans écriture à cette transition, la précondition de la fin de course n'est jamais satisfaite et aucune course ne peut se terminer. Le démarrage est une décision humaine du chauffeur, et elle doit survivre à une panne du service temps réel — si celui-ci tombe en pleine course, il faut savoir que la course avait commencé, et depuis quand.
+
+Cet épisode illustre le bénéfice de la reformulation. Sous la règle des « quatre moments », il aurait fallu débattre de l'existence d'un cinquième. Sous « borné par les décisions humaines », la réponse est immédiate : le chauffeur a décidé de démarrer, donc cela écrit. Le critère n'est pas la place dans une liste, c'est la nature de l'événement.
 
 **L'invariant est testable, et il doit l'être.** Une course de cinq minutes et une course de quarante-cinq minutes, comportant le même nombre de décisions, produisent exactement le même nombre d'écritures Odoo. Un test qui compte les écritures sur deux courses de durées très différentes échoue si quelqu'un ajoute une écriture proportionnelle au temps. C'est cette vérification qui protège la règle, pas le fait de l'avoir écrite ici.
 

@@ -1,6 +1,6 @@
 # babana.cm — Découpage en tâches techniques
 
-**Version** 1.3 — 9 août 2026
+**Version** 1.4 — 11 août 2026
 **Périmètre** v1, pilote Bonanjo — décisions D1 à D15 de `01-architecture.md`, D16 à D18 de `04-monorepo-et-services.md`, D19 à D22 de `05-prerequis-et-simulation.md`
 **Destinataire** développement par Claude Code
 
@@ -162,6 +162,9 @@ Les états `brouillon → demandée → proposée → affectée → en_cours →
 | L4-08 | Historique des courses et des factures, exposé en JSON-RPC natif | S | L4-06 |
 | L4-09 | Notation et avis client après la course, mise à jour de la note moyenne du chauffeur | M | L4-05, L1-03 |
 | L4-10 | **Tests de la machine à états** : toutes les transitions valides passent, toutes les interdites échouent, double encaissement impossible | M | L4-02 |
+| L4-11 | **Test de concurrence sur les transitions**, contre une pile réelle hors du harnais Odoo | M | L4-02, L0-01 |
+
+**Sur L4-11** : extraite de L4-02 le 11 août. Un test de concurrence dans le harnais Odoo est instable par construction — `TransactionCase` annule la transaction en fin de test, une seconde connexion ne voit rien ou attend un verrou. Même raisonnement que L3-13 pour Redis.
 
 **Sur L4-02** : la tâche la plus structurante du lot. Si les transitions ne sont pas les seules portes d'écriture, l'invariant se perd et toutes les garanties du §6 de l'architecture tombent. Un test doit vérifier qu'aucun chemin ne permet d'écrire l'état directement.
 
