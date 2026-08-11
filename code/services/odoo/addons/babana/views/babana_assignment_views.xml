@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="babana_assignment_view_list" model="ir.ui.view">
+        <field name="name">babana.assignment.list</field>
+        <field name="model">babana.assignment</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="motorcycle_id"/>
+                <field name="driver_id"/>
+                <field name="start_date"/>
+                <field name="end_date"/>
+                <field name="author_id"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="babana_assignment_view_form" model="ir.ui.view">
+        <field name="name">babana.assignment.form</field>
+        <field name="model">babana.assignment</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <field name="motorcycle_id"/>
+                        <field name="driver_id"/>
+                        <field name="start_date"/>
+                        <field name="end_date"/>
+                        <field name="author_id" readonly="1"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="babana_assignment_action" model="ir.actions.act_window">
+        <field name="name">Affectations moto ↔ chauffeur</field>
+        <field name="res_model">babana.assignment</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="babana_menu_assignment" name="Affectations" parent="babana_menu_fleet"
+        action="babana_assignment_action" sequence="20"/>
+</odoo>

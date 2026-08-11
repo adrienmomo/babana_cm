@@ -16,6 +16,7 @@ racine du dépôt pour le contexte complet.
         'security/ir.model.access.csv',
         'data/babana_ride_sequence.xml',
         'views/babana_motorcycle_views.xml',
+        'views/babana_assignment_views.xml',
     ],
     'installable': True,
     'application': True,
