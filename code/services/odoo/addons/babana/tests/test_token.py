@@ -108,5 +108,5 @@ class TestBabanaToken(TransactionCase):
         decoded = jwt.decode(access_token, os.environ["JWT_SECRET"], algorithms=["HS256"])
 
         self.assertEqual(decoded["uid"], self.user.babana_public_id)
-        self.assertEqual(decoded["role"], self.user.babana_role)
+        self.assertEqual(decoded["role"], self.user._babana_role())
         self.assertEqual(expires_in, 3600)

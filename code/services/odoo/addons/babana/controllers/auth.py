@@ -160,7 +160,7 @@ def _issue_access_token(user) -> tuple[str, int]:
     now = int(time.time())
     claims = {
         "uid": user.babana_public_id,
-        "role": user.babana_role,
+        "role": user._babana_role(),
         "iat": now,
         "exp": now + ACCESS_TOKEN_TTL_SECONDS,
         "jti": uuid.uuid4().hex,
@@ -170,24 +170,24 @@ def _issue_access_token(user) -> tuple[str, int]:
 
 def _build_session(user, refresh_token: str, *, picture=None) -> dict:
     access_token, expires_in = _issue_access_token(user)
+    role = user._babana_role()
 
     user_payload = {
         "id": user.babana_public_id,
-        "role": user.babana_role,
+        "role": role,
         "displayName": user.name,
         "photoUrl": picture,
         "phoneVerified": False,
     }
-    if user.babana_role == "client":
+    if role == "client":
         # L1-04 : le vrai champ existe côté partenaire. Toujours faux tant que L1-09 (OTP,
         # hors de ce lot) ne l'écrit jamais -- mais ce n'est plus un champ-pont, c'est la valeur
         # réelle d'un champ qui n'a simplement jamais été mis à vrai.
         user_payload["phoneVerified"] = user.partner_id.babana_phone_verified
-    if user.babana_role == "driver":
-        user_payload["driverStatus"] = user.babana_driver_state
-        # Champ-pont encore ouvert côté chauffeur : babana.driver.phone_verified (L1-03) existe,
-        # mais rien ne relie aujourd'hui res.users à sa fiche babana.driver pour le lire ici sans
-        # une recherche supplémentaire non justifiée tant que L1-09 ne l'alimente jamais.
+    if role == "driver":
+        # babana.driver (L1-03) est désormais créé dès le premier sign-in chauffeur (L1-03R) :
+        # la recherche trouve toujours une fiche.
+        user_payload["driverStatus"] = user._babana_driver().state
 
     return {
         "accessToken": access_token,
