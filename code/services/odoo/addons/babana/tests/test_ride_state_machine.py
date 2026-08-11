@@ -1,8 +1,12 @@
 # Tests de la machine à états (L4-02). Couvre les sept critères d'acceptation ; le critère 4
-# (deux action_accept concurrents) est dans test_ride_state_concurrency.py, séparé parce qu'il
-# a besoin de deux connexions PostgreSQL distinctes, pas d'une simple TransactionCase.
+# (deux action_accept concurrents) est désormais L4-11 (amoa/specs/L4-course.md), hors du
+# harnais Odoo -- TransactionCase enveloppe chaque test dans une transaction annulée à la fin,
+# ce qu'une preuve de concurrence à deux connexions réelles ne peut pas traverser. Extrait le 11
+# août (amoa/questions/REPONSES-2026-08-11.md) ; l'ancien test_ride_state_concurrency.py est
+# supprimé d'ici.
 from __future__ import annotations
 
+import psycopg2
 from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase, tagged
 
@@ -134,6 +138,31 @@ class TestRideStateMachine(TransactionCase):
         ride.action_reject(by_driver=driver, reason="x")
         ride.action_cancel(actor_role="client", actor_record=client)
         self.assertEqual(ride.state, "cancelled")
+        # L4-07 corrigé le 11 août (amoa/questions/REPONSES-2026-08-11.md) : l'abandon après
+        # refus porte une catégorie dédiée et le rang du refus, exploitables par L9-09 sans
+        # reconstitution depuis l'historique des refus.
+        self.assertEqual(ride.cancel_category, "abandon_after_rejection")
+        self.assertEqual(ride.cancelled_after_rejection_rank, 1)
+
+    def test_action_cancel_from_rejected_records_rank_after_several_rejections(self):
+        ride, client, driver1 = self._ride_at_proposed()
+        ride.action_reject(by_driver=driver1, reason="trop loin")
+        driver2 = self._make_driver("Second chauffeur")
+        ride.action_propose(by_partner=client, driver=driver2)
+        ride.action_reject(by_driver=driver2, reason="pas envie")
+
+        ride.action_cancel(actor_role="client", actor_record=client)
+
+        self.assertEqual(ride.cancelled_after_rejection_rank, 2)
+
+    def test_action_cancel_from_assigned_is_ordinary_category(self):
+        # Une annulation ordinaire (hors abandon après refus) ne porte pas cette catégorie --
+        # sinon l'indicateur L9-09 compterait des annulations qui n'ont rien à voir avec un
+        # refus.
+        ride, client, _driver = self._ride_at_assigned()
+        ride.action_cancel(actor_role="client", actor_record=client, reason="changement de plan")
+        self.assertEqual(ride.cancel_category, "ordinary")
+        self.assertEqual(ride.cancelled_after_rejection_rank, 0)
 
     def test_action_cancel_in_progress_by_driver_with_reason(self):
         ride, _client, driver = self._ride_at_assigned()
@@ -196,10 +225,14 @@ class TestRideStateMachine(TransactionCase):
             ride.action_propose(by_partner=other_client, driver=driver)
 
     def test_second_non_terminal_request_for_same_client_is_forbidden(self):
+        # Depuis le 11 août (L4-01R, amoa/questions/REPONSES-2026-08-11.md), la garantie vient de
+        # l'index partiel PostgreSQL de babana.ride, pas d'un contrôle applicatif ici devenu
+        # redondant et retiré -- même schéma que test_ride_model.py.
         client = self._make_partner()
         self.env["babana.ride"].action_request(self._base_vals(client))
-        with self.assertRaises(RideInvalidTransition):
-            self.env["babana.ride"].action_request(self._base_vals(client))
+        with self.assertRaises(psycopg2.Error):
+            with self.env.cr.savepoint():
+                self.env["babana.ride"].action_request(self._base_vals(client))
 
     # === Critère 3 : écriture directe de state échoue ==========================================
 

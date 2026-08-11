@@ -76,6 +76,19 @@ class TestBabanaRideModel(TransactionCase):
                     }
                 )
 
+    def test_second_requested_ride_for_same_client_fails_at_database_level(self):
+        # Critère 2 bis (corrigé le 11 août -- amoa/questions/REPONSES-2026-08-11.md) : côté
+        # client, `requested` est un état actif, contrairement à côté chauffeur -- en `requested`
+        # aucun chauffeur n'est encore désigné. Deux demandes simultanées du même client n'ont
+        # aucun sens métier, l'index partiel doit donc couvrir `requested`, pas seulement les
+        # trois états qui concernent le chauffeur.
+        client = self._make_client()
+        self._make_ride(client_id=client.id, state="requested")
+
+        with self.assertRaises(psycopg2.Error):
+            with self.env.cr.savepoint():
+                self._make_ride(client_id=client.id, state="requested")
+
     def test_two_terminal_rides_for_same_driver_are_allowed(self):
         # L'index partiel ne porte que sur les états actifs (proposed, assigned, in_progress) :
         # deux courses terminées (settled) pour le même chauffeur doivent coexister sans

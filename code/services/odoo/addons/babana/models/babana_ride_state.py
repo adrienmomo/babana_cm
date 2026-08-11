@@ -16,8 +16,6 @@ from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
-NON_TERMINAL_CLIENT_STATES = ("requested", "proposed", "assigned", "in_progress")
-
 # Champs figés après `completed` (L4-01/L4-02) : distance, durée, tracé, montant final ne
 # changent plus. `state` lui-même n'est pas dans cet ensemble -- il continue vers `settled` via
 # action_settle, seule transition encore valide depuis `completed`.
@@ -36,6 +34,19 @@ class RideInvalidTransition(UserError):
 
 class BabanaRideState(models.Model):
     _inherit = "babana.ride"
+
+    # Catégorie d'annulation (L4-07 corrigé le 11 août -- amoa/questions/REPONSES-2026-08-11.md).
+    # `abandon_after_rejection` distingue l'abandon après un ou plusieurs refus d'une annulation
+    # ordinaire : L9-09 (hors de ce lot) mesure ce taux d'abandon pour décider s'il faut rouvrir
+    # D11, un indicateur que reconstituer après coup depuis l'historique des refus fragiliserait.
+    cancel_category = fields.Selection(
+        [("ordinary", "Annulation ordinaire"), ("abandon_after_rejection", "Abandon après refus")],
+        default="ordinary",
+    )
+    cancelled_after_rejection_rank = fields.Integer(
+        help="Nombre de refus essuyés par cette course au moment de l'abandon (L4-07, L9-09). "
+        "0 hors du cas abandon_after_rejection.",
+    )
 
     # --- Garde d'écriture (invariant 2) -------------------------------------------------------
 
@@ -91,21 +102,14 @@ class BabanaRideState(models.Model):
 
     def action_request(self, vals):
         """Crée une course à l'état requested (L4-02). `draft` n'est jamais persisté (C-03) :
-        il n'y a donc rien à verrouiller ni aucun état source à vérifier ici -- la précondition
-        porte sur l'absence d'une autre course non terminale pour ce client."""
+        il n'y a donc rien à verrouiller ni aucun état source à vérifier ici. L'unicité d'une
+        course active par client (`requested` compris) est garantie par l'index partiel
+        PostgreSQL de babana.ride (L4-01R, amoa/questions/REPONSES-2026-08-11.md) -- le contrôle
+        applicatif équivalent, redondant depuis que cet index couvre `requested`, a disparu
+        d'ici."""
         client_id = vals.get("client_id")
         if not client_id:
             raise UserError("client_id est requis pour demander une course.")
-
-        existing = self.search(
-            [("client_id", "=", client_id), ("state", "in", NON_TERMINAL_CLIENT_STATES)],
-            limit=1,
-        )
-        if existing:
-            raise RideInvalidTransition(
-                "Ce client a déjà une course non terminale en cours "
-                f"({existing.reference})."
-            )
 
         ride = self.create({**vals, "state": "requested", "requested_at": fields.Datetime.now()})
         ride._babana_journalize("request_creation")
@@ -287,12 +291,19 @@ class BabanaRideState(models.Model):
         if actor_role == "driver" and not reason:
             raise UserError("Motif obligatoire pour une annulation par le chauffeur.")
 
-        self._babana_write_transition(
-            {
-                "state": "cancelled",
-                "cancel_reason": reason,
-                "cancelled_at": fields.Datetime.now(),
-            }
-        )
+        cancel_vals = {
+            "state": "cancelled",
+            "cancel_reason": reason,
+            "cancelled_at": fields.Datetime.now(),
+        }
+        if self.state == "rejected":
+            # Abandon après refus (L4-07 corrigé le 11 août) : aucune réservation à libérer --
+            # elle l'a déjà été en entrant dans `rejected`. Catégorie et rang enregistrés
+            # maintenant, pas reconstitués depuis l'historique des refus (amoa/questions/
+            # REPONSES-2026-08-11.md).
+            cancel_vals["cancel_category"] = "abandon_after_rejection"
+            cancel_vals["cancelled_after_rejection_rank"] = len(self.rejection_ids)
+
+        self._babana_write_transition(cancel_vals)
         self._babana_journalize("cancellation", actor_role=actor_role)
         return self

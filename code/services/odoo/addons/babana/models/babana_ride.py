@@ -18,10 +18,13 @@ RIDE_STATES = [
     ("cancelled", "Annulée"),
 ]
 
-# États dans lesquels un chauffeur ou un client a au plus une course active à la fois (L4-01,
-# critère d'acceptation 2). Utilisé à la fois par l'index partiel PostgreSQL ci-dessous et par
-# les tests qui le prouvent.
-ACTIVE_STATES = ("proposed", "assigned", "in_progress")
+# États actifs (L4-01, critère d'acceptation 2, corrigé le 11 août -- amoa/questions/L4-01.md) :
+# ils diffèrent selon la partie. En `requested`, aucun chauffeur n'est encore désigné, l'état ne
+# le concerne pas ; mais pour le client, la course est bien en cours dès la demande, et deux
+# demandes simultanées du même client n'ont aucun sens métier. Utilisé à la fois par les index
+# partiels PostgreSQL ci-dessous et par les tests qui les prouvent.
+DRIVER_ACTIVE_STATES = ("proposed", "assigned", "in_progress")
+CLIENT_ACTIVE_STATES = ("requested", "proposed", "assigned", "in_progress")
 
 
 class BabanaRide(models.Model):
@@ -132,22 +135,29 @@ class BabanaRide(models.Model):
         return super().create(vals_list)
 
     def init(self):
-        # Contraintes de base de données, pas seulement applicatives (L4-01, critère 2) : un
-        # chauffeur -- ou un client -- ne peut avoir qu'une course dans un état actif. Un index
-        # unique partiel n'est pas exprimable via _sql_constraints (qui ne produit que des
-        # contraintes de table simples), d'où sa création directe ici.
+        # Contraintes de base de données, pas seulement applicatives (L4-01, critère 2 et 2 bis) :
+        # un chauffeur -- ou un client -- ne peut avoir qu'une course dans un état actif, et les
+        # deux listes d'états actifs diffèrent (voir DRIVER_ACTIVE_STATES / CLIENT_ACTIVE_STATES
+        # ci-dessus). Un index unique partiel n'est pas exprimable via _sql_constraints (qui ne
+        # produit que des contraintes de table simples), d'où sa création directe ici.
+        driver_states = ", ".join(f"'{state}'" for state in DRIVER_ACTIVE_STATES)
+        client_states = ", ".join(f"'{state}'" for state in CLIENT_ACTIVE_STATES)
+        # DROP avant CREATE : la liste d'états actifs côté client vient de changer (L4-01R,
+        # amoa/questions/REPONSES-2026-08-11.md) -- `CREATE ... IF NOT EXISTS` seul aurait laissé
+        # dormir l'ancienne définition sur une base déjà installée, sans `requested`.
+        self.env.cr.execute("DROP INDEX IF EXISTS babana_ride_one_active_per_client")
         self.env.cr.execute(
-            """
+            f"""
             CREATE UNIQUE INDEX IF NOT EXISTS babana_ride_one_active_per_driver
             ON babana_ride (driver_id)
-            WHERE state IN ('proposed', 'assigned', 'in_progress') AND driver_id IS NOT NULL
+            WHERE state IN ({driver_states}) AND driver_id IS NOT NULL
             """
         )
         self.env.cr.execute(
-            """
+            f"""
             CREATE UNIQUE INDEX IF NOT EXISTS babana_ride_one_active_per_client
             ON babana_ride (client_id)
-            WHERE state IN ('proposed', 'assigned', 'in_progress')
+            WHERE state IN ({client_states})
             """
         )
         # Index sur la date de création (L4-01, critère 4) : create_date n'est pas indexé par
