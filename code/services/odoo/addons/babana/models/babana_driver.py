@@ -16,10 +16,15 @@ class BabanaDriver(models.Model):
     _name = "babana.driver"
     _description = "Chauffeur salarié (L1-03)"
 
-    # motorcycle_id (Many2one babana.motorcycle, "affectation courante" dans la spécification)
-    # est délibérément absent : babana.motorcycle est L1-07, hors de ce lot, et un Many2one vers
-    # un modèle qui n'existe pas empêche l'installation du module. L1-07 devra l'ajouter.
-    # Écart documenté : amoa/questions/L1-03.md.
+    motorcycle_id = fields.Many2one(
+        "babana.motorcycle",
+        string="Moto affectée",
+        compute="_compute_motorcycle_id",
+        help="Affectation courante (L1-07). Miroir calculé de babana.motorcycle.driver_id, seule "
+        "source écrite de la relation, pour qu'une affectation ne puisse jamais diverger entre "
+        "les deux sens. L'historique complet des affectations vit dans babana.assignment "
+        "(L1-08).",
+    )
 
     employee_id = fields.Many2one(
         "hr.employee",
@@ -124,6 +129,12 @@ class BabanaDriver(models.Model):
                 [("driver_id", "=", record.id)]
             )
 
+    def _compute_motorcycle_id(self):
+        for record in self:
+            record.motorcycle_id = self.env["babana.motorcycle"].search(
+                [("driver_id", "=", record.id)], limit=1
+            )
+
     def _compute_cash_balance(self):
         # Champ-pont : voir amoa/questions/L1-03.md. À brancher sur le journal des mouvements de
         # compte courant (L5-01). Un compute sans inverse est en lecture seule dans l'ORM Odoo :
@@ -147,6 +158,21 @@ class BabanaDriver(models.Model):
             if record.is_online and record.state != "approved":
                 raise ValidationError(
                     "Un chauffeur ne peut passer en ligne que si son dossier est approuvé."
+                )
+
+    @api.constrains("is_online")
+    def _check_online_requires_valid_insurance(self):
+        # Critère d'acceptation 3 de L1-07 : un chauffeur dont la moto n'est plus assurée ne peut
+        # pas passer en ligne -- même blocage, même raison, que côté moto (L1-07, critère 2).
+        for record in self:
+            if (
+                record.is_online
+                and record.motorcycle_id
+                and record.motorcycle_id._insurance_is_expired()
+            ):
+                raise ValidationError(
+                    "Ce chauffeur ne peut pas passer en ligne : l'assurance de sa moto a expiré "
+                    "(L1-07)."
                 )
 
     def write(self, vals):

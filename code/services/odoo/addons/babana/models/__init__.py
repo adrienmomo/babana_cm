@@ -3,4 +3,5 @@ from . import res_users
 from . import res_partner
 from . import babana_token
 from . import babana_driver
+from . import babana_motorcycle
 from . import babana_ride

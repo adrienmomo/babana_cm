@@ -30,14 +30,17 @@ attendant `babana.ride` (L4-01), ont été trouvés dans le même état : leur t
 terminée depuis le 10 août sans que le branchement ait été fait. Branchés cette nuit sur un
 `search_count` réel ; retirés de ce registre.
 
-## En observation, non résolu cette nuit
+## Résolu cette nuit, sans jamais figurer dans le tableau
 
-**`babana.driver.motorcycle_id`** n'existe pas encore : la spécification de L1-03 le listait, mais
-un `Many2one` vers `babana.motorcycle` (L1-07) — absent au 10 août — aurait empêché l'installation
-du module. Contrairement aux lignes du tableau ci-dessus, aucun champ de repli n'a été posé à sa
-place (`amoa/questions/L1-03.md`) : il n'y a donc rien à inscrire ici avant L1-07. **L1-07, plus
-tard cette même nuit, doit ajouter le vrai `Many2one` directement — pas un champ plat qui
-deviendrait à son tour un champ-pont à tracer.**
+**`babana.driver.motorcycle_id`** n'existait pas encore au 10 août : la spécification de L1-03 le
+listait, mais un `Many2one` vers `babana.motorcycle` (L1-07), alors absent, aurait empêché
+l'installation du module. Contrairement aux lignes du tableau ci-dessus, aucun champ de repli
+n'avait été posé à sa place (`amoa/questions/L1-03.md`) : il n'y avait donc rien à inscrire ici
+avant L1-07. **L1-07 (cette nuit) ajoute directement le vrai champ** : `babana.motorcycle.driver_id`
+est la relation écrite (source unique), `babana.driver.motorcycle_id` en est le miroir calculé —
+jamais un champ plat transitoire, donc jamais entré dans ce tableau.
+
+## En observation, non résolu cette nuit
 
 **`babana.ride.pickup_zone_id` / `dropoff_zone_id`** sont dans la même situation, pour
 `babana.zone` (L2-02) : omis de L4-01 le 10 août, aucun champ de repli posé. L2-02 (cette nuit)

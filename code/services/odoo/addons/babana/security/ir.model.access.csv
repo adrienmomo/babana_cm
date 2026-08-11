@@ -8,3 +8,5 @@ access_babana_ride_admin,babana.ride admin,model_babana_ride,group_babana_admin,
 access_babana_ride_rejection_supervisor,babana.ride.rejection supervisor,model_babana_ride_rejection,group_babana_supervisor,1,0,0,0
 access_babana_ride_rejection_manager,babana.ride.rejection manager,model_babana_ride_rejection,group_babana_manager,1,1,1,0
 access_babana_ride_rejection_admin,babana.ride.rejection admin,model_babana_ride_rejection,group_babana_admin,1,1,1,1
+access_babana_motorcycle_manager,babana.motorcycle manager,model_babana_motorcycle,group_babana_manager,1,1,1,0
+access_babana_motorcycle_admin,babana.motorcycle admin,model_babana_motorcycle,group_babana_admin,1,1,1,1

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="babana_motorcycle_view_list" model="ir.ui.view">
+        <field name="name">babana.motorcycle.list</field>
+        <field name="model">babana.motorcycle</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="license_plate"/>
+                <field name="brand"/>
+                <field name="model"/>
+                <field name="vehicle_class"/>
+                <field name="state"/>
+                <field name="driver_id"/>
+                <field name="insurance_expires_on"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="babana_motorcycle_view_form" model="ir.ui.view">
+        <field name="name">babana.motorcycle.form</field>
+        <field name="model">babana.motorcycle</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group string="Identité">
+                            <field name="license_plate"/>
+                            <field name="brand"/>
+                            <field name="model"/>
+                            <field name="year"/>
+                            <field name="vehicle_class"/>
+                        </group>
+                        <group string="Affectation">
+                            <field name="state"/>
+                            <field name="driver_id"/>
+                        </group>
+                    </group>
+                    <group string="Assurance et carte grise">
+                        <field name="registration_reference"/>
+                        <field name="registration_document"/>
+                        <field name="insurer"/>
+                        <field name="insurance_policy_number"/>
+                        <field name="insurance_expires_on"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="babana_motorcycle_action" model="ir.actions.act_window">
+        <field name="name">Flotte de motos</field>
+        <field name="res_model">babana.motorcycle</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="babana_menu_root" name="Babana" sequence="50"
+        groups="babana.group_babana_supervisor,babana.group_babana_manager,babana.group_babana_admin"/>
+    <menuitem id="babana_menu_fleet" name="Flotte" parent="babana_menu_root" sequence="20"/>
+    <menuitem id="babana_menu_motorcycle" name="Motos" parent="babana_menu_fleet"
+        action="babana_motorcycle_action" sequence="10"/>
+</odoo>
