@@ -31,9 +31,6 @@ class ResPartner(models.Model):
     babana_rides_count = fields.Integer(
         string="Nombre de courses",
         compute="_compute_babana_rides_count",
-        help="Champ-pont : babana.ride (L4-01) n'existe pas encore au moment de L1-04. "
-        "Toujours 0 ce soir -- voir amoa/questions/L1-03.md pour le même schéma sur "
-        "babana.driver.ride_count.",
     )
     babana_emergency_contact = fields.Char(
         string="Contact d'urgence",
@@ -51,4 +48,6 @@ class ResPartner(models.Model):
 
     def _compute_babana_rides_count(self):
         for record in self:
-            record.babana_rides_count = 0
+            record.babana_rides_count = self.env["babana.ride"].search_count(
+                [("client_id", "=", record.id)]
+            )

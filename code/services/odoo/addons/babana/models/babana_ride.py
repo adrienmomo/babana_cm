@@ -59,7 +59,7 @@ class BabanaRide(models.Model):
 
     # --- Estimation ------------------------------------------------------------------------
     quote_reference = fields.Char(
-        help="Remplace un Many2one babana.quote (L2-04, absent ce soir) -- "
+        help="[PONT — remplacé par L2-04] Remplace un Many2one babana.quote, absent ce soir -- "
         "amoa/questions/L4-01.md.",
     )
     currency_id = fields.Many2one(
@@ -89,7 +89,7 @@ class BabanaRide(models.Model):
         "ultérieure de la règle d'origine (critère d'acceptation 3).",
     )
     promotion_code = fields.Char(
-        help="Remplace un Many2one babana.promotion (L2-06, absent ce soir).",
+        help="[PONT — remplacé par L2-06] Remplace un Many2one babana.promotion, absent ce soir.",
     )
     discount_amount = fields.Monetary(currency_field="currency_id")
     final_amount = fields.Monetary(currency_field="currency_id")

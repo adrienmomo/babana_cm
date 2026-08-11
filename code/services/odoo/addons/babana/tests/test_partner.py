@@ -46,6 +46,27 @@ class TestBabanaPartner(TransactionCase):
         self.env["res.partner"].create({"name": "Sans Google 1"})
         self.env["res.partner"].create({"name": "Sans Google 2"})
 
+    # --- babana_rides_count n'est plus un champ-pont (code/docs/bridge-fields.md) -------------
+
+    def test_babana_rides_count_reflects_the_client_rides(self):
+        partner = self.env["res.partner"].create({"name": "Client courses"})
+
+        self.env["babana.ride"].create(
+            {
+                "client_id": partner.id,
+                "pickup_latitude": 4.05,
+                "pickup_longitude": 9.70,
+                "dropoff_latitude": 4.06,
+                "dropoff_longitude": 9.77,
+            }
+        )
+
+        # babana_rides_count n'a pas de @api.depends -- pas de lien direct à déclarer entre
+        # res.partner et babana.ride -- le cache Odoo ignore donc la création : invalidation
+        # explicite avant lecture, comme le ferait une requête HTTP fraîche.
+        partner.invalidate_recordset()
+        self.assertEqual(partner.babana_rides_count, 1)
+
     # --- Critère 3 : une facture peut être émise à ce partenaire sans traitement particulier -
 
     def test_invoice_can_be_issued_to_babana_customer_without_special_handling(self):

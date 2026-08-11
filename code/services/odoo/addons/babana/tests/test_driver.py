@@ -65,6 +65,29 @@ class TestBabanaDriver(TransactionCase):
         with self.assertRaises(Exception):
             self.env["babana.driver"].create({"employee_id": employee.id})
 
+    # --- ride_count n'est plus un champ-pont (code/docs/bridge-fields.md) ------------------
+
+    def test_ride_count_reflects_the_driver_rides(self):
+        driver = self._make_driver()
+
+        self.env["babana.ride"].create(
+            {
+                "client_id": self.env["res.partner"].create({"name": "Client"}).id,
+                "driver_id": driver.id,
+                "pickup_latitude": 4.05,
+                "pickup_longitude": 9.70,
+                "dropoff_latitude": 4.06,
+                "dropoff_longitude": 9.77,
+                "state": "settled",
+            }
+        )
+
+        # ride_count n'a pas de @api.depends -- rien à déclarer entre deux modèles sans lien
+        # direct -- et le cache Odoo ne se sait donc pas périmé par la création d'une course :
+        # invalidation explicite avant lecture, comme le ferait une requête HTTP fraîche.
+        driver.invalidate_recordset()
+        self.assertEqual(driver.ride_count, 1)
+
     def test_default_cash_limit_reads_config_parameter(self):
         self.env["ir.config_parameter"].sudo().set_param(
             "babana.default_cash_limit", "75000"

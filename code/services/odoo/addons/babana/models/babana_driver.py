@@ -48,12 +48,21 @@ class BabanaDriver(models.Model):
     rejection_reason = fields.Text(string="Motif de rejet")
     is_online = fields.Boolean(string="En ligne", default=False)
 
-    # Champs-pont (amoa/questions/L1-03.md) : les modèles source n'existent pas encore.
-    # Renvoient une valeur neutre jusqu'à ce que L4-09 (notation), L4-01 (courses) et L5-01
-    # (mouvements de compte courant) existent -- la méthode de calcul est déjà en place pour
-    # être branchée dessus sans changer la signature du champ.
-    rating_avg = fields.Float(string="Note moyenne", compute="_compute_rating")
-    rating_count = fields.Integer(string="Nombre d'avis", compute="_compute_rating")
+    # Champs-pont restants (amoa/questions/L1-03.md, code/docs/bridge-fields.md) : rating_avg et
+    # rating_count renvoient une valeur neutre jusqu'à ce que L4-09 (notation) existe -- la
+    # méthode de calcul est déjà en place pour être branchée dessus sans changer la signature du
+    # champ. ride_count n'en est plus un : babana.ride (L4-01) existe désormais (branché le
+    # 11 août, amoa/questions/REPONSES-2026-08-11.md).
+    rating_avg = fields.Float(
+        string="Note moyenne",
+        compute="_compute_rating",
+        help="[PONT — remplacé par L4-09] Toujours 0.0 tant que babana.rating n'existe pas.",
+    )
+    rating_count = fields.Integer(
+        string="Nombre d'avis",
+        compute="_compute_rating",
+        help="[PONT — remplacé par L4-09] Toujours 0 tant que babana.rating n'existe pas.",
+    )
     ride_count = fields.Integer(
         string="Nombre de courses",
         compute="_compute_ride_count",
@@ -69,10 +78,10 @@ class BabanaDriver(models.Model):
         currency_field="currency_id",
         compute="_compute_cash_balance",
         inverse="_inverse_cash_balance",
-        help="Jamais écrit directement (D8) : résultat du journal des mouvements de compte "
-        "courant (L5-01). Champ-pont en attendant ce modèle -- toujours 0 ce soir. L'ajout "
-        "ultérieur d'un solde de commission (É3) n'exige aucune migration : un champ calculé "
-        "de plus, indépendant de celui-ci.",
+        help="[PONT — remplacé par L5-01] Jamais écrit directement (D8) : résultat du journal "
+        "des mouvements de compte courant. Toujours 0 en attendant ce modèle. L'ajout ultérieur "
+        "d'un solde de commission (É3) n'exige aucune migration : un champ calculé de plus, "
+        "indépendant de celui-ci.",
     )
     cash_limit = fields.Monetary(
         string="Plafond d'encaisse",
@@ -110,9 +119,10 @@ class BabanaDriver(models.Model):
             record.rating_count = 0
 
     def _compute_ride_count(self):
-        # Champ-pont : voir amoa/questions/L1-03.md. À brancher sur babana.ride (L4-01).
         for record in self:
-            record.ride_count = 0
+            record.ride_count = self.env["babana.ride"].search_count(
+                [("driver_id", "=", record.id)]
+            )
 
     def _compute_cash_balance(self):
         # Champ-pont : voir amoa/questions/L1-03.md. À brancher sur le journal des mouvements de
