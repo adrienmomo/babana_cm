@@ -4,8 +4,15 @@
 # module-ci ne connaît que l'affectation active.
 from __future__ import annotations
 
+from datetime import timedelta
+
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
+
+# D21 : valeur par défaut plausible, explicitement provisoire (L1-10). Le vrai délai vient du
+# paramètre système babana.expiry_alert_window_days (back-office), jamais codé en dur ailleurs.
+EXPIRY_ALERT_WINDOW_PARAM = "babana.expiry_alert_window_days"
+EXPIRY_ALERT_WINDOW_FALLBACK_DAYS = 15
 
 MOTORCYCLE_STATES = [
     ("available", "Disponible"),
@@ -24,6 +31,7 @@ VEHICLE_CLASSES = [("standard", "Standard"), ("premium", "Premium")]
 
 class BabanaMotorcycle(models.Model):
     _name = "babana.motorcycle"
+    _inherit = ["mail.thread"]
     _description = "Moto de la flotte (L1-07, D6)"
     _order = "license_plate"
 
@@ -43,6 +51,11 @@ class BabanaMotorcycle(models.Model):
     insurer = fields.Char(string="Assureur")
     insurance_policy_number = fields.Char(string="Numéro de police")
     insurance_expires_on = fields.Date(string="Expiration de l'assurance")
+    insurance_alert_sent_on = fields.Date(
+        string="Dernière alerte d'échéance envoyée",
+        help="Idempotence de la tâche planifiée (L1-10, critère d'acceptation 4) : deux "
+        "exécutions le même jour ne renvoient pas deux fois la même alerte.",
+    )
     state = fields.Selection(
         MOTORCYCLE_STATES,
         default="available",
@@ -120,3 +133,55 @@ class BabanaMotorcycle(models.Model):
         if sticky:
             result = super(BabanaMotorcycle, sticky).write(vals) and result
         return result
+
+    # --- L1-10 : alertes d'échéance -----------------------------------------------------------
+
+    @api.model
+    def _expiry_alert_window_days(self) -> int:
+        return int(
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param(EXPIRY_ALERT_WINDOW_PARAM, EXPIRY_ALERT_WINDOW_FALLBACK_DAYS)
+        )
+
+    @api.model
+    def _cron_check_expiry_alerts(self):
+        """Tâche planifiée quotidienne (L1-10) : alerte avant échéance, blocage à l'échéance.
+        Couvre l'assurance des motos et le permis des chauffeurs (amoa/questions/L1-10.md pour
+        license_expires_on, champ-pont en attendant L1-05)."""
+        self._cron_alert_and_block_motorcycles()
+        self.env["babana.driver"]._cron_alert_and_block_drivers()
+
+    def _cron_alert_and_block_motorcycles(self):
+        today = fields.Date.context_today(self)
+        window_end = today + timedelta(days=self._expiry_alert_window_days())
+
+        upcoming = self.search(
+            [
+                ("insurance_expires_on", ">=", today),
+                ("insurance_expires_on", "<=", window_end),
+                ("insurance_alert_sent_on", "!=", today),
+            ]
+        )
+        for moto in upcoming:
+            moto.message_post(
+                body=(
+                    f"Assurance de la moto {moto.license_plate} expirant le "
+                    f"{moto.insurance_expires_on} (L1-10)."
+                )
+            )
+            moto.insurance_alert_sent_on = today
+
+        expired = self.search(
+            [
+                ("insurance_expires_on", "<", today),
+                ("state", "not in", ["maintenance", "retired"]),
+            ]
+        )
+        for moto in expired:
+            # Critère 2 : blocage automatique de l'affectation, pas laissé à la vigilance d'un
+            # gestionnaire. "maintenance" réutilise l'état déjà bloquant de L1-07 plutôt que
+            # d'introduire une valeur de plus pour le même effet.
+            moto.write({"state": "maintenance"})
+            if moto.driver_id and moto.driver_id.is_online:
+                moto.driver_id.write({"is_online": False})

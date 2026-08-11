@@ -5,5 +5,6 @@ from . import test_token
 from . import test_driver
 from . import test_motorcycle
 from . import test_assignment
+from . import test_expiry_alerts
 from . import test_partner
 from . import test_ride_model

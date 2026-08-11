@@ -15,6 +15,7 @@ racine du dépôt pour le contexte complet.
         'security/babana_groups.xml',
         'security/ir.model.access.csv',
         'data/babana_ride_sequence.xml',
+        'data/cron.xml',
         'views/babana_motorcycle_views.xml',
         'views/babana_assignment_views.xml',
     ],

@@ -14,6 +14,7 @@ vit dans le message de commit qui l'a retirée, pas ici.
 | `cash_balance` | `babana.driver` | L5-01 | 10 août 2026 (L1-03) | Résultat du journal des mouvements de compte courant (D8), qui n'existe pas encore. Champ calculé sans inverse fonctionnel (l'inverse existe uniquement pour lever une erreur explicite sur écriture directe, critère d'acceptation 4 de L1-03) ; renvoie 0 tant que L5-01 n'existe pas. |
 | `quote_reference` | `babana.ride` | L2-04 | 10 août 2026 (L4-01) | Remplace un `Many2one` vers `babana.quote`, absent au moment de L4-01 (`amoa/questions/L4-01.md`). Un `Many2one` vers un modèle absent empêcherait l'installation du module. |
 | `promotion_code` | `babana.ride` | L2-06 | 10 août 2026 (L4-01) | Même raison, vers `babana.promotion` (L2-06, hors du lot du 10 août comme du 11 août). |
+| `license_expires_on`, `license_alert_sent_on` | `babana.driver` | L1-05 | 11 août 2026 (L1-10) | L1-10 (alertes d'échéance) a besoin d'une date d'expiration de permis chauffeur pour fonctionner ce soir, mais le modèle qui la porterait normalement (`babana.driver.document`, type `license`) est L1-05, non prévu cette nuit. Champs plats en attendant — voir `amoa/questions/L1-10.md`. |
 
 ## Vérifié le 11 août 2026
 

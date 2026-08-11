@@ -47,10 +47,39 @@
         </field>
     </record>
 
+    <record id="babana_motorcycle_view_search" model="ir.ui.view">
+        <field name="name">babana.motorcycle.search</field>
+        <field name="model">babana.motorcycle</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="license_plate"/>
+                <field name="driver_id"/>
+                <!-- Vue back-office listant les échéances à venir (L1-10, spécification). Le
+                     domaine d'un filtre de recherche s'évalue côté client (pyeval), sans accès à
+                     l'ORM : impossible d'y lire babana.expiry_alert_window_days comme le fait la
+                     tâche planifiée. Fenêtre fixe à 30 jours par défaut, ajustable à la volée par
+                     le gestionnaire depuis la barre de recherche : ce n'est qu'une commodité
+                     d'affichage, pas la logique de blocage elle-même. -->
+                <filter
+                    name="insurance_expiring_soon"
+                    string="Assurance expirant bientôt"
+                    domain="[
+                        ('insurance_expires_on', '!=', False),
+                        ('insurance_expires_on', '&lt;=', (context_today() + relativedelta(days=30)).strftime('%Y-%m-%d')),
+                    ]"
+                />
+                <group expand="0" string="Regrouper par">
+                    <filter name="group_by_state" string="État" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
     <record id="babana_motorcycle_action" model="ir.actions.act_window">
         <field name="name">Flotte de motos</field>
         <field name="res_model">babana.motorcycle</field>
         <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="babana_motorcycle_view_search"/>
     </record>
 
     <menuitem id="babana_menu_root" name="Babana" sequence="50"

@@ -2,6 +2,8 @@
 # c'est un employé de l'entreprise dont l'application est un outil de travail.
 from __future__ import annotations
 
+from datetime import timedelta
+
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
@@ -14,8 +16,19 @@ DEFAULT_CASH_LIMIT_FALLBACK = 50000.0
 
 class BabanaDriver(models.Model):
     _name = "babana.driver"
+    _inherit = ["mail.thread"]
     _description = "Chauffeur salarié (L1-03)"
 
+    license_expires_on = fields.Date(
+        string="Expiration du permis",
+        help="[PONT — remplacé par L1-05] babana.driver.document (type license) n'existe pas "
+        "encore : ce champ plat porte la date le temps que L1-05 fournisse le vrai modèle de "
+        "document, nécessaire dès ce soir pour L1-10 (amoa/questions/L1-10.md).",
+    )
+    license_alert_sent_on = fields.Date(
+        string="Dernière alerte de permis envoyée",
+        help="Idempotence de la tâche planifiée (L1-10, critère d'acceptation 4).",
+    )
     motorcycle_id = fields.Many2one(
         "babana.motorcycle",
         string="Moto affectée",
@@ -175,6 +188,20 @@ class BabanaDriver(models.Model):
                     "(L1-07)."
                 )
 
+    @api.constrains("is_online")
+    def _check_online_requires_valid_license(self):
+        # Même raisonnement que l'assurance (L1-07) : un permis expiré est un risque juridique,
+        # bloqué plutôt que signalé (L1-10).
+        for record in self:
+            if (
+                record.is_online
+                and record.license_expires_on
+                and record.license_expires_on < fields.Date.context_today(record)
+            ):
+                raise ValidationError(
+                    "Ce chauffeur ne peut pas passer en ligne : son permis a expiré (L1-10)."
+                )
+
     def write(self, vals):
         # Critère d'acceptation 2 : un chauffeur suspendu (ou rejeté, ou repassé en attente)
         # passe automatiquement hors ligne -- pas seulement rejeté s'il tentait de repasser en
@@ -183,3 +210,33 @@ class BabanaDriver(models.Model):
         if "state" in vals and vals["state"] != "approved":
             vals = dict(vals, is_online=False)
         return super().write(vals)
+
+    # --- L1-10 : alertes d'échéance (permis) ----------------------------------------------
+
+    def _cron_alert_and_block_drivers(self):
+        today = fields.Date.context_today(self)
+        window_end = today + timedelta(
+            days=self.env["babana.motorcycle"]._expiry_alert_window_days()
+        )
+
+        upcoming = self.search(
+            [
+                ("license_expires_on", ">=", today),
+                ("license_expires_on", "<=", window_end),
+                ("license_alert_sent_on", "!=", today),
+            ]
+        )
+        for driver in upcoming:
+            driver.message_post(
+                body=(
+                    f"Permis du chauffeur {driver.employee_id.name} expirant le "
+                    f"{driver.license_expires_on} (L1-10)."
+                )
+            )
+            driver.license_alert_sent_on = today
+
+        expired = self.search([("license_expires_on", "<", today), ("is_online", "=", True)])
+        for driver in expired:
+            # Critère 3 : mise hors ligne automatique, pas laissée à la vigilance d'un
+            # gestionnaire.
+            driver.write({"is_online": False})
