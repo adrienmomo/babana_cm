@@ -24,26 +24,6 @@ class ResUsers(models.Model):
         help="Identifiant exposé aux apps mobiles (UserIdSchema, C-01) — jamais l'identifiant "
         "Odoo interne, séquentiel et devinable.",
     )
-    babana_role = fields.Selection(
-        [("client", "Client"), ("driver", "Chauffeur")],
-        string="Rôle babana",
-        copy=False,
-        help="Fixé une fois pour toutes à la création du compte (L1-01) ; un compte ne change "
-        "jamais de rôle après coup.",
-    )
-    babana_driver_state = fields.Selection(
-        [
-            ("pending", "En attente"),
-            ("approved", "Approuvé"),
-            ("rejected", "Rejeté"),
-            ("suspended", "Suspendu"),
-        ],
-        string="Statut chauffeur (champ-pont)",
-        copy=False,
-        help="Champ transitoire : babana.driver (L1-03) n'existe pas encore au moment de L1-01. "
-        "L1-03 doit le remplacer par une délégation à babana.driver.state — ne pas construire "
-        "de nouvelle logique dessus, il est appelé à disparaître (amoa/questions/L1-01.md).",
-    )
     _sql_constraints = [
         (
             "babana_google_sub_unique",
@@ -61,9 +41,12 @@ class ResUsers(models.Model):
     def _babana_find_or_create_from_google(self, *, sub, email, name, role):
         """Retrouve un compte babana par `sub`, ou en crée un (L1-01, critères 1 et 6).
 
-        Le rôle n'est significatif qu'à la création. Un compte déjà existant conserve son rôle
-        d'origine quel que soit le `role` transmis à ce rappel — un compte ne change pas de
-        nature après coup, à l'image de l'irréversibilité des transitions de `babana.ride`.
+        Le rôle n'est plus stocké (L1-03R, `amoa/questions/L1-03R.md`) : il se lit désormais par
+        l'existence d'un `babana.driver` rattaché (`_babana_role`), pas par une copie sur
+        l'utilisateur. Un compte déjà existant conserve donc son rôle d'origine quel que soit le
+        `role` transmis à ce rappel, sans qu'il faille rien figer explicitement à la création —
+        un compte ne change pas de nature après coup, à l'image de l'irréversibilité des
+        transitions de `babana.ride`.
         """
         existing = self.sudo().search([("google_sub", "=", sub)], limit=1)
         if existing:
@@ -79,7 +62,6 @@ class ResUsers(models.Model):
             "login": f"google:{sub}",
             "email": email,
             "google_sub": sub,
-            "babana_role": role,
             "company_id": company.id,
             "company_ids": [(6, 0, [company.id])],
             # Aucun groupe métier (L0-02) : les droits passent exclusivement par les règles
@@ -87,8 +69,6 @@ class ResUsers(models.Model):
             # s'authentifie sans jamais accéder au back-office.
             "groups_id": [(6, 0, [portal_group.id])],
         }
-        if role == "driver":
-            vals["babana_driver_state"] = "pending"
         user = self.sudo().with_context(no_reset_password=True).create(vals)
 
         if role == "client":
@@ -99,5 +79,30 @@ class ResUsers(models.Model):
             user.partner_id.sudo().write(
                 {"babana_is_customer": True, "babana_google_sub": sub}
             )
+        elif role == "driver":
+            # L1-01 demandait déjà de « créer ou rattacher le babana.driver ... correspondant » ;
+            # resté en suspens tant que babana.driver n'existait pas (L1-03). Complété ici
+            # (L1-03R) : voir amoa/questions/L1-03R.md pour la fiche hr.employee minimale créée
+            # en même temps, faute d'un provisionnement RH préalable spécifié ailleurs.
+            employee = self.env["hr.employee"].sudo().create({"name": vals["name"]})
+            self.env["babana.driver"].sudo().create(
+                {"employee_id": employee.id, "user_id": user.id}
+            )
 
         return user
+
+    def _babana_role(self):
+        """Rôle babana de ce compte -- dérivé, jamais stocké (L1-03R).
+
+        Un `babana.driver` rattaché signale un compte chauffeur ; à défaut, un compte babana est
+        toujours un compte client. Remplace le champ-pont `babana_role` de L1-01.
+        """
+        self.ensure_one()
+        if self.env["babana.driver"].sudo().search_count([("user_id", "=", self.id)]):
+            return "driver"
+        return "client"
+
+    def _babana_driver(self):
+        """Fiche `babana.driver` rattachée à ce compte, vide si aucune (L1-03R)."""
+        self.ensure_one()
+        return self.env["babana.driver"].sudo().search([("user_id", "=", self.id)], limit=1)
