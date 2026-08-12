@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<odoo>
+<odoo noupdate="1">
     <!--
         Règle de repli (L2-01, critère d'acceptation 3) : sans zone, sans gamme, sans plage
         horaire, toujours applicable. Une course sans tarif calculable est une panne, pas un cas
@@ -9,6 +9,12 @@
         pratique pour une course de moto-taxi, pas des nombres tirés au hasard. Une valeur
         plausible permet de repérer une anomalie de calcul à l'œil. À confirmer par L10-05 sur
         données de pilote.
+
+        noupdate="1" : babana.fare.rule.write() refuse toute modification des champs tarifaires
+        d'une règle déjà créée (critère d'acceptation 4, new_version() sinon). Sans ce drapeau,
+        le rechargement idempotent de ce fichier par Odoo à chaque réinstallation du module
+        tenterait un write() sur cet enregistrement déjà existant et échouerait (constaté en
+        développant L2-02).
     -->
     <record id="babana_fare_rule_default" model="babana.fare.rule">
         <field name="name">Grille par défaut (Douala)</field>

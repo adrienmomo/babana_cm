@@ -21,7 +21,7 @@ _VERSIONED_FIELDS = {
     "base_fare",
     "price_per_km",
     "minimum_fare",
-    "zone_id",
+    "zone_id",  # amoa/questions/L2-01.md : ajouté par L2-02, déjà dans cet ensemble par avance.
     "vehicle_class",
     "time_start",
     "time_end",
@@ -42,9 +42,12 @@ class BabanaFareRule(models.Model):
     base_fare = fields.Float(string="Prise en charge (FCFA)", required=True)
     price_per_km = fields.Float(string="Prix au kilomètre (FCFA)", required=True)
     minimum_fare = fields.Float(string="Montant plancher (FCFA)", required=True)
-    # zone_id (Many2one babana.zone) omis : babana.zone est L2-02, pas encore écrit à ce point de
-    # la nuit -- un Many2one vers un modèle absent empêcherait l'installation. L2-02 l'ajoute
-    # dans la foulée (amoa/questions/L2-01.md), même schéma que motorcycle_id avant L1-07.
+    zone_id = fields.Many2one(
+        "babana.zone",
+        string="Zone d'application",
+        help="Vide = toutes les zones. Ajouté par L2-02 (amoa/questions/L2-01.md) : absent le "
+        "temps que babana.zone n'existe pas encore, plus tôt cette même nuit.",
+    )
     vehicle_class = fields.Selection(
         [("standard", "Standard"), ("premium", "Premium")],
         string="Gamme",
@@ -111,20 +114,23 @@ class BabanaFareRule(models.Model):
         return bool(self.weekday_mask & (1 << weekday))
 
     @api.model
-    def _find_applicable_rule(self, *, vehicle_class=None, at_datetime):
+    def _find_applicable_rule(self, *, zone=None, vehicle_class=None, at_datetime):
         """Sélection déterministe (L2-01, critère 2) : parmi les règles applicables à cette
-        gamme et cet instant, celle de plus forte priorité gagne -- `_order` porte déjà le
-        départage à égalité (création la plus récente). Il doit toujours en exister une : la
-        règle de repli (data/fare_rule_default.xml) ne restreint ni gamme, ni horaire.
-
-        Le filtre de zone rejoint cette méthode avec L2-02 (amoa/questions/L2-01.md) : zone_id
-        n'existe pas encore à ce point de la nuit."""
+        zone, cette gamme et cet instant, celle de plus forte priorité gagne -- `_order` porte
+        déjà le départage à égalité (création la plus récente). Il doit toujours en exister une :
+        la règle de repli (data/fare_rule_default.xml) ne restreint ni zone, ni gamme, ni
+        horaire. `zone` est la zone de départ résolue par babana.zone.resolve_point (L2-02) --
+        c'est elle qui détermine la règle, pas la zone d'arrivée (documenté ici comme le demande
+        L2-07)."""
         candidates = self.search(
             [
                 ("active_from", "<=", at_datetime.date()),
                 "|",
                 ("active_to", "=", False),
                 ("active_to", ">=", at_datetime.date()),
+                "|",
+                ("zone_id", "=", False),
+                ("zone_id", "=", zone.id if zone else False),
                 "|",
                 ("vehicle_class", "=", False),
                 ("vehicle_class", "=", vehicle_class or False),
@@ -140,15 +146,32 @@ class BabanaFareRule(models.Model):
             "panne, pas un cas métier (L2-01). Vérifier que la règle de repli existe toujours."
         )
 
+    def _versioned_field_actually_changes(self, field_name, new_value) -> bool:
+        self.ensure_one()
+        current = self[field_name]
+        if self._fields[field_name].type == "many2one":
+            return (current.id if current else False) != (new_value or False)
+        return current != new_value
+
     def write(self, vals):
-        if _VERSIONED_FIELDS.intersection(vals) and not self.env.context.get(
-            "babana_allow_versioned_write"
-        ):
-            raise UserError(
-                "Une règle tarifaire existante ne se modifie pas en place : utiliser "
-                "new_version() pour créer une nouvelle version et clore celle-ci (L2-01, "
-                "critère d'acceptation 4)."
-            )
+        # Comparé à la valeur réellement stockée, pas seulement à la présence du champ dans
+        # vals : le chargement des données de seed (data/fare_rule_default.xml) réapplique les
+        # mêmes valeurs à chaque réinstallation du module -- noupdate="1" n'en dispense pas
+        # nécessairement selon le mode de chargement (constaté en développant L2-02). Un
+        # write() qui ne change rien n'est pas une modification au sens du critère 4.
+        if not self.env.context.get("babana_allow_versioned_write"):
+            for record in self:
+                changed = [
+                    field
+                    for field in _VERSIONED_FIELDS.intersection(vals)
+                    if record._versioned_field_actually_changes(field, vals[field])
+                ]
+                if changed:
+                    raise UserError(
+                        "Une règle tarifaire existante ne se modifie pas en place : utiliser "
+                        "new_version() pour créer une nouvelle version et clore celle-ci "
+                        "(L2-01, critère d'acceptation 4)."
+                    )
         return super().write(vals)
 
     def new_version(self, vals):

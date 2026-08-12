@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo noupdate="1">
+    <!--
+        Une seule zone pour le pilote (L2-02, session du 11 août) : le découpage fin viendra
+        quand L9-07 montrera où sont les heures de pointe réelles, le deviner d'avance serait de
+        la fiction. Rectangle englobant approximatif de Douala : précision non requise au
+        pilote, seule compte l'existence d'une zone par défaut toujours résolvable.
+    -->
+    <record id="babana_zone_douala_default" model="babana.zone">
+        <field name="name">Douala</field>
+        <field name="priority">0</field>
+        <field name="is_default">True</field>
+        <field name="polygon_geojson">{"type": "Polygon", "coordinates": [[[9.60, 3.95], [9.85, 3.95], [9.85, 4.15], [9.60, 4.15], [9.60, 3.95]]]}</field>
+    </record>
+</odoo>

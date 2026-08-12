@@ -20,6 +20,8 @@ racine du dépôt pour le contexte complet.
         'views/babana_assignment_views.xml',
         'data/fare_rule_default.xml',
         'views/babana_fare_rule_views.xml',
+        'data/babana_zone_default.xml',
+        'views/babana_zone_views.xml',
     ],
     'installable': True,
     'application': True,
