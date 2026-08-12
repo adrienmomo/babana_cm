@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="babana_fare_rule_view_list" model="ir.ui.view">
+        <field name="name">babana.fare.rule.list</field>
+        <field name="model">babana.fare.rule</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="vehicle_class"/>
+                <field name="base_fare"/>
+                <field name="price_per_km"/>
+                <field name="minimum_fare"/>
+                <field name="priority"/>
+                <field name="active_from"/>
+                <field name="active_to"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="babana_fare_rule_view_form" model="ir.ui.view">
+        <field name="name">babana.fare.rule.form</field>
+        <field name="model">babana.fare.rule</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group string="Montants">
+                            <field name="name"/>
+                            <field name="base_fare"/>
+                            <field name="price_per_km"/>
+                            <field name="minimum_fare"/>
+                            <field name="surge_multiplier"/>
+                        </group>
+                        <group string="Application">
+                            <field name="vehicle_class"/>
+                            <field name="time_start"/>
+                            <field name="time_end"/>
+                            <field name="weekday_mask"/>
+                            <field name="priority"/>
+                        </group>
+                    </group>
+                    <group string="Validité de la règle">
+                        <field name="active_from"/>
+                        <field name="active_to"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="babana_fare_rule_action" model="ir.actions.act_window">
+        <field name="name">Grille tarifaire</field>
+        <field name="res_model">babana.fare.rule</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <menuitem id="babana_menu_pricing" name="Tarification" parent="babana_menu_root" sequence="30"/>
+    <menuitem id="babana_menu_fare_rule" name="Grille tarifaire" parent="babana_menu_pricing"
+        action="babana_fare_rule_action" sequence="10"/>
+</odoo>

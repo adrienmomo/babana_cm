@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        Règle de repli (L2-01, critère d'acceptation 3) : sans zone, sans gamme, sans plage
+        horaire, toujours applicable. Une course sans tarif calculable est une panne, pas un cas
+        métier.
+
+        Valeurs plausibles pour Douala, explicitement provisoires (D21) : de l'ordre de ce qui se
+        pratique pour une course de moto-taxi, pas des nombres tirés au hasard. Une valeur
+        plausible permet de repérer une anomalie de calcul à l'œil. À confirmer par L10-05 sur
+        données de pilote.
+    -->
+    <record id="babana_fare_rule_default" model="babana.fare.rule">
+        <field name="name">Grille par défaut (Douala)</field>
+        <field name="base_fare">200.0</field>
+        <field name="price_per_km">100.0</field>
+        <field name="minimum_fare">300.0</field>
+        <field name="priority">0</field>
+    </record>
+</odoo>
