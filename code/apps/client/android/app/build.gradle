@@ -53,8 +53,15 @@ react {
     // extraPackagerArgs = []
 
     /* Hermes Commands */
-    //   The hermes compiler command to run. By default it is 'hermesc'
-    // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
+    //   Depuis React Native 0.86, hermesc n'est plus livré dans react-native/sdks/hermesc/ mais
+    //   dans un paquet séparé, `hermes-compiler`. Le défaut du greffon Gradle pointe toujours sur
+    //   l'ancien emplacement et échoue avec « Couldn't determine Hermesc location ».
+    //   %OS-BIN% est conservé : le greffon le remplace par osx-bin, linux64-bin ou win64-bin selon
+    //   la plateforme — c'est ce qui fait que la même configuration marche sur le poste de
+    //   développement (macOS) et sur l'agent d'intégration continue (Linux, L0-05).
+    hermesCommand = new File(
+        resolveNodePackageDir("hermes-compiler"), "hermesc/%OS-BIN%/hermesc"
+    ).absolutePath
     //
     //   The list of flags to pass to the Hermes compiler. By default is "-O", "-output-source-map"
     // hermesFlags = ["-O", "-output-source-map"]

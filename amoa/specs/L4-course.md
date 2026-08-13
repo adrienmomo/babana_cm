@@ -29,13 +29,18 @@ Champs principaux :
 | Géographie | latitude et longitude de départ et d'arrivée, libellés, zone de départ, zone d'arrivée |
 | Estimation | estimation référencée, montant estimé, distance de référence, durée estimée corrigée |
 | Réalisé | distance parcourue, durée écoulée, tracé, écart entre parcouru et référence |
-| Tarif | règle appliquée figée, détail décomposé, montant final, promotion, remise |
+| Tarif | **référence** vers la règle appliquée, règle figée par valeur, détail décomposé, montant final, promotion, remise |
+| Zones | zone de départ, zone d'arrivée — ajoutées par L2-04 (`babana.zone` n'existait pas à l'écriture de L4-01) |
 | Paiement | moyen (`cash` en v1), facture, horodatage d'encaissement |
 | Cycle | horodatages de chaque transition, motif d'annulation, auteur de l'annulation |
 | Refus | liste des refus sur cette course, avec chauffeur, motif et horodatage |
 | Notation | note, commentaire |
 
 **La règle tarifaire est figée sur la course**, pas seulement référencée. Une facture doit rester explicable après modification de la grille.
+
+**Et elle est aussi référencée** (ajout du 13 août). Les deux ne s'opposent pas, ils répondent à deux besoins distincts : le gel par valeur rend la facture explicable pour toujours, la référence dit **quelle** règle a servi. Sans la référence, il n'existe aucun moyen de savoir si une règle donnée a été utilisée — ce qui obligeait à rendre **toutes** les règles immuables, y compris celles jamais servies, et donc à créer une version pour corriger une faute de frappe. La référence lève cette contrainte et sert aussi la traçabilité de L9.
+
+La référence peut pointer vers une règle supprimée ou archivée sans que la facture en souffre : c'est le gel par valeur qui fait foi pour le montant.
 
 Index sur `state`, sur le chauffeur, sur le client, sur la date de création. Ce sont les axes de toutes les requêtes de L9.
 
@@ -53,7 +58,8 @@ C'est une garantie de dernier recours si une transition est contournée. L'écar
 1. La référence est générée par séquence et unique.
 2. Un second enregistrement de course active pour le même chauffeur échoue au niveau base, avec la liste d'états propre au chauffeur.
 2 bis. Un second enregistrement de course active pour le même client échoue au niveau base, **`requested` compris**.
-3. La règle tarifaire figée survit à la modification de la règle d'origine.
+3. La règle tarifaire figée survit à la modification de la règle d'origine, **et à sa suppression**.
+3 bis. La course porte une référence vers la règle appliquée, exploitable pour savoir quelles règles ont servi.
 4. Les index existent et sont utilisés par les requêtes de L9.
 5. Les refus sont portés par la course, pas par des courses distinctes.
 
@@ -88,11 +94,19 @@ Chaque méthode, dans cet ordre :
 4. Applique les effets et écrit l'état
 5. Journalise (L8-09)
 
+**Verrouillage de l'enregistrement** pendant la transition. Après l'obtention du verrou, **invalider le cache du recordset** : une transaction qui a attendu relirait sinon l'état depuis le cache rempli avant la mise en attente, donc une valeur périmée.
+
+**La vérification applicative qu'un chauffeur n'a pas déjà une course active n'est pas une garantie.** Elle verrouille la course, pas le chauffeur : deux clients proposant le même chauffeur sur deux courses différentes verrouillent chacun la sienne et passent tous deux le contrôle. La garantie réelle est l'index unique partiel de L4-01 ; le contrôle Python n'est qu'un chemin rapide pour le cas courant. **L4-03 doit traduire la violation d'index en `DRIVER_ALREADY_TAKEN`**, sinon l'erreur remonte en défaut technique brut.
+
 **Verrouillage de l'enregistrement** pendant la transition, pour empêcher deux transitions concurrentes sur la même course. Deux appels simultanés à `action_accept` ne doivent pas produire deux affectations.
 
 Le mécanisme est implémenté ici ; sa **preuve** est portée par L4-11. Ne pas écrire de test de concurrence dans le harnais Odoo : `TransactionCase` enveloppe le test dans une transaction annulée à la fin, si bien qu'une seconde connexion réelle ne voit jamais les lignes créées ou attend un verrou qui ne se libère qu'à la fin du test. Le test paraît alors instable alors que le mécanisme est correct — constaté pendant la nuit du 10 au 11 août.
 
-Surcharger `write` pour **interdire l'écriture directe de `state`** hors des méthodes de transition. C'est le point qui rend l'invariant réel plutôt que conventionnel.
+Surcharger `write` **et `create`** pour interdire toute écriture directe de `state` hors des méthodes de transition. C'est le point qui rend l'invariant réel plutôt que conventionnel.
+
+**`create` compte autant que `write`** (correction du 13 août — ma spécification ne mentionnait que `write`, et la revue de la branche a montré le trou). Sans garde sur la création, `create({'state': 'settled', ...})` fait naître une course déjà encaissée sans qu'aucune transition n'ait eu lieu. L'invariant 2 serait alors vrai en modification et faux en création — et `settled` est précisément l'état qui alimente le compte courant chauffeur et la facturation.
+
+Toute création hors du chemin de transition force `state = 'requested'`, ou échoue si un autre état est demandé.
 
 Rendre immuables les champs figés selon l'état : après `completed`, distance et montant ne changent plus ; après `settled`, plus rien ne change. Interdit au niveau du modèle, y compris pour un administrateur.
 
@@ -103,6 +117,7 @@ Le champ `state` porte les transitions autorisées depuis l'état courant, expos
 1. **Chaque** transition valide de C-03 a un test qui passe.
 2. **Chaque** transition interdite de C-03 a un test qui échoue avec `RIDE_INVALID_TRANSITION`.
 3. Une écriture directe de `state` par `write` échoue.
+3 bis. Une création avec un `state` autre que `requested` échoue, **y compris via `sudo()`**.
 4. Deux `action_accept` concurrents ne produisent qu'une affectation. **Ce critère est vérifié par L4-11, pas ici** — un test de concurrence a besoin de transactions réellement validées, ce que le harnais Odoo ne permet pas (voir L4-11).
 5. Modifier le montant d'une course `completed` échoue.
 6. Modifier quoi que ce soit sur une course `settled` échoue.

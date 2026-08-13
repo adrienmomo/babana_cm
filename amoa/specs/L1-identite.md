@@ -38,6 +38,14 @@ Si toutes passent : rechercher un `res.users` par `sub` Google. S'il existe, le 
 
 Selon `role`, créer ou rattacher le `babana.driver` ou le partenaire client correspondant.
 
+**Un sign-in chauffeur ne crée jamais de fiche `hr.employee`** (correction du 13 août). Il crée une **candidature** : un `babana.driver` à l'état `pending`, sans rattachement salarié. C'est L1-06, la validation du dossier par un gestionnaire, qui crée ou rattache la fiche RH.
+
+La raison est une faille, pas une préférence : sans cette règle, n'importe quel compte Google appelant `/auth/google` avec `role=driver` fait naître une fiche employé dans le module RH. Les fiches restent `pending` et inoffensives sur le plan métier, mais elles polluent la base et offrent un vecteur de spam. Aucune écriture dans `hr` ne doit résulter d'une action non validée par un humain.
+
+C'est aussi ce que décrit le CDC §IV.1 : le chauffeur crée son compte, téléverse ses documents, et **un administrateur valide avant activation**. D5 (salariat) ne change pas ce tunnel d'entrée, il change ce qui se passe à la validation.
+
+**Limitation de débit** sur la création de candidature, par adresse et par compte. Une auto-inscription ouverte sans plafond est un vecteur d'abus, même quand chaque compte créé est inerte.
+
 Réponse : jeton applicatif, jeton de renouvellement, profil minimal, et pour un chauffeur, son statut de validation.
 
 Un chauffeur dont le dossier n'est pas approuvé **reçoit tout de même un jeton**, avec un statut explicite : il doit pouvoir se connecter pour suivre l'avancement de son dossier et téléverser des pièces manquantes. Ce sont les endpoints métier qui refuseront ses actions, pas l'authentification.
@@ -52,6 +60,8 @@ Un chauffeur dont le dossier n'est pas approuvé **reçoit tout de même un jeto
 6. Un changement d'email chez Google ne crée pas de doublon : l'utilisateur est retrouvé par `sub`.
 7. Les clés Google sont mises en cache : un second appel dans la fenêtre de cache ne déclenche pas de requête sortante.
 8. Un chauffeur non approuvé obtient un jeton et un statut `pending`.
+9. **Aucun `hr.employee` n'est créé par l'authentification** — test explicite : après un premier sign-in `role=driver`, le nombre de fiches employé est inchangé.
+10. La création de candidature est soumise à une limitation de débit.
 
 ### Piège
 
@@ -117,7 +127,7 @@ Champs principaux :
 
 | Champ | Type | Rôle |
 |---|---|---|
-| `employee_id` | Many2one `hr.employee` | Rattachement salarié (D5) |
+| `employee_id` | Many2one `hr.employee`, **facultatif tant que `state` vaut `pending`** | Rattachement salarié (D5), créé ou relié par L1-06 à l'approbation |
 | `user_id` | Many2one `res.users` | Compte de connexion |
 | `state` | Sélection | `pending`, `approved`, `rejected`, `suspended` |
 | `rejection_reason` | Texte | Motif, obligatoire si `rejected` |
@@ -130,7 +140,7 @@ Champs principaux :
 | `phone_verified` | Booléen | Résultat de L1-09 |
 | `motorcycle_id` | Many2one `babana.motorcycle` | Affectation courante. **Ajouté par L1-07** — un `Many2one` vers un modèle absent empêche l'installation |
 
-Contraintes : `is_online` ne peut passer à vrai que si `state` vaut `approved`. `cash_balance` ne peut jamais être négatif — un solde négatif signale une erreur de calcul, pas un cas métier.
+Contraintes : `is_online` ne peut passer à vrai que si `state` vaut `approved`. **`employee_id` est obligatoire dès que `state` vaut `approved`** — un chauffeur approuvé est un salarié, une candidature ne l'est pas encore. La contrainte porte sur l'état, pas sur la création. `cash_balance` ne peut jamais être négatif — un solde négatif signale une erreur de calcul, pas un cas métier.
 
 `cash_balance` n'est **jamais** écrit directement : il est le résultat des mouvements enregistrés en L5-01. Le rendre calculé à partir du journal des mouvements, pas stocké librement.
 
@@ -233,6 +243,10 @@ services/odoo/addons/babana/tests/test_driver_approval.py
 Actions réservées à `group_babana_manager` :
 
 - **Approuver** — impossible si un document requis manque ou n'est pas vérifié, ou si aucune moto n'est affectée. La contrainte est explicite : un chauffeur approuvé sans moto ne peut pas travailler, autant le dire à l'approbation.
+
+  **L'approbation crée ou rattache la fiche `hr.employee`** (correction du 13 août). Le gestionnaire choisit : relier la candidature à une fiche existante — cas normal quand le chauffeur a été embauché avant de s'inscrire — ou en créer une. C'est le seul endroit du système où une écriture dans le module RH a lieu, et elle résulte toujours d'une décision humaine explicite.
+
+  Ce que cette tâche **ne** tranche pas : comment le service RH complète ensuite la fiche — contrat, matricule, paie. Hors périmètre applicatif, mais à ne pas laisser en angle mort côté organisation.
 - **Rejeter** — motif obligatoire, transmis au chauffeur.
 - **Suspendre** — motif obligatoire ; passe le chauffeur hors ligne immédiatement et révoque ses jetons (L1-02). Une course en cours n'est **pas** interrompue : le passager est prioritaire sur la sanction.
 - **Réactiver** — depuis `suspended` uniquement.
@@ -242,6 +256,8 @@ Chaque changement d'état est journalisé dans le fil de discussion Odoo, avec l
 ### Critères d'acceptation
 
 1. Approuver sans document vérifié échoue avec un message explicite.
+1 bis. L'approbation crée ou rattache une fiche `hr.employee`, au choix du gestionnaire, et c'est la **seule** écriture dans `hr` de tout le système.
+1 ter. Approuver sans fiche RH ni création est impossible : `employee_id` est obligatoire à l'état `approved`.
 2. Approuver sans moto affectée échoue.
 3. Rejeter sans motif échoue.
 4. Suspendre passe hors ligne et révoque les jetons.

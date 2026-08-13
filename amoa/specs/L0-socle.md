@@ -423,6 +423,8 @@ tools/flaky-detector/
 
 **Découpage par vitesse.** Une cible rapide — unitaires et lint — exécutable en quelques secondes pendant le développement. La cible complète, plus lente, exécutée avant chaque fusion. Une suite complète trop lente finit par n'être lancée que par l'intégration continue, donc trop tard.
 
+**Installation fraîche obligatoire.** La suite Odoo s'exécute sur une base créée pour l'occasion, jamais sur une base accumulée. Une base ancienne masque les défauts qui ne se produisent qu'à la première installation — et donc exactement ceux qui se produiront en recette et en production.
+
 **Détection des tests instables** : réexécution périodique de la suite complète plusieurs fois d'affilée sur la même base de code. Tout test qui n'a pas un résultat constant est signalé et traité comme un défaut, pas toléré comme un inconvénient.
 
 **Seuils de couverture sur les modules sensibles uniquement** : moteur de cotation, machine à états, mouvements de compte courant, réservation atomique. Pour ceux-là, viser la couverture de tous les chemins. Ailleurs, aucun seuil chiffré — un pourcentage global pousse à écrire des tests sans valeur pour atteindre un chiffre.
@@ -439,4 +441,5 @@ tools/flaky-detector/
 4. Le détecteur de tests instables fonctionne et signale un test volontairement rendu instable.
 5. Les seuils de couverture s'appliquent aux quatre modules sensibles et échouent si la couverture baisse.
 6. La fusion est bloquée sur suite rouge.
+6 bis. La suite Odoo s'exécute sur une base créée pour l'occasion, jamais réutilisée.
 7. `docs/testing/strategy.md` existe et décrit la politique de non-régression.

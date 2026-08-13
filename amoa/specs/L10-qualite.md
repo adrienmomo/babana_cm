@@ -276,6 +276,17 @@ Fiches de magasin en français, avec captures. Politique de confidentialité pub
 
 Comptes de test pour les chauffeurs pilotes, procédure d'installation documentée en une page qu'un chauffeur peut suivre seul.
 
+**Taille du paquet — mesurée le 13 août, à corriger ici.** Le premier APK release de l'app Client pèse 51 Mo, dont 45 Mo de binaires natifs répartis sur quatre architectures. Les variantes `x86` et `x86_64` représentent 25 Mo à elles seules et ne servent qu'aux émulateurs : aucun téléphone de chauffeur n'en a l'usage.
+
+Cela contredit frontalement une contrainte posée dès l'architecture — terminaux d'entrée de gamme, forfait de données compté. Cinquante mégaoctets à l'installation, puis autant à chaque mise à jour, est une friction réelle sur le terrain visé.
+
+Deux corrections, l'une couvrant l'autre :
+
+- **Publication en AAB** au Play Store : Google découpe par architecture et le téléchargement effectif tombe autour de 15 à 20 Mo. C'est le format imposé de toute façon.
+- **Découpage par architecture des APK distribués à la main**, avant que le compte Play soit validé. À défaut, retirer au minimum `x86` et `x86_64` des variantes de release — elles ne servent qu'au développement.
+
+Mesurer la taille du téléchargement réel, pas celle du fichier de build : c'est la première qui compte pour un chauffeur.
+
 Chaîne de publication automatisée depuis l'intégration continue, avec numérotation de version et notes de version.
 
 Procédure de retour arrière documentée : que faire si une version pose problème en pilote.
@@ -290,6 +301,7 @@ Procédure de retour arrière documentée : que faire si une version pose probl�
 6. La procédure de retour arrière est documentée.
 7. `assetlinks.json` est servi sur l'apex et la vérification des liens d'application passe pour les deux apps.
 8. La politique de confidentialité est accessible sans authentification.
+9. **Le téléchargement effectif reste sous un seuil défini avant mesure** — les variantes `x86` sont absentes des paquets distribués aux chauffeurs.
 
 ---
 

@@ -45,14 +45,20 @@ Champs :
 
 Une règle de repli sans zone, sans gamme et sans plage horaire est fournie dans `data/`. Il doit toujours exister une règle applicable : une course sans tarif calculable est une panne, pas un cas métier.
 
-**Historisation** : une règle utilisée par une course passée n'est jamais modifiée en place. Modifier un tarif crée une nouvelle version et clôt l'ancienne par `active_to`. C'est ce qui rend une facture ancienne rejouable.
+**Historisation** : une règle **utilisée par au moins une course** n'est jamais modifiée en place sur ses champs tarifaires. Modifier un tarif crée alors une nouvelle version et clôt l'ancienne par `active_to`. C'est ce qui rend une facture ancienne rejouable.
+
+**Une règle jamais utilisée reste librement modifiable** (précision du 13 août). Le contraire — toute règle immuable dès sa création — a été implémenté un temps, faute de moyen de savoir laquelle avait servi. La référence ajoutée sur `babana.ride` (L4-01) lève cette incertitude. Sans cet assouplissement, corriger une faute de frappe dans une règle créée cinq minutes plus tôt obligerait à créer une version — une friction quotidienne au back-office, précisément pendant le pilote où les tarifs bougeront souvent.
+
+Le contrôle porte sur un **changement réel de valeur**, pas sur la présence du champ dans les données écrites : réappliquer une valeur identique n'est pas une modification, et c'est ce qui permet aux données initiales du module de se recharger sans se heurter au garde-fou.
 
 ### Critères d'acceptation
 
 1. Aucun champ de prix à la minute n'existe dans le modèle.
 2. La sélection de règle est déterministe quand plusieurs règles se recouvrent.
 3. Il existe toujours au moins une règle applicable, quelle que soit la position et l'heure.
-4. Modifier une règle déjà utilisée crée une version, ne modifie pas l'existante.
+4. Modifier une règle **déjà utilisée** crée une version, ne modifie pas l'existante.
+4 bis. Modifier une règle **jamais utilisée** est autorisé et ne crée pas de version.
+4 ter. Réappliquer une valeur identique sur une règle utilisée ne déclenche pas le garde-fou — le rechargement des données initiales du module doit rester possible.
 5. `minimum_fare` est appliqué : une course très courte ne descend jamais en dessous.
 
 ---
@@ -160,6 +166,8 @@ Requête : départ, arrivée, gamme souhaitée, code promo éventuel.
 
 Traitement : résoudre les zones, sélectionner la règle, obtenir la distance de référence (L2-05), calculer (L2-03), appliquer le facteur de correction d'ETA (L10-03).
 
+**L2-04 ajoute `pickup_zone_id` et `dropoff_zone_id` à `babana.ride`** (affectation du 13 août). Ces champs avaient été omis de L4-01 parce que `babana.zone` n'existait pas encore, et L2-02 les a laissés de côté faute d'instruction. C'est ici leur place : L2-04 est la tâche qui résout les zones et crée la course à partir de l'estimation. L9-07 en dépend — « identification des zones les plus actives » (CDC §V.2) est impossible sans elles.
+
 Réponse : identifiant d'estimation, montant, détail décomposé, distance, durée estimée corrigée, date d'expiration.
 
 **L'estimation est persistée** avec son identifiant. La création de course (L4-03) référence cet identifiant plutôt que de recalculer : c'est ce qui garantit que le client paie ce qu'on lui a montré. Une estimation expirée est refusée avec `QUOTE_EXPIRED`.
@@ -175,6 +183,7 @@ L'estimation stocke la règle tarifaire appliquée, pas seulement son identifian
 3. La durée renvoyée est la durée corrigée, pas la durée brute du routeur.
 4. La réponse contient le détail décomposé complet.
 5. Un code promo invalide n'échoue pas la cotation : il renvoie l'estimation sans remise, avec un indicateur explicite.
+6. La course créée depuis une estimation porte ses zones de départ et d'arrivée, ainsi que la référence de la règle tarifaire appliquée.
 
 ---
 

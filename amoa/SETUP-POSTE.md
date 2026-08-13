@@ -136,6 +136,8 @@ Le dernier point est le vrai test : c'est le critère d'acceptation 4 de L0-03, 
 
 **`Failed to install the following SDK components`** — licences non acceptées. Relancer `sdkmanager --licenses`.
 
+**`Couldn't determine Hermesc location`** — depuis React Native 0.86, `hermesc` n'est plus livré dans `react-native/sdks/hermesc/` mais dans un paquet séparé, `hermes-compiler`. Le défaut du greffon Gradle pointe encore sur l'ancien emplacement. Corrigé le 13 août dans `app/build.gradle` des deux apps, en résolvant le paquet via Node et en conservant le marqueur `%OS-BIN%` — que le greffon remplace selon la plateforme, ce qui fait que la même configuration marche sur macOS et sur un agent d'intégration continue sous Linux.
+
 **`EBADENGINE` persistant après la mise à niveau** — le `node_modules` a été construit avec l'ancienne version. `rm -rf node_modules && npm install`.
 
 ---

@@ -169,6 +169,10 @@ Elles existent en plus des tests de tâche et tournent à chaque commit.
 
 **Les modules sensibles ont une couverture élevée et exhaustive** : moteur de cotation, machine à états, mouvements de compte courant, réservation atomique. Pour ceux-là, viser la couverture de tous les chemins, pas un pourcentage.
 
+**La base de développement est jetable, et doit être jetée régulièrement.** Une base accumulée depuis plusieurs sessions masque tout ce qui ne se produit que sur une installation fraîche — un drapeau `noupdate` figé dans `ir.model.data`, un index créé sous une ancienne définition, une donnée initiale qui ne se recharge jamais. Constaté le 12 août : cent vingt-sept tests verts sur une base ancienne, un vrai défaut découvert au premier `make reset`. Avant de déclarer une tâche finie, exécuter la suite au moins une fois sur une base fraîche.
+
+**Les pièges de plateforme se documentent.** Quand Odoo se comporte autrement que le bon sens le suggère, l'écrire dans `code/docs/odoo-pitfalls.md` plutôt que dans un message de commit. Trois cas déjà rencontrés : les routes `auth='none'` sont en lecture seule par défaut depuis Odoo 18, `env.user` vide sous `uid=None` casse des hooks internes, et un `write()` n'est pas toujours poussé en base avant qu'un `create()` suivant ne heurte une contrainte SQL dans la même transaction — `flush_recordset()` explicite. **Règle générale à en tirer** : tout code qui s'appuie sur une contrainte au niveau base doit provoquer le vidage avant de la déclencher.
+
 **L'intégration continue est bloquante.** Aucune fusion avec une suite rouge. Un test instable est traité comme un défaut, pas toléré comme un inconvénient — un test qui échoue une fois sur dix finit par être ignoré, et il emporte la confiance dans toute la suite.
 
 ---

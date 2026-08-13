@@ -1,6 +1,6 @@
 # babana.cm — Découpage en tâches techniques
 
-**Version** 1.4 — 11 août 2026
+**Version** 1.5 — 13 août 2026
 **Périmètre** v1, pilote Bonanjo — décisions D1 à D15 de `01-architecture.md`, D16 à D18 de `04-monorepo-et-services.md`, D19 à D22 de `05-prerequis-et-simulation.md`
 **Destinataire** développement par Claude Code
 
@@ -100,6 +100,8 @@ Les états `brouillon → demandée → proposée → affectée → en_cours →
 | L1-10 | Alerte d'échéance d'assurance et de carte grise dans le back-office | S | L1-07 |
 
 **Sur L1-01** : c'est la tâche qui prouve que le choix Google-only tient techniquement. À faire tôt, avant toute app mobile. Le piège classique est de vérifier le token côté client ou de faire confiance à un champ non signé — la vérification doit être serveur, contre les certificats Google, à chaque appel.
+
+**Sur L1-05** : devenue plus pressante que sa position ne le suggère. Deux champs-pont en dépendent depuis le 12 août (`license_expires_on`, `license_alert_sent_on` sur `babana.driver`, posés par L1-10), et L1-06 en dépend directement. À placer dans le prochain lot.
 
 **Sur L1-09** : peut être repoussé après J3, mais **pas après J4**. Sans numéro vérifié, la phase 2 Mobile Money hérite d'une base de numéros non fiables et le rattrapage est douloureux.
 
