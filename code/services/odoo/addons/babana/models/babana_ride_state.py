@@ -1,6 +1,8 @@
 # Machine à états de babana.ride (L4-02). Les huit méthodes action_* ci-dessous sont les SEULES
-# portes d'écriture sur `state` (invariant 2) -- write() le fait respecter mécaniquement, pas
-# seulement par convention. Référence : docs/contracts/ride-state-machine.md (C-03R).
+# portes d'écriture sur `state` (invariant 2) -- write() ET create() le font respecter
+# mécaniquement, pas seulement par convention (le garde-fou sur create(), absent jusqu'au 13
+# août, est L4-02R2 -- amoa/questions/REPONSES-2026-08-13.md). Référence :
+# docs/contracts/ride-state-machine.md (C-03R).
 #
 # La table des transitions n'est volontairement pas chargée depuis
 # docs/contracts/ride-state-machine.json : ce fichier vit hors de l'arborescence montée dans le
@@ -11,7 +13,7 @@ from __future__ import annotations
 
 import logging
 
-from odoo import fields, models
+from odoo import api, fields, models
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
@@ -73,6 +75,26 @@ class BabanaRideState(models.Model):
             )
         return super().write(vals)
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        # L4-02R2 (correction du 13 août -- amoa/questions/REPONSES-2026-08-13.md) : write()
+        # interdisait déjà l'écriture directe de state, mais create() laissait passer
+        # create({'state': 'settled', ...}) -- une course pourrait alors naître déjà encaissée
+        # sans avoir traversé une seule transition. Même mécanisme de contexte que write(), donc
+        # résistant à sudo() : seul action_request (state='requested' explicite) passe sans le
+        # drapeau de contexte, puisque 'requested' est le seul état qu'une création est autorisée
+        # à porter hors du chemin de transition.
+        if not self.env.context.get("babana_allow_state_write"):
+            for vals in vals_list:
+                state = vals.get("state")
+                if state and state != "requested":
+                    raise UserError(
+                        "Création directe avec state='%s' interdite : seule "
+                        "action_request peut créer une course, à l'état 'requested' "
+                        "(invariant 2)." % state
+                    )
+        return super().create(vals_list)
+
     def _babana_write_transition(self, vals):
         return self.with_context(babana_allow_state_write=True).write(vals)
 
@@ -132,6 +154,15 @@ class BabanaRideState(models.Model):
         if driver.state != "approved":
             raise UserError("Seul un chauffeur approuvé peut être proposé.")
 
+        # Chemin rapide pour le cas courant, PAS une garantie (relecture du 13 août --
+        # amoa/questions/REPONSES-2026-08-13.md). Ce contrôle verrouille CETTE course, pas le
+        # chauffeur : deux clients qui proposent le même chauffeur sur deux courses différentes
+        # verrouillent chacun la sienne et passent tous deux ce SELECT. La garantie réelle est
+        # l'index unique partiel babana_ride_one_active_per_driver (L4-01) -- une violation
+        # d'index remonte en IntegrityError PostgreSQL brute au niveau du INSERT/UPDATE fait par
+        # _babana_write_transition plus bas ; c'est L4-03 (hors de ce lot) qui doit la traduire
+        # en DRIVER_ALREADY_TAKEN, sinon un client verrait un défaut technique là où l'app doit
+        # simplement proposer un autre chauffeur.
         active = self.search(
             [
                 ("driver_id", "=", driver.id),

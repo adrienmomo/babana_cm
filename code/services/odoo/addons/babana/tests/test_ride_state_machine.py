@@ -248,6 +248,36 @@ class TestRideStateMachine(TransactionCase):
         with self.assertRaises(UserError):
             ride.sudo().write({"state": "cancelled"})
 
+    # === Critère 3 bis : création avec un state autre que requested échoue (L4-02R2) =========
+
+    def test_create_with_non_requested_state_is_forbidden(self):
+        client = self._make_partner()
+        with self.assertRaises(UserError):
+            self.env["babana.ride"].create({**self._base_vals(client), "state": "settled"})
+
+    def test_create_with_non_requested_state_is_forbidden_even_via_sudo(self):
+        # amoa/questions/REPONSES-2026-08-13.md : create({'state': 'settled', ...}) ne doit pas
+        # faire naître une course déjà encaissée sans transition -- settled alimente le compte
+        # courant chauffeur et la facturation (L4-05, L4-06).
+        client = self._make_partner()
+        with self.assertRaises(UserError):
+            self.env["babana.ride"].sudo().create(
+                {**self._base_vals(client), "state": "settled"}
+            )
+
+    def test_create_without_state_defaults_to_requested(self):
+        client = self._make_partner()
+        ride = self.env["babana.ride"].create(self._base_vals(client))
+        self.assertEqual(ride.state, "requested")
+
+    def test_action_request_create_is_not_blocked_by_its_own_guard(self):
+        # action_request crée explicitement avec state='requested' -- le seul état qu'une
+        # création est autorisée à porter hors du chemin de transition, donc sans avoir besoin
+        # du drapeau de contexte babana_allow_state_write.
+        client = self._make_partner()
+        ride = self.env["babana.ride"].action_request(self._base_vals(client))
+        self.assertEqual(ride.state, "requested")
+
     # === Critère 5 : montant d'une course completed immuable ==================================
 
     def test_cannot_modify_amount_after_completed(self):

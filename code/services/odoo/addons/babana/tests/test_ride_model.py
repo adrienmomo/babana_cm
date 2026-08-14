@@ -1,6 +1,10 @@
 # Tests de babana.ride (L4-01) : identité, contraintes d'intégrité, gel du tarif, index, refus.
-# state est encore librement modifiable ici -- le verrou des transitions est L4-02, la tâche
-# suivante de ce lot. Ces tests ne prouvent donc que L4-01, pas l'invariant 2 dans son ensemble.
+# Depuis L4-02 (fusionnée), create() n'accepte plus de state autre que 'requested' hors du
+# contexte babana_allow_state_write -- les créations ci-dessous qui posent un state directement
+# ne testent pas l'invariant 2 (c'est test_ride_state_machine.py qui le fait) mais les
+# contraintes de base de données de L4-01 ; elles utilisent le drapeau de contexte pour poser
+# l'état de départ nécessaire à ces contraintes, exactement comme les tests d'écriture figée
+# le font déjà pour write().
 from __future__ import annotations
 
 import json
@@ -27,7 +31,7 @@ class TestBabanaRideModel(TransactionCase):
             "dropoff_longitude": 9.7679,
         }
         base.update(vals)
-        return self.env["babana.ride"].create(base)
+        return self.env["babana.ride"].with_context(babana_allow_state_write=True).create(base)
 
     # --- Critère 1 : référence générée par séquence et unique --------------------------------
 
@@ -52,7 +56,7 @@ class TestBabanaRideModel(TransactionCase):
     def test_second_active_ride_for_same_client_fails_at_database_level(self):
         client = self._make_client()
 
-        self.env["babana.ride"].create(
+        self.env["babana.ride"].with_context(babana_allow_state_write=True).create(
             {
                 "client_id": client.id,
                 "pickup_latitude": 4.05,
@@ -65,7 +69,7 @@ class TestBabanaRideModel(TransactionCase):
 
         with self.assertRaises(psycopg2.Error):
             with self.env.cr.savepoint():
-                self.env["babana.ride"].create(
+                self.env["babana.ride"].with_context(babana_allow_state_write=True).create(
                     {
                         "client_id": client.id,
                         "pickup_latitude": 4.05,
