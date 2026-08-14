@@ -8,3 +8,4 @@ from . import babana_assignment
 from . import babana_fare_rule
 from . import babana_zone
 from . import babana_ride
+from . import babana_ride_state
