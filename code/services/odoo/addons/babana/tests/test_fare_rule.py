@@ -75,8 +75,12 @@ class TestBabanaFareRule(TransactionCase):
         rule = self._make_rule(
             name="Heure de pointe", time_start=7.0, time_end=9.0, priority=20
         )
-        peak = datetime(2026, 8, 12, 8, 0)
-        off_peak = datetime(2026, 8, 12, 14, 0)
+        # Date du jour, pas une date écrite en dur (bombe à retardement -- constaté le 14 août
+        # sur cette règle même : active_from défaut à aujourd'hui, une date fixe finit toujours
+        # par tomber avant elle une fois le calendrier avancé). Seule l'heure compte ici.
+        today = datetime.now().date()
+        peak = datetime(today.year, today.month, today.day, 8, 0)
+        off_peak = datetime(today.year, today.month, today.day, 14, 0)
 
         self.assertEqual(
             self.env["babana.fare.rule"]._find_applicable_rule(at_datetime=peak), rule

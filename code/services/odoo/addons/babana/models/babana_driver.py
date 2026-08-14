@@ -191,12 +191,13 @@ class BabanaDriver(models.Model):
     @api.constrains("is_online")
     def _check_online_requires_valid_license(self):
         # Même raisonnement que l'assurance (L1-07) : un permis expiré est un risque juridique,
-        # bloqué plutôt que signalé (L1-10).
+        # bloqué plutôt que signalé (L1-10). fields.Date.today(), pas context_today() -- voir
+        # code/docs/odoo-pitfalls.md.
         for record in self:
             if (
                 record.is_online
                 and record.license_expires_on
-                and record.license_expires_on < fields.Date.context_today(record)
+                and record.license_expires_on < fields.Date.today()
             ):
                 raise ValidationError(
                     "Ce chauffeur ne peut pas passer en ligne : son permis a expiré (L1-10)."
@@ -214,7 +215,9 @@ class BabanaDriver(models.Model):
     # --- L1-10 : alertes d'échéance (permis) ----------------------------------------------
 
     def _cron_alert_and_block_drivers(self):
-        today = fields.Date.context_today(self)
+        # fields.Date.today(), pas context_today() -- un cron n'a pas d'utilisateur réel
+        # connecté ; voir code/docs/odoo-pitfalls.md.
+        today = fields.Date.today()
         window_end = today + timedelta(
             days=self.env["babana.motorcycle"]._expiry_alert_window_days()
         )

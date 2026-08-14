@@ -86,7 +86,8 @@ class BabanaMotorcycle(models.Model):
         self.ensure_one()
         if not self.insurance_expires_on:
             return False
-        return self.insurance_expires_on < fields.Date.context_today(self)
+        # fields.Date.today(), pas context_today() -- voir code/docs/odoo-pitfalls.md.
+        return self.insurance_expires_on < fields.Date.today()
 
     @api.constrains("driver_id")
     def _check_insurance_before_assignment(self):
@@ -153,7 +154,8 @@ class BabanaMotorcycle(models.Model):
         self.env["babana.driver"]._cron_alert_and_block_drivers()
 
     def _cron_alert_and_block_motorcycles(self):
-        today = fields.Date.context_today(self)
+        # fields.Date.today(), pas context_today() -- voir code/docs/odoo-pitfalls.md.
+        today = fields.Date.today()
         window_end = today + timedelta(days=self._expiry_alert_window_days())
 
         upcoming = self.search(

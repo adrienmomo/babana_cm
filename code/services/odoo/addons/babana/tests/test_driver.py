@@ -70,7 +70,10 @@ class TestBabanaDriver(TransactionCase):
     def test_ride_count_reflects_the_driver_rides(self):
         driver = self._make_driver()
 
-        self.env["babana.ride"].create(
+        # L4-02 (fusionnée depuis) : create() n'accepte plus de state autre que 'requested' hors
+        # du drapeau de contexte -- ce test ne prouve pas l'invariant 2, seulement ride_count,
+        # d'où l'usage du drapeau plutôt qu'un aller-retour par les huit méthodes de transition.
+        self.env["babana.ride"].with_context(babana_allow_state_write=True).create(
             {
                 "client_id": self.env["res.partner"].create({"name": "Client"}).id,
                 "driver_id": driver.id,

@@ -74,9 +74,10 @@ class BabanaFareRule(models.Model):
         "gagne. À égalité, la plus récemment créée (_order).",
     )
     active_from = fields.Date(
-        default=lambda self: fields.Date.context_today(self),
+        default=lambda self: fields.Date.today(),
         required=True,
-        help="Fenêtre de validité de la règle elle-même (historisation, critère 4).",
+        help="Fenêtre de validité de la règle elle-même (historisation, critère 4). "
+        "fields.Date.today(), pas context_today() -- voir code/docs/odoo-pitfalls.md.",
     )
     active_to = fields.Date(help="Vide = toujours valide.")
 
@@ -178,7 +179,8 @@ class BabanaFareRule(models.Model):
         """Clôt cette règle et en crée une nouvelle avec les valeurs modifiées (critère 4) :
         c'est ce qui rend une facture ancienne rejouable malgré l'évolution de la grille."""
         self.ensure_one()
-        today = fields.Date.context_today(self)
+        # fields.Date.today(), pas context_today() -- voir code/docs/odoo-pitfalls.md.
+        today = fields.Date.today()
         self.with_context(babana_allow_versioned_write=True).write({"active_to": today})
         new_vals = {**self.copy_data()[0], **vals, "active_from": today, "active_to": False}
         return self.create(new_vals)
