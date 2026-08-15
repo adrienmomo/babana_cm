@@ -32,13 +32,19 @@ driver:          ## Démarre l'app Chauffeur
 	npm run start -w @babana/driver
 
 test:            ## Tests de tous les paquets et services, plus la suite Odoo
-	npm test
-	# sh -c '... --db_host=...' : `docker compose exec` ne passe pas par l'entrypoint de
-	# l'image, qui est ce qui traduit HOST/USER/PASSWORD en --db_host/--db_user/--db_password
-	# d'habitude -- sans ça, odoo tente une connexion locale et échoue (trouvé en vérifiant
-	# L0-02). --http-port=8070 : le process principal du conteneur écoute déjà 8069, et
-	# --test-enable démarre un serveur HTTP même avec --stop-after-init.
+	# La suite Odoo (module babana, jamais installé par `make up` seul) vient AVANT `npm test` :
+	# test/concurrency et test/auth (L4-11, C-01 critère 5) parlent au vrai `/api/v1` par HTTP,
+	# qui n'existe que si le module est déjà installé. Sur une base fraîche (`make reset && make
+	# up`), l'ordre inverse fait échouer npm test avec un 404 sur /auth/google avant même que ce
+	# module n'ait existé -- masqué jusqu'ici par une base jamais vraiment vierge au moment de
+	# `make test` (CLAUDE.md, "la base de développement est jetable"). sh -c '... --db_host=...'
+	# : `docker compose exec` ne passe pas par l'entrypoint de l'image, qui est ce qui traduit
+	# HOST/USER/PASSWORD en --db_host/--db_user/--db_password d'habitude -- sans ça, odoo tente
+	# une connexion locale et échoue (trouvé en vérifiant L0-02). --http-port=8070 : le process
+	# principal du conteneur écoute déjà 8069, et --test-enable démarre un serveur HTTP même avec
+	# --stop-after-init.
 	$(COMPOSE) exec -T odoo sh -c 'odoo -d babana --test-enable --stop-after-init -i babana --http-port=8070 --db_host="$$HOST" --db_user="$$USER" --db_password="$$PASSWORD"'
+	npm test
 
 lint:            ## Lint de tous les espaces de travail
 	npm run lint --workspaces --if-present
