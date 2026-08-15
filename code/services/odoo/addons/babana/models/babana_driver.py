@@ -7,6 +7,7 @@
 # fiche hr.employee -- la contrainte ci-dessous rend l'obligation réelle à partir de 'approved'.
 from __future__ import annotations
 
+import uuid
 from datetime import timedelta
 
 from odoo import api, fields, models
@@ -69,6 +70,15 @@ class BabanaDriver(models.Model):
         string="Adresse IP d'inscription",
         help="Capturée à la création de la candidature (L1-01, critère 10), pour la limitation "
         "de débit et l'investigation d'abus. Jamais utilisée à d'autres fins.",
+    )
+    public_id = fields.Char(
+        string="Identifiant public",
+        index=True,
+        copy=False,
+        default=lambda self: str(uuid.uuid4()),
+        help="Identifiant exposé à l'API mobile (DriverIdSchema, C-01, L4-03) -- jamais "
+        "l'identifiant Odoo interne. Même idée que res.users.babana_public_id (L1-01) et "
+        "babana.ride.public_id (L4-03).",
     )
     state = fields.Selection(
         [
@@ -135,6 +145,11 @@ class BabanaDriver(models.Model):
             "babana_driver_cash_balance_not_negative",
             "check(cash_balance >= 0)",
             "Un solde négatif signale une erreur de calcul, pas un cas métier (D8).",
+        ),
+        (
+            "babana_driver_public_id_unique",
+            "unique(public_id)",
+            "Collision d'identifiant public chauffeur -- ne devrait jamais se produire (UUID).",
         ),
     ]
 

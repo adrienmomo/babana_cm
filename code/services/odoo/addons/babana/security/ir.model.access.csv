@@ -18,3 +18,4 @@ access_babana_fare_rule_manager,babana.fare.rule manager,model_babana_fare_rule,
 access_babana_fare_rule_admin,babana.fare.rule admin,model_babana_fare_rule,group_babana_admin,1,1,1,1
 access_babana_zone_manager,babana.zone manager,model_babana_zone,group_babana_manager,1,1,1,0
 access_babana_zone_admin,babana.zone admin,model_babana_zone,group_babana_admin,1,1,1,1
+access_babana_idempotency_record_admin,babana.idempotency.record admin,model_babana_idempotency_record,group_babana_admin,1,1,1,1

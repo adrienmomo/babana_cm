@@ -62,3 +62,44 @@ def json_response(payload, status=200):
 
 def error_response(code, message, status):
     return json_response({"error": {"code": code, "message": message, "details": None}}, status)
+
+
+def error_payload(code, message):
+    return {"error": {"code": code, "message": message, "details": None}}
+
+
+def parse_json_body():
+    try:
+        body = json.loads(request.httprequest.get_data(as_text=True) or "{}")
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return None
+    return body if isinstance(body, dict) else None
+
+
+def idempotency_key():
+    return request.httprequest.headers.get("Idempotency-Key") or None
+
+
+def lookup_idempotent_response(key: str, endpoint: str):
+    """(payload, status) déjà renvoyés pour cette clé sur cet endpoint, ou None (L4-03, critère
+    6). Seules les transitions réellement APPLIQUÉES sont mises en cache (voir
+    store_idempotent_response) : un échec métier (DRIVER_ALREADY_TAKEN, état invalide...) n'a
+    jamais appliqué de transition, le rejouer est sans risque et parfois nécessaire -- les
+    conditions qui ont fait échouer le premier appel peuvent avoir changé entre-temps."""
+    record = request.env["babana.idempotency.record"].sudo().search(
+        [("idempotency_key", "=", key), ("endpoint", "=", endpoint)], limit=1
+    )
+    if not record:
+        return None
+    return json.loads(record.response_body), record.response_status
+
+
+def store_idempotent_response(key: str, endpoint: str, payload, status: int) -> None:
+    request.env["babana.idempotency.record"].sudo().create(
+        {
+            "idempotency_key": key,
+            "endpoint": endpoint,
+            "response_status": status,
+            "response_body": json.dumps(payload),
+        }
+    )

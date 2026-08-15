@@ -10,3 +10,4 @@ from . import babana_fare_rule
 from . import babana_zone
 from . import babana_ride
 from . import babana_ride_state
+from . import babana_idempotency_record

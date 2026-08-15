@@ -3,6 +3,8 @@
 # données et ses contraintes d'intégrité.
 from __future__ import annotations
 
+import uuid
+
 from odoo import api, fields, models
 
 # États de C-03 (docs/contracts/ride-state-machine.md), sans `draft` : jamais persisté (L4-01,
@@ -34,6 +36,15 @@ class BabanaRide(models.Model):
 
     # --- Identité --------------------------------------------------------------------------
     reference = fields.Char(required=True, readonly=True, copy=False, index=True, default="/")
+    public_id = fields.Char(
+        string="Identifiant public",
+        index=True,
+        copy=False,
+        default=lambda self: str(uuid.uuid4()),
+        help="Identifiant exposé à l'API mobile (RideIdSchema, C-01, L4-03) -- jamais "
+        "l'identifiant Odoo interne, séquentiel et devinable. Même idée que "
+        "res.users.babana_public_id (L1-01).",
+    )
     state = fields.Selection(
         RIDE_STATES,
         default="requested",
@@ -129,6 +140,7 @@ class BabanaRide(models.Model):
 
     _sql_constraints = [
         ("babana_ride_reference_unique", "unique(reference)", "La référence de course doit être unique."),
+        ("babana_ride_public_id_unique", "unique(public_id)", "Collision d'identifiant public de course -- ne devrait jamais se produire (UUID)."),
     ]
 
     @api.depends("actual_distance_km", "reference_distance_km")
