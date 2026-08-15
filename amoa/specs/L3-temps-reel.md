@@ -186,10 +186,12 @@ Sur `nearby.subscribe`, renvoyer les 5 chauffeurs disponibles les plus proches, 
 
 La projection est implémentée comme une **liste blanche de champs**, jamais comme une exclusion : une liste noire laisse passer tout champ ajouté plus tard.
 
+**Cinq résultats, vraiment cinq** (ajouté le 16 août). L3-03 filtre les chauffeurs dont la position a expiré au moment de la requête, en sur-échantillonnant d'un facteur fixe pour absorber ce filtrage. Cela suppose qu'au plus une fraction du pool soit périmée — vrai en régime normal, faux après une coupure réseau généralisée, qui est le cas courant à Douala. Cette tâche doit donc **compléter jusqu'à cinq**, par élargissement ou par nouvelle requête, plutôt que de renvoyer deux chauffeurs parce que le sur-échantillonnage n'a pas suffi. Un client qui voit deux chauffeurs au lieu de cinq croit que la ville est vide.
+
 ### Critères d'acceptation
 
 1. Un rayon demandé supérieur au plafond est ramené au plafond, sans erreur.
-2. Plus de 5 chauffeurs disponibles : exactement 5 sont renvoyés, les plus proches.
+2. Plus de 5 chauffeurs disponibles : exactement 5 sont renvoyés, les plus proches. **Y compris quand une large part du pool porte des positions expirées** — le filtrage ne doit jamais réduire silencieusement la liste.
 3. Les positions renvoyées sont arrondies.
 4. La charge utile ne contient ni nom complet, ni téléphone, ni immatriculation — test explicite.
 5. Un second abonnement du même client remplace le premier.
@@ -554,3 +556,44 @@ Variante : tuer Redis. La perte des positions de l'instant est acceptable ; la p
 3. L'événement de fin de course en file est rejoué.
 4. La perte de Redis ne fait perdre aucune course enregistrée dans Odoo.
 5. Le test tourne en intégration continue, ou au minimum avant chaque livraison.
+
+---
+
+## L3-15 — Canal de configuration Odoo → temps réel
+
+### Objectif
+
+Permettre au service temps réel de lire les valeurs métier paramétrables sans jamais toucher PostgreSQL.
+
+### Contexte
+
+**Créée le 16 août, après l'écart `amoa/questions/L3-02.md`.** D21 veut les valeurs métier en base, modifiables sans redéploiement pendant le pilote. L'invariant 1 interdit au service temps réel tout client PostgreSQL, et la frontière de lint le garantit mécaniquement. Les deux règles sont bonnes ; entre les deux, il manquait un canal.
+
+Faute de ce canal, L3-02, L3-03 et L3-04 ont posé leurs seuils, rayons et délais en variables d'environnement, tous rassemblés dans `services/realtime/src/config.ts`. C'est un champ-pont à l'échelle d'un fichier : provisoire, tracé, condamné — **par cette tâche**, qui commence par les faire disparaître.
+
+### Fichiers
+
+```
+services/odoo/addons/babana/controllers/internal_config.py
+services/realtime/src/config/remote.ts
+services/realtime/test/remote-config.test.ts
+```
+
+### Spécification
+
+Un endpoint Odoo **interne**, authentifié par `REALTIME_SHARED_SECRET` — le même mécanisme que le sens sortant de L3-12, pas un second à inventer. Il n'est jamais exposé publiquement : ni sur le domaine mobile, ni au travers de Caddy.
+
+Il sert un **sous-ensemble nommé et fermé** d'`ir.config_parameter` — la liste des clés lisibles est déclarée dans le code, jamais un préfixe ouvert. Un endpoint qui sert « tout ce qui commence par `babana.` » finira par servir un secret que quelqu'un aura rangé là.
+
+Côté temps réel : lecture au démarrage, puis rafraîchissement périodique avec un cache de quelques dizaines de secondes — ces valeurs ne changent pas à la seconde. **Le service démarre et fonctionne si Odoo est injoignable** : il sert alors les dernières valeurs connues, ou les valeurs par défaut compilées s'il n'a jamais rien lu. Un service temps réel qui refuse de démarrer parce qu'Odoo redémarre est un point de panne ajouté, pas retiré.
+
+Les valeurs par défaut restent dans le code, comme filet — et elles restent plausibles au sens de D21, pas aléatoires.
+
+### Critères d'acceptation
+
+1. Aucune valeur métier du service temps réel ne vient plus d'une variable d'environnement : `services/realtime/src/config.ts` ne porte plus que des adresses et des secrets.
+2. Une valeur modifiée dans Odoo est prise en compte par le service sans redémarrage, au plus tard après la période de cache.
+3. Odoo injoignable au démarrage : le service démarre avec ses valeurs par défaut.
+4. Odoo injoignable en cours de route : le service conserve les dernières valeurs lues, sans jamais retomber sur les valeurs par défaut.
+5. L'endpoint refuse tout appel sans le secret partagé, et n'est pas atteignable depuis l'extérieur.
+6. Une clé hors de la liste déclarée n'est jamais servie, même si elle existe dans `ir.config_parameter`.

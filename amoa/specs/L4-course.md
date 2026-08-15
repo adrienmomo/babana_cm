@@ -100,6 +100,10 @@ Chaque méthode, dans cet ordre :
 
 **Verrouillage de l'enregistrement** pendant la transition, pour empêcher deux transitions concurrentes sur la même course. Deux appels simultanés à `action_accept` ne doivent pas produire deux affectations.
 
+**Un échec de sérialisation se rejoue, il ne se traduit pas en erreur métier** (D25, posée le 16 août). Sous `REPEATABLE READ`, une transition concurrente peut faire échouer le verrouillage avec `SerializationFailure` — PostgreSQL dit alors « rejoue-moi », pas « ta demande est invalide ». La transition réessaie donc un nombre borné de fois, en repartant d'un instantané neuf, et ne conclut à `RIDE_INVALID_TRANSITION` que si la précondition est **réellement** violée après relecture.
+
+La rédaction précédente traduisait l'échec de sérialisation directement en `RIDE_INVALID_TRANSITION`. C'était juste quand les deux transitions s'excluent — deux `action_accept` — et faux dès qu'elles s'enchaînent. Une annulation client arrivant juste après une acceptation chauffeur est **valide** : `assigned` est annulable. Elle était pourtant refusée environ dix-neuf fois sur vingt, non pas selon une règle mais selon la microseconde où PostgreSQL avait pris son instantané. Un client recevait « transition invalide » pour une annulation parfaitement légitime — et sur un réseau de Douala, il retapait quelques secondes plus tard, ce qui produisait le rejeu de toute façon, en pire.
+
 Le mécanisme est implémenté ici ; sa **preuve** est portée par L4-11. Ne pas écrire de test de concurrence dans le harnais Odoo : `TransactionCase` enveloppe le test dans une transaction annulée à la fin, si bien qu'une seconde connexion réelle ne voit jamais les lignes créées ou attend un verrou qui ne se libère qu'à la fin du test. Le test paraît alors instable alors que le mécanisme est correct — constaté pendant la nuit du 10 au 11 août.
 
 Surcharger `write` **et `create`** pour interdire toute écriture directe de `state` hors des méthodes de transition. C'est le point qui rend l'invariant réel plutôt que conventionnel.
@@ -122,6 +126,7 @@ Le champ `state` porte les transitions autorisées depuis l'état courant, expos
 5. Modifier le montant d'une course `completed` échoue.
 6. Modifier quoi que ce soit sur une course `settled` échoue.
 7. `rejected → proposed` conserve l'historique des refus.
+8. **Un échec de sérialisation est rejoué, pas remonté.** Une transition dont la précondition reste satisfaite après relecture aboutit ; seule une précondition réellement violée produit `RIDE_INVALID_TRANSITION`. Vérifié par L4-11, pas ici — même raison qu'au critère 4.
 
 ### Piège
 
@@ -465,7 +470,18 @@ Contre la pile démarrée par `make up`, pas contre le harnais Odoo.
 
 **Scénario 1 — acceptation concurrente.** N sessions authentifiées appellent `action_accept` sur la même course `proposed`, réellement simultanément. Exactement un succès, N−1 échecs avec un code d'erreur explicite. Répéter un grand nombre de fois : une fenêtre de course étroite ne se manifeste pas au premier essai.
 
-**Scénario 2 — transitions divergentes.** Un client annule pendant qu'un chauffeur accepte. Une seule des deux transitions gagne, l'état final est cohérent, et le perdant reçoit une erreur compréhensible plutôt qu'un état intermédiaire.
+**Scénario 2 — transitions divergentes.** Un client annule pendant qu'un chauffeur accepte.
+
+**Rédaction corrigée le 16 août ; la précédente exigeait « une seule des deux transitions gagne », et c'était faux.** Ces deux transitions ne s'excluent pas : `assigned` est annulable par le client (C-03, L4-07). Si l'acceptation passe la première, l'annulation qui suit est légitime et **doit** aboutir. Les deux ordres sont corrects, et ils ne donnent pas le même nombre de succès :
+
+| Ordre | Résultat attendu | État final |
+|---|---|---|
+| L'annulation gagne | `cancelled` ; l'acceptation échoue avec `RIDE_INVALID_TRANSITION` | `cancelled` |
+| L'acceptation gagne | `assigned`, **puis** `cancelled` — les deux réussissent | `cancelled` |
+
+Ce que le scénario prouve n'est donc pas l'exclusion mutuelle, c'est que **l'issue ne dépend pas du hasard de l'ordonnanceur** : quel que soit l'ordre, l'état final est `cancelled`, aucune transition valide n'est refusée, et aucun état intermédiaire n'est observable. C'est exactement ce que le rejeu de D25 rend vrai.
+
+L'exclusion mutuelle, elle, se prouve sur une paire réellement exclusive — deux `action_accept` (scénario 1), ou une acceptation contre un refus sur la même proposition.
 
 **Scénario 3 — encaissement concurrent.** Deux `action_settle` simultanés sur la même course. Un seul mouvement de compte courant, une seule facture.
 
@@ -474,7 +490,8 @@ Chaque scénario vérifie l'état final en base, pas seulement les codes de reto
 ### Critères d'acceptation
 
 1. Les tests s'exécutent contre une pile réelle, avec des transactions validées.
-2. Sur toutes les itérations, exactement un succès par scénario.
+2. **Sur les scénarios d'exclusion mutuelle** (1 et 3), exactement un succès à chaque itération. Sur le scénario 2, l'état final est `cancelled` à chaque itération, quel qu'ait été l'ordre.
+2 bis. **Aucune transition valide n'est jamais refusée pour cause de concurrence.** Sur N itérations du scénario 2, `RIDE_INVALID_TRANSITION` n'est renvoyé qu'aux transitions dont la précondition était réellement violée — jamais à une annulation depuis `assigned`.
 3. L'état final en base est cohérent à chaque itération.
 4. Le temps d'exécution est stable — pas de variation d'un facteur trois entre deux exécutions.
 5. Une implémentation volontairement naïve, sans verrouillage, fait échouer les trois scénarios. À vérifier une fois, sinon le test ne prouve rien.

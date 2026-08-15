@@ -29,6 +29,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D15 | Tarif = **base + distance × prix au km**, majoré par un **coefficient de zone et d'heure de pointe**. **Pas de prix à la minute** | Facturation à la minute, prix ferme calculé sur le devis | Conséquence directe d'É8 : la durée disponible avant la course est une durée voiture. Le salariat (D5) retire au terme temps sa raison d'être. Voir écart É9 |
 | D23 | La **charge utile du jeton d'accès est un contrat partagé** (`AccessTokenClaimsSchema`, C-01), claims nommés d'après RFC 7519 : `sub`, `role`, `driverId`, `iat`, `exp`, `jti` | Chaque service déclare la forme qu'il attend | Deux implémentations lisent ce jeton sans jamais se parler. Elles ont divergé — `uid` contre `sub` — en restant vertes chacune de son côté. Voir §5 |
 | D24 | En cas d'indisponibilité de l'API de routage, **une entrée de cache périmée est servie** plutôt qu'une erreur, si elle existe pour la même clé | Erreur stricte dans tous les cas | Un itinéraire déjà calculé par la vraie API n'est pas une estimation dégradée. Sans ce repli, une panne du fournisseur arrête toute la plateforme |
+| D25 | Un **échec de sérialisation PostgreSQL se rejoue**, il ne se traduit jamais en erreur métier | Traduction directe en `RIDE_INVALID_TRANSITION` | Une transition valide était refusée dix-neuf fois sur vingt selon la microseconde de l'instantané, pas selon une règle. Voir §2 bis |
 
 ---
 
@@ -76,6 +77,18 @@ Cet épisode illustre le bénéfice de la reformulation. Sous la règle des « q
 | Chauffeur, moto, affectation, documents | Odoo / PostgreSQL | Source de vérité |
 | Grille tarifaire, zones, promotions | Odoo / PostgreSQL | Source de vérité |
 | Compte courant chauffeur, remises de caisse | Odoo / PostgreSQL | Source de vérité, écritures comptables |
+
+---
+
+## 2 bis. Concurrence : ce qui est un fait métier, ce qui ne l'est pas
+
+**Un échec de sérialisation PostgreSQL n'est pas une réponse à l'utilisateur (D25).** Sous `REPEATABLE READ`, deux transactions qui touchent la même ligne peuvent produire un `SerializationFailure`. La base dit alors une chose précise : *ton instantané est périmé, rejoue-moi.* Elle ne dit rien sur la validité de la demande.
+
+Le 14 août, ce refus remontait en erreur technique brute ; nous l'avons traduit en `RIDE_INVALID_TRANSITION`. C'était un progrès et c'était encore faux. La traduction est juste quand les deux transitions concurrentes s'excluent — deux acceptations sur la même proposition — et fausse dès qu'elles s'enchaînent. Une annulation client arrivant juste après une acceptation chauffeur est valide : `assigned` est annulable. Elle était pourtant refusée dans l'immense majorité des cas, et honorée dans les autres, selon la microseconde où PostgreSQL avait pris son instantané. Le client recevait « transition invalide » pour une annulation légitime.
+
+**La règle qui en découle vaut au-delà des courses** : rejouer la transaction un nombre borné de fois, en repartant d'un instantané neuf, et ne conclure à une erreur métier qu'après avoir relu l'état et constaté que la précondition est réellement violée. Une erreur de concurrence se rejoue ; une erreur métier se renvoie. Les confondre revient à répondre à l'utilisateur avec un détail d'implémentation de la base.
+
+**Et le corollaire de test** : une paire de transitions divergentes ne prouve pas l'exclusion mutuelle. Il faut une paire réellement exclusive pour cela. Un test qui exige « exactement un succès » d'une paire qui peut légitimement en produire deux ne teste pas la concurrence — il fige une erreur de raisonnement, et il finit par être assoupli plutôt que compris.
 
 ---
 
