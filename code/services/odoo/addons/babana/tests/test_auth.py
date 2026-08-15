@@ -143,6 +143,56 @@ class TestGoogleAuth(HttpCase):
         self.assertEqual(body["user"]["role"], "driver")
         self.assertEqual(body["user"]["driverStatus"], "pending")
 
+    # --- Critère 9 : aucun hr.employee n'est créé par l'authentification (L1-03R2) ------------
+
+    def test_driver_signup_creates_no_hr_employee(self):
+        # Correction du 13 août (amoa/questions/REPONSES-2026-08-13.md) : un sign-in chauffeur
+        # crée une candidature (babana.driver, state='pending'), jamais une fiche employé --
+        # c'est désormais L1-06 (hors de ce lot) qui écrit dans hr, à l'approbation seulement.
+        employee_count_before = self.env["hr.employee"].sudo().search_count([])
+
+        token = _mint_google_token(sub="sub-no-employee", email="candidate@example.invalid")
+        response = self._post_auth(token, role="driver")
+
+        self.assertEqual(response.status_code, 200)
+        employee_count_after = self.env["hr.employee"].sudo().search_count([])
+        self.assertEqual(employee_count_before, employee_count_after)
+
+        driver = self.env["babana.driver"].sudo().search(
+            [("user_id.google_sub", "=", "sub-no-employee")]
+        )
+        self.assertEqual(driver.state, "pending")
+        self.assertFalse(driver.employee_id)
+
+    # --- Critère 10 : la création de candidature est soumise à une limitation de débit -------
+
+    def test_driver_candidacy_creation_is_rate_limited(self):
+        # Toutes les requêtes de ce test client partagent la même adresse IP source -- le
+        # vecteur concret que la limitation vise (amoa/questions/REPONSES-2026-08-13.md :
+        # « n'importe quel compte Google ... » depuis la même origine).
+        self.env["ir.config_parameter"].sudo().set_param(
+            "babana.driver_candidacy_rate_limit_max", "2"
+        )
+
+        for i in range(2):
+            token = _mint_google_token(
+                sub=f"sub-rate-limit-{i}", email=f"rl{i}@example.invalid"
+            )
+            response = self._post_auth(token, role="driver")
+            self.assertEqual(response.status_code, 200)
+
+        over_limit_token = _mint_google_token(
+            sub="sub-rate-limit-over", email="over@example.invalid"
+        )
+        blocked = self._post_auth(over_limit_token, role="driver")
+        self.assertEqual(blocked.status_code, 429)
+        self.assertEqual(blocked.json()["error"]["code"], "RATE_LIMITED")
+
+        # Toujours aucun hr.employee, y compris pour les candidatures bloquées par le débit.
+        self.assertFalse(
+            self.env["res.users"].sudo().search([("google_sub", "=", "sub-rate-limit-over")])
+        )
+
     # --- Requête malformée : rejetée avant toute vérification de jeton ------------------------
 
     def test_missing_role_rejected_before_token_verification(self):

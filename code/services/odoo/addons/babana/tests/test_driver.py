@@ -65,6 +65,25 @@ class TestBabanaDriver(TransactionCase):
         with self.assertRaises(Exception):
             self.env["babana.driver"].create({"employee_id": employee.id})
 
+    # --- L1-03R2 : employee_id facultatif à pending, obligatoire dès approved ---------------
+
+    def test_candidacy_can_be_created_without_employee(self):
+        # Un sign-in chauffeur (L1-01) crée exactement ceci : aucune fiche RH avant l'approbation.
+        driver = self.env["babana.driver"].create({})
+        self.assertEqual(driver.state, "pending")
+        self.assertFalse(driver.employee_id)
+
+    def test_approving_without_employee_is_forbidden(self):
+        driver = self.env["babana.driver"].create({})
+        with self.assertRaises(ValidationError):
+            driver.write({"state": "approved"})
+
+    def test_approving_with_employee_succeeds(self):
+        driver = self.env["babana.driver"].create({})
+        employee = self.env["hr.employee"].create({"name": "Rattaché à l'approbation"})
+        driver.write({"employee_id": employee.id, "state": "approved"})
+        self.assertEqual(driver.state, "approved")
+
     # --- ride_count n'est plus un champ-pont (code/docs/bridge-fields.md) ------------------
 
     def test_ride_count_reflects_the_driver_rides(self):

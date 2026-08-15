@@ -38,7 +38,7 @@ class ResUsers(models.Model):
     ]
 
     @api.model
-    def _babana_find_or_create_from_google(self, *, sub, email, name, role):
+    def _babana_find_or_create_from_google(self, *, sub, email, name, role, ip_address=None):
         """Retrouve un compte babana par `sub`, ou en crée un (L1-01, critères 1 et 6).
 
         Le rôle n'est plus stocké (L1-03R, `amoa/questions/L1-03R.md`) : il se lit désormais par
@@ -47,10 +47,18 @@ class ResUsers(models.Model):
         `role` transmis à ce rappel, sans qu'il faille rien figer explicitement à la création —
         un compte ne change pas de nature après coup, à l'image de l'irréversibilité des
         transitions de `babana.ride`.
+
+        `ip_address` (L1-01, critère 10) n'est utilisée que pour la limitation de débit sur la
+        création d'une candidature chauffeur -- ignorée pour un compte existant ou un rôle client.
         """
         existing = self.sudo().search([("google_sub", "=", sub)], limit=1)
         if existing:
             return existing
+
+        if role == "driver":
+            # Avant toute écriture : un abus déjà commis (compte créé) n'a plus besoin d'être
+            # bloqué, seule la prévention compte (L1-01, critère 10).
+            self.env["babana.driver"]._check_candidacy_rate_limit(ip_address)
 
         portal_group = self.env.ref("base.group_portal")
         # self.env.company résout via self.env.user.company_id -- vide sous auth='none', qui
@@ -80,13 +88,15 @@ class ResUsers(models.Model):
                 {"babana_is_customer": True, "babana_google_sub": sub}
             )
         elif role == "driver":
-            # L1-01 demandait déjà de « créer ou rattacher le babana.driver ... correspondant » ;
-            # resté en suspens tant que babana.driver n'existait pas (L1-03). Complété ici
-            # (L1-03R) : voir amoa/questions/L1-03R.md pour la fiche hr.employee minimale créée
-            # en même temps, faute d'un provisionnement RH préalable spécifié ailleurs.
-            employee = self.env["hr.employee"].sudo().create({"name": vals["name"]})
+            # L1-03R2 (correction du 13 août -- amoa/questions/REPONSES-2026-08-13.md) : un
+            # sign-in chauffeur crée une candidature, jamais une fiche hr.employee -- la version
+            # L1-03R de ce bloc créait les deux, ouvrant une porte de pollution RH et de spam
+            # (n'importe quel compte Google avec role=driver faisait naître un employé). state
+            # par défaut 'pending', employee_id vide : c'est L1-06 (hors de ce lot), la
+            # validation du dossier par un gestionnaire, qui crée ou rattache la fiche RH --
+            # seul endroit du système où cette écriture a désormais lieu.
             self.env["babana.driver"].sudo().create(
-                {"employee_id": employee.id, "user_id": user.id}
+                {"user_id": user.id, "signup_ip_address": ip_address}
             )
 
         return user

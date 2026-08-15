@@ -14,6 +14,7 @@ import jwt
 from odoo import SUPERUSER_ID, http
 from odoo.http import request
 
+from ..models.babana_driver import DriverCandidacyRateLimited
 from ..models.babana_token import TokenExpired, TokenNotFound, TokenReused
 from ..services.google_identity import InvalidGoogleToken, verify_google_id_token
 
@@ -84,12 +85,16 @@ class AuthController(http.Controller):
             return _error_response("INVALID_GOOGLE_TOKEN", "jeton Google invalide", 401)
 
         env = _superuser_env()
-        user = env["res.users"]._babana_find_or_create_from_google(
-            sub=claims["sub"],
-            email=claims.get("email"),
-            name=claims.get("name"),
-            role=role,
-        )
+        try:
+            user = env["res.users"]._babana_find_or_create_from_google(
+                sub=claims["sub"],
+                email=claims.get("email"),
+                name=claims.get("name"),
+                role=role,
+                ip_address=request.httprequest.remote_addr,
+            )
+        except DriverCandidacyRateLimited as exc:
+            return _error_response("RATE_LIMITED", str(exc), 429)
 
         refresh_token = env["babana.token"]._issue_family(user)
         session = _build_session(user, refresh_token, picture=claims.get("picture"))

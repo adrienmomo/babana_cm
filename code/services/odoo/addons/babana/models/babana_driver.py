@@ -1,5 +1,10 @@
 # Chauffeur salarié (L1-03, D5). Rattaché à hr.employee : ce n'est pas un partenaire externe,
 # c'est un employé de l'entreprise dont l'application est un outil de travail.
+#
+# employee_id est facultatif tant que state vaut 'pending' (L1-03R2, correction du 13 août --
+# amoa/questions/REPONSES-2026-08-13.md) : un sign-in chauffeur crée une candidature, pas un
+# employé. L'approbation (L1-06, hors de ce lot) est le seul endroit qui crée ou rattache la
+# fiche hr.employee -- la contrainte ci-dessous rend l'obligation réelle à partir de 'approved'.
 from __future__ import annotations
 
 from datetime import timedelta
@@ -12,6 +17,22 @@ from odoo.exceptions import UserError, ValidationError
 # codé en dur dans une transaction individuelle.
 DEFAULT_CASH_LIMIT_PARAM = "babana.default_cash_limit"
 DEFAULT_CASH_LIMIT_FALLBACK = 50000.0
+
+# L1-01, critère 10 : limitation de débit sur la création de candidature -- par adresse IP, le
+# vecteur concret décrit par la spécification (« n'importe quel compte Google appelant
+# /auth/google avec role=driver »). Valeurs paramétrables (invariant 5), jamais codées en dur
+# dans la vérification elle-même.
+DRIVER_CANDIDACY_RATE_LIMIT_MAX_PARAM = "babana.driver_candidacy_rate_limit_max"
+DRIVER_CANDIDACY_RATE_LIMIT_MAX_FALLBACK = 5
+DRIVER_CANDIDACY_RATE_LIMIT_WINDOW_MINUTES_PARAM = (
+    "babana.driver_candidacy_rate_limit_window_minutes"
+)
+DRIVER_CANDIDACY_RATE_LIMIT_WINDOW_MINUTES_FALLBACK = 60
+
+
+class DriverCandidacyRateLimited(UserError):
+    """Trop de candidatures chauffeur depuis la même adresse (L1-01, critère 10) -- à traduire
+    en RATE_LIMITED (catalogue C-01, 429) par le contrôleur."""
 
 
 class BabanaDriver(models.Model):
@@ -42,16 +63,22 @@ class BabanaDriver(models.Model):
     employee_id = fields.Many2one(
         "hr.employee",
         string="Employé",
-        required=True,
         index=True,
         ondelete="restrict",
-        help="Rattachement salarié (D5) : le chauffeur est un employé, pas un partenaire.",
+        help="Rattachement salarié (D5) : le chauffeur est un employé, pas un partenaire. "
+        "Facultatif tant que state vaut 'pending' -- une candidature n'est pas encore un "
+        "employé (L1-03R2) ; obligatoire dès 'approved' (contrainte ci-dessous).",
     )
     user_id = fields.Many2one(
         "res.users",
         string="Compte de connexion",
         index=True,
         ondelete="restrict",
+    )
+    signup_ip_address = fields.Char(
+        string="Adresse IP d'inscription",
+        help="Capturée à la création de la candidature (L1-01, critère 10), pour la limitation "
+        "de débit et l'investigation d'abus. Jamais utilisée à d'autres fins.",
     )
     state = fields.Selection(
         [
@@ -164,6 +191,53 @@ class BabanaDriver(models.Model):
             "cash_balance ne s'écrit jamais directement : il se calcule depuis le journal des "
             "mouvements de compte courant (D8, L5-01)."
         )
+
+    @api.constrains("state", "employee_id")
+    def _check_employee_required_once_approved(self):
+        # L1-03R2 (correction du 13 août -- amoa/questions/REPONSES-2026-08-13.md) : un chauffeur
+        # approuvé est un salarié, une candidature ne l'est pas encore. La contrainte porte sur
+        # l'état, pas sur la création -- employee_id peut donc rester vide de 'pending' jusqu'à
+        # ce que L1-06 (validation du dossier, hors de ce lot) le rattache ou le crée.
+        for record in self:
+            if record.state == "approved" and not record.employee_id:
+                raise ValidationError(
+                    "Un chauffeur approuvé doit être rattaché à une fiche employé (D5, L1-06)."
+                )
+
+    @api.model
+    def _check_candidacy_rate_limit(self, ip_address):
+        # L1-01, critère 10 : appelé avant la création d'une candidature, jamais après --
+        # limiter un abus déjà commis ne protège rien.
+        if not ip_address:
+            return
+        max_per_window = int(
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param(
+                DRIVER_CANDIDACY_RATE_LIMIT_MAX_PARAM,
+                DRIVER_CANDIDACY_RATE_LIMIT_MAX_FALLBACK,
+            )
+        )
+        window_minutes = int(
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param(
+                DRIVER_CANDIDACY_RATE_LIMIT_WINDOW_MINUTES_PARAM,
+                DRIVER_CANDIDACY_RATE_LIMIT_WINDOW_MINUTES_FALLBACK,
+            )
+        )
+        window_start = fields.Datetime.now() - timedelta(minutes=window_minutes)
+        recent_count = self.sudo().search_count(
+            [
+                ("signup_ip_address", "=", ip_address),
+                ("create_date", ">=", window_start),
+            ]
+        )
+        if recent_count >= max_per_window:
+            raise DriverCandidacyRateLimited(
+                "Trop de candidatures chauffeur depuis cette adresse récemment -- réessayer "
+                "plus tard."
+            )
 
     @api.constrains("is_online", "state")
     def _check_online_requires_approved(self):
