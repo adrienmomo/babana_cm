@@ -9,6 +9,7 @@ import {
   WS_CLOSE_UNAUTHENTICATED,
 } from './auth';
 import { createMessageDispatcher } from './dispatch';
+import { DisconnectGraceTimers } from '../driver/availability';
 
 // Réexportés pour compatibilité : posés ici par L0-04, avant que ws/auth.ts (L3-01) n'existe.
 // test/ws.test.ts importe encore WS_CLOSE_UNAUTHENTICATED depuis ce module.
@@ -25,6 +26,7 @@ export function createConnectionHandler(config: Config, redis: Redis) {
   const wss = new WebSocketServer({ noServer: true });
   const registry = new ConnectionRegistry();
   const dispatch = createMessageDispatcher(config, redis);
+  const disconnectGrace = new DisconnectGraceTimers();
 
   wss.on('connection', (socket: WebSocket, request: IncomingMessage) => {
     const auth = authenticateConnection(request, config);
@@ -36,6 +38,14 @@ export function createConnectionHandler(config: Config, redis: Redis) {
 
     const { context, expiresAtMs } = auth;
     registry.add(context, socket);
+
+    // Une reconnexion avant l'échéance de la période de grâce (L3-04, critère 3) annule la
+    // sortie du pool programmée par la déconnexion précédente -- sans ça, un chauffeur qui
+    // retrouve du réseau juste à temps sortirait quand même du pool par la faute d'un minuteur
+    // qui n'a plus lieu d'être.
+    if (context.role === 'driver' && context.driverId) {
+      disconnectGrace.cancel(context.driverId);
+    }
 
     // Critère d'acceptation 5 : un jeton qui expire en cours de vie de la connexion la ferme --
     // la vérification à l'établissement (ci-dessus) ne couvre que l'instant du handshake, une
@@ -51,6 +61,13 @@ export function createConnectionHandler(config: Config, redis: Redis) {
     socket.on('close', () => {
       clearTimeout(expiryTimer);
       registry.remove(context, socket);
+
+      // Critère d'acceptation 3 : une déconnexion réseau ne met pas hors ligne immédiatement --
+      // période de grâce configurable, puis sortie du pool (L3-04). Rien à faire pour un client :
+      // seuls les chauffeurs ont une disponibilité à gérer.
+      if (context.role === 'driver' && context.driverId) {
+        disconnectGrace.schedule(redis, context.driverId, config.AVAILABILITY_DISCONNECT_GRACE_SECONDS);
+      }
     });
 
     // Le contexte posé à l'authentification est la seule source d'autorisation consultée par le

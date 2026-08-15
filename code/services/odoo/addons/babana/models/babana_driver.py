@@ -280,6 +280,62 @@ class BabanaDriver(models.Model):
         return document.expires_on if document else False
 
     @api.constrains("is_online")
+    def _check_online_requires_cash_under_limit(self):
+        # Même famille que les trois contraintes voisines (approbation, assurance, permis) --
+        # ajoutée pour L3-04, critère 4. cash_balance est un champ-pont (toujours 0.0 tant que
+        # L5-01 n'existe pas) : cette contrainte ne peut donc jamais se déclencher aujourd'hui,
+        # mais la forme est prête pour le jour où elle le pourra, plutôt que d'être ajoutée après
+        # coup en même temps que L5-01.
+        for record in self:
+            if record.is_online and record.cash_limit and record.cash_balance >= record.cash_limit:
+                raise ValidationError(
+                    "Ce chauffeur ne peut pas passer en ligne : le plafond d'encaisse est "
+                    "atteint (D8)."
+                )
+
+    def _has_active_ride(self) -> bool:
+        # DRIVER_ACTIVE_STATES (babana_ride.py, L4-01) : la même définition d'« en course » que
+        # l'index unique partiel qui empêche une deuxième course active pour ce chauffeur --
+        # réutilisée plutôt que réinventée (L3-04).
+        self.ensure_one()
+        from .babana_ride import DRIVER_ACTIVE_STATES  # import tardif : évite un cycle (babana_ride importe déjà babana_driver via Many2one)
+
+        return bool(
+            self.env["babana.ride"].sudo().search_count(
+                [("driver_id", "=", self.id), ("state", "in", list(DRIVER_ACTIVE_STATES))]
+            )
+        )
+
+    def _check_online_eligibility(self):
+        """Motif de refus distinct pour chaque condition (L3-04, critère 1), ou None si le
+        chauffeur peut passer en ligne. Les mêmes conditions sont aussi protégées par les
+        contraintes ci-dessus (défense en profondeur contre une écriture directe qui
+        contournerait le contrôleur) -- ici, elles sont vérifiées AVANT l'écriture pour renvoyer
+        un code d'erreur distinct plutôt qu'une ValidationError généreique."""
+        self.ensure_one()
+        if self.state != "approved":
+            return "DRIVER_NOT_APPROVED", "Le dossier n'est pas approuvé."
+        if not self.motorcycle_id:
+            return "MOTORCYCLE_NOT_ASSIGNED", "Aucune moto n'est affectée à ce chauffeur."
+        if self.motorcycle_id._insurance_is_expired():
+            return "INSURANCE_EXPIRED", "L'assurance de la moto a expiré."
+        expires_on = self._current_license_expires_on()
+        if expires_on and expires_on < fields.Date.today():
+            return "LICENSE_EXPIRED", "Le permis a expiré."
+        if self.cash_limit and self.cash_balance >= self.cash_limit:
+            return "CASH_LIMIT_REACHED", "Le plafond d'encaisse est atteint."
+        return None
+
+    def _check_offline_allowed(self):
+        """None si le chauffeur peut se mettre hors ligne, sinon un motif (L3-04, critère 2) :
+        seul le cas "en course" bloque -- le passage hors ligne est sinon immédiat et
+        inconditionnel (spécification L3-04)."""
+        self.ensure_one()
+        if self._has_active_ride():
+            return "DRIVER_HAS_ACTIVE_RIDE", "Impossible de se mettre hors ligne pendant une course."
+        return None
+
+    @api.constrains("is_online")
     def _check_online_requires_valid_license(self):
         # Même raisonnement que l'assurance (L1-07) : un permis expiré est un risque juridique,
         # bloqué plutôt que signalé (L1-10). fields.Date.today(), pas context_today() -- voir

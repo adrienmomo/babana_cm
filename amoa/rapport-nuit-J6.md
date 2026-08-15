@@ -197,3 +197,65 @@ Redis (GEOADD/GEOSEARCH) serait mal reproduit par une imitation -- même raisonn
 L3-13 pour la réservation atomique, appliqué ici au tri par distance plutôt qu'à l'atomicité.
 Conséquence assumée : `npm test -w @babana/realtime` requiert désormais Redis disponible (il
 l'était déjà implicitement pour le service lui-même, jamais pour sa suite de tests jusqu'ici).
+
+**Défaut trouvé et corrigé pendant l'implémentation de L3-04, dans ce fichier de L3-03** : Node
+exécute les fichiers de test en parallèle (processus séparés, même Redis) ; `geo-index.test.ts`
+et le nouveau `availability.test.ts` touchent tous deux la clé de production partagée
+`babana:drivers:available`, et le premier effaçait toute la clé en `beforeEach` -- un `del`
+aveugle qui pouvait balayer les membres que l'autre fichier était en train d'ajouter au même
+instant. `npm test` complet du paquet échouait alors par intermittence (constaté, pas supposé).
+Corrigé : identifiants de chauffeur suffixés par un identifiant de run unique dans les deux
+fichiers, plus de `del` sur la clé partagée -- seuls les membres propres à chaque fichier sont
+manipulés. Revérifié trois exécutions consécutives de `npm test -w @babana/realtime`, aucun échec.
+
+---
+
+## L3-04 — Bascule en ligne / hors ligne
+
+**Fait, des deux côtés.** Côté Odoo (source de vérité de l'éligibilité, spécification) :
+`babana_driver.py` gagne `_check_online_eligibility()` (un motif distinct par condition --
+dossier non approuvé, moto non affectée, assurance expirée, permis expiré, plafond d'encaisse
+atteint -- critère d'acceptation 1) et `_check_offline_allowed()` (`DRIVER_HAS_ACTIVE_RIDE` si
+`DRIVER_ACTIVE_STATES`, la même définition d'« en course » que l'index unique partiel de
+`babana_ride.py`, L4-01 -- critère 2). `controllers/driver.py` (nouveau) traduit ces motifs en
+réponse HTTP sur `POST /drivers/me/availability`, déjà présent au contrat C-01 mais avec un seul
+code d'erreur. Une quatrième contrainte `@api.constrains("is_online")` ajoutée par symétrie avec
+les trois existantes (approbation, assurance, permis -- L1-07) pour le plafond d'encaisse :
+défense en profondeur contre une écriture directe, jamais déclenchée aujourd'hui puisque
+`cash_balance` est un champ-pont (toujours 0.0 avant L5-01) -- même situation que
+`promo_applied` (L2-04), documentée comme telle dans les tests (`test_driver_availability.py`).
+
+**Écart déposé, extension du contrat** : `SetAvailabilityErrors` (C-01, `driver.ts`) ne portait
+que `DRIVER_NOT_APPROVED` ; la spécification exige un motif distinct par condition. Étendu avec
+`MOTORCYCLE_NOT_ASSIGNED`, `INSURANCE_EXPIRED`, `LICENSE_EXPIRED`, `DRIVER_HAS_ACTIVE_RIDE` (plus
+`CASH_LIMIT_REACHED`, déjà au catalogue, réutilisé) -- même précédent que L2-04 (extension
+additive, décidée et non arrêtée, amoa/questions/L2-04.md).
+
+**Côté temps réel** (`driver/availability.ts`) : le service ne décide de rien (invariant 3), il
+applique ce que la connexion chauffeur annonce (`availability.set`, C-02, dispatché par
+`ws/dispatch.ts` -- l'identité vient toujours du `ConnectionContext`, jamais du message). Un
+passage en ligne pose un drapeau (`babana:driver:online:<id>`) plutôt que d'entrer directement
+dans le géo-index -- un chauffeur qui vient de se déclarer disponible n'a pas forcément de
+position connue à cet instant. C'est `tracking/ingest.ts` (L3-02, modifié) qui, à la première
+position acceptée d'un chauffeur marqué en ligne, l'insère réellement dans le pool : L3-02, L3-03
+et L3-04 se rejoignent là plutôt que de dupliquer la décision à trois endroits. Le passage hors
+ligne, lui, est immédiat et inconditionnel : retire le drapeau ET le géo-index dans la même
+opération (critère 2 -- le blocage "en course" a déjà eu lieu côté Odoo avant que ce message ne
+soit envoyé).
+
+**Période de grâce de déconnexion** (critère 3) : `DisconnectGraceTimers`
+(`driver/availability.ts`), un minuteur par chauffeur tenu en mémoire par le processus. Sur
+`socket.on('close', ...)` (`ws/connection.ts`), programme une sortie du pool différée de
+`AVAILABILITY_DISCONNECT_GRACE_SECONDS` ; une reconnexion avant échéance (nouvelle connexion
+authentifiée pour le même `driverId`) l'annule. Ce minuteur est un filet de sécurité rapide --
+l'expiration de la position (L3-02) reste le filet ultime si Redis ou ce minuteur échouaient.
+
+**Bilan de l'écart de configuration `amoa/questions/L3-02.md`** : la période de grâce et le seuil
+de plausibilité de vitesse de L3-02 sont désormais tous deux dans `services/realtime/src/
+config.ts`, avec la même réserve -- provisoires en variable d'environnement en attendant un canal
+de lecture de configuration Odoo → temps réel.
+
+Tests : `test_driver_availability.py` (Odoo, chaque condition de refus isolée, un chauffeur en
+course refusé au passage hors ligne) ; `test/availability.test.ts` (temps réel, contre un Redis
+réel comme `test/geo-index.test.ts` -- drapeau en ligne, jonction avec le géo-index à la première
+position, retrait immédiat au passage hors ligne, période de grâce avec et sans reconnexion).

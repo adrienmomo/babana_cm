@@ -2,5 +2,6 @@
 # encaissement, remise de caisse (01-architecture.md §5).
 from . import auth
 from . import documents
+from . import driver
 from . import quote
 from . import ride

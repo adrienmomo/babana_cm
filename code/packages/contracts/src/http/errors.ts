@@ -18,6 +18,14 @@ export const ErrorCode = z.enum([
   'UNAUTHORIZED',
   'DRIVER_NOT_APPROVED',
 
+  // Bascule en ligne / hors ligne (L3-04) -- chaque condition de refus a son propre code
+  // (spécification, critère 1) : DRIVER_NOT_APPROVED (ci-dessus) et CASH_LIMIT_REACHED
+  // (plus bas, partagé avec la caisse) complètent cette liste.
+  'MOTORCYCLE_NOT_ASSIGNED',
+  'INSURANCE_EXPIRED',
+  'LICENSE_EXPIRED',
+  'DRIVER_HAS_ACTIVE_RIDE',
+
   // Rattachement du numéro de téléphone
   'PHONE_ALREADY_VERIFIED',
   'PHONE_NOT_VERIFIED',
@@ -70,6 +78,11 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
   UNAUTHORIZED: 401,
   DRIVER_NOT_APPROVED: 403,
 
+  MOTORCYCLE_NOT_ASSIGNED: 403,
+  INSURANCE_EXPIRED: 403,
+  LICENSE_EXPIRED: 403,
+  DRIVER_HAS_ACTIVE_RIDE: 409,
+
   PHONE_ALREADY_VERIFIED: 409,
   PHONE_NOT_VERIFIED: 403,
   OTP_INVALID: 400,
@@ -111,6 +124,11 @@ export const ERROR_DESCRIPTION: Record<ErrorCode, string> = {
   TOKEN_REVOKED: "Le jeton applicatif a été révoqué par /auth/logout.",
   UNAUTHORIZED: "En-tête Authorization manquant ou malformé.",
   DRIVER_NOT_APPROVED: "Le compte chauffeur n'est pas encore validé par le back-office.",
+
+  MOTORCYCLE_NOT_ASSIGNED: "Aucune moto n'est affectée à ce chauffeur.",
+  INSURANCE_EXPIRED: "L'assurance de la moto affectée a expiré.",
+  LICENSE_EXPIRED: "Le permis de conduire du chauffeur a expiré.",
+  DRIVER_HAS_ACTIVE_RIDE: "Le chauffeur ne peut pas se mettre hors ligne pendant une course.",
 
   PHONE_ALREADY_VERIFIED: "Un numéro est déjà rattaché et vérifié pour ce compte ; un seul OTP dans la vie du compte (01-architecture.md §5).",
   PHONE_NOT_VERIFIED: "Cette action nécessite un numéro de téléphone vérifié.",

@@ -3,6 +3,8 @@ import { realtime } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ConnectionContext } from '../ws/auth';
 import { getPosition, storePosition } from '../redis/positions';
+import { addToPool } from '../redis/geo-index';
+import { isMarkedOnline } from '../driver/availability';
 import { checkPlausibility, type PlausibilityConfig, type PlausibilityFailureReason } from './validation';
 
 /**
@@ -128,6 +130,13 @@ export async function ingestPosition(
     },
     ttlSeconds
   );
+
+  // Rejoint L3-04 : un chauffeur marqué en ligne (availability.set) mais sans position connue
+  // n'a rien à mettre dans le géo-index tant qu'aucune position valide n'est arrivée -- c'est
+  // ici, à la première acceptée, qu'il y entre réellement (L3-03).
+  if (await isMarkedOnline(redis, context.driverId)) {
+    await addToPool(redis, context.driverId, sample.latitude, sample.longitude);
+  }
 
   ingestMetrics.recordAccepted();
   return { accepted: true };

@@ -76,7 +76,20 @@ export const SetAvailabilityResponseSchema = z.object({
 });
 export type SetAvailabilityResponse = z.infer<typeof SetAvailabilityResponseSchema>;
 
-export const SetAvailabilityErrors = ['DRIVER_NOT_APPROVED'] as const;
+/**
+ * Un code distinct par condition de refus (L3-04, critère 1) -- extension du catalogue décidée
+ * en implémentant L3-04 : la spécification exige un motif distinct pour chaque condition
+ * (approbation, moto affectée, assurance, permis, plafond d'encaisse), le contrat n'en portait
+ * qu'une. Même précédent que L2-04 (extension additive du contrat, amoa/questions/L2-04.md).
+ */
+export const SetAvailabilityErrors = [
+  'DRIVER_NOT_APPROVED',
+  'MOTORCYCLE_NOT_ASSIGNED',
+  'INSURANCE_EXPIRED',
+  'LICENSE_EXPIRED',
+  'CASH_LIMIT_REACHED',
+  'DRIVER_HAS_ACTIVE_RIDE',
+] as const;
 
 export const setAvailabilityRequestExample: SetAvailabilityRequest = {
   online: true,

@@ -3,6 +3,7 @@ import { realtime } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ConnectionContext } from './auth';
 import { ingestPosition, plausibilityConfigFrom } from '../tracking/ingest';
+import { setOnline, setOffline } from '../driver/availability';
 
 /**
  * Routage des messages entrants (C-02) vers leur gestionnaire, par `type`. Un seul point
@@ -15,7 +16,7 @@ import { ingestPosition, plausibilityConfigFrom } from '../tracking/ingest';
  *
  * Les types non encore traités par ce lot (la majorité de C-02 : `proposal.accept`,
  * `ride.start`, `nearby.subscribe`, ...) sont ignorés silencieusement -- ce n'est pas une erreur,
- * seulement une fonctionnalité que L3-04 et les tâches suivantes ajoutent au fil de l'eau.
+ * seulement une fonctionnalité que les tâches suivantes ajoutent au fil de l'eau.
  */
 export type MessageDispatcher = (context: ConnectionContext, raw: string) => Promise<void>;
 
@@ -37,6 +38,16 @@ export function createMessageDispatcher(config: Config, redis: Redis): MessageDi
     switch (message.type) {
       case 'position.update':
         await ingestPosition(redis, context, message, plausibility, config.POSITION_TTL_SECONDS);
+        return;
+      case 'availability.set':
+        // L'identité vient du contexte de connexion (invariant L3-01) : un client ne peut jamais
+        // basculer la disponibilité d'un chauffeur, même en forgeant ce message.
+        if (context.role !== 'driver' || !context.driverId) return;
+        if (message.payload.online) {
+          await setOnline(redis, context.driverId);
+        } else {
+          await setOffline(redis, context.driverId);
+        }
         return;
       default:
         return;
