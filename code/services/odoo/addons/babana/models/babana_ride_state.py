@@ -105,20 +105,35 @@ class BabanaRideState(models.Model):
         # ligne a été modifiée par une transaction validée depuis le début de celle-ci --
         # découvert le 14 août en vérifiant L4-11 contre une pile réelle (TransactionCase ne
         # peut jamais provoquer ce cas : une seule connexion n'entre jamais en conflit avec
-        # elle-même). C'est le même mécanisme que le blocage-par-attente, pas un cas à part :
-        # la transition perdante doit échouer proprement (RIDE_INVALID_TRANSITION), pas remonter
-        # en erreur technique brute. Savepoint pour ne poisonner que cette tentative, pas toute
-        # la transaction de la requête (qui doit encore pouvoir committer sa réponse d'erreur).
+        # elle-même). Savepoint pour ne pas invalider le reste de la requête si l'appelant
+        # choisissait de rattraper l'exception localement -- ce n'est plus le cas ci-dessous,
+        # mais garder le savepoint ne coûte rien et documente l'intention d'origine.
+        #
+        # SerializationFailure remonte ici telle quelle, jamais traduite en RIDE_INVALID_
+        # TRANSITION (D25, 16 août -- amoa/questions/REPONSES-2026-08-16.md) : PostgreSQL dit
+        # « ton instantané est périmé, rejoue-moi », pas « ta demande est invalide ».
+        #
+        # Le rejeu n'est PAS fait à la main ici, et c'est délibéré (amoa/questions/L4-02.md,
+        # point 5) : sous REPEATABLE READ, l'instantané d'une transaction est fixé une fois pour
+        # toutes à son ouverture. Ré-exécuter ce SELECT dans la MÊME transaction (via un
+        # savepoint ou une boucle Python locale) retombe donc sur le même instantané périmé et
+        # échoue à nouveau, indéfiniment -- vérifié empiriquement le 16 août, une tentative de
+        # rejeu local a épuisé son budget de tentatives et fini en erreur technique brute à
+        # chaque fois. Seule une transaction réellement neuve obtient un instantané neuf.
+        # Or Odoo rejoue déjà la requête HTTP entière avec un curseur neuf sur exactement cette
+        # famille d'erreurs : `odoo.service.model.retrying`, qui enveloppe tout `Dispatcher.
+        # dispatch()` (donc cet appel de méthode) et réessaie jusqu'à
+        # MAX_TRIES_ON_CONCURRENCY_FAILURE fois (5, avec temporisation aléatoire croissante),
+        # en journalisant chaque tentative et l'épuisement final. C'est un rejeu plus complet
+        # que ce qu'un rejeu local pourrait offrir : il repart avant même la ré-authentification
+        # et la revalidation de la requête, donc avant la précondition, pas seulement avant elle.
+        # Notre seule responsabilité est de laisser SerializationFailure remonter sans
+        # l'attraper nulle part sur le chemin -- ici, et dans controllers/ride.py::_dispatch.
         self.ensure_one()
-        try:
-            with self.env.cr.savepoint():
-                self.env.cr.execute(
-                    "SELECT id FROM babana_ride WHERE id = %s FOR UPDATE", (self.id,)
-                )
-        except psycopg2.errors.SerializationFailure as exc:
-            raise RideInvalidTransition(
-                "Une autre transition a déjà eu lieu sur cette course entre-temps."
-            ) from exc
+        with self.env.cr.savepoint():
+            self.env.cr.execute(
+                "SELECT id FROM babana_ride WHERE id = %s FOR UPDATE", (self.id,)
+            )
         # Le verrou obtenu, une transaction concurrente a pu commiter un changement de state
         # pendant l'attente. Le cache Odoo, rempli par un browse() antérieur au verrou, doit
         # être invalidé pour que la lecture de self.state qui suit reflète la valeur réellement

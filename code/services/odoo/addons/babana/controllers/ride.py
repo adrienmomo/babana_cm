@@ -16,6 +16,7 @@ from datetime import timedelta
 from odoo import http
 from odoo.exceptions import UserError
 from odoo.http import request
+from odoo.service.model import PG_CONCURRENCY_EXCEPTIONS_TO_RETRY
 
 from . import _common
 from ..models.babana_ride_state import RideInvalidTransition
@@ -79,6 +80,17 @@ class RideController(http.Controller):
         except UserError as exc:
             code, status = _map_user_error(str(exc))
             return _common.error_response(code, str(exc), status)
+        except PG_CONCURRENCY_EXCEPTIONS_TO_RETRY:
+            # D25 (amoa/questions/REPONSES-2026-08-16.md, amoa/questions/L4-02.md point 5) :
+            # SerializationFailure (et ses cousines LockNotAvailable, DeadlockDetected) ne sont
+            # PAS des erreurs métier -- ni ici, ni dans babana_ride_state.py::_lock_for_update,
+            # qui les laisse volontairement remonter telles quelles. Les avaler ici en
+            # INTERNAL_ERROR les cacherait à `odoo.service.model.retrying`, qui enveloppe déjà
+            # tout appel de contrôleur et rejoue la requête entière avec un curseur neuf --
+            # exactement le rejeu "depuis un instantané neuf" que D25 demande, à un niveau où il
+            # peut réellement fonctionner (sous REPEATABLE READ, rejouer dans la même
+            # transaction ne rafraîchit jamais l'instantané -- vérifié empiriquement).
+            raise
         except Exception:
             _logger.exception("erreur interne dans %s", endpoint)
             return _common.error_response("INTERNAL_ERROR", "erreur interne", 500)

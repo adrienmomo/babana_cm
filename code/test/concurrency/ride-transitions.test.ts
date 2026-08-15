@@ -129,17 +129,28 @@ test(
 
 // --- Scénario 2 : transitions divergentes ------------------------------------------------------
 // Un client annule pendant qu'un chauffeur accepte, concurrentement, sur la même course
-// 'proposed'. Une seule des deux transitions gagne, l'état final est cohérent
-// ('assigned' ou 'cancelled', jamais un état intermédiaire), le perdant reçoit une erreur
-// compréhensible.
+// 'proposed'. Rédaction corrigée le 16 août 2026 (D25, amoa/questions/REPONSES-2026-08-16.md) :
+// accept et cancel ne s'excluent pas, c'est une séquence légitime -- 'assigned' est annulable
+// (C-03, L4-07). Ce que ce scénario prouve n'est donc PAS l'exclusion mutuelle ("un seul
+// succès"), c'est l'indépendance à l'ordonnanceur : quel que soit l'ordre dans lequel Postgres
+// a pris son instantané, l'état final est TOUJOURS 'cancelled', et aucune transition valide
+// n'est jamais refusée pour cause de concurrence (critère 2 bis de L4-11) :
+//
+//   | Ordre                | Résultat                                             |
+//   |-----------------------|------------------------------------------------------|
+//   | cancel gagne d'abord | cancelled ; accept échoue à bon droit (RIDE_INVALID_TRANSITION) |
+//   | accept gagne d'abord | assigned, PUIS cancel réussit aussi -- les deux aboutissent |
+//
+// L'exclusion mutuelle, elle, se prouve sur une paire réellement exclusive : scénario 1 (deux
+// accept) ou accept contre reject sur la même proposition -- pas ici.
 
 test(
   `scénario 2 -- annulation client contre acceptation chauffeur (${ITERATIONS} itérations)`,
   { timeout: 180_000 },
   async () => {
     const actors = await setUpActors('s2');
-    let assignedWins = 0;
-    let cancelledWins = 0;
+    let bothSucceeded = 0;
+    let onlyCancelSucceeded = 0;
 
     for (let iteration = 0; iteration < ITERATIONS; iteration += 1) {
       const ridePublicId = await proposedRide(actors);
@@ -151,38 +162,50 @@ test(
         }),
       ]);
 
-      const outcomes = [acceptResponse, cancelResponse];
-      const successes = outcomes.filter((r) => r.status === 200);
+      // L'annulation n'échoue JAMAIS dans ce scénario : depuis 'proposed' (cancel gagne) comme
+      // depuis 'assigned' (accept gagne d'abord), 'cancelled' est une transition valide (C-03).
+      // Un cancel refusé ici serait exactement le défaut de D25 : une transition légitime
+      // rejetée selon la microseconde de l'instantané Postgres, pas selon une règle.
       assert.equal(
-        successes.length,
-        1,
-        `itération ${iteration} : ${successes.length} transition(s) réussie(s) sur 2 (attendu : exactement 1) -- accept=${acceptResponse.status} cancel=${cancelResponse.status}`,
+        cancelResponse.status,
+        200,
+        `itération ${iteration} : l'annulation doit toujours aboutir (assigned est annulable) -- ` +
+          `reçu ${cancelResponse.status} : ${JSON.stringify(cancelResponse.body)}`,
       );
 
-      const loser = successes[0] === acceptResponse ? cancelResponse : acceptResponse;
-      assert.notEqual(loser.status, 200);
-      assert.ok(
-        loser.body?.error?.code,
-        `le perdant doit recevoir un code d'erreur explicite -- ${JSON.stringify(loser.body)}`,
-      );
+      if (acceptResponse.status === 200) {
+        bothSucceeded += 1;
+      } else {
+        onlyCancelSucceeded += 1;
+        // Le perdant doit échouer proprement, avec le vrai motif métier -- pas un
+        // SerializationFailure brut remonté en 500, et pas davantage RIDE_INVALID_TRANSITION
+        // pour une raison qui n'est plus valable après rejeu.
+        assert.equal(
+          acceptResponse.body?.error?.code,
+          'RIDE_INVALID_TRANSITION',
+          `itération ${iteration} : accept perdant doit recevoir RIDE_INVALID_TRANSITION, reçu ${JSON.stringify(acceptResponse.body)}`,
+        );
+      }
 
       const finalState = await readRideState(ridePublicId);
-      assert.ok(
-        finalState === 'assigned' || finalState === 'cancelled',
-        `itération ${iteration} : état final incohérent (${finalState}), ni assigned ni cancelled`,
+      assert.equal(
+        finalState,
+        'cancelled',
+        `itération ${iteration} : état final attendu 'cancelled' (accept=${acceptResponse.status}), obtenu '${finalState}'`,
       );
-      if (finalState === 'assigned') assignedWins += 1;
-      else cancelledWins += 1;
 
+      // La course est déjà 'cancelled' : rien à libérer côté chauffeur (freeUpDriver ne fait
+      // quelque chose que depuis 'assigned', jamais atteint ici en fin d'itération).
       await freeUpDriver(actors, ridePublicId);
     }
 
-    // Pas une exigence de répartition précise (le point n'est pas l'équité entre les deux
-    // transitions) -- seulement la preuve que les deux issues sont bien atteignables, pas
-    // qu'une des deux gagne toujours par un biais de timing du test lui-même.
+    // Pas une exigence de répartition précise -- seulement la preuve que les deux ordres
+    // d'arrivée se produisent réellement sur le nombre d'itérations, pas qu'un seul chemin est
+    // exercé par un biais de timing du test lui-même.
     assert.ok(
-      assignedWins > 0 && cancelledWins > 0,
-      `les deux issues doivent se produire au moins une fois sur ${ITERATIONS} itérations (assigned=${assignedWins}, cancelled=${cancelledWins}) -- sinon le test ne prouve qu'un seul chemin`,
+      bothSucceeded > 0 && onlyCancelSucceeded > 0,
+      `les deux ordres doivent se produire au moins une fois sur ${ITERATIONS} itérations ` +
+        `(accept+cancel=${bothSucceeded}, cancel seul=${onlyCancelSucceeded}) -- sinon le test ne prouve qu'un seul chemin`,
     );
   },
 );
