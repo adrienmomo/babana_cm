@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 
+import psycopg2
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 
@@ -99,13 +100,29 @@ class BabanaRideState(models.Model):
         return self.with_context(babana_allow_state_write=True).write(vals)
 
     def _lock_for_update(self):
+        # Sous REPEATABLE READ (Odoo, toutes connexions), un SELECT ... FOR UPDATE concurrent
+        # n'attend pas toujours : PostgreSQL peut le refuser net (SerializationFailure) si la
+        # ligne a été modifiée par une transaction validée depuis le début de celle-ci --
+        # découvert le 14 août en vérifiant L4-11 contre une pile réelle (TransactionCase ne
+        # peut jamais provoquer ce cas : une seule connexion n'entre jamais en conflit avec
+        # elle-même). C'est le même mécanisme que le blocage-par-attente, pas un cas à part :
+        # la transition perdante doit échouer proprement (RIDE_INVALID_TRANSITION), pas remonter
+        # en erreur technique brute. Savepoint pour ne poisonner que cette tentative, pas toute
+        # la transaction de la requête (qui doit encore pouvoir committer sa réponse d'erreur).
         self.ensure_one()
-        self.env.cr.execute("SELECT id FROM babana_ride WHERE id = %s FOR UPDATE", (self.id,))
-        # Le SELECT FOR UPDATE ci-dessus bloque jusqu'à obtenir le verrou ; une transaction
-        # concurrente a pu commiter un changement de state pendant l'attente. Le cache Odoo,
-        # rempli par un browse() antérieur au verrou, doit être invalidé pour que la lecture de
-        # self.state qui suit reflète la valeur réellement committée -- pas une valeur périmée
-        # lue avant la mise en file d'attente sur le verrou.
+        try:
+            with self.env.cr.savepoint():
+                self.env.cr.execute(
+                    "SELECT id FROM babana_ride WHERE id = %s FOR UPDATE", (self.id,)
+                )
+        except psycopg2.errors.SerializationFailure as exc:
+            raise RideInvalidTransition(
+                "Une autre transition a déjà eu lieu sur cette course entre-temps."
+            ) from exc
+        # Le verrou obtenu, une transaction concurrente a pu commiter un changement de state
+        # pendant l'attente. Le cache Odoo, rempli par un browse() antérieur au verrou, doit
+        # être invalidé pour que la lecture de self.state qui suit reflète la valeur réellement
+        # committée -- pas une valeur périmée lue avant la mise en file d'attente sur le verrou.
         self.invalidate_recordset()
 
     def _babana_journalize(self, event, **details):

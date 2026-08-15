@@ -5,7 +5,8 @@
   "workspaces": [
     "packages/*",
     "services/realtime",
-    "apps/*"
+    "apps/*",
+    "test"
   ],
   "engines": {
     "node": ">=20"

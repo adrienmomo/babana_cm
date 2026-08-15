@@ -1,0 +1,15 @@
+{
+  "name": "@babana/concurrency-tests",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tests de concurrence contre la pile réelle (L3-13, L4-11) -- TransactionCase ne permet pas de prouver un verrouillage réel (amoa/questions/L4-02.md, point 4). Nécessite `make up`.",
+  "scripts": {
+    "test": "tsx --test concurrency/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.15",
+    "tsx": "^4.16.5",
+    "typescript": "^5.5.4"
+  }
+}
