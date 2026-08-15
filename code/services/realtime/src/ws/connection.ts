@@ -10,6 +10,7 @@ import {
 } from './auth';
 import { createMessageDispatcher } from './dispatch';
 import { DisconnectGraceTimers } from '../driver/availability';
+import { NearbyManager } from '../nearby/handler';
 
 // Réexportés pour compatibilité : posés ici par L0-04, avant que ws/auth.ts (L3-01) n'existe.
 // test/ws.test.ts importe encore WS_CLOSE_UNAUTHENTICATED depuis ce module.
@@ -25,7 +26,8 @@ const MAX_SET_TIMEOUT_MS = 2 ** 31 - 1;
 export function createConnectionHandler(config: Config, redis: Redis) {
   const wss = new WebSocketServer({ noServer: true });
   const registry = new ConnectionRegistry();
-  const dispatch = createMessageDispatcher(config, redis);
+  const nearby = new NearbyManager(config, redis);
+  const dispatch = createMessageDispatcher(config, redis, nearby);
   const disconnectGrace = new DisconnectGraceTimers();
 
   wss.on('connection', (socket: WebSocket, request: IncomingMessage) => {
@@ -61,6 +63,11 @@ export function createConnectionHandler(config: Config, redis: Redis) {
     socket.on('close', () => {
       clearTimeout(expiryTimer);
       registry.remove(context, socket);
+      // Un abonnement nearby.subscribe ne doit pas survivre à la connexion qui l'a ouvert (L3-05,
+      // critère 5 -- même principe qu'un seul abonnement actif par client) : sans ça, une
+      // reconnexion laisserait un minuteur orphelin continuer à interroger Redis pour un socket
+      // fermé, jusqu'au prochain nearby.subscribe qui l'aurait de toute façon remplacé.
+      nearby.unsubscribe(context);
 
       // Critère d'acceptation 3 : une déconnexion réseau ne met pas hors ligne immédiatement --
       // période de grâce configurable, puis sortie du pool (L3-04). Rien à faire pour un client :
@@ -73,7 +80,7 @@ export function createConnectionHandler(config: Config, redis: Redis) {
     // Le contexte posé à l'authentification est la seule source d'autorisation consultée par le
     // dispatcher -- aucun message entrant ne peut redéfinir qui l'envoie (L3-01, critère 3).
     socket.on('message', (data) => {
-      dispatch(context, data.toString()).catch(() => {
+      dispatch(context, socket, data.toString()).catch(() => {
         // ingestPosition/dispatch ne devraient pas lever (erreurs métier renvoyées en valeur) --
         // filet défensif : une position perdue ne doit jamais fermer la connexion.
       });

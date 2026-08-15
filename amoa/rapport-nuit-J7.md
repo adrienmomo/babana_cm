@@ -64,3 +64,66 @@ blanc dans les deux sens (voir plus haut).
 **Base fraîche, `make test` complet, dédié à cette tâche** : `make reset && make up`, puis suite
 Odoo (`-i babana --test-enable`), `npm test` (paquets JS/TS, `test/concurrency` scénarios 1 et 2,
 `test/auth`), vérification de la machine à états — tout vert.
+
+---
+
+## L3-05 — Endpoint « 5 chauffeurs les plus proches »
+
+**Fait**, avec un écart de fond déposé avant d'écrire le code d'intégration : `amoa/questions/
+L3-05.md`.
+
+### Le géo-index complète maintenant jusqu'à 5 (correction du point relevé hier soir)
+
+`services/realtime/src/redis/geo-index.ts::findNearby` sur-échantillonnait d'un facteur fixe
+(×3) pour absorber les positions expirées — insuffisant après une coupure réseau généralisée, le
+cas courant à Douala, où une majorité du pool peut être périmée en même temps. Le facteur double
+maintenant et la requête est rejouée jusqu'à obtenir `limit` résultats frais ou jusqu'à ce que
+Redis renvoie moins de candidats bruts que demandé (tout le rayon déjà parcouru). Test de
+non-régression ajouté à `test/geo-index.test.ts` : 30 chauffeurs périmés placés délibérément plus
+près que 6 chauffeurs frais — l'ancien facteur fixe aurait renvoyé zéro résultat frais sur la
+première page, la nouvelle version en renvoie 5.
+
+### L'écart : d'où viennent prénom, photo, note et gamme de moto
+
+`nearby.drivers` doit porter des données de profil possédées par Odoo, et le service temps réel
+n'a et ne doit avoir aucun client PostgreSQL (invariant 1). Aucune tâche du lot L3 ne fait
+transiter ces champs vers Redis — un cousin exact du problème de configuration résolu hier par
+L3-15, mais L3-15 sert `ir.config_parameter` (global), pas une donnée par enregistrement comme un
+profil chauffeur. **Décision provisoire, même geste que L3-02/L3-15** : `redis/driver-profiles.ts`
+(nouveau, pas dans la liste de fichiers de la spécification — même raison que `redis/positions.ts`
+pour L3-02) lit un hash Redis par chauffeur. **Rien n'écrit encore cette clé en production** :
+un chauffeur disponible sans profil en cache est omis de `nearby.drivers`, jamais complété par une
+valeur inventée. Détail et proposition de canal dans le fichier d'écart.
+
+### Ce qui est livré
+
+`nearby/projection.ts` : liste blanche de champs (piège explicitement documenté par la
+spécification) — chaque champ du `NearbyDriver` renvoyé est construit un par un depuis le
+géo-index et le profil en cache, jamais en étalant un objet source. Position arrondie
+(`http.roundToNearbyPrecision`, 4 décimales, C-02/C2b, définition unique déjà partagée avec le
+contrat REST). Un chauffeur sans profil est omis.
+
+`nearby/handler.ts` (`NearbyManager`) : un seul abonnement actif par client (indexé par
+`userId`, un nouvel abonnement annule le précédent) ; rayon plafonné côté service quel que soit le
+rayon demandé (`NEARBY_MAX_RADIUS_METERS`, déjà posé par L3-03) ; limitation de débit sur l'action
+`subscribe` elle-même, par utilisateur, fenêtre glissante en mémoire ; diffusion périodique tant
+que l'abonnement est actif (`NEARBY_BROADCAST_INTERVAL_SECONDS`) ; nettoyage automatique à la
+fermeture de connexion (`ws/connection.ts`, un abonnement ne doit pas survivre à son socket).
+Wiring dans `ws/dispatch.ts` (`nearby.subscribe`/`nearby.unsubscribe`, réservés au rôle client) et
+`ws/connection.ts` (le dispatcher reçoit maintenant le socket, pas seulement le contexte —
+nécessaire pour répondre et diffuser).
+
+`NEARBY_BROADCAST_INTERVAL_SECONDS`, `NEARBY_RATE_LIMIT_MAX_SUBSCRIPTIONS`,
+`NEARBY_RATE_LIMIT_WINDOW_SECONDS` ajoutés à `config.ts`, même bloc et même réserve provisoire que
+les valeurs de L3-02/L3-03/L3-04 — condamnées par L3-15 ou son successeur, pas par cette tâche.
+
+Tests (`test/nearby.test.ts`, contre Redis réel comme `test/geo-index.test.ts`) : rayon ramené au
+plafond sans erreur (1), profil absent omis, position arrondie (3), charge utile strictement en
+liste blanche — absence explicite de `lastName`/`phone`/`licensePlate`/etc., pas seulement
+présence des champs attendus (4, le piège documenté), second abonnement remplace le premier (5),
+limitation de débit appliquée (6). Chaque test utilise ses propres coordonnées isolées (>5 km des
+autres) : les tests de ce fichier ne purgent pas entre eux, une contamination croisée aurait
+faussé les comptes exacts attendus.
+
+**Vérification sur base fraîche** : commune avec L3-06, qui la réutilise directement (le
+géo-index corrigé ici sert de socle à la réservation atomique) — détail dans l'entrée suivante.

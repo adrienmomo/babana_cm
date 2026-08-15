@@ -1,9 +1,11 @@
 import type Redis from 'ioredis';
+import type { WebSocket } from 'ws';
 import { realtime } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ConnectionContext } from './auth';
 import { ingestPosition, plausibilityConfigFrom } from '../tracking/ingest';
 import { setOnline, setOffline } from '../driver/availability';
+import type { NearbyManager } from '../nearby/handler';
 
 /**
  * Routage des messages entrants (C-02) vers leur gestionnaire, par `type`. Un seul point
@@ -15,15 +17,15 @@ import { setOnline, setOffline } from '../driver/availability';
  * chauffeur.
  *
  * Les types non encore traités par ce lot (la majorité de C-02 : `proposal.accept`,
- * `ride.start`, `nearby.subscribe`, ...) sont ignorés silencieusement -- ce n'est pas une erreur,
- * seulement une fonctionnalité que les tâches suivantes ajoutent au fil de l'eau.
+ * `ride.start`, ...) sont ignorés silencieusement -- ce n'est pas une erreur, seulement une
+ * fonctionnalité que les tâches suivantes ajoutent au fil de l'eau.
  */
-export type MessageDispatcher = (context: ConnectionContext, raw: string) => Promise<void>;
+export type MessageDispatcher = (context: ConnectionContext, socket: WebSocket, raw: string) => Promise<void>;
 
-export function createMessageDispatcher(config: Config, redis: Redis): MessageDispatcher {
+export function createMessageDispatcher(config: Config, redis: Redis, nearby: NearbyManager): MessageDispatcher {
   const plausibility = plausibilityConfigFrom(config);
 
-  return async function dispatch(context, raw) {
+  return async function dispatch(context, socket, raw) {
     let parsed: unknown;
     try {
       parsed = JSON.parse(raw);
@@ -48,6 +50,16 @@ export function createMessageDispatcher(config: Config, redis: Redis): MessageDi
         } else {
           await setOffline(redis, context.driverId);
         }
+        return;
+      case 'nearby.subscribe':
+        // Émetteur : client (C-02) -- un chauffeur qui enverrait ce message est ignoré, même
+        // garde-fou de rôle que availability.set ci-dessus.
+        if (context.role !== 'client') return;
+        await nearby.subscribe(context, socket, message.payload);
+        return;
+      case 'nearby.unsubscribe':
+        if (context.role !== 'client') return;
+        nearby.unsubscribe(context);
         return;
       default:
         return;

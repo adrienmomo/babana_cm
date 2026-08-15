@@ -46,6 +46,13 @@ const ConfigSchema = z.object({
 
   /** Période de grâce avant sortie du pool sur déconnexion réseau (L3-04). */
   AVAILABILITY_DISCONNECT_GRACE_SECONDS: z.coerce.number().int().positive().default(45),
+
+  /** Fréquence de diffusion des mises à jour nearby.drivers pendant un abonnement actif (L3-05). */
+  NEARBY_BROADCAST_INTERVAL_SECONDS: z.coerce.number().positive().default(5),
+  /** Limitation de débit sur nearby.subscribe (L3-05, C2b -- empêche l'échantillonnage rapide de
+   * la flotte) : au plus ce nombre d'abonnements par fenêtre glissante, par utilisateur. */
+  NEARBY_RATE_LIMIT_MAX_SUBSCRIPTIONS: z.coerce.number().int().positive().default(10),
+  NEARBY_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().positive().default(60),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

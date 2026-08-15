@@ -134,4 +134,49 @@ describe('géo-index des chauffeurs disponibles (L3-03)', () => {
     assert.equal(results.some((r) => r.driverId === driverId), false);
     assert.equal(await isInPool(redis, driverId), false, 'nettoyage paresseux au passage');
   });
+
+  test(
+    "complète jusqu'à `limit` même quand le sur-échantillonnage initial ne suffit pas " +
+      '(L3-05, amoa/questions/REPONSES-2026-08-16.md §1 fin)',
+    async () => {
+      // Coordonnées isolées de ce test, hors de toute autre donnée de ce fichier (même
+      // précaution que le critère 5) -- indispensable ici : ce test raisonne sur le compte BRUT
+      // de candidats renvoyés par Redis, qu'un chauffeur d'un autre test placé plus près
+      // fausserait.
+      const base = { latitude: 4.11, longitude: 9.82 };
+
+      // 30 chauffeurs "périmés" (dans le pool, sans position fraîche), tous plus proches que les
+      // 6 chauffeurs frais ci-dessous. Avec l'ancien sur-échantillonnage fixe (facteur 3, donc
+      // COUNT = limit*3 = 15 pour limit=5), la première page ne contient QUE des périmés : 0
+      // résultat frais, alors que 6 existent bel et bien dans le rayon interrogé.
+      const staleIds: string[] = [];
+      for (let i = 0; i < 30; i += 1) {
+        const driverId = trackedId(`c8-stale-${i}`);
+        staleIds.push(driverId);
+        await addToPool(redis, driverId, base.latitude, base.longitude + i * 0.00005);
+      }
+
+      // ~1.1 à 1.2 km du centre -- toujours dans le rayon de 3 km interrogé plus bas, mais
+      // nettement plus loin que les 30 périmés ci-dessus.
+      const freshIds: string[] = [];
+      for (let i = 0; i < 6; i += 1) {
+        freshIds.push(await freshen(`c8-fresh-${i}`, { latitude: base.latitude, longitude: base.longitude + 0.01 + i * 0.0002 }));
+        await addToPool(redis, freshIds[i]!, base.latitude, base.longitude + 0.01 + i * 0.0002);
+      }
+
+      const results = await findNearby(redis, base, 3_000, 5);
+      assert.equal(results.length, 5, `attendu 5 résultats frais, obtenu ${results.length}`);
+      assert.ok(
+        results.every((r) => freshIds.includes(r.driverId)),
+        'aucun résultat ne doit être un chauffeur périmé'
+      );
+      assert.deepEqual(
+        results.map((r) => r.driverId),
+        freshIds.slice(0, 5),
+        'triés par distance croissante, donc les 5 premiers chauffeurs frais'
+      );
+
+      for (const driverId of staleIds) await removeFromPool(redis, driverId);
+    }
+  );
 });
