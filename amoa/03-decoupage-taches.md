@@ -1,6 +1,6 @@
 # babana.cm — Découpage en tâches techniques
 
-**Version** 1.5 — 13 août 2026
+**Version** 1.6 — 15 août 2026
 **Périmètre** v1, pilote Bonanjo — décisions D1 à D15 de `01-architecture.md`, D16 à D18 de `04-monorepo-et-services.md`, D19 à D22 de `05-prerequis-et-simulation.md`
 **Destinataire** développement par Claude Code
 
@@ -164,7 +164,9 @@ Les états `brouillon → demandée → proposée → affectée → en_cours →
 | L4-08 | Historique des courses et des factures, exposé en JSON-RPC natif | S | L4-06 |
 | L4-09 | Notation et avis client après la course, mise à jour de la note moyenne du chauffeur | M | L4-05, L1-03 |
 | L4-10 | **Tests de la machine à états** : toutes les transitions valides passent, toutes les interdites échouent, double encaissement impossible | M | L4-02 |
-| L4-11 | **Test de concurrence sur les transitions**, contre une pile réelle hors du harnais Odoo | M | L4-02, L0-01 |
+| L4-11 | **Test de concurrence sur les transitions**, contre une pile réelle hors du harnais Odoo | M | L4-03, L0-01 |
+
+**Sur L4-11** : dépend de **L4-03**, pas de L4-02 — correction du 15 août. Les méthodes de transition prennent des recordsets en argument ; seule la couche HTTP les rend appelables de l'extérieur d'Odoo. Un test « contre une pile réelle » a donc besoin des endpoints, pas seulement du modèle. Erreur de dépendance de ma part, relevée par l'implémentation.
 
 **Sur L4-11** : extraite de L4-02 le 11 août. Un test de concurrence dans le harnais Odoo est instable par construction — `TransactionCase` annule la transaction en fin de test, une seconde connexion ne voit rien ou attend un verrou. Même raisonnement que L3-13 pour Redis.
 

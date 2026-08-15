@@ -40,6 +40,10 @@ Un seul dépôt git, à la racine `babana.cm/`. Les corrections de spécificatio
 | `amoa/05-prerequis-et-simulation.md` | D19 à D22, services simulés, valeurs par défaut, export web |
 | `amoa/specs/*.md` | Une spécification par tâche, avec critères d'acceptation |
 
+**Une session peut être interrompue à tout moment** — limite atteinte, plantage, coupure. Travailler en conséquence : commiter chaque tâche finie plutôt que d'accumuler, écrire l'entrée de rapport avec elle, ne jamais laisser l'arbre de travail dans un état intermédiaire à la fin d'une tâche. Une session qui reprend doit trouver un dépôt cohérent et un compte rendu à jour.
+
+**Le lot rétrécit à mesure que le code grandit.** Chaque tâche coûte plus de lecture que la précédente, parce qu'il y a davantage de code existant à comprendre avant d'y toucher. Un lot calibré sur un dépôt vide ne l'est plus trois nuits plus tard. Si le lot proposé paraît trop grand au vu de ce qu'il faut lire, le dire dans le rapport plutôt que de le tronquer en silence.
+
 **Une tâche à la fois.** Lire sa spécification en entier avant d'écrire du code. Respecter l'ordre des dépendances du §5 de `amoa/03-decoupage-taches.md`.
 
 ---
@@ -136,6 +140,11 @@ Une tâche est finie quand **tous** ces points sont vrais. Pas avant, quel que s
 5. Aucune valeur de configuration n'a été codée en dur
 6. Aucun secret n'a été introduit dans un fichier suivi
 7. Les cinq invariants sont respectés
+8. **L'entrée de rapport de la tâche est écrite et commitée avec elle**, pas à la fin de la session
+
+Le point 8 a été ajouté le 15 août, après une session interrompue en cours de route — limite atteinte, plantage de l'éditeur, reprise dans une autre session. Le lot a été mené à bien, mais le compte rendu, rédigé en un seul geste final, n'a jamais existé.
+
+**Le rapport n'est pas une documentation, c'est l'état de la session.** Une session qui reprend derrière une autre doit pouvoir savoir où la précédente s'est arrêtée, ce qu'elle a supposé, ce qu'elle a laissé rouge. Reconstituer cela depuis les messages de commit marche, mais mal. Écrit tâche par tâche, le rapport devient le document de passation — et il survit à une interruption, quelle qu'en soit la cause.
 
 Le point 3 est celui qu'on est tenté de sauter. C'est aussi celui qui empêche les régressions.
 

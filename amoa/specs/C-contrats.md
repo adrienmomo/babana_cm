@@ -144,6 +144,10 @@ Pour chaque endpoint : schéma de requête, schéma de réponse, codes HTTP, err
 
 Le catalogue est **partagé entre C-01 et C-02** : un même code peut être émis par un endpoint HTTP ou par un message WebSocket. `NO_DRIVER_AVAILABLE`, par exemple, n'est émis par aucun endpoint HTTP — il vient du service temps réel après épuisement de l'élargissement du rayon (L3-08). Le catalogue vit donc dans `packages/contracts/src/errors.ts`, à la racine du paquet, pas sous `http/`.
 
+**Identifiants publics** — tout identifiant qui traverse le contrat est un UUID opaque, jamais l'identifiant interne d'Odoo. Un entier séquentiel exposé dans une API publique se devine, se compte et révèle le volume d'activité. Chaque modèle atteignable depuis le mobile porte donc un `public_id` distinct de sa clé primaire. Règle générale posée le 15 août, après que L4-03 l'a appliquée à `babana.ride` et `babana.driver` sans qu'aucune spécification ne la formule.
+
+**Idempotence** — l'identifiant voyage dans l'en-tête `Idempotency-Key`, convention REST courante, plutôt que dans le corps : les schémas de corps n'ont pas à porter de mécanique de transport. Seules les transitions **réellement appliquées** sont mises en cache — rejouer un appel qui a échoué pour raison métier est sans risque, et parfois nécessaire puisque la condition qui l'a fait échouer peut avoir changé.
+
 **Versionnement** — le préfixe `/v1` est figé. Toute rupture de compatibilité crée `/v2`, elle ne modifie pas `/v1`. Documenter cette règle explicitement : une app installée sur le téléphone d'un chauffeur ne se met pas à jour à la demande.
 
 **Durée de validité de l'estimation** — une estimation a une date d'expiration. Passée cette date, `/rides` la refuse avec `QUOTE_EXPIRED`. Sinon un client peut faire estimer à 6h du matin et commander à 18h au tarif creux.
