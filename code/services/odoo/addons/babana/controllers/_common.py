@@ -41,11 +41,15 @@ def authenticated_user():
         raise AuthenticationFailed("UNAUTHORIZED") from exc
 
     env = request.env(user=SUPERUSER_ID)
+    # "sub", pas "uid" (D23, AccessTokenClaimsSchema) -- claims.get("uid") a longtemps subsisté
+    # ici alors que controllers/auth.py émettait déjà "sub" : c'est exactement le lecteur oublié
+    # qui aurait reproduit le défaut réparé cette nuit (amoa/questions/REPONSES-2026-08-15.md
+    # §1), avant même que le jeton n'atteigne le service temps réel.
     user = env["res.users"].sudo().search(
-        [("babana_public_id", "=", claims.get("uid"))], limit=1
+        [("babana_public_id", "=", claims.get("sub"))], limit=1
     )
     if not user:
-        # Signature valide mais uid inconnu : compte supprimé après émission du jeton. Même
+        # Signature valide mais sub inconnu : compte supprimé après émission du jeton. Même
         # code que tout autre défaut d'authentification -- ne pas distinguer, même raison
         # qu'InvalidAccessToken (services/access_token.py).
         raise AuthenticationFailed("UNAUTHORIZED")

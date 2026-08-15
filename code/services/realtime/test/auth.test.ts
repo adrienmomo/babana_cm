@@ -35,11 +35,18 @@ function fakeRequest(url: string): IncomingMessage {
   return { url } as unknown as IncomingMessage;
 }
 
+// UUID : AccessTokenClaimsSchema (@babana/contracts, D23) exige sub/driverId/jti en UUID --
+// la même forme qu'Odoo émet réellement.
+const DRIVER_SUB = crypto.randomUUID();
+const DRIVER_PUBLIC_ID = crypto.randomUUID();
+
 const validDriverClaims = {
-  sub: 'user-driver-1',
+  sub: DRIVER_SUB,
   role: 'driver' as const,
-  driverId: 'driver-public-1',
+  driverId: DRIVER_PUBLIC_ID,
+  iat: Math.floor(Date.now() / 1000),
   exp: Math.floor(Date.now() / 1000) + 3600,
+  jti: crypto.randomUUID(),
 };
 
 describe('authenticateConnection (L3-01)', () => {
@@ -75,9 +82,10 @@ describe('authenticateConnection (L3-01)', () => {
     const result = authenticateConnection(fakeRequest(`/rt/ws?token=${sign(validDriverClaims)}`), config);
     assert.equal(result.ok, true);
     if (!result.ok) return;
-    assert.equal(result.context.userId, 'user-driver-1');
+    assert.equal(result.context.userId, DRIVER_SUB);
     assert.equal(result.context.role, 'driver');
-    assert.equal(result.context.driverId, 'driver-public-1');
+    assert.equal(result.context.driverId, DRIVER_PUBLIC_ID);
+    assert.notEqual(result.context.driverId, result.context.userId);
     // Object.freeze() rend la valeur elle-même immuable, pas seulement son type -- une
     // affectation silencieusement ignorée en mode non strict plutôt qu'une levée d'exception
     // (dépend du mode d'exécution du module) ; Object.isFrozen() est la façon portable de le
@@ -85,18 +93,29 @@ describe('authenticateConnection (L3-01)', () => {
     assert.equal(Object.isFrozen(result.context), true);
   });
 
-  test('jeton valide sans driverId (L1-02 pas encore posé) : driverId reste null, pas confondu avec sub', () => {
+  test('jeton chauffeur sans driverId : refusé -- driverId est obligatoire sur un jeton chauffeur (D23)', () => {
+    // Avant D23, ws/token.ts posait ce cas comme une hypothèse acceptable ("L1-02 pas encore
+    // posé"), alors que le vrai jeton d'Odoo, lu depuis controllers/auth.py, avait déjà une
+    // forme différente -- exactement le défaut réparé cette nuit
+    // (amoa/questions/REPONSES-2026-08-15.md §1). AccessTokenClaimsSchema rend maintenant ce
+    // jeton invalide, pas silencieusement dégradé à driverId=null.
     const { driverId: _omitted, ...withoutDriverId } = validDriverClaims;
     const result = authenticateConnection(
       fakeRequest(`/rt/ws?token=${sign(withoutDriverId)}`), config
     );
-    assert.equal(result.ok, true);
-    if (!result.ok) return;
-    assert.equal(result.context.driverId, null);
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.equal(result.closeCode, WS_CLOSE_UNAUTHENTICATED);
   });
 
   test('jeton valide, rôle client : driverId est toujours null', () => {
-    const claims = { sub: 'user-client-1', role: 'client' as const, exp: Math.floor(Date.now() / 1000) + 3600 };
+    const claims = {
+      sub: crypto.randomUUID(),
+      role: 'client' as const,
+      iat: Math.floor(Date.now() / 1000),
+      exp: Math.floor(Date.now() / 1000) + 3600,
+      jti: crypto.randomUUID(),
+    };
     const result = authenticateConnection(fakeRequest(`/rt/ws?token=${sign(claims)}`), config);
     assert.equal(result.ok, true);
     if (!result.ok) return;

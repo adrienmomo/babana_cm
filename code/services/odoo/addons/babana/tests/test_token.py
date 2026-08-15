@@ -107,6 +107,28 @@ class TestBabanaToken(TransactionCase):
         access_token, expires_in = _issue_access_token(self.user)
         decoded = jwt.decode(access_token, os.environ["JWT_SECRET"], algorithms=["HS256"])
 
-        self.assertEqual(decoded["uid"], self.user.babana_public_id)
+        self.assertEqual(decoded["sub"], self.user.babana_public_id)
         self.assertEqual(decoded["role"], self.user._babana_role())
+        self.assertNotIn("driverId", decoded)  # role == 'client' ici (D23)
         self.assertEqual(expires_in, 3600)
+
+    def test_access_token_carries_driver_id_distinct_from_sub(self):
+        # D23 : driverId est obligatoire sur un jeton chauffeur, et distinct de sub
+        # (babana.driver.public_id contre res.users.babana_public_id) -- c'est exactement la
+        # confusion que la nuit du 15 août a identifiée comme risque (amoa/questions/
+        # REPONSES-2026-08-15.md §1).
+        from ..controllers.auth import _issue_access_token
+
+        driver_user = self.env["res.users"].sudo()._babana_find_or_create_from_google(
+            sub="sub-token-driver-test",
+            email="token-driver-test@example.invalid",
+            name="Test Token Driver",
+            role="driver",
+        )
+        access_token, _ = _issue_access_token(driver_user)
+        decoded = jwt.decode(access_token, os.environ["JWT_SECRET"], algorithms=["HS256"])
+
+        driver = driver_user._babana_driver()
+        self.assertEqual(decoded["sub"], driver_user.babana_public_id)
+        self.assertEqual(decoded["driverId"], driver.public_id)
+        self.assertNotEqual(decoded["driverId"], decoded["sub"])

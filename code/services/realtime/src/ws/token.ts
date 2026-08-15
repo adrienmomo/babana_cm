@@ -1,27 +1,16 @@
 import crypto from 'node:crypto';
+import { auth } from '@babana/contracts';
 
 /**
- * Vérification du jeton applicatif (HS256, secret partagé JWT_SECRET -- même secret
- * qu'Odoo pour émettre le jeton, voir infra/compose.yaml). L1-01, hors du lot de cette nuit,
- * n'a pas encore émis de vrai jeton applicatif : la forme exacte des claims ci-dessous
- * (sub, role, exp) est une hypothèse posée pour que ce squelette soit vérifiable ce soir --
- * à confirmer ou ajuster quand L1-01 émettra réellement ces jetons.
+ * Vérification du jeton applicatif (HS256, secret partagé JWT_SECRET -- même secret qu'Odoo
+ * pour émettre le jeton, voir infra/compose.yaml). La forme des claims n'est plus déclarée ici :
+ * elle vient de `AccessTokenClaimsSchema` (@babana/contracts, D23) -- le même schéma que celui
+ * qu'Odoo respecte à l'émission (controllers/auth.py:_issue_access_token). Avant D23, ce module
+ * redéclarait sa propre forme (sub, role, exp) à côté de celle qu'Odoo émettait réellement
+ * (uid, role, iat, exp, jti) : les deux suites étaient vertes en désaccord total, et aucun
+ * jeton réel n'était jamais accepté (amoa/questions/REPONSES-2026-08-15.md, §1).
  */
-export interface ApplicationTokenClaims {
-  sub: string;
-  role: 'client' | 'driver';
-  exp: number;
-  /**
-   * Identifiant public du chauffeur (babana.driver.public_id, distinct de
-   * res.users.babana_public_id porté par `sub`) -- L3-01 en a besoin pour construire un
-   * contexte de connexion immuable sans jamais appeler Odoo. L1-02 (hors de ce lot) n'a pas
-   * encore émis de vrai jeton applicatif : comme pour le reste de cette interface (L0-04), une
-   * hypothèse posée pour rester vérifiable ce soir, absente si le vrai jeton ne la porte pas
-   * encore -- `ConnectionContext.driverId` (ws/auth.ts) vaut alors `null` plutôt qu'une
-   * supposition risquée (jamais confondu avec `sub`).
-   */
-  driverId?: string;
-}
+export type ApplicationTokenClaims = auth.AccessTokenClaims;
 
 function base64urlDecode(input: string): Buffer {
   return Buffer.from(input, 'base64url');
@@ -34,12 +23,13 @@ export type TokenVerificationResult =
   | { ok: false; reason: TokenVerificationFailureReason };
 
 /**
- * Vérifie la signature, la forme des claims, puis l'expiration -- dans cet ordre, pour ne
- * jamais distinguer "expiré" d'"invalide" à partir d'un jeton dont la signature n'a pas encore
- * été prouvée authentique (un jeton falsifié ne doit rien révéler sur sa propre validité avant
- * la vérification de signature). Partagée par `verifyApplicationToken` (inchangée, L0-04) et
- * `verifyApplicationTokenWithReason` (nouvelle, L3-01 -- ws/auth.ts en a besoin pour distinguer
- * les deux cas avec des codes de fermeture WebSocket différents, critère d'acceptation 2).
+ * Vérifie la signature, la forme des claims (contre `AccessTokenClaimsSchema`), puis
+ * l'expiration -- dans cet ordre, pour ne jamais distinguer "expiré" d'"invalide" à partir d'un
+ * jeton dont la signature n'a pas encore été prouvée authentique (un jeton falsifié ne doit rien
+ * révéler sur sa propre validité avant la vérification de signature). Partagée par
+ * `verifyApplicationToken` et `verifyApplicationTokenWithReason` (ws/auth.ts en a besoin pour
+ * distinguer les deux cas avec des codes de fermeture WebSocket différents, critère
+ * d'acceptation 2 de L3-01).
  */
 function verify(token: string, secret: string): TokenVerificationResult {
   const parts = token.split('.');
@@ -59,22 +49,19 @@ function verify(token: string, secret: string): TokenVerificationResult {
     return { ok: false, reason: 'invalid' };
   }
 
-  let claims: ApplicationTokenClaims;
+  let rawClaims: unknown;
   try {
-    claims = JSON.parse(base64urlDecode(payloadB64).toString('utf8'));
+    rawClaims = JSON.parse(base64urlDecode(payloadB64).toString('utf8'));
   } catch {
     return { ok: false, reason: 'invalid' };
   }
 
-  if (typeof claims.exp !== 'number') {
+  const parsed = auth.AccessTokenClaimsSchema.safeParse(rawClaims);
+  if (!parsed.success) {
     return { ok: false, reason: 'invalid' };
   }
-  if (typeof claims.sub !== 'string' || (claims.role !== 'client' && claims.role !== 'driver')) {
-    return { ok: false, reason: 'invalid' };
-  }
-  if (claims.driverId !== undefined && typeof claims.driverId !== 'string') {
-    return { ok: false, reason: 'invalid' };
-  }
+  const claims = parsed.data;
+
   if (claims.exp * 1000 < Date.now()) {
     return { ok: false, reason: 'expired' };
   }

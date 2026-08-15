@@ -161,15 +161,25 @@ def _parse_json_body():
 
 
 def _issue_access_token(user) -> tuple[str, int]:
+    # Claims alignées sur AccessTokenClaimsSchema (packages/contracts/src/auth/access-token.ts,
+    # D23) : "sub", pas "uid" -- le claim RFC 7519 enregistré pour le sujet, celui que le
+    # service temps réel vérifie sans jamais appeler Odoo (ws/token.ts). "jti" est un UUID, pas
+    # un hex brut : le schéma partagé l'exige (z.string().uuid()).
     jwt_secret = os.environ["JWT_SECRET"]
     now = int(time.time())
+    role = user._babana_role()
     claims = {
-        "uid": user.babana_public_id,
-        "role": user._babana_role(),
+        "sub": user.babana_public_id,
+        "role": role,
         "iat": now,
         "exp": now + ACCESS_TOKEN_TTL_SECONDS,
-        "jti": uuid.uuid4().hex,
+        "jti": str(uuid.uuid4()),
     }
+    if role == "driver":
+        # babana.driver.public_id, DISTINCT de "sub" (res.users.babana_public_id) -- confondre
+        # les deux affecterait une connexion au mauvais chauffeur (D23). babana.driver existe
+        # toujours ici : L1-03R crée la fiche dès le premier sign-in chauffeur.
+        claims["driverId"] = user._babana_driver().public_id
     return jwt.encode(claims, jwt_secret, algorithm="HS256"), ACCESS_TOKEN_TTL_SECONDS
 
 

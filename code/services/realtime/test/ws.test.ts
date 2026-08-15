@@ -59,7 +59,14 @@ describe('critère 2 — une connexion WebSocket sans jeton valide est refusée'
 
   test('avec un jeton valide : la connexion reste ouverte', async () => {
     const token = sign(
-      { sub: 'driver-1', role: 'driver', exp: Math.floor(Date.now() / 1000) + 3600 },
+      {
+        sub: crypto.randomUUID(),
+        role: 'driver',
+        driverId: crypto.randomUUID(),
+        iat: Math.floor(Date.now() / 1000),
+        exp: Math.floor(Date.now() / 1000) + 3600,
+        jti: crypto.randomUUID(),
+      },
       config.JWT_SECRET
     );
     const ws = new WebSocket(`ws://127.0.0.1:${port}/rt/ws?token=${token}`);

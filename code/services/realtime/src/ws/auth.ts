@@ -31,10 +31,11 @@ export interface ConnectionContext {
   readonly userId: string;
   readonly role: 'client' | 'driver';
   /**
-   * `null` quand le rôle n'est pas 'driver', ou quand le jeton ne porte pas encore ce claim
-   * (L1-02, l'émission réelle des jetons applicatifs, est hors de ce lot -- voir ws/token.ts).
-   * Ne jamais confondre avec `userId` : deux identifiants différents (babana.driver.public_id
-   * contre res.users.babana_public_id).
+   * `null` quand le rôle n'est pas 'driver' ; toujours renseigné quand il l'est --
+   * `AccessTokenClaimsSchema` (D23) rend `driverId` obligatoire sur un jeton chauffeur, donc
+   * `verifyApplicationTokenWithReason` rejette déjà tout jeton chauffeur qui ne le porterait
+   * pas (voir ws/token.ts). Ne jamais confondre avec `userId` : deux identifiants différents
+   * (babana.driver.public_id contre res.users.babana_public_id).
    */
   readonly driverId: string | null;
 }

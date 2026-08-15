@@ -12,12 +12,34 @@ function sign(claims: Record<string, unknown>, secret = SECRET): string {
   return `${header}.${payload}.${signature}`;
 }
 
-const validClaims = { sub: 'user-1', role: 'client' as const, exp: Math.floor(Date.now() / 1000) + 3600 };
+// Claims conformes à AccessTokenClaimsSchema (@babana/contracts, D23) -- sub/jti en UUID,
+// iat/exp en secondes epoch : la même forme qu'Odoo émet réellement (controllers/auth.py).
+const validClaims = {
+  sub: crypto.randomUUID(),
+  role: 'client' as const,
+  iat: Math.floor(Date.now() / 1000),
+  exp: Math.floor(Date.now() / 1000) + 3600,
+  jti: crypto.randomUUID(),
+};
+
+const validDriverClaims = {
+  sub: crypto.randomUUID(),
+  role: 'driver' as const,
+  driverId: crypto.randomUUID(),
+  iat: Math.floor(Date.now() / 1000),
+  exp: Math.floor(Date.now() / 1000) + 3600,
+  jti: crypto.randomUUID(),
+};
 
 describe('vérification du jeton applicatif (WS)', () => {
   test('accepte un jeton valide, signé avec le bon secret', () => {
     const claims = verifyApplicationToken(sign(validClaims), SECRET);
     assert.deepEqual(claims, validClaims);
+  });
+
+  test('accepte un jeton chauffeur valide, driverId distinct de sub', () => {
+    const claims = verifyApplicationToken(sign(validDriverClaims), SECRET);
+    assert.deepEqual(claims, validDriverClaims);
   });
 
   test('rejette un jeton signé avec un autre secret', () => {
@@ -39,5 +61,22 @@ describe('vérification du jeton applicatif (WS)', () => {
   test('rejette une chaîne malformée', () => {
     assert.equal(verifyApplicationToken('not-a-jwt', SECRET), null);
     assert.equal(verifyApplicationToken('', SECRET), null);
+  });
+
+  // --- D23 : la forme est désormais un contrat partagé (AccessTokenClaimsSchema), pas une
+  // déclaration locale -- ces deux cas sont ceux qu'une redéclaration locale aurait pu laisser
+  // passer (amoa/questions/REPONSES-2026-08-15.md §1).
+
+  test('rejette un jeton chauffeur sans driverId -- obligatoire sur un jeton chauffeur (D23)', () => {
+    const { driverId: _omitted, ...withoutDriverId } = validDriverClaims;
+    const claims = verifyApplicationToken(sign(withoutDriverId), SECRET);
+    assert.equal(claims, null);
+  });
+
+  test("rejette la forme historique du jeton (\"uid\" au lieu de \"sub\") -- c'est le défaut réparé", () => {
+    const { sub, ...rest } = validClaims;
+    const legacyShape = { uid: sub, ...rest };
+    const claims = verifyApplicationToken(sign(legacyShape), SECRET);
+    assert.equal(claims, null);
   });
 });
