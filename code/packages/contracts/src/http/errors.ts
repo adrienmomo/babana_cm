@@ -28,6 +28,9 @@ export const ErrorCode = z.enum([
   'QUOTE_EXPIRED',
   'QUOTE_NOT_FOUND',
   'PROMO_CODE_INVALID',
+  // L2-05 : indisponibilité de l'API de routage -- jamais d'estimation dégradée silencieuse
+  // (amoa/questions/L2-04.md).
+  'ROUTE_UNAVAILABLE',
 
   // Cycle de vie de la course
   'RIDE_NOT_FOUND',
@@ -75,6 +78,7 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
   QUOTE_EXPIRED: 410,
   QUOTE_NOT_FOUND: 404,
   PROMO_CODE_INVALID: 400,
+  ROUTE_UNAVAILABLE: 503,
 
   RIDE_NOT_FOUND: 404,
   RIDE_INVALID_TRANSITION: 409,
@@ -116,6 +120,7 @@ export const ERROR_DESCRIPTION: Record<ErrorCode, string> = {
   QUOTE_EXPIRED: "L'estimation a dépassé sa date d'expiration ; en redemander une.",
   QUOTE_NOT_FOUND: "Aucune estimation active pour cet identifiant.",
   PROMO_CODE_INVALID: "Le code promotionnel est inconnu, expiré, ou déjà épuisé.",
+  ROUTE_UNAVAILABLE: "L'API de routage est indisponible ; réessayer plus tard (aucune estimation dégradée n'est produite).",
 
   RIDE_NOT_FOUND: "Aucune course pour cet identifiant.",
   RIDE_INVALID_TRANSITION: "La transition demandée n'est pas permise depuis l'état courant de la course (voir docs/contracts/ride-state-machine.md).",

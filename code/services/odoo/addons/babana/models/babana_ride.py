@@ -66,12 +66,23 @@ class BabanaRide(models.Model):
     dropoff_latitude = fields.Float(required=True, digits=(10, 6))
     dropoff_longitude = fields.Float(required=True, digits=(10, 6))
     dropoff_label = fields.Char()
-    # pickup_zone_id / dropoff_zone_id (babana.zone, L2-02) omis, même raison. Voir la question.
+    # pickup_zone_id / dropoff_zone_id (babana.zone, L2-02) : posés par L2-04 (affectation du 13
+    # août -- L9-07 doit produire les zones les plus actives, impossible sans elles). Résolus une
+    # fois à la cotation (controllers/quote.py) et copiés sur la course à sa création (L4-03R) --
+    # pas recalculés ici, même principe que le tarif figé ci-dessous.
+    pickup_zone_id = fields.Many2one("babana.zone", index=True, ondelete="restrict")
+    dropoff_zone_id = fields.Many2one("babana.zone", index=True, ondelete="restrict")
 
     # --- Estimation ------------------------------------------------------------------------
-    quote_reference = fields.Char(
-        help="[PONT — remplacé par L2-04] Remplace un Many2one babana.quote, absent ce soir -- "
-        "amoa/questions/L4-01.md.",
+    quote_id = fields.Many2one(
+        "babana.quote",
+        string="Estimation référencée",
+        index=True,
+        ondelete="restrict",
+        help="Remplace le champ-pont quote_reference (L4-01) -- L2-04 crée babana.quote, ce "
+        "champ est la vraie relation annoncée à sa création. La course référence l'estimation "
+        "plutôt que de recalculer (L4-03R) : c'est ce qui garantit que le client paie ce qu'on "
+        "lui a montré.",
     )
     currency_id = fields.Many2one(
         "res.currency", default=lambda self: self.env.company.currency_id.id, required=True

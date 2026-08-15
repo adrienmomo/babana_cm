@@ -12,8 +12,21 @@ vit dans le message de commit qui l'a retirée, pas ici.
 |---|---|---|---|---|
 | `rating_avg`, `rating_count` | `babana.driver` | L4-09 | 10 août 2026 (L1-03) | Comptés depuis `babana.rating`, qui n'existe pas encore. Champs calculés, pas des relations : n'empêchent pas l'installation, mais renvoient 0 tant que L4-09 n'existe pas. |
 | `cash_balance` | `babana.driver` | L5-01 | 10 août 2026 (L1-03) | Résultat du journal des mouvements de compte courant (D8), qui n'existe pas encore. Champ calculé sans inverse fonctionnel (l'inverse existe uniquement pour lever une erreur explicite sur écriture directe, critère d'acceptation 4 de L1-03) ; renvoie 0 tant que L5-01 n'existe pas. |
-| `quote_reference` | `babana.ride` | L2-04 | 10 août 2026 (L4-01) | Remplace un `Many2one` vers `babana.quote`, absent au moment de L4-01 (`amoa/questions/L4-01.md`). Un `Many2one` vers un modèle absent empêcherait l'installation du module. |
-| `promotion_code` | `babana.ride` | L2-06 | 10 août 2026 (L4-01) | Même raison, vers `babana.promotion` (L2-06, hors du lot du 10 août comme du 11 août). |
+| `promotion_code` | `babana.ride` | L2-06 | 10 août 2026 (L4-01) | Remplace un `Many2one` vers `babana.promotion`, absent (L2-06, hors du lot du 10 août comme du 11 août, comme de la nuit J5). |
+
+## Vérifié le 15 août 2026
+
+**`quote_reference`** (`babana.ride`, posé par L4-01 le 10 août) a été résolu par L2-04 (cette
+nuit, J5), comme prévu à sa création : le modèle `babana.quote` existe désormais, et
+`babana.ride.quote_id` (`Many2one`) le remplace. La création de course (L4-03R) référence
+l'estimation plutôt que de recalculer. Retiré de ce registre.
+
+**`babana.ride.pickup_zone_id` / `dropoff_zone_id`** (en observation depuis le 11 août -- voir
+plus bas) ont été posés cette même nuit par L2-04, en même temps que `babana.quote` qui les
+résout : affectation du 13 août, L9-07 doit produire les zones les plus actives, impossible sans
+elles. Ce ne sont pas des champs-pont (pas de repli transitoire, la vraie relation `Many2one`
+existe directement) -- retirés de la section « en observation » ci-dessous, jamais entrés dans le
+tableau des champs-pont.
 
 ## Vérifié le 14 août 2026
 
@@ -51,10 +64,6 @@ avant L1-07. **L1-07 (cette nuit) ajoute directement le vrai champ** : `babana.m
 est la relation écrite (source unique), `babana.driver.motorcycle_id` en est le miroir calculé —
 jamais un champ plat transitoire, donc jamais entré dans ce tableau.
 
-## En observation, non résolu cette nuit
-
-**`babana.ride.pickup_zone_id` / `dropoff_zone_id`** sont dans la même situation, pour
-`babana.zone` (L2-02) : omis de L4-01 le 10 août, aucun champ de repli posé. L2-02 (cette nuit)
-crée `babana.zone`, mais rattacher `babana.ride` à ce modèle n'est demandé par aucune spécification
-de cette nuit ; non traité ici pour ne pas modifier L4-01 (déjà sur `master`) sans instruction — à
-signaler plutôt qu'à trancher en silence (voir `amoa/rapport-nuit-J3.md`).
+`babana.ride.pickup_zone_id` / `dropoff_zone_id` sont restés en observation du 11 au 14 août,
+pour la même raison (`babana.zone`, L2-02, existait mais rien ne demandait de les rattacher) --
+résolus le 15 août par L2-04, voir « Vérifié le 15 août 2026 » ci-dessus.
