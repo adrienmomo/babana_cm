@@ -168,3 +168,32 @@ zone d'exploitation distincte des bornes WGS84 génériques), position valide st
 sans fermeture de connexion (3), expiration du TTL (4), taux de rejet par motif exposé (5), et
 un message `position.update` reçu d'une connexion non-chauffeur rejeté sans jamais tenter de
 dériver une identité de la charge utile.
+
+---
+
+## L3-03 — Géo-index des chauffeurs disponibles
+
+**Fait.** `services/realtime/src/redis/geo-index.ts` : `addToPool`/`removeFromPool` (GEOADD/ZREM
+sur une clé unique `babana:drivers:available`), `isInPool`, `findNearby` (GEOSEARCH par rayon,
+triée par distance croissante, distance à vol d'oiseau documentée comme telle -- L3-03,
+spécification). Ce module ne connaît **aucune règle métier** (invariant 3) : il ignore ce que
+signifie « en course » ou « au plafond d'encaisse » -- l'appelant (L3-04 ce soir pour en ligne/
+hors ligne ; L3-06/L3-07, hors de ce lot, pour réservation et affectation) décide seul d'appeler
+`addToPool`/`removeFromPool`. Les critères 2 et 3 (jamais en course, jamais au plafond) sont donc
+vérifiés par construction : un chauffeur jamais ajouté au pool n'y apparaît jamais.
+
+**Nettoyage paresseux des positions expirées**, au-delà des critères numérotés mais explicitement
+demandé par la spécification (« Sortie : ... expiration de la position ») : `findNearby` filtre
+tout candidat sans position fraîche (`hasFreshPosition`, L3-02) et le retire du pool au passage --
+`addToPool`/`removeFromPool` n'écoutent aucune notification d'expiration Redis (pas de
+notification keyspace, hors de ce lot), un chauffeur déconnecté peut donc rester un court instant
+dans l'index brut sans jamais être renvoyé par une requête, et disparaît définitivement à la
+première requête qui le croise. Sur-échantillonnage fixe (×3) pour absorber ce filtrage sans
+compliquer l'appel par une boucle de re-complétion.
+
+**Test contre un Redis réel** (`test/geo-index.test.ts`, nécessite `make up` ou au moins
+`docker compose up redis`) plutôt qu'une imitation en mémoire : le scoring géospatial interne de
+Redis (GEOADD/GEOSEARCH) serait mal reproduit par une imitation -- même raisonnement que L3-06/
+L3-13 pour la réservation atomique, appliqué ici au tri par distance plutôt qu'à l'atomicité.
+Conséquence assumée : `npm test -w @babana/realtime` requiert désormais Redis disponible (il
+l'était déjà implicitement pour le service lui-même, jamais pour sa suite de tests jusqu'ici).
