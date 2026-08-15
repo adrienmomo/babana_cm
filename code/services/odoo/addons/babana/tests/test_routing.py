@@ -11,6 +11,7 @@ from unittest.mock import patch
 
 import requests
 
+from odoo import fields
 from odoo.tests.common import TransactionCase, tagged
 
 from ..services import routing
@@ -111,6 +112,24 @@ class TestRouting(TransactionCase):
         source = inspect.getsource(routing)
         self.assertIn("É8", source)
         self.assertIn("voiture", source.lower())
+
+    # --- Critère 7 : le compteur de quota s'incrémente en une seule instruction (C3) ----------
+
+    def test_quota_counter_increments_atomically_across_calls(self):
+        # Pas un test de concurrence réelle (TransactionCase, une seule connexion) -- celui-là
+        # vit dans test/concurrency (pile réelle, comme L3-13/L4-11). Celui-ci prouve que
+        # _record_quota_usage incrémente correctement par une seule instruction SQL, appelée
+        # plusieurs fois de suite (amoa/questions/REPONSES-2026-08-15.md §4).
+        count_key = f"babana.routing_quota_count_{fields.Date.today().isoformat()}"
+        param_model = self.env["ir.config_parameter"].sudo()
+        before = int(param_model.get_param(count_key, 0))
+
+        routing._record_quota_usage(self.env)
+        routing._record_quota_usage(self.env)
+        routing._record_quota_usage(self.env)
+
+        after = int(param_model.get_param(count_key, 0))
+        self.assertEqual(after, before + 3)
 
     # --- Clé de cache : arrondie à la grille, sensible à la gamme et à la tranche horaire ------
 

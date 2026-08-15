@@ -130,11 +130,37 @@ def _fetch_from_api(*, origin, destination) -> RouteResult:
 def _record_quota_usage(env) -> None:
     """Plafond de quota configurable, avec alerte quand il approche (L2-05, spécification). Le
     compteur du jour vit dans ir.config_parameter -- volume d'appels du pilote trop faible pour
-    justifier un modèle dédié."""
+    justifier un modèle dédié.
+
+    Incrémenté en UNE instruction SQL (UPSERT), jamais par une lecture ORM (get_param) suivie
+    d'une écriture (set_param) : c'est exactement cette dernière forme qui, sous
+    REPEATABLE READ, réécrit une ligne globale à chaque cotation et produit le
+    SerializationFailure que L4-11 a trouvé sur les courses -- ici rejoué à chaque estimation
+    (amoa/questions/REPONSES-2026-08-15.md §4). Le suivi d'un quota ne doit jamais faire échouer
+    une cotation. Une seule instruction UPDATE (via l'UPSERT) verrouille la ligne le temps de la
+    modifier plutôt que de détecter un conflit au commit : les appels concurrents se sérialisent
+    par attente de verrou, aucun n'échoue."""
     param_model = env["ir.config_parameter"].sudo()
     count_key = f"babana.routing_quota_count_{fields.Date.today().isoformat()}"
-    count = int(param_model.get_param(count_key, 0)) + 1
-    param_model.set_param(count_key, str(count))
+    # flush avant de s'appuyer sur la contrainte SQL "key_uniq" (ON CONFLICT) -- même règle que
+    # code/docs/odoo-pitfalls.md : tout code qui s'appuie sur une contrainte au niveau base doit
+    # provoquer le vidage avant de la déclencher.
+    param_model.flush_model(["key", "value"])
+    env.cr.execute(
+        """
+        INSERT INTO ir_config_parameter (key, value)
+        VALUES (%s, '1')
+        ON CONFLICT (key) DO UPDATE
+        SET value = (ir_config_parameter.value::integer + 1)::text
+        RETURNING value::integer
+        """,
+        (count_key,),
+    )
+    count = env.cr.fetchone()[0]
+    # ir.config_parameter.get_param() est mis en cache par clé (ormcache) ; create()/write()/
+    # unlink() de ce modèle invalident ce cache via env.registry.clear_cache() -- notre INSERT
+    # brut le contourne, donc on invalide nous-mêmes, au même endroit que le ferait l'ORM.
+    env.registry.clear_cache()
 
     quota = int(param_model.get_param(QUOTA_PARAM, QUOTA_DEFAULT))
     alert_ratio = float(param_model.get_param(QUOTA_ALERT_RATIO_PARAM, QUOTA_ALERT_RATIO_DEFAULT))
