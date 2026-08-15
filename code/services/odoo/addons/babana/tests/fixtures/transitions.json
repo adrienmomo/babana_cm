@@ -1,0 +1,81 @@
+{
+  "$comment": "Copie de docs/contracts/ride-state-machine.json (C-03), limitée aux champs que test_ride_state_machine_generated.py consomme (L4-10). Copie, pas un lien symbolique ni un chargement direct : ce fichier canonique vit hors de l'arborescence montée dans le conteneur Odoo (services/odoo/addons uniquement -- voir l'en-tête de babana_ride_state.py). À tenir manuellement synchronisée avec la source canonique -- toute transition ajoutée là-bas et pas ici serait absente de la génération, donc invisible au critère d'acceptation 2 plutôt que de le faire échouer comme prévu.",
+  "states": [
+    "draft",
+    "requested",
+    "proposed",
+    "assigned",
+    "in_progress",
+    "completed",
+    "settled",
+    "rejected",
+    "cancelled"
+  ],
+  "transitions": [
+    {
+      "from": "draft",
+      "to": "requested",
+      "actor": "client"
+    },
+    {
+      "from": "requested",
+      "to": "proposed",
+      "actor": "client"
+    },
+    {
+      "from": "proposed",
+      "to": "assigned",
+      "actor": "driver"
+    },
+    {
+      "from": "proposed",
+      "to": "rejected",
+      "actor": "driver_or_system"
+    },
+    {
+      "from": "rejected",
+      "to": "proposed",
+      "actor": "client"
+    },
+    {
+      "from": "assigned",
+      "to": "in_progress",
+      "actor": "driver"
+    },
+    {
+      "from": "in_progress",
+      "to": "completed",
+      "actor": "driver"
+    },
+    {
+      "from": "completed",
+      "to": "settled",
+      "actor": "driver"
+    },
+    {
+      "from": "requested",
+      "to": "cancelled",
+      "actor": "client_or_supervisor"
+    },
+    {
+      "from": "proposed",
+      "to": "cancelled",
+      "actor": "client_or_supervisor"
+    },
+    {
+      "from": "assigned",
+      "to": "cancelled",
+      "actor": "client_or_driver_or_supervisor"
+    },
+    {
+      "from": "rejected",
+      "to": "cancelled",
+      "actor": "client_or_supervisor"
+    },
+    {
+      "from": "in_progress",
+      "to": "cancelled",
+      "actor": "driver"
+    }
+  ]
+}

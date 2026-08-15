@@ -14,5 +14,6 @@ from . import test_pricing
 from . import test_partner
 from . import test_ride_model
 from . import test_ride_state_machine
+from . import test_ride_state_machine_generated
 from . import test_ride_controller
 from . import test_partition_invariant
