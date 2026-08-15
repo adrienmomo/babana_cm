@@ -36,9 +36,11 @@ QUOTA_ALERT_RATIO_DEFAULT = 0.8
 
 
 class RouteUnavailable(Exception):
-    """L'API de routage est indisponible -- à traduire en ROUTE_UNAVAILABLE (catalogue C-01) par
-    le contrôleur (controllers/quote.py). Ne jamais dégrader en distance à vol d'oiseau : une
-    estimation fausse est pire qu'une absence d'estimation (critère d'acceptation 3)."""
+    """L'API de routage est indisponible ET aucune entrée de cache -- fraîche ou périmée (D24)
+    -- n'existe pour ce trajet : à traduire en ROUTE_UNAVAILABLE (catalogue C-01) par le
+    contrôleur (controllers/quote.py). Ne jamais dégrader en distance à vol d'oiseau : une
+    estimation fausse est pire qu'une absence d'estimation (critère d'acceptation 3). Mais une
+    entrée périmée n'est pas une estimation dégradée -- voir get_reference_route ci-dessous."""
 
 
 @dataclass(frozen=True)
@@ -73,8 +75,14 @@ def get_reference_route(
 ) -> RouteResult:
     """Distance/durée de référence pour un couple de points (L2-05). Sert le cache
     (babana.route.cache) quand une entrée valide existe pour la même clé ; sinon appelle l'API de
-    routage, pose une nouvelle entrée, et comptabilise l'appel pour le suivi de quota. Lève
-    RouteUnavailable si l'API échoue -- jamais d'estimation dégradée silencieuse."""
+    routage, pose une nouvelle entrée, et comptabilise l'appel pour le suivi de quota.
+
+    Si l'API échoue (D24, amoa/questions/REPONSES-2026-08-15.md §5) : sert l'entrée PÉRIMÉE de
+    la même clé si elle existe -- ce n'est pas une estimation dégradée, elle a été calculée par
+    la vraie API sur les vrais points, seule sa fraîcheur a expiré, et un itinéraire de Douala ne
+    change pas de longueur en trois heures. Journalisé, jamais silencieux. Lève RouteUnavailable
+    seulement si rien n'a jamais été calculé pour ce trajet -- jamais d'estimation dégradée
+    silencieuse dans ce cas (distance à vol d'oiseau, critère d'acceptation 3)."""
     key = cache_key(
         origin=origin, destination=destination, vehicle_class=vehicle_class, at_datetime=at_datetime
     )
@@ -83,7 +91,18 @@ def get_reference_route(
     if cached:
         return RouteResult(cached.distance_meters, cached.duration_seconds, cached.polyline or "")
 
-    result = _fetch_from_api(origin=origin, destination=destination)
+    try:
+        result = _fetch_from_api(origin=origin, destination=destination)
+    except RouteUnavailable:
+        stale = cache_model._get_any(key)
+        if not stale:
+            raise
+        _logger.warning(
+            "API de routage indisponible : repli sur l'entrée de cache périmée %s "
+            "(expirée depuis %s, D24).",
+            key, stale.expires_at,
+        )
+        return RouteResult(stale.distance_meters, stale.duration_seconds, stale.polyline or "")
 
     ttl_seconds = int(
         env["ir.config_parameter"].sudo().get_param(ROUTE_CACHE_TTL_PARAM, ROUTE_CACHE_TTL_DEFAULT)

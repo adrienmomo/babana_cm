@@ -30,6 +30,13 @@ class BabanaRouteCache(models.Model):
         )
 
     @api.model
+    def _get_any(self, key: str):
+        """Entrée pour cette clé, fraîche ou périmée (D24) -- repli quand l'API de routage est
+        injoignable : une entrée périmée reste un itinéraire réel calculé par la vraie API sur
+        les vrais points, seule sa fraîcheur a expiré (services/routing.py:get_reference_route)."""
+        return self.search([("cache_key", "=", key)], limit=1)
+
+    @api.model
     def _store(self, key: str, *, distance_meters: int, duration_seconds: int, polyline: str,
                ttl_seconds: int):
         expires_at = fields.Datetime.now() + timedelta(seconds=ttl_seconds)

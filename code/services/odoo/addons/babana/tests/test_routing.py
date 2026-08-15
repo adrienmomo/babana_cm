@@ -113,6 +113,78 @@ class TestRouting(TransactionCase):
         self.assertIn("É8", source)
         self.assertIn("voiture", source.lower())
 
+    # --- Critère 4 (D24) : une entrée de cache PÉRIMÉE est servie si l'API est indisponible ----
+
+    def test_stale_cache_entry_is_served_when_api_unavailable(self):
+        with patch.object(
+            routing.requests, "get", return_value=_FakeRouteResponse(distance_meters=5555)
+        ):
+            first = routing.get_reference_route(
+                self.env, origin=_ORIGIN, destination=_DESTINATION, vehicle_class="standard",
+                at_datetime=_AT,
+            )
+        self.assertEqual(first.distance_meters, 5555)
+
+        key = routing.cache_key(
+            origin=_ORIGIN, destination=_DESTINATION, vehicle_class="standard", at_datetime=_AT
+        )
+        cache_entry = self.env["babana.route.cache"].sudo().search([("cache_key", "=", key)])
+        cache_entry.write({"expires_at": datetime.now() - timedelta(seconds=1)})
+        cache_entry.flush_recordset(["expires_at"])
+
+        with patch.object(
+            routing.requests, "get", side_effect=requests.ConnectionError("panne simulée")
+        ):
+            # Ne lève PAS RouteUnavailable : l'entrée périmée de la même clé existe (D24), elle
+            # n'est pas une estimation dégradée -- juste calculée par la vraie API un peu plus
+            # tôt (critère d'acceptation 4).
+            fallback = routing.get_reference_route(
+                self.env, origin=_ORIGIN, destination=_DESTINATION, vehicle_class="standard",
+                at_datetime=_AT,
+            )
+        self.assertEqual(fallback.distance_meters, 5555)
+
+    def test_route_unavailable_without_any_cache_entry_still_raises(self):
+        # Critère d'acceptation 3, préservé : sans AUCUNE entrée (même périmée) pour ce trajet,
+        # l'erreur explicite subsiste -- jamais d'estimation dégradée silencieuse.
+        with patch.object(
+            routing.requests, "get", side_effect=requests.ConnectionError("panne simulée")
+        ):
+            with self.assertRaises(routing.RouteUnavailable):
+                routing.get_reference_route(
+                    self.env, origin=(4.11, 9.83), destination=(4.12, 9.84),
+                    vehicle_class="standard", at_datetime=_AT,
+                )
+
+    def test_stale_cache_fallback_does_not_record_quota_usage(self):
+        # Servir une entrée périmée ne fait aucun appel sortant -- il n'y a donc rien à
+        # comptabiliser pour le quota (services/routing.py:get_reference_route).
+        with patch.object(routing.requests, "get", return_value=_FakeRouteResponse()):
+            routing.get_reference_route(
+                self.env, origin=_ORIGIN, destination=_DESTINATION, vehicle_class="standard",
+                at_datetime=_AT,
+            )
+        key = routing.cache_key(
+            origin=_ORIGIN, destination=_DESTINATION, vehicle_class="standard", at_datetime=_AT
+        )
+        cache_entry = self.env["babana.route.cache"].sudo().search([("cache_key", "=", key)])
+        cache_entry.write({"expires_at": datetime.now() - timedelta(seconds=1)})
+        cache_entry.flush_recordset(["expires_at"])
+
+        count_key = f"babana.routing_quota_count_{fields.Date.today().isoformat()}"
+        param_model = self.env["ir.config_parameter"].sudo()
+        before = int(param_model.get_param(count_key, 0))
+
+        with patch.object(
+            routing.requests, "get", side_effect=requests.ConnectionError("panne simulée")
+        ):
+            routing.get_reference_route(
+                self.env, origin=_ORIGIN, destination=_DESTINATION, vehicle_class="standard",
+                at_datetime=_AT,
+            )
+        after = int(param_model.get_param(count_key, 0))
+        self.assertEqual(after, before)
+
     # --- Critère 7 : le compteur de quota s'incrémente en une seule instruction (C3) ----------
 
     def test_quota_counter_increments_atomically_across_calls(self):
