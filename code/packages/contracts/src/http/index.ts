@@ -10,6 +10,7 @@ export * from './ride';
 export * from './settlement';
 export * from './remittance';
 export * from './driver';
+export * from './documents';
 
 import * as auth from './auth';
 import * as phone from './phone';
@@ -18,6 +19,7 @@ import * as ride from './ride';
 import * as settlement from './settlement';
 import * as remittance from './remittance';
 import * as driver from './driver';
+import * as documents from './documents';
 
 /**
  * Codes implicitement possibles sur tout endpoint, sans être répétés dans la liste
@@ -237,5 +239,31 @@ export const HTTP_ENDPOINTS = {
     errors: remittance.CreateRemittanceErrors,
     requestExample: remittance.createRemittanceRequestExample,
     responseExample: remittance.createRemittanceResponseExample,
+  },
+  uploadDriverDocument: {
+    method: 'POST',
+    path: '/api/v1/driver/documents',
+    requiresAuth: true,
+    // multipart/form-data (fichier + champs), pas un corps JSON -- voir documents.ts.
+    // UploadDriverDocumentFieldsSchema décrit les champs hors fichier, à part.
+    requestSchema: null,
+    responseSchema: documents.UploadDriverDocumentResponseSchema,
+    errors: documents.UploadDriverDocumentErrors,
+    // Corps multipart, pas JSON : requestSchema est null (comme driverCash, GET sans body),
+    // donc requestExample l'est aussi -- UploadDriverDocumentFieldsSchema/
+    // uploadDriverDocumentFieldsExample restent exportés depuis documents.ts pour l'app, mais
+    // hors de ce registre générique qui suppose un corps JSON pur.
+    requestExample: null,
+    responseExample: documents.uploadDriverDocumentResponseExample,
+  },
+  driverDocumentSignedUrl: {
+    method: 'GET',
+    path: '/api/v1/driver/documents/{id}/url',
+    requiresAuth: true,
+    requestSchema: null,
+    responseSchema: documents.DriverDocumentSignedUrlResponseSchema,
+    errors: documents.DriverDocumentSignedUrlErrors,
+    requestExample: null,
+    responseExample: documents.driverDocumentSignedUrlResponseExample,
   },
 } satisfies Record<string, HttpEndpointDescriptor>;

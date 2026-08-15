@@ -40,16 +40,6 @@ class BabanaDriver(models.Model):
     _inherit = ["mail.thread"]
     _description = "Chauffeur salarié (L1-03)"
 
-    license_expires_on = fields.Date(
-        string="Expiration du permis",
-        help="[PONT — remplacé par L1-05] babana.driver.document (type license) n'existe pas "
-        "encore : ce champ plat porte la date le temps que L1-05 fournisse le vrai modèle de "
-        "document, nécessaire dès ce soir pour L1-10 (amoa/questions/L1-10.md).",
-    )
-    license_alert_sent_on = fields.Date(
-        string="Dernière alerte de permis envoyée",
-        help="Idempotence de la tâche planifiée (L1-10, critère d'acceptation 4).",
-    )
     motorcycle_id = fields.Many2one(
         "babana.motorcycle",
         string="Moto affectée",
@@ -262,17 +252,26 @@ class BabanaDriver(models.Model):
                     "(L1-07)."
                 )
 
+    def _current_license_expires_on(self):
+        # L1-05 (correction du 13 août) : license_expires_on n'est plus un champ plat sur
+        # babana.driver -- lu depuis le permis le plus récemment téléversé (babana.driver.
+        # document, type 'license'). False si aucun permis n'a jamais été téléversé.
+        self.ensure_one()
+        document = self.env["babana.driver.document"].sudo().search(
+            [("driver_id", "=", self.id), ("document_type", "=", "license")],
+            order="create_date desc",
+            limit=1,
+        )
+        return document.expires_on if document else False
+
     @api.constrains("is_online")
     def _check_online_requires_valid_license(self):
         # Même raisonnement que l'assurance (L1-07) : un permis expiré est un risque juridique,
         # bloqué plutôt que signalé (L1-10). fields.Date.today(), pas context_today() -- voir
         # code/docs/odoo-pitfalls.md.
         for record in self:
-            if (
-                record.is_online
-                and record.license_expires_on
-                and record.license_expires_on < fields.Date.today()
-            ):
+            expires_on = record._current_license_expires_on()
+            if record.is_online and expires_on and expires_on < fields.Date.today():
                 raise ValidationError(
                     "Ce chauffeur ne peut pas passer en ligne : son permis a expiré (L1-10)."
                 )
@@ -290,30 +289,37 @@ class BabanaDriver(models.Model):
 
     def _cron_alert_and_block_drivers(self):
         # fields.Date.today(), pas context_today() -- un cron n'a pas d'utilisateur réel
-        # connecté ; voir code/docs/odoo-pitfalls.md.
+        # connecté ; voir code/docs/odoo-pitfalls.md. Lit désormais babana.driver.document
+        # (L1-05) plutôt que les champs-pont license_expires_on/license_alert_sent_on, résolus
+        # par cette même tâche (code/docs/bridge-fields.md).
         today = fields.Date.today()
         window_end = today + timedelta(
             days=self.env["babana.motorcycle"]._expiry_alert_window_days()
         )
 
-        upcoming = self.search(
+        Document = self.env["babana.driver.document"]
+        upcoming = Document.search(
             [
-                ("license_expires_on", ">=", today),
-                ("license_expires_on", "<=", window_end),
-                ("license_alert_sent_on", "!=", today),
+                ("document_type", "=", "license"),
+                ("expires_on", ">=", today),
+                ("expires_on", "<=", window_end),
+                ("alert_sent_on", "!=", today),
             ]
         )
-        for driver in upcoming:
+        for document in upcoming:
+            driver = document.driver_id
             driver.message_post(
                 body=(
-                    f"Permis du chauffeur {driver.employee_id.name} expirant le "
-                    f"{driver.license_expires_on} (L1-10)."
+                    f"Permis du chauffeur {driver.employee_id.name or driver.user_id.name} "
+                    f"expirant le {document.expires_on} (L1-10)."
                 )
             )
-            driver.license_alert_sent_on = today
+            document.alert_sent_on = today
 
-        expired = self.search([("license_expires_on", "<", today), ("is_online", "=", True)])
-        for driver in expired:
-            # Critère 3 : mise hors ligne automatique, pas laissée à la vigilance d'un
-            # gestionnaire.
-            driver.write({"is_online": False})
+        online_drivers = self.search([("is_online", "=", True)])
+        for driver in online_drivers:
+            expires_on = driver._current_license_expires_on()
+            if expires_on and expires_on < today:
+                # Critère 3 : mise hors ligne automatique, pas laissée à la vigilance d'un
+                # gestionnaire.
+                driver.write({"is_online": False})

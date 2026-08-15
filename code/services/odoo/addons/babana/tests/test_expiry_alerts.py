@@ -26,6 +26,18 @@ class TestExpiryAlerts(TransactionCase):
         base.update(vals)
         return self.env["babana.driver"].create(base)
 
+    def _make_license_document(self, driver, expires_on):
+        # L1-05 (résolution du champ-pont license_expires_on, code/docs/bridge-fields.md) :
+        # l'expiration du permis vit désormais sur babana.driver.document, pas sur babana.driver.
+        return self.env["babana.driver.document"].create(
+            {
+                "driver_id": driver.id,
+                "document_type": "license",
+                "storage_key": "test/irrelevant.jpg",
+                "expires_on": expires_on,
+            }
+        )
+
     def _run_cron(self):
         self.env["babana.motorcycle"]._cron_check_expiry_alerts()
 
@@ -48,13 +60,14 @@ class TestExpiryAlerts(TransactionCase):
         self.assertFalse(moto.insurance_alert_sent_on)
 
     def test_driver_license_within_window_produces_a_notification(self):
-        driver = self._make_driver(license_expires_on=Date.today() + timedelta(days=5))
+        driver = self._make_driver()
+        document = self._make_license_document(driver, Date.today() + timedelta(days=5))
         before = len(driver.message_ids)
 
         self._run_cron()
 
         self.assertGreater(len(driver.message_ids), before)
-        self.assertEqual(driver.license_alert_sent_on, Date.today())
+        self.assertEqual(document.alert_sent_on, Date.today())
 
     # --- Critère 2 : assurance expirée bloque l'affectation et met le chauffeur hors ligne ----
 
@@ -79,7 +92,9 @@ class TestExpiryAlerts(TransactionCase):
 
     def test_expired_license_puts_driver_offline(self):
         driver = self._make_driver(is_online=True)
-        driver.write({"license_expires_on": Date.today() - timedelta(days=1)})
+        # Le temps passe : aucune écriture n'accompagne le passage de la date (même
+        # raisonnement que l'assurance moto, d'où la tâche planifiée).
+        self._make_license_document(driver, Date.today() - timedelta(days=1))
 
         self._run_cron()
 
@@ -89,7 +104,8 @@ class TestExpiryAlerts(TransactionCase):
 
     def test_running_the_cron_twice_the_same_day_does_not_duplicate_the_notification(self):
         moto = self._make_motorcycle(insurance_expires_on=Date.today() + timedelta(days=10))
-        driver = self._make_driver(license_expires_on=Date.today() + timedelta(days=5))
+        driver = self._make_driver()
+        self._make_license_document(driver, Date.today() + timedelta(days=5))
 
         self._run_cron()
         moto_messages_after_first_run = len(moto.message_ids)

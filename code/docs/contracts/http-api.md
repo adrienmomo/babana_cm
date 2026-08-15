@@ -209,6 +209,39 @@ validation plutôt que d'être silencieusement accepté.
 
 ---
 
+## Documents chauffeur — `documents.ts`
+
+Permis et pièce d'identité (L1-05, É2 -- la carte grise appartient à la flotte, pas au
+chauffeur). Aucun objet n'est jamais public : toute lecture passe par une URL signée à durée
+limitée.
+
+### `POST /driver/documents`
+
+Seul endpoint du contrat dont le corps n'est pas JSON : `multipart/form-data`, pas
+`application/json` (`Content-Type` à ajuster côté app). C'est pourquoi il n'a pas de schéma de
+requête généré comme les autres — voir `UploadDriverDocumentFieldsSchema` dans `documents.ts`
+pour la forme des champs.
+
+- Requête (multipart) : champ `file` (le document), plus les champs `documentType` (`'license'`
+  ou `'id_card'`), `contentType` (type MIME déclaré par l'app), `expiresOn` (date ISO,
+  **obligatoire si `documentType` vaut `'license'`**, critère d'acceptation 5)
+- Réponse : `{ id, documentType, verificationStatus }`
+- Erreurs : `VALIDATION_ERROR` (champ manquant, `expiresOn` absent pour un permis, fichier trop
+  volumineux), `DOCUMENT_TYPE_MISMATCH` (le type MIME réel du fichier, détecté par signature,
+  ne correspond pas à `contentType` — critère d'acceptation 4)
+
+### `GET /driver/documents/{id}/url`
+
+Le chauffeur pour ses propres documents, un gestionnaire pour tous les documents (L1-05) — pas
+d'autre combinaison.
+
+- Réponse : `{ url, expiresIn }` — URL signée, valide `expiresIn` secondes (critères
+  d'acceptation 1 et 2 : rien n'est accessible sans cette URL, et elle expire)
+- Erreurs : `DOCUMENT_NOT_FOUND`, `DOCUMENT_NOT_OWNED` (critère d'acceptation 3 : un chauffeur
+  qui demande le document d'un autre chauffeur)
+
+---
+
 ## Catalogue d'erreurs
 
 Généré depuis `errors.ts` dans `dist/json-schema/errors.json`. Reproduit ici pour lecture rapide.
@@ -242,6 +275,9 @@ Généré depuis `errors.ts` dans `dist/json-schema/errors.json`. Reproduit ici 
 | `CASH_LIMIT_REACHED` | 409 | Plafond d'encaisse dépassé |
 | `SETTLEMENT_AMOUNT_MISMATCH` | 400 | Montant déclaré ≠ montant dû |
 | `LOCATION_REQUIRED` | 400 | Position requise et absente |
+| `DOCUMENT_NOT_FOUND` | 404 | Document chauffeur inconnu |
+| `DOCUMENT_NOT_OWNED` | 403 | Document n'appartenant ni à l'appelant ni consultable par lui |
+| `DOCUMENT_TYPE_MISMATCH` | 400 | Type MIME réel du fichier différent du type déclaré |
 
 `NO_DRIVER_AVAILABLE` figure au catalogue par exigence de la spécification C-01 mais n'est émis
 par aucun endpoint de ce lot : le client compose lui-même sa sélection à partir de

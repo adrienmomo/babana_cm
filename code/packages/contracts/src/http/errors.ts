@@ -46,6 +46,11 @@ export const ErrorCode = z.enum([
 
   // Position et disponibilité
   'LOCATION_REQUIRED',
+
+  // Documents chauffeur (L1-05)
+  'DOCUMENT_NOT_FOUND',
+  'DOCUMENT_NOT_OWNED',
+  'DOCUMENT_TYPE_MISMATCH',
 ]);
 
 export type ErrorCode = z.infer<typeof ErrorCode>;
@@ -85,6 +90,10 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
   SETTLEMENT_AMOUNT_MISMATCH: 400,
 
   LOCATION_REQUIRED: 400,
+
+  DOCUMENT_NOT_FOUND: 404,
+  DOCUMENT_NOT_OWNED: 403,
+  DOCUMENT_TYPE_MISMATCH: 400,
 };
 
 /** Description courte, pour la documentation générée et les messages par défaut. */
@@ -122,6 +131,10 @@ export const ERROR_DESCRIPTION: Record<ErrorCode, string> = {
   SETTLEMENT_AMOUNT_MISMATCH: "Le montant déclaré ne correspond pas au montant dû.",
 
   LOCATION_REQUIRED: "Une position (latitude, longitude) est requise pour cette requête.",
+
+  DOCUMENT_NOT_FOUND: "Aucun document chauffeur pour cet identifiant.",
+  DOCUMENT_NOT_OWNED: "Ce document n'appartient pas à l'appelant, et l'appelant n'est pas gestionnaire.",
+  DOCUMENT_TYPE_MISMATCH: "Le type MIME réel du fichier ne correspond pas au type déclaré.",
 };
 
 /** Enveloppe d'erreur commune à toutes les réponses non-2xx de l'API. */

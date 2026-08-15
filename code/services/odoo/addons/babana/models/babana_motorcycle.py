@@ -148,8 +148,8 @@ class BabanaMotorcycle(models.Model):
     @api.model
     def _cron_check_expiry_alerts(self):
         """Tâche planifiée quotidienne (L1-10) : alerte avant échéance, blocage à l'échéance.
-        Couvre l'assurance des motos et le permis des chauffeurs (amoa/questions/L1-10.md pour
-        license_expires_on, champ-pont en attendant L1-05)."""
+        Couvre l'assurance des motos et le permis des chauffeurs -- ce dernier lu depuis
+        babana.driver.document (L1-05) depuis la résolution du champ-pont correspondant."""
         self._cron_alert_and_block_motorcycles()
         self.env["babana.driver"]._cron_alert_and_block_drivers()
 
