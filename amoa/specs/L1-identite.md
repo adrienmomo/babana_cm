@@ -85,7 +85,7 @@ services/odoo/addons/babana/tests/test_token.py
 
 ### Spécification
 
-Jeton d'accès signé, de courte durée — de l'ordre de l'heure. Charge utile : identifiant utilisateur, rôle, identifiant du chauffeur le cas échéant, expiration, identifiant unique du jeton.
+Jeton d'accès signé, de courte durée — de l'ordre de l'heure. **La charge utile est celle de `AccessTokenClaimsSchema` (C-01), pas une forme choisie ici** : `sub`, `role`, `driverId` sur un jeton chauffeur, `iat`, `exp`, `jti`. Le contrôleur construit ses claims depuis le schéma partagé et non depuis un dictionnaire écrit à la main — deux implémentations lisent ce jeton, une seule le déclare (D23).
 
 Jeton de renouvellement, longue durée, **stocké côté serveur** pour être révocable. Un chauffeur suspendu doit perdre l'accès immédiatement, ce qu'un jeton entièrement autoportant ne permet pas.
 
@@ -100,6 +100,8 @@ Le service temps réel valide le jeton d'accès localement avec le secret partag
 3. La réutilisation d'un jeton de renouvellement consommé révoque toute la famille.
 4. La suspension d'un chauffeur invalide ses jetons de renouvellement ; il perd l'accès au plus tard à l'expiration de son jeton d'accès courant.
 5. Le service temps réel valide un jeton sans appeler Odoo.
+6. **Un jeton réellement émis par `/auth/google` valide contre `AccessTokenClaimsSchema`** — le test lit le jeton produit, il ne vérifie pas la forme qu'il aurait voulu produire.
+7. **Le jeton d'un chauffeur porte `driverId`, et cet identifiant est celui de `babana.driver.public_id`, jamais celui de `sub`.** Deux modèles Odoo distincts : les confondre affecte une connexion au mauvais chauffeur.
 
 ---
 

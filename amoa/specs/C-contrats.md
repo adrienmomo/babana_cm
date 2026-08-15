@@ -114,6 +114,28 @@ Préfixe commun `/api/v1`. Authentification par jeton applicatif en en-tête `Au
 
 **Casse des champs** : le contrat est en camelCase (`idToken`), y compris quand une spécification de tâche écrit le nom en snake_case dans sa prose. Le contrat fait foi sur le format de fil (D17).
 
+**La charge utile du jeton d'accès fait partie du contrat** (D23, posée le 15 août). Un jeton d'accès est lu par deux implémentations indépendantes — Odoo l'émet en Python, le service temps réel le vérifie en TypeScript sans jamais appeler Odoo (L1-02, L3-01). C'est un format de fil comme un autre, et la règle de D17 s'y applique : il ne se déclare qu'une fois.
+
+```
+packages/contracts/src/auth/access-token.ts   # AccessTokenClaimsSchema
+```
+
+Claims, nommés d'après RFC 7519 quand un claim enregistré existe :
+
+| Claim | Type | Rôle |
+|---|---|---|
+| `sub` | UUID | `res.users.babana_public_id` — l'utilisateur |
+| `role` | `client` \| `driver` | |
+| `driverId` | UUID, présent si et seulement si `role` vaut `driver` | `babana.driver.public_id`, **distinct de `sub`** |
+| `iat`, `exp` | entiers, secondes epoch | |
+| `jti` | UUID | identifiant unique du jeton |
+
+`sub`, pas `uid` : c'est le claim enregistré pour le sujet, et une bibliothèque JWT tierce le comprendra sans configuration. `driverId` est obligatoire sur un jeton chauffeur — sans lui le service temps réel ne peut pas indexer la connexion sans appeler Odoo, ce que la spécification lui interdit.
+
+Le jeton de renouvellement, lui, **n'est pas un JWT** et n'entre pas dans ce contrat : c'est une valeur opaque dont seul le haché est stocké (L1-02). Rien de ce qui le concerne ne doit être vérifiable hors d'Odoo.
+
+**Cette règle est née d'un défaut réel** : Odoo émettait `uid`, le service temps réel exigeait `sub`, et chaque côté était vert parce qu'il testait sa propre forme inventée. Toute connexion WebSocket réelle aurait été refusée. Le test qui l'aurait révélé traverse les deux services et n'appartenait à aucune tâche — c'est pour cela que le critère 5 ci-dessous existe.
+
 Endpoints à spécifier :
 
 | Méthode | Chemin | Rôle |
@@ -158,6 +180,7 @@ Le catalogue est **partagé entre C-01 et C-02** : un même code peut être émi
 2. Des schémas JSON sont générés dans `packages/contracts/dist/json-schema/`, consommables par les contrôleurs Odoo en Python.
 3. Chaque endpoint a au moins un exemple de requête et un exemple de réponse.
 4. Le catalogue d'erreurs est exhaustif : aucun endpoint ne peut renvoyer une erreur non listée.
+5. **Un test de bout en bout obtient un jeton par `/auth/google` et ouvre avec lui une connexion WebSocket acceptée.** Il tourne contre les deux services réels, pas contre des jetons fabriqués par le test. Aucune suite propre à un service ne peut le remplacer : c'est précisément l'accord entre les deux qu'il vérifie.
 
 ---
 

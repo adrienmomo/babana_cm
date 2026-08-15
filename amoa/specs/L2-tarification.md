@@ -213,17 +213,21 @@ Appel à l'API de routage Google pour un couple de points. Retour : distance en 
 
 Cache : clé formée des coordonnées arrondies à une grille de l'ordre de cent mètres, de la gamme et de la tranche horaire. Durée de vie de quelques heures. Le cache réduit le coût et la latence, et il rend deux estimations proches cohérentes entre elles — ce qui compte autant que l'économie.
 
-**Comportement en cas d'indisponibilité de l'API** : ne pas échouer silencieusement ni renvoyer une distance à vol d'oiseau sans le dire. Renvoyer une erreur explicite. Une estimation fausse est pire qu'une absence d'estimation — elle produit une facture indéfendable.
+**Comportement en cas d'indisponibilité de l'API** : ne pas échouer silencieusement ni renvoyer une distance à vol d'oiseau sans le dire. Une estimation fausse est pire qu'une absence d'estimation — elle produit une facture indéfendable.
 
-Plafond de quota configurable, avec alerte quand il approche.
+**Mais une entrée de cache périmée n'est pas une estimation fausse** (D24, posée le 15 août). Elle a été calculée par la vraie API, sur les vrais points ; seule sa fraîcheur a expiré. Quand l'API est injoignable, servir l'entrée périmée de la même clé si elle existe — un itinéraire de Douala ne change pas de longueur en trois heures. L'erreur explicite ne subsiste que lorsque rien n'a jamais été calculé pour ce trajet. Sans ce repli, une panne du fournisseur arrête toute la plateforme : plus une seule estimation, donc plus une seule course.
+
+Plafond de quota configurable, avec alerte quand il approche. **Le compteur s'incrémente atomiquement, en une seule instruction, jamais par une lecture suivie d'une écriture** — deux estimations simultanées perdraient un appel, et une ligne globale réécrite à chaque cotation produit sous `REPEATABLE READ` exactement l'échec de sérialisation que L4-11 a découvert sur les courses. Le suivi d'un quota ne doit jamais être ce qui fait échouer une cotation.
 
 ### Critères d'acceptation
 
 1. Deux appels identiques ne produisent qu'une requête sortante.
 2. Le cache expire.
-3. L'indisponibilité de l'API produit une erreur explicite, jamais une estimation dégradée silencieuse.
-4. Le commentaire sur É8 est présent au point de calcul.
-5. Les tests n'appellent jamais l'API réelle : elle est simulée.
+3. L'indisponibilité de l'API sans entrée de cache pour ce trajet produit une erreur explicite, jamais une estimation dégradée silencieuse.
+4. **L'indisponibilité de l'API avec une entrée de cache périmée pour la même clé sert cette entrée**, et le fait est journalisé.
+5. Le commentaire sur É8 est présent au point de calcul.
+6. Les tests n'appellent jamais l'API réelle : elle est simulée.
+7. **N cotations simultanées incrémentent le compteur de quota de N**, et aucune n'échoue à cause de lui.
 
 ---
 

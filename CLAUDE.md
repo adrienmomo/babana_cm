@@ -46,6 +46,8 @@ Un seul dépôt git, à la racine `babana.cm/`. Les corrections de spécificatio
 
 **Une tâche à la fois.** Lire sa spécification en entier avant d'écrire du code. Respecter l'ordre des dépendances du §5 de `amoa/03-decoupage-taches.md`.
 
+**Une dépendance supposée absente se vérifie dans le dépôt, jamais dans le prompt.** Constaté le 15 août : L3-01 a été écrite en supposant que L1-02 n'avait pas encore émis de jetons applicatifs, et a posé une forme de jeton « hypothétique » — alors que L1-02 était faite depuis trois nuits et que le vrai jeton, lisible en dix lignes de `controllers/auth.py`, avait une forme différente. Résultat : deux implémentations vertes, en désaccord total, et un service temps réel qui aurait refusé toutes les connexions réelles. Avant d'écrire « X n'existe pas encore, je pose une hypothèse », ouvrir le fichier. Une hypothèse posée à côté d'une vérité déjà écrite est pire qu'une hypothèse posée dans le vide : elle a l'air raisonnable et personne ne la relit.
+
 ---
 
 ## Les cinq invariants
@@ -77,6 +79,7 @@ Délais, rayons, plafonds, tarifs, seuils. Tout est paramétrable — en base po
 | `services/realtime` n'a aucun client PostgreSQL en dépendance | Invariant 1, garanti mécaniquement |
 | `services/realtime` ne dépend d'aucun paquet de `apps/` | Le service ne sait rien de l'interface |
 | Les types de requête et de message ne sont jamais redéclarés | `@babana/contracts` est la source unique (D17) |
+| La charge utile du jeton d'accès n'est déclarée qu'une fois | Même règle, étendue à un format de fil qui n'est ni une requête ni un message (D23) |
 
 Une règle de lint qui échoue vaut mieux qu'une revue qui oublie. Si une frontière gêne, la signaler — ne pas la contourner.
 

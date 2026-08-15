@@ -24,19 +24,24 @@ services/realtime/test/auth.test.ts
 
 Le jeton est présenté à l'établissement de la connexion. Validation **locale**, avec le secret partagé — aucun appel à Odoo, qui ne passerait pas à l'échelle avec une connexion par chauffeur.
 
-La connexion porte ensuite un contexte immuable : identifiant utilisateur, rôle, identifiant du chauffeur le cas échéant. Ce contexte est la seule source d'autorisation pour tous les messages suivants. **Aucun message entrant ne peut redéfinir l'identité de son émetteur** — un message `position.update` portant un identifiant de chauffeur différent de celui de la connexion est rejeté, pas honoré.
+Les claims lus sont ceux de `AccessTokenClaimsSchema` (C-01, D23) — `sub`, `role`, `driverId`, `exp`. **Le service ne redéclare pas cette forme** : il l'importe. C'est le même jeton, émis par L1-02, et il n'y a qu'une seule définition.
 
-Une connexion dont le jeton expire en cours de vie est fermée avec un code explicite. L'app renouvelle et se reconnecte.
+La connexion porte ensuite un contexte immuable : identifiant utilisateur, rôle, identifiant du chauffeur le cas échéant. Ce contexte est la seule source d'autorisation pour tous les messages suivants.
+
+**L'identité de l'émetteur se lit dans la connexion, jamais dans le message.** Formulation corrigée le 15 août : la rédaction précédente prenait pour exemple un message `position.update` portant un identifiant de chauffeur à comparer, alors qu'aucun message client-vers-serveur de C-02 ne porte d'identifiant d'émetteur — la propriété était invérifiable telle qu'écrite. La règle qui compte est plus forte que la comparaison qu'elle remplace : le serveur ne lit jamais une identité dans une charge utile entrante. Un message dont le traitement a besoin de savoir qui l'envoie prend cette information du contexte de connexion. Si une tâche ultérieure donne malgré tout un champ d'identité à un message, ce champ est ignoré ou le message rejeté — jamais honoré.
+
+Une connexion dont le jeton expire en cours de vie est fermée avec un code explicite. L'app renouvelle et se reconnecte. Le minuteur qui porte cette fermeture est **borné à la valeur maximale de `setTimeout`** (2³¹−1 ms, environ 24,8 jours) : au-delà, Node déclenche immédiatement, et une durée de vie de jeton mal choisie fermerait toutes les connexions à l'instant même de leur ouverture.
 
 Registre en mémoire des connexions actives, indexé par rôle et identifiant, pour permettre l'émission ciblée.
 
 ### Critères d'acceptation
 
 1. Une connexion sans jeton est refusée.
-2. Une connexion avec un jeton expiré est refusée avec un code documenté.
-3. Un message portant un identifiant de chauffeur différent de celui de la connexion est rejeté.
+2. Une connexion avec un jeton expiré est refusée avec un code documenté, distinct de celui d'un jeton invalide.
+3. **Aucun chemin de code ne dérive une identité d'une charge utile entrante** : l'identité vient du contexte de connexion, et seulement de lui.
 4. La validation ne déclenche aucun appel sortant vers Odoo.
 5. Un jeton qui expire en cours de connexion la ferme.
+6. **Un jeton réellement émis par `/auth/google` est accepté** — pas seulement un jeton fabriqué par le test. Ce critère est celui qui a manqué : les deux services étaient verts en désaccord complet sur la forme du jeton.
 
 ---
 
