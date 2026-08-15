@@ -1,4 +1,5 @@
 import type { IncomingMessage } from 'node:http';
+import type Redis from 'ioredis';
 import { WebSocket, WebSocketServer } from 'ws';
 import type { Config } from '../config';
 import {
@@ -7,6 +8,7 @@ import {
   WS_CLOSE_TOKEN_EXPIRED,
   WS_CLOSE_UNAUTHENTICATED,
 } from './auth';
+import { createMessageDispatcher } from './dispatch';
 
 // Réexportés pour compatibilité : posés ici par L0-04, avant que ws/auth.ts (L3-01) n'existe.
 // test/ws.test.ts importe encore WS_CLOSE_UNAUTHENTICATED depuis ce module.
@@ -19,9 +21,10 @@ export { WS_CLOSE_UNAUTHENTICATED, WS_CLOSE_TOKEN_EXPIRED };
 // amoa/questions/REPONSES-2026-08-15.md §6).
 const MAX_SET_TIMEOUT_MS = 2 ** 31 - 1;
 
-export function createConnectionHandler(config: Config) {
+export function createConnectionHandler(config: Config, redis: Redis) {
   const wss = new WebSocketServer({ noServer: true });
   const registry = new ConnectionRegistry();
+  const dispatch = createMessageDispatcher(config, redis);
 
   wss.on('connection', (socket: WebSocket, request: IncomingMessage) => {
     const auth = authenticateConnection(request, config);
@@ -50,10 +53,14 @@ export function createConnectionHandler(config: Config) {
       registry.remove(context, socket);
     });
 
-    // Traitement des messages temps réel (C-02) : hors du lot de cette nuit au-delà de
-    // l'authentification (L3-02 et suivants). Le contexte ci-dessus est déjà la seule source
-    // d'autorisation qu'un futur gestionnaire de message devra consulter -- voir
-    // ws/auth.ts:matchesConnectionIdentity.
+    // Le contexte posé à l'authentification est la seule source d'autorisation consultée par le
+    // dispatcher -- aucun message entrant ne peut redéfinir qui l'envoie (L3-01, critère 3).
+    socket.on('message', (data) => {
+      dispatch(context, data.toString()).catch(() => {
+        // ingestPosition/dispatch ne devraient pas lever (erreurs métier renvoyées en valeur) --
+        // filet défensif : une position perdue ne doit jamais fermer la connexion.
+      });
+    });
   });
 
   return wss;

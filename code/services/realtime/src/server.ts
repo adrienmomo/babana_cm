@@ -43,7 +43,7 @@ export function createServer(config: Config, redis: Redis): Server {
     res.end(JSON.stringify({ error: 'not found' }));
   });
 
-  const wss = createConnectionHandler(config);
+  const wss = createConnectionHandler(config, redis);
   server.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url ?? '', 'http://internal');
     if (url.pathname !== '/rt/ws') {

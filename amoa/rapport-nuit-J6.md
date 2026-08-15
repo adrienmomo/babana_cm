@@ -124,3 +124,47 @@ babana`), `npm test` pour tout le reste (paquets JS/TS, `services/realtime`, app
 `test/concurrency` scénario 1 + le nouveau `test/auth/token-handshake.test.ts` contre la pile
 réelle), `npm run typecheck --workspaces`, `npm run lint --workspaces` (client/driver, les seuls
 paquets à porter un script `lint`).
+
+---
+
+## L3-02 — Ingestion des positions
+
+**Fait.** `services/realtime/src/tracking/validation.ts` (fonction pure `checkPlausibility`,
+distance à vol d'oiseau Haversine pour la vitesse implicite), `redis/positions.ts` (stockage
+Redis avec TTL, `POSITION_KEY_PREFIX`), `tracking/ingest.ts` (`ingestPosition`, orchestration :
+lit la position précédente, valide, stocke, comptabilise). L'identité du chauffeur vient
+exclusivement du `ConnectionContext` de la connexion WebSocket (`context.driverId`), jamais du
+message `position.update` — qui ne porte d'ailleurs aucun identifiant d'émetteur (C-02, L3-01
+critère 3). Une position rejetée est comptée par motif (`ingestMetrics`, compteurs en mémoire —
+pas de dépendance de métriques nouvelle pour ce lot) et ignorée sans jamais fermer la connexion.
+
+**Écriture Redis uniquement, jamais Odoo** (invariant 1) : `storePosition`/`getPosition` ne
+touchent que Redis, avec une durée de vie courte et configurable. Le critère « le chauffeur sort
+du pool à expiration » est prouvé au niveau du stockage (`hasFreshPosition` devient faux après le
+TTL) — l'exclusion effective du géo-index est la responsabilité de L3-03, qui consomme ce même
+signal au moment de la requête plutôt que de dupliquer un mécanisme d'expiration actif.
+
+**Wiring nécessaire, hors de la liste de fichiers de la spécification mais indispensable pour que
+la tâche fonctionne réellement** : `ws/dispatch.ts` (nouveau) route les messages entrants validés
+contre `ClientToServerMessageSchema` vers leur gestionnaire par `type` ; `ws/connection.ts` y
+délègue désormais le traitement de chaque message reçu, et `server.ts`/`createConnectionHandler`
+passent le client Redis jusqu'au dispatcher. Un message illisible ou d'un type non encore traité
+est ignoré, jamais une fermeture de connexion — même principe que le rejet d'une position. Choix
+d'implémentation non spécifié par la tâche (structure de fichiers), nécessaire pour que
+`position.update` atteigne effectivement `ingestPosition` ; noté ici plutôt que passé sous
+silence.
+
+**Écart déposé : `amoa/questions/L3-02.md`.** Les seuils de plausibilité, le TTL, et (pour
+L3-03/L3-04) le rayon et la période de grâce sont des valeurs métier au sens de l'invariant 5 et
+de D21 — qui prescrivent la base de données (réglages Odoo, L9-06), jamais `.env`. Mais le
+service temps réel n'a et ne doit avoir aucun client PostgreSQL (invariant 1), et aucun canal de
+lecture de configuration Odoo → temps réel n'existe encore. Provisoirement en variable
+d'environnement (`services/realtime/src/config.ts`), valeurs par défaut plausibles (rectangle
+englobant de Douala repris de `babana_zone_default.xml`, pas réinventé) et marquées comme
+telles ; canal de lecture propre proposé pour la suite dans le fichier d'écart.
+
+Tests (`test/ingest.test.ts`) : chaque règle de plausibilité isolée (critère 2, y compris la
+zone d'exploitation distincte des bornes WGS84 génériques), position valide stockée (1), rejet
+sans fermeture de connexion (3), expiration du TTL (4), taux de rejet par motif exposé (5), et
+un message `position.update` reçu d'une connexion non-chauffeur rejeté sans jamais tenter de
+dériver une identité de la charge utile.
