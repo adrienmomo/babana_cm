@@ -175,11 +175,8 @@ class BabanaRideState(models.Model):
         # amoa/questions/REPONSES-2026-08-13.md). Ce contrôle verrouille CETTE course, pas le
         # chauffeur : deux clients qui proposent le même chauffeur sur deux courses différentes
         # verrouillent chacun la sienne et passent tous deux ce SELECT. La garantie réelle est
-        # l'index unique partiel babana_ride_one_active_per_driver (L4-01) -- une violation
-        # d'index remonte en IntegrityError PostgreSQL brute au niveau du INSERT/UPDATE fait par
-        # _babana_write_transition plus bas ; c'est L4-03 (hors de ce lot) qui doit la traduire
-        # en DRIVER_ALREADY_TAKEN, sinon un client verrait un défaut technique là où l'app doit
-        # simplement proposer un autre chauffeur.
+        # l'index unique partiel babana_ride_one_active_per_driver (L4-01) -- traduite ci-dessous
+        # (L4-03R, amoa/questions/L4-03.md) plutôt que laissée remonter en défaut technique brut.
         active = self.search(
             [
                 ("driver_id", "=", driver.id),
@@ -191,9 +188,27 @@ class BabanaRideState(models.Model):
         if active:
             raise UserError("DRIVER_ALREADY_TAKEN")
 
-        self._babana_write_transition(
-            {"state": "proposed", "driver_id": driver.id, "proposed_at": fields.Datetime.now()}
-        )
+        # Une course concurrente peut avoir gagné la course entre le SELECT ci-dessus et cet
+        # UPDATE (la fenêtre que le SELECT seul ne ferme pas -- voir le commentaire ci-dessus) :
+        # l'index unique partiel refuse alors l'écriture avec une IntegrityError PostgreSQL
+        # brute. Même mécanisme que _lock_for_update() pour SerializationFailure : savepoint
+        # pour n'annuler que cette tentative, pas toute la transaction de la requête, et
+        # traduction en la même UserError("DRIVER_ALREADY_TAKEN") que le chemin rapide
+        # ci-dessus -- le contrôleur (controllers/ride.py:_map_user_error) la connaît déjà.
+        try:
+            with self.env.cr.savepoint():
+                self._babana_write_transition(
+                    {
+                        "state": "proposed",
+                        "driver_id": driver.id,
+                        "proposed_at": fields.Datetime.now(),
+                    }
+                )
+        except psycopg2.errors.UniqueViolation as exc:
+            if "babana_ride_one_active_per_driver" not in str(exc):
+                raise
+            raise UserError("DRIVER_ALREADY_TAKEN") from exc
+
         self._babana_journalize("proposal", driver=driver.id)
         return self
 

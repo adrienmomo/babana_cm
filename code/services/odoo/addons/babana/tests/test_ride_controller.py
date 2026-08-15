@@ -39,7 +39,7 @@ def _mint_google_token(**overrides) -> str:
 class TestRideController(HttpCase):
     @classmethod
     def _request_handler(cls, s, r, **kw):
-        if r.url.startswith(_mock_google_base_url()):
+        if r.url.startswith(_mock_google_base_url()) or "mock-maps" in r.url:
             from odoo.tests.common import _super_send
 
             return _super_send(s, r, **kw)
@@ -96,6 +96,20 @@ class TestRideController(HttpCase):
                 "dropoff_longitude": 9.77,
             }
         )
+
+    # --- L4-03R : POST /rides (createRide) et POST /rides/{id}/complete -----------------------
+
+    _QUOTE_ORIGIN = {"latitude": 4.0483, "longitude": 9.6934}
+    _QUOTE_DESTINATION = {"latitude": 4.0270, "longitude": 9.7040}
+
+    def _make_quote(self, client_token):
+        response = self._post(
+            "/api/v1/quote",
+            client_token,
+            {"origin": self._QUOTE_ORIGIN, "destination": self._QUOTE_DESTINATION},
+        )
+        self.assertEqual(response.status_code, 200)
+        return response.json()["quoteId"]
 
     # --- Parcours nominal, jusqu'à in_progress --------------------------------------------------
 
@@ -326,3 +340,145 @@ class TestRideController(HttpCase):
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["error"]["code"], "RIDE_NOT_FOUND")
+
+    # --- POST /rides (createRide, L4-03R) ------------------------------------------------------
+
+    def test_create_ride_from_quote_carries_zones_and_fare_rule(self):
+        # Critère d'acceptation 6 de L2-04 -- déféré depuis test_quote_controller.py, qui ne
+        # peut pas le vérifier avant que POST /rides n'existe (amoa/questions/L2-04.md).
+        client_token, client_public_id = self._sign_in("sub-createride-zones", "client")
+        client_user = self.env["res.users"].sudo().search(
+            [("babana_public_id", "=", client_public_id)]
+        )
+        quote_id = self._make_quote(client_token)
+        quote = self.env["babana.quote"].sudo().search([("public_id", "=", quote_id)])
+
+        response = self._post("/api/v1/rides", client_token, {"quoteId": quote_id})
+
+        self.assertEqual(response.status_code, 201)
+        body = response.json()
+        self.assertEqual(body["state"], "requested")
+        self.assertEqual(body["amount"], quote.amount)
+        ride = self.env["babana.ride"].sudo().search([("public_id", "=", body["id"])])
+        self.assertEqual(ride.client_id, client_user.partner_id)
+        self.assertEqual(ride.pickup_zone_id, quote.pickup_zone_id)
+        self.assertEqual(ride.dropoff_zone_id, quote.dropoff_zone_id)
+        self.assertEqual(ride.fare_rule_id, quote.fare_rule_id)
+        self.assertEqual(ride.quote_id, quote)
+        self.assertTrue(ride.fare_rule_snapshot)
+
+    def test_create_ride_with_missing_quote_id_is_a_validation_error(self):
+        client_token, _ = self._sign_in("sub-createride-badbody", "client")
+
+        response = self._post("/api/v1/rides", client_token, {})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"]["code"], "VALIDATION_ERROR")
+
+    def test_create_ride_with_unknown_quote_id_is_quote_not_found(self):
+        client_token, _ = self._sign_in("sub-createride-unknown", "client")
+
+        response = self._post(
+            "/api/v1/rides", client_token, {"quoteId": str(uuid.uuid4())}
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["error"]["code"], "QUOTE_NOT_FOUND")
+
+    def test_create_ride_with_expired_quote_is_quote_expired(self):
+        client_token, _ = self._sign_in("sub-createride-expired", "client")
+        quote_id = self._make_quote(client_token)
+        quote = self.env["babana.quote"].sudo().search([("public_id", "=", quote_id)])
+        quote.sudo().write({"expires_at": "2000-01-01 00:00:00"})
+
+        response = self._post("/api/v1/rides", client_token, {"quoteId": quote_id})
+
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(response.json()["error"]["code"], "QUOTE_EXPIRED")
+
+    def test_create_ride_with_another_clients_quote_is_quote_not_found(self):
+        owner_token, _ = self._sign_in("sub-createride-owner", "client")
+        stranger_token, _ = self._sign_in("sub-createride-stranger", "client")
+        quote_id = self._make_quote(owner_token)
+
+        response = self._post("/api/v1/rides", stranger_token, {"quoteId": quote_id})
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["error"]["code"], "QUOTE_NOT_FOUND")
+
+    # --- POST /rides/{id}/complete (L4-03R) ------------------------------------------------------
+
+    def test_full_happy_path_up_to_completed(self):
+        client_token, client_public_id = self._sign_in("sub-complete-client", "client")
+        driver_token, driver = self._make_approved_driver("sub-complete-driver")
+        quote_id = self._make_quote(client_token)
+        quote = self.env["babana.quote"].sudo().search([("public_id", "=", quote_id)])
+
+        create_response = self._post("/api/v1/rides", client_token, {"quoteId": quote_id})
+        ride_id = create_response.json()["id"]
+
+        self._post(
+            f"/api/v1/rides/{ride_id}/select-driver", client_token, {"driverId": driver.public_id}
+        )
+        self._post(f"/api/v1/rides/{ride_id}/accept", driver_token)
+        self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
+
+        complete_response = self._post(
+            f"/api/v1/rides/{ride_id}/complete",
+            driver_token,
+            {"distanceMeters": 5200, "durationSeconds": 900, "polyline": "abc123"},
+        )
+
+        self.assertEqual(complete_response.status_code, 200)
+        body = complete_response.json()
+        self.assertEqual(body["state"], "completed")
+        self.assertEqual(body["distanceMeters"], 5200)
+        self.assertEqual(body["durationSeconds"], 900)
+        # Le montant final est celui de la distance de référence (L4-04), pas recalculé sur les
+        # 5200 m parcourus transmis ci-dessus.
+        self.assertEqual(body["amount"], quote.amount)
+
+        ride = self.env["babana.ride"].sudo().search([("public_id", "=", ride_id)])
+        self.assertEqual(ride.track_polyline, "abc123")
+        self.assertEqual(ride.final_amount, quote.amount)
+
+    def test_complete_by_unassigned_driver_is_rejected(self):
+        client_token, _ = self._sign_in("sub-complete-client-2", "client")
+        driver_token, driver = self._make_approved_driver("sub-complete-driver-2")
+        stranger_token, _stranger_driver = self._make_approved_driver("sub-complete-stranger")
+        quote_id = self._make_quote(client_token)
+        ride_id = self._post(
+            "/api/v1/rides", client_token, {"quoteId": quote_id}
+        ).json()["id"]
+        self._post(
+            f"/api/v1/rides/{ride_id}/select-driver", client_token, {"driverId": driver.public_id}
+        )
+        self._post(f"/api/v1/rides/{ride_id}/accept", driver_token)
+        self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
+
+        response = self._post(
+            f"/api/v1/rides/{ride_id}/complete",
+            stranger_token,
+            {"distanceMeters": 100, "durationSeconds": 60, "polyline": "x"},
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"]["code"], "DRIVER_NOT_IN_PROPOSAL")
+
+    def test_complete_with_missing_fields_is_a_validation_error(self):
+        client_token, _ = self._sign_in("sub-complete-client-3", "client")
+        driver_token, driver = self._make_approved_driver("sub-complete-driver-3")
+        quote_id = self._make_quote(client_token)
+        ride_id = self._post(
+            "/api/v1/rides", client_token, {"quoteId": quote_id}
+        ).json()["id"]
+        self._post(
+            f"/api/v1/rides/{ride_id}/select-driver", client_token, {"driverId": driver.public_id}
+        )
+        self._post(f"/api/v1/rides/{ride_id}/accept", driver_token)
+        self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
+
+        response = self._post(f"/api/v1/rides/{ride_id}/complete", driver_token, {})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"]["code"], "VALIDATION_ERROR")

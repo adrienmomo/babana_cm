@@ -19,3 +19,4 @@ from . import test_ride_controller
 from . import test_partition_invariant
 from . import test_routing
 from . import test_quote_controller
+from . import test_ride_completion

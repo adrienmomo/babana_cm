@@ -3,9 +3,19 @@
 # données et ses contraintes d'intégrité.
 from __future__ import annotations
 
+import logging
 import uuid
 
 from odoo import api, fields, models
+
+_logger = logging.getLogger(__name__)
+
+# Seuil d'écart entre distance parcourue et distance de référence, au-delà duquel la course est
+# signalée (L4-04, critère d'acceptation 3) -- jamais corrigée automatiquement : peut révéler un
+# détour, un problème GPS, ou une adresse mal saisie, et c'est au back-office de trancher. Valeur
+# plausible explicitement provisoire (D21), à confirmer par L10-05 sur données de pilote.
+DISTANCE_DEVIATION_THRESHOLD_KM_PARAM = "babana.distance_deviation_threshold_km"
+DISTANCE_DEVIATION_THRESHOLD_KM_DEFAULT = 2.0
 
 # États de C-03 (docs/contracts/ride-state-machine.md), sans `draft` : jamais persisté (L4-01,
 # critère hérité de C-03).
@@ -103,6 +113,14 @@ class BabanaRide(models.Model):
         help="Écart entre distance parcourue et distance de référence -- signalé (L4-04), "
         "jamais corrigé automatiquement.",
     )
+    distance_deviation_flagged = fields.Boolean(
+        compute="_compute_distance_deviation_flagged",
+        store=True,
+        help="Écart au-delà du seuil configurable (babana.distance_deviation_threshold_km, "
+        "L4-04, critère d'acceptation 3) -- un signalement, jamais une correction automatique : "
+        "peut révéler un détour, un problème GPS, ou une adresse mal saisie. Au back-office de "
+        "trancher.",
+    )
 
     # --- Tarif figé ----------------------------------------------------------------------------
     fare_rule_id = fields.Many2one(
@@ -160,6 +178,41 @@ class BabanaRide(models.Model):
             record.distance_deviation_km = (
                 record.actual_distance_km - record.reference_distance_km
             )
+
+    @api.depends("distance_deviation_km", "state")
+    def _compute_distance_deviation_flagged(self):
+        threshold = float(
+            self.env["ir.config_parameter"].sudo().get_param(
+                DISTANCE_DEVIATION_THRESHOLD_KM_PARAM, DISTANCE_DEVIATION_THRESHOLD_KM_DEFAULT
+            )
+        )
+        for record in self:
+            flagged = record.state in ("completed", "settled") and (
+                abs(record.distance_deviation_km) > threshold
+            )
+            record.distance_deviation_flagged = flagged
+            if flagged:
+                # Signalement (L4-04, critère 3) : jamais une correction automatique, seulement
+                # visible pour le back-office -- le flag stocké ci-dessus en est la trace
+                # durable, ce message en est la trace immédiate.
+                _logger.warning(
+                    "babana.ride %s : écart de distance signalé (%.2f km, seuil %.2f km).",
+                    record.reference, record.distance_deviation_km, threshold,
+                )
+
+    def _babana_compute_final_amount(self):
+        """Montant final (L4-04, critère d'acceptation 2) : calculé sur la distance de
+        référence (L2-05), jamais sur la distance parcourue -- reproductible et connue du
+        client à l'avance, contrairement à la distance parcourue qui dépend des raccourcis du
+        chauffeur et de la qualité du GPS. `estimated_amount` a déjà été calculé sur cette même
+        distance de référence à la création de la course (L2-04/L4-03R) et gelé avec la règle
+        tarifaire (fare_rule_snapshot) : ce montant n'a donc rien à recalculer aujourd'hui,
+        seulement à être reporté. Il ne peut différer de l'estimé que si une promotion devient
+        invalide entre l'estimation et la fin de course (critère 5) -- babana.promotion (L2-06)
+        n'existe pas encore, ce cas ne peut donc pas encore se produire ; ce point d'accroche
+        existe pour que L2-06 n'ait qu'à brancher sa résolution, pas à créer ce mécanisme."""
+        self.ensure_one()
+        return self.estimated_amount
 
     @api.model_create_multi
     def create(self, vals_list):

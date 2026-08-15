@@ -323,3 +323,39 @@ class TestRideStateMachine(TransactionCase):
         self.assertEqual(
             self.env["babana.ride"].search_count([("reference", "=", ride.reference)]), 1
         )
+
+    # === L4-03R : violation de l'index unique traduite en DRIVER_ALREADY_TAKEN ================
+    #
+    # La vraie fenêtre de course (deux clients qui proposent le même chauffeur presque en même
+    # temps) a besoin de deux connexions réellement concurrentes -- TransactionCase ne le permet
+    # pas (même raison que L4-11). Ce test prouve directement le mécanisme de traduction lui-même
+    # (babana_ride_state.py:action_propose, savepoint + except UniqueViolation) en contournant le
+    # chemin rapide Python pour forcer l'écriture à heurter l'index en base pour de vrai -- pas en
+    # simulant l'exception.
+
+    def test_index_violation_is_translated_to_driver_already_taken(self):
+        from unittest.mock import patch
+
+        client1 = self._make_partner("Client 1")
+        client2 = self._make_partner("Client 2")
+        driver = self._make_driver()
+        ride1 = self.env["babana.ride"].action_request(self._base_vals(client1))
+        ride2 = self.env["babana.ride"].action_request(self._base_vals(client2))
+        ride1.action_propose(by_partner=client1, driver=driver)
+
+        RideModel = type(ride2)
+        original_search = RideModel.search
+
+        def _fake_search(self, domain, *args, **kwargs):
+            # Ne court-circuite que le SELECT du chemin rapide (celui qui porte driver_id) --
+            # tout le reste (setUp, chargement de champs, etc.) passe par le vrai search().
+            if domain and any(cond == ("driver_id", "=", driver.id) for cond in domain):
+                return self.browse()
+            return original_search(self, domain, *args, **kwargs)
+
+        with patch.object(RideModel, "search", _fake_search):
+            with self.assertRaises(UserError) as ctx:
+                ride2.action_propose(by_partner=client2, driver=driver)
+
+        self.assertEqual(str(ctx.exception), "DRIVER_ALREADY_TAKEN")
+        self.assertEqual(ride2.state, "requested", "aucune transition n'a eu lieu")

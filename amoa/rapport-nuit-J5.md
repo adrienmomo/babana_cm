@@ -77,3 +77,130 @@ logique »).
 
 ---
 
+## L4-04 — Consolidation de fin de course
+
+**Fait.** `models/babana_ride.py` uniquement, comme prévu par le lot : `action_complete`
+(L4-02, `babana_ride_state.py`) reste inchangé — il écrivait déjà distance, durée, tracé et
+montant en une seule opération (`_babana_write_transition`), ce qui couvre déjà le critère 1
+(« le tracé est écrit en une seule opération »).
+
+Ajouté : `babana.ride._babana_compute_final_amount()` — le montant final est **reporté** depuis
+`estimated_amount` (déjà calculé sur la distance de référence à la cotation, L2-04/L2-05), pas
+recalculé. C'est délibéré et documenté dans la méthode : comme aucune promotion ne peut encore
+devenir invalide entre l'estimation et la fin de course (L2-06 hors de ce lot), le montant final
+est aujourd'hui toujours égal à l'estimé — le point d'accroche existe pour que L2-06 n'ait qu'à
+brancher sa résolution, pas à créer ce mécanisme. Le critère 5 (« toute différence entre estimé
+et final est explicitée ») est donc vérifié par construction plutôt que par un scénario vivant
+cette nuit : documenté comme tel dans `tests/test_ride_completion.py`, pas laissé implicite.
+
+Ajouté aussi : `distance_deviation_flagged` (champ calculé, stocké), vrai quand `state` est
+`completed`/`settled` et que `|distance_deviation_km|` dépasse un seuil configurable
+(`babana.distance_deviation_threshold_km`, défaut 2 km, provisoire D21, à confirmer par L10-05).
+Un signalement, jamais une correction automatique (critère 3) — le flag est la trace durable, un
+`_logger.warning` la trace immédiate pour le suivi opérationnel.
+
+`tests/test_ride_completion.py` : cinq tests couvrant les cinq critères d'acceptation
+directement sur le modèle (`action_complete` appelé à la main, comme `test_ride_state_machine.py` —
+L4-03R, plus bas, le fait de nouveau via l'API HTTP).
+
+---
+
+## L4-03R — `POST /rides` et `POST /rides/{id}/complete`
+
+**Fait.** `controllers/ride.py` étendu (pas de nouveau fichier) : sept endpoints sur neuf du
+contrat ce soir, cinq restants — voir `amoa/questions/L4-03.md`, toujours à jour pour
+`settleRide`/`rateRide` (compte courant chauffeur et notation, tous deux hors de ce lot).
+
+`POST /rides` (`createRide`) : résout l'estimation par son `quoteId`, vérifie qu'elle appartient
+à l'appelant et n'a pas expiré (`QUOTE_EXPIRED`/`QUOTE_NOT_FOUND` — une estimation d'un autre
+client est traitée comme introuvable, pas comme un défaut d'appartenance distinct, le contrat ne
+prévoyant pas ce troisième code), puis appelle `action_request` avec les valeurs de l'estimation
+copiées telles quelles — rien n'est recalculé, c'est tout l'intérêt du gel par valeur de L2-04.
+
+`POST /rides/{id}/complete` (`completeRide`) : réservé au chauffeur affecté
+(`DRIVER_NOT_IN_PROPOSAL`, même garde que accept/reject/start), valide le corps, appelle
+`babana.ride._babana_compute_final_amount()` (L4-04) puis `action_complete`.
+
+**`_summary()` corrigé au passage** : renvoyait `0` pour `amount` tant que la course n'était pas
+`completed`, avec un commentaire qui datait d'avant L2-04/L2-05 (« amount estimé vient de
+L2-04/L2-05, hors de ce lot »). Renvoie désormais le montant estimé gelé avant la fin de course,
+le montant final après — conforme à `createRideResponseExample` du contrat C-01 lui-même
+(`amount: 1200` sur une course à l'état `requested`), qui le montrait déjà sans qu'aucun code ne
+le produise.
+
+**La traduction de la violation d'index unique en `DRIVER_ALREADY_TAKEN`** (demandée
+explicitement par le prompt de ce soir) s'est révélée appartenir à `babana_ride_state.py`
+(`action_propose`, L4-02), pas au contrôleur : le précédent déjà posé par `_lock_for_update()`
+pour `SerializationFailure` (L4-11) traduit les erreurs PostgreSQL au niveau du modèle, dans un
+savepoint, et le contrôleur connaît déjà `UserError("DRIVER_ALREADY_TAKEN")` depuis L4-03
+(`_map_user_error`). Suivi ce même patron plutôt que d'en inventer un nouveau au niveau HTTP —
+léger écart au découpage indicatif des fichiers de la spécification (`babana_ride_state.py`
+n'était pas listé pour L4-03R), documenté ici plutôt qu'en silence. Une vraie fenêtre de course a
+besoin de deux connexions réellement concurrentes pour se manifester (même limite que L4-11,
+`TransactionCase` ne le permet pas) ; le mécanisme de traduction lui-même est prouvé directement
+dans `test_ride_state_machine.py` en contournant le chemin rapide Python pour forcer l'écriture à
+heurter l'index en base pour de vrai, sans simuler l'exception.
+
+**Le critère 6 de L2-04, déféré, est maintenant vérifié** :
+`test_create_ride_from_quote_carries_zones_and_fare_rule` (`test_ride_controller.py`) confirme
+que la course créée depuis une estimation porte `pickup_zone_id`, `dropoff_zone_id`,
+`fare_rule_id` et `quote_id`.
+
+Une course est désormais menable de `requested` à `completed` par l'API mobile —
+`test_full_happy_path_up_to_completed` le parcourt en entier.
+
+---
+
+## L3-01 — Authentification des connexions WebSocket
+
+**Non commencée cette nuit.** Le lot des quatre premières tâches (L2-04, L2-05, L4-04, L4-03R)
+a représenté davantage de lecture et de vérification que prévu — en particulier la vérification
+sur base fraîche (voir plus bas), qui a coûté plus de temps que les nuits précédentes parce
+qu'une réinstallation complète depuis un volume vide réinstalle **toutes** les dépendances
+d'Odoo (`base`, `mail`, `hr`, `account`), pas seulement `babana` : plusieurs minutes contre
+quelques secondes sur une base déjà initialisée. Conforme à la consigne du soir (« si tu sens
+que le lot ne passera pas en entier, dis-le plutôt que d'accélérer ») : cinq tâches finies et
+bâclées valent moins que quatre finies et vérifiées.
+
+**Ce qui reste à faire pour L3-01** : lire `amoa/specs/L3-temps-reel.md` (L3-01, L3-02, L3-04
+déjà lus cette nuit pour préparer le lot), lire `services/realtime/src/ws/connection.ts` et
+`services/realtime/src/ws/token.ts` (squelette déjà posé par L0-04) pour voir ce qui existe déjà
+avant d'écrire `services/realtime/src/ws/auth.ts`. Le point d'attention du prompt de ce soir
+reste entier pour la prochaine session : le contexte de connexion (identité, rôle) doit être
+immuable, et aucun message entrant ne peut redéfinir l'identité de son émetteur.
+
+---
+
+## Vérification sur base fraîche (définition de fini, point de la nuit dernière)
+
+`make reset` puis `make up` puis suite complète, deux fois :
+
+1. **Suite Odoo, base fraîche** (première installation, toutes les dépendances Odoo comprises) :
+   **0 échec, 0 erreur, 265 tests** (`babana` seul, contre 250 sur une base déjà installée la
+   veille — 15 tests de plus, ceux ajoutés cette nuit). Un défaut préexistant et non lié à cette
+   nuit (`TestBabanaToken.test_rotate_produces_new_pair_and_invalidates_old`) était apparu sur
+   l'ancienne base (15 h d'accumulation) et **a disparu sur la base fraîche** — confirmation
+   directe de l'avertissement du 12 août dans `CLAUDE.md` : une base accumulée masque ou invente
+   des défauts qu'une base fraîche ne reproduit pas. Pas d'investigation plus loin puisqu'il ne
+   s'est pas reproduit et qu'il est hors du périmètre de cette nuit.
+2. **`npm test`** (paquets JS/TS, y compris `test/concurrency` de L4-11 contre la pile réelle) :
+   **0 échec** — scénarios 1 et 2 passent, scénario 3 toujours volontairement ignoré
+   (`POST /rides/{id}/settle`, L4-05/L5-01).
+3. **`npm run typecheck --workspaces`** et **`npm run lint --workspaces`** : verts sur tout
+   l'arbre.
+
+---
+
+## Ce que je ferais ensuite
+
+- **L3-01**, en tête de la prochaine session — tout le travail de lecture préalable est fait
+  cette nuit, il ne reste qu'à écrire.
+- **Arbitrer `amoa/questions/L2-04.md`** : les extensions de `quote.ts` (vehicleClass, breakdown,
+  promoApplied, ROUTE_UNAVAILABLE) méritent d'être relues et, si acceptées, consignées comme
+  décision dans `amoa/01-architecture.md` plutôt que de rester une question ouverte.
+- **L2-06 (promotions)** devient plus visible qu'avant : deux points d'accroche l'attendent
+  maintenant (`babana.quote.promo_applied`, `babana.ride._babana_compute_final_amount`), tous
+  deux déjà en place et prêts à être branchés.
+- Le reste du lot L3 (géo-index, réservation atomique, suivi) et L4-05/L5-01 (encaissement, sous
+  revue humaine) restent le gros du travail avant une course démontrable de bout en bout côté
+  temps réel.
