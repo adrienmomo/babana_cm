@@ -47,6 +47,11 @@ const ConfigSchema = z.object({
   /** Période de grâce avant sortie du pool sur déconnexion réseau (L3-04). */
   AVAILABILITY_DISCONNECT_GRACE_SECONDS: z.coerce.number().int().positive().default(45),
 
+  /** Durée de vie d'une réservation de chauffeur (L3-06) avant libération automatique -- doit
+   * couvrir au moins le délai d'acceptation de la proposition (L3-07, 30 s par défaut, hors de
+   * ce lot) ; marge incluse plutôt qu'une valeur strictement égale. */
+  RESERVATION_TTL_SECONDS: z.coerce.number().int().positive().default(45),
+
   /** Fréquence de diffusion des mises à jour nearby.drivers pendant un abonnement actif (L3-05). */
   NEARBY_BROADCAST_INTERVAL_SECONDS: z.coerce.number().positive().default(5),
   /** Limitation de débit sur nearby.subscribe (L3-05, C2b -- empêche l'échantillonnage rapide de

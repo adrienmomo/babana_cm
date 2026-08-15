@@ -5,11 +5,11 @@
   "description": "Service temps réel (D3, D16) : positions, réservation atomique, suivi. Sans état durable -- aucun client PostgreSQL en dépendance, garantie mécanique de la règle de partition (01-architecture.md §2, invariant 1).",
   "main": "dist/index.js",
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && mkdir -p dist/reservation && cp src/reservation/*.lua dist/reservation/",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "typecheck": "tsc -p tsconfig.typecheck.json",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts test/concurrency/*.test.ts"
   },
   "dependencies": {
     "@babana/contracts": "*",

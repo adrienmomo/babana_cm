@@ -127,3 +127,79 @@ faussé les comptes exacts attendus.
 
 **Vérification sur base fraîche** : commune avec L3-06, qui la réutilise directement (le
 géo-index corrigé ici sert de socle à la réservation atomique) — détail dans l'entrée suivante.
+
+---
+
+## L3-06 — Réservation atomique du chauffeur (avec L3-13)
+
+**Fait, prouvé, revérifié à blanc.** `services/realtime/src/reservation/reserve.lua` : un seul
+script, exécuté par Redis — `ZSCORE` (présence dans le pool), puis si présent `ZREM` + `SET ...
+EX` (retrait et pose de la réservation), un seul aller-retour, aucune condition en TypeScript
+entre une lecture et une écriture. `reserve.ts` ne fait qu'appeler `redis.eval()` avec ce script
+et traduire `1`/`0` en `{reserved: true|false}`.
+
+**Critère 5 de L3-13 vérifié à blanc, comme demandé, avant de considérer la tâche finie.**
+`reserveDriver()` temporairement remplacée par une version naïve en deux temps (`ZSCORE` puis,
+séparément, `ZREM`+`SET`) : le test de concurrence échoue alors de façon flagrante — 10 succès sur
+10 tentatives simultanées à la première itération, sur les deux scénarios (ciblé et mixte).
+Version atomique restaurée aussitôt, tests revérifiés verts. Rien de la version naïve ne reste
+dans le dépôt (diff propre après restauration).
+
+**Test de concurrence** (`test/concurrency/reservation.test.ts`, L3-13) : 30 itérations × 10
+tentatives réellement simultanées sur le même chauffeur, **10 connexions Redis distinctes** (pas
+une seule avec `Promise.all` — Redis sérialise de toute façon ses commandes, mais des connexions
+séparées collent mieux à « N tentatives réellement simultanées », plusieurs appelants
+indépendants). Exactement un succès à chaque itération, état Redis vérifié (hors du pool,
+réservation présente) avant l'itération suivante. Scénario mixte ajouté (critère de la
+spécification) : la même réservation ciblée pendant que cinq autres chauffeurs entrent et sortent
+du pool en bruit de fond — l'issue ne varie jamais.
+
+**Libération.** `releaseDriver()` : remet le chauffeur dans le pool **s'il est toujours
+éligible** (en ligne, position fraîche — mêmes conditions d'entrée que L3-02/L3-04, jamais un
+ajout inconditionnel). Deux appelants : explicitement (critère 4, à l'échec d'un appel Odoo qui
+suivrait la réservation) ; et l'expiration de la réservation elle-même (critère 5), détectée via
+les notifications keyspace de Redis (`__keyevent@<db>__:expired`, `notify-keyspace-events` activé
+par le service lui-même au démarrage — pas dans `infra/compose.yaml`, pour ne dépendre d'aucun
+réglage externe fait à la main, même esprit que L3-15). Connexion Redis dédiée en mode abonnement,
+un processus par service (`startReservationExpiryWatcher`, appelé une fois dans `index.ts`).
+Testé avec un TTL d'une seconde : la clé de réservation expire, le chauffeur réintègre le pool
+sans aucun appel explicite.
+
+**Build** : `reserve.lua` ne serait pas copié dans `dist/` par `tsc` seul (qui ne compile que les
+`.ts`) — `package.json` du service, script `build`, copie maintenant `src/reservation/*.lua` vers
+`dist/reservation/` après compilation. Vérifié en lisant le `Dockerfile` (image finale, seul
+`dist/` est copié) plutôt que supposé.
+
+**Le géo-index réutilisé sans être réécrit**, comme annoncé hier soir : `AVAILABLE_DRIVERS_KEY`
+exportée de `geo-index.ts` (une seule définition de la clé, partagée avec le script Lua) ;
+`addToPool`/`getPosition`/`isMarkedOnline` réutilisés tels quels par `releaseDriver()`. Aucune
+règle métier ajoutée à `geo-index.ts`.
+
+### Deux écarts déposés, ni l'un ni l'autre corrigé ce soir : `amoa/questions/L3-06.md`
+
+**1. `controllers/ride.py` n'appelle toujours pas la réservation.** Documenté depuis le 13 août
+(`amoa/questions/L4-03.md`) : `select-driver` doit « appeler le service temps réel pour la
+réservation atomique avant la transition Odoo ». L3-06 existe maintenant, mais le brancher exige
+un endpoint HTTP entrant côté temps réel, une vérification de secret partagé côté temps réel (qui
+n'existe pas plus que côté Odoo pour L3-12/L3-15), et une modification de `ride.py` — trois choses
+qui dépassent le fichier `reservation/` de cette tâche. Proposé pour une tâche dédiée.
+
+**2. La précondition C-03 « chauffeur présent dans la dernière liste des 5 » n'est vérifiée nulle
+part.** `docs/contracts/ride-state-machine.md` l'exige ; ni `reserve.lua` (vérifie seulement la
+présence dans le pool) ni la spécification de L3-06 elle-même ne la mentionnent. La vérifier
+exigerait que `NearbyManager` (L3-05, ce soir) retienne, par client, son dernier résultat envoyé —
+une extension à cheval sur L3-05 et L3-06, pas un ajustement d'une ligne dans l'une des deux.
+Non traité ce soir ; deux tâches de suite proposées dans le fichier d'écart.
+
+---
+
+## Vérification sur base fraîche, pour L3-05 et L3-06 ensemble
+
+`make reset` puis `make up` puis `make test` — module `babana` réinstallé sur base vierge, suite
+Odoo complète, tous les paquets `npm test` (`@babana/realtime` compris : `test/*.test.ts` **et**
+`test/concurrency/*.test.ts`, glob étendu dans `package.json` pour L3-13 — 78 tests, 18 suites,
+tout vert, `reserveDriver`/`releaseDriver`/`NearbyManager`/`projectNearbyDrivers` compris),
+`test/concurrency` Odoo (scénarios 1 et 2 de L4-11, sans rapport avec ce soir mais revérifiés au
+passage), `test/auth`, vérification de la machine à états, `npm run typecheck --workspaces` et
+`npm run lint --workspaces` (client/driver, les seuls paquets à porter un script `lint`) sur
+l'ensemble du dépôt.
