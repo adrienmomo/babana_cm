@@ -80,6 +80,8 @@ Délais, rayons, plafonds, tarifs, seuils. Tout est paramétrable — en base po
 | `services/realtime` ne dépend d'aucun paquet de `apps/` | Le service ne sait rien de l'interface |
 | Les types de requête et de message ne sont jamais redéclarés | `@babana/contracts` est la source unique (D17) |
 | La charge utile du jeton d'accès n'est déclarée qu'une fois | Même règle, étendue à un format de fil qui n'est ni une requête ni un message (D23) |
+| `services/odoo` n'a aucun client Redis en dépendance | Miroir de la première ligne : un seul sens de dépendance entre les deux services (D27) |
+| Aucun `GEOADD` sur la clé du pool hors du script d'éligibilité | Le pool n'a qu'un écrivain, sinon la réservation atomique ne garantit rien (D26) |
 
 Une règle de lint qui échoue vaut mieux qu'une revue qui oublie. Si une frontière gêne, la signaler — ne pas la contourner.
 

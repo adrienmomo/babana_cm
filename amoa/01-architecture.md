@@ -29,7 +29,9 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D15 | Tarif = **base + distance × prix au km**, majoré par un **coefficient de zone et d'heure de pointe**. **Pas de prix à la minute** | Facturation à la minute, prix ferme calculé sur le devis | Conséquence directe d'É8 : la durée disponible avant la course est une durée voiture. Le salariat (D5) retire au terme temps sa raison d'être. Voir écart É9 |
 | D23 | La **charge utile du jeton d'accès est un contrat partagé** (`AccessTokenClaimsSchema`, C-01), claims nommés d'après RFC 7519 : `sub`, `role`, `driverId`, `iat`, `exp`, `jti` | Chaque service déclare la forme qu'il attend | Deux implémentations lisent ce jeton sans jamais se parler. Elles ont divergé — `uid` contre `sub` — en restant vertes chacune de son côté. Voir §5 |
 | D24 | En cas d'indisponibilité de l'API de routage, **une entrée de cache périmée est servie** plutôt qu'une erreur, si elle existe pour la même clé | Erreur stricte dans tous les cas | Un itinéraire déjà calculé par la vraie API n'est pas une estimation dégradée. Sans ce repli, une panne du fournisseur arrête toute la plateforme |
-| D25 | Un **échec de sérialisation PostgreSQL se rejoue**, il ne se traduit jamais en erreur métier | Traduction directe en `RIDE_INVALID_TRANSITION` | Une transition valide était refusée dix-neuf fois sur vingt selon la microseconde de l'instantané, pas selon une règle. Voir §2 bis |
+| D25 | Un **échec de sérialisation PostgreSQL se rejoue**, il ne se traduit jamais en erreur métier. Le rejeu est celui d'Odoo, à la frontière HTTP — notre code ne l'attrape pas | Traduction en `RIDE_INVALID_TRANSITION` ; rejeu maison dans le modèle | Une transition valide était refusée dix-neuf fois sur vingt selon la microseconde de l'instantané. Et le rejeu existait déjà un niveau au-dessus. Voir §2 bis |
+| D26 | **Toute écriture sur le pool des chauffeurs disponibles passe par un seul script atomique**, qui porte l'unique définition de l'éligibilité — en ligne, non réservé, non engagé | Chaque appelant ajoute au pool selon sa propre logique | Une réservation atomique ne vaut rien si un autre chemin remet le chauffeur dans le pool. Voir §2 ter |
+| D27 | **Le service temps réel lit Odoo ; Odoo n'écrit jamais dans Redis.** Un seul sens de dépendance, un seul canal interne, deux formes de charge utile (L3-15, L3-16) | Poussée événementielle d'Odoo vers Redis | Plus frais, mais donne à Odoo une dépendance Redis et toute la réconciliation qui va avec. Une note affichée trente secondes en retard ne coûte rien |
 
 ---
 
@@ -89,6 +91,20 @@ Le 14 août, ce refus remontait en erreur technique brute ; nous l'avons traduit
 **La règle qui en découle vaut au-delà des courses** : rejouer la transaction un nombre borné de fois, en repartant d'un instantané neuf, et ne conclure à une erreur métier qu'après avoir relu l'état et constaté que la précondition est réellement violée. Une erreur de concurrence se rejoue ; une erreur métier se renvoie. Les confondre revient à répondre à l'utilisateur avec un détail d'implémentation de la base.
 
 **Et le corollaire de test** : une paire de transitions divergentes ne prouve pas l'exclusion mutuelle. Il faut une paire réellement exclusive pour cela. Un test qui exige « exactement un succès » d'une paire qui peut légitimement en produire deux ne teste pas la concurrence — il fige une erreur de raisonnement, et il finit par être assoupli plutôt que compris.
+
+**Où vit le rejeu — précision du 16 août.** Pas dans notre code. `odoo.service.model.retrying` enveloppe déjà **toute requête HTTP** et la rejoue sur curseur neuf, borné, en journalisant chaque tentative. Un rejeu écrit dans le modèle ne peut pas fonctionner : sous `REPEATABLE READ`, l'instantané est fixé à l'ouverture de la transaction, si bien que réessayer dans la même transaction retombe indéfiniment sur le même instantané périmé. Notre seule responsabilité est donc **de ne rien attraper** : laisser `SerializationFailure`, `LockNotAvailable` et `DeadlockDetected` traverser nos contrôleurs jusqu'à Odoo. Vu ainsi, la traduction du 14 août ne faisait pas que mal nommer l'erreur — elle la **cachait** au mécanisme qui savait la traiter.
+
+Conséquence à ne pas perdre de vue quand un contrôleur appellera le service temps réel : **une requête rejouée rejoue tout ce qu'elle contient**, y compris un appel sortant. Un appel non idempotent placé dans une transaction rejouable s'exécutera deux fois.
+
+---
+
+## 2 ter. Le pool des chauffeurs disponibles n'a qu'un écrivain (D26)
+
+Le 16 août, la réservation atomique a été livrée avec un script Lua irréprochable — et l'invariant qu'elle porte était cassé quand même. `ingestPosition` remettait le chauffeur dans le pool à chaque position reçue, sans rien savoir de la réservation. Un chauffeur réservé y revenait en quelques secondes, et un second client pouvait le gagner.
+
+**L'atomicité d'une opération ne protège rien si l'état qu'elle garde a plusieurs écrivains.** La question n'est jamais « cette opération est-elle indivisible ? » mais « cet état a-t-il un seul chemin d'écriture ? ». Ici : un seul script porte l'entrée au pool, et il porte l'unique définition de l'éligibilité — en ligne, non réservé, non engagé. Aucun `GEOADD` direct ne subsiste ailleurs, et c'est vérifiable par recherche plutôt que par relecture.
+
+**Réservation et engagement sont deux états distincts, et c'est leur durée qui les sépare.** Une réservation expire vite, parce qu'un chauffeur qui ne répond pas doit être libéré. Une course n'a pas de durée prévisible : un embouteillage ne doit pas remettre au pool un chauffeur qui transporte quelqu'un. Confondre les deux revient à borner la durée d'une course par un délai d'acceptation.
 
 ---
 

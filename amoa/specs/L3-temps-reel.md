@@ -239,13 +239,24 @@ La réservation porte une expiration : si le chauffeur ne répond pas dans le d�
 
 Après réservation réussie, appeler Odoo pour la transition `requested → proposed`. **Si cet appel échoue, la réservation doit être libérée** — sinon un chauffeur reste bloqué hors du pool sans course correspondante.
 
+### Ce n'est pas la réservation qu'il faut rendre atomique, c'est le pool (D26)
+
+**Ajouté le 16 août, après relecture d'une première implémentation dont le script Lua était pourtant irréprochable.** Retirer un chauffeur du pool de façon indivisible ne sert à rien si un autre chemin l'y remet sans rien savoir de la réservation. C'est exactement ce qui se passait : `ingestPosition` (L3-02) rappelle `addToPool` à **chaque** position acceptée d'un chauffeur en ligne. Un chauffeur réservé revenait donc dans le pool à sa position suivante — quelques secondes — et un second client pouvait le réserver. La fenêtre n'était pas microscopique, elle était permanente. Le test de concurrence ne la voyait pas parce qu'il n'émet aucune position pendant la réservation.
+
+**La règle**, et elle vaut au-delà de cette tâche : **toute écriture sur le pool passe par un seul script atomique**, qui porte l'unique définition de l'éligibilité. Un chauffeur entre dans le pool si et seulement si, dans la même exécution : il est marqué en ligne, il n'a pas de réservation active, et il n'est pas engagé sur une course. Aucun appelant ne fait de `GEOADD` direct — ni l'ingestion de position, ni la bascule en ligne, ni le relâchement.
+
+**L'engagement est un état distinct de la réservation.** La réservation a une expiration courte, parce qu'un chauffeur qui ne répond pas doit être libéré. Une course, elle, n'a pas de durée prévisible — un embouteillage à Douala ne doit pas remettre au pool un chauffeur qui transporte un client. L'acceptation (L3-07) **remplace** donc la réservation par un marqueur d'engagement **sans expiration**, effacé à la fin de course. Sans lui, la réservation expirait en pleine course et le veilleur d'expiration remettait le chauffeur dans le pool, disponible, avec un passager derrière.
+
 ### Critères d'acceptation
 
 1. La décision et l'écriture sont dans le même script Lua. Aucun `if` entre une lecture et une écriture en TypeScript.
 2. **Test de concurrence** : N tentatives simultanées sur le même chauffeur produisent exactement un succès et N−1 `DRIVER_ALREADY_TAKEN` (voir L3-13).
 3. Un chauffeur réservé n'apparaît plus dans `nearby.drivers`.
+3 bis. **Un chauffeur réservé qui continue d'émettre des positions ne revient jamais dans le pool.** Le test émet des positions pendant la réservation — sans quoi il ne prouve rien.
+3 ter. **Un chauffeur engagé sur une course ne revient jamais dans le pool**, quelle que soit la durée de la course et quoi qu'il émette.
 4. L'échec de l'appel Odoo libère la réservation.
-5. La réservation expire et libère le chauffeur.
+5. La réservation expire et libère le chauffeur — **et l'engagement, lui, n'expire jamais tout seul.**
+6. **Aucun appel à `GEOADD` sur la clé du pool ne subsiste hors du script d'éligibilité**, dans tout le service. Vérifiable par recherche : c'est le genre de règle qu'une revue oublie et qu'un `grep` n'oublie pas.
 
 ---
 
@@ -269,7 +280,7 @@ Après réservation, émettre `proposal.new` au chauffeur : départ, arrivée, m
 
 **Délai d'acceptation configurable** (valeur par défaut 30 secondes, L9-06). Trois issues :
 
-- **Acceptation** — transition `proposed → assigned` dans Odoo, le chauffeur reste hors du pool, le suivi démarre (L3-09).
+- **Acceptation** — transition `proposed → assigned` dans Odoo. **Le marqueur d'engagement remplace la réservation** (D26) : sans expiration, effacé à la fin de course. « Le chauffeur reste hors du pool » n'était pas une conséquence automatique — la réservation expirait en pleine course et le remettait au pool, avec un passager derrière. Le suivi démarre (L3-09).
 - **Refus explicite** — transition `proposed → rejected`, le chauffeur réintègre le pool, le client revient à la sélection (D11).
 - **Expiration** — même effet qu'un refus, avec un motif distinct. La distinction compte : un chauffeur qui refuse explicitement et un chauffeur qui ne répond pas ne posent pas le même problème opérationnel.
 
@@ -597,3 +608,46 @@ Les valeurs par défaut restent dans le code, comme filet — et elles restent p
 4. Odoo injoignable en cours de route : le service conserve les dernières valeurs lues, sans jamais retomber sur les valeurs par défaut.
 5. L'endpoint refuse tout appel sans le secret partagé, et n'est pas atteignable depuis l'extérieur.
 6. Une clé hors de la liste déclarée n'est jamais servie, même si elle existe dans `ir.config_parameter`.
+
+---
+
+## L3-16 — Profils chauffeurs lisibles par le service temps réel
+
+### Objectif
+
+Donner au service temps réel les quatre champs de profil que `nearby.drivers` doit afficher, sans lui donner de client PostgreSQL.
+
+### Contexte
+
+**Créée le 16 août, après l'écart `amoa/questions/L3-05.md`.** `NearbyDriverSchema` exige prénom, photo, note et gamme de moto. Position et distance viennent du géo-index ; ces quatre-là sont possédés par Odoo. Même famille de problème que L3-15, forme différente : une donnée **par enregistrement**, pas un paramètre global.
+
+**Le sens de la dépendance est fixé, et il ne s'inverse pas (D27).** Le service temps réel lit Odoo ; Odoo n'écrit jamais dans Redis. Une poussée d'Odoo vers Redis à chaque changement de profil serait plus fraîche, mais elle donnerait à Odoo une dépendance Redis qui n'existe nulle part dans le dépôt, et avec elle la gestion d'un Redis indisponible, le rejeu et la réconciliation — toute la complexité que le flux événementiel prétend éviter. Une note moyenne qui met trente secondes à apparaître ne coûte rien ; un couplage bidirectionnel entre les deux services coûte pour toujours.
+
+### Fichiers
+
+```
+services/odoo/addons/babana/controllers/internal_profiles.py
+services/realtime/src/redis/driver-profiles.ts
+services/realtime/test/driver-profiles.test.ts
+```
+
+### Spécification
+
+Extension du canal de L3-15 — **même endpoint interne, même secret partagé, même politique de repli**, une charge utile de plus. Ne pas construire un second mécanisme d'authentification.
+
+Le service temps réel demande les profils des chauffeurs qu'il s'apprête à renvoyer, **par lot**, jamais un appel par chauffeur. Cache par chauffeur, durée de vie courte. Au pilote, le pool tient en quelques dizaines de chauffeurs : rafraîchir le lot entier périodiquement est acceptable et plus simple qu'une invalidation fine.
+
+**Liste blanche de champs, côté Odoo aussi.** L'endpoint ne sert que les quatre champs, jamais l'enregistrement `babana.driver` projeté. Le garde-fou de L3-05 ne doit pas être le seul : si la seule protection contre la fuite du numéro de téléphone est une projection côté temps réel, elle tombera le jour où quelqu'un ajoutera un champ « pratique » à la réponse.
+
+**Un chauffeur sans profil disponible est omis de `nearby.drivers`**, jamais complété par une valeur inventée. C'est déjà le comportement posé par L3-05 ; il reste vrai quand Odoo est injoignable.
+
+Cette tâche fait disparaître le hash Redis provisoire posé par L3-05 — règle des champs-pont.
+
+### Critères d'acceptation
+
+1. Les quatre champs affichés viennent d'Odoo, par le canal interne, jamais d'un client PostgreSQL.
+2. Odoo injoignable : les profils déjà lus restent servis ; les chauffeurs jamais lus sont omis, jamais inventés.
+3. Une requête `nearby` renvoyant cinq chauffeurs ne déclenche pas cinq appels à Odoo.
+4. L'endpoint Odoo ne sert que les quatre champs — test explicite sur l'**absence** de nom complet, téléphone, immatriculation.
+5. Une modification de profil dans Odoo se voit côté temps réel au plus tard après la durée de cache, sans redémarrage.
+6. `services/odoo` ne porte aucune dépendance à un client Redis.

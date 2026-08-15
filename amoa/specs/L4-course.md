@@ -100,7 +100,11 @@ Chaque méthode, dans cet ordre :
 
 **Verrouillage de l'enregistrement** pendant la transition, pour empêcher deux transitions concurrentes sur la même course. Deux appels simultanés à `action_accept` ne doivent pas produire deux affectations.
 
-**Un échec de sérialisation se rejoue, il ne se traduit pas en erreur métier** (D25, posée le 16 août). Sous `REPEATABLE READ`, une transition concurrente peut faire échouer le verrouillage avec `SerializationFailure` — PostgreSQL dit alors « rejoue-moi », pas « ta demande est invalide ». La transition réessaie donc un nombre borné de fois, en repartant d'un instantané neuf, et ne conclut à `RIDE_INVALID_TRANSITION` que si la précondition est **réellement** violée après relecture.
+**Un échec de sérialisation se rejoue, il ne se traduit pas en erreur métier** (D25, posée le 16 août). Sous `REPEATABLE READ`, une transition concurrente peut faire échouer le verrouillage avec `SerializationFailure` — PostgreSQL dit alors « rejoue-moi », pas « ta demande est invalide ».
+
+**Mais ce rejeu ne s'écrit pas ici** (précision du 16 août au soir, après une première implémentation qui ne pouvait pas fonctionner). L'instantané d'une transaction `REPEATABLE READ` est fixé à son ouverture : réessayer dans la même transaction, savepoint ou pas, retombe indéfiniment sur le même instantané périmé. Un vrai rejeu exige une transaction neuve. **Odoo le fait déjà** — `odoo.service.model.retrying` enveloppe toute requête HTTP, rejoue sur curseur neuf, borné, en journalisant chaque tentative.
+
+La responsabilité de cette tâche est donc **de ne rien attraper** : `SerializationFailure`, `LockNotAvailable` et `DeadlockDetected` traversent le modèle et les contrôleurs sans être avalées, jusqu'au mécanisme qui sait les traiter. Attention au `except Exception` générique d'un contrôleur : c'est lui qui, en pratique, cache l'erreur au rejeu. La liste d'exceptions se **importe d'Odoo**, elle ne se recopie pas.
 
 La rédaction précédente traduisait l'échec de sérialisation directement en `RIDE_INVALID_TRANSITION`. C'était juste quand les deux transitions s'excluent — deux `action_accept` — et faux dès qu'elles s'enchaînent. Une annulation client arrivant juste après une acceptation chauffeur est **valide** : `assigned` est annulable. Elle était pourtant refusée environ dix-neuf fois sur vingt, non pas selon une règle mais selon la microseconde où PostgreSQL avait pris son instantané. Un client recevait « transition invalide » pour une annulation parfaitement légitime — et sur un réseau de Douala, il retapait quelques secondes plus tard, ce qui produisait le rejeu de toute façon, en pire.
 
@@ -127,6 +131,7 @@ Le champ `state` porte les transitions autorisées depuis l'état courant, expos
 6. Modifier quoi que ce soit sur une course `settled` échoue.
 7. `rejected → proposed` conserve l'historique des refus.
 8. **Un échec de sérialisation est rejoué, pas remonté.** Une transition dont la précondition reste satisfaite après relecture aboutit ; seule une précondition réellement violée produit `RIDE_INVALID_TRANSITION`. Vérifié par L4-11, pas ici — même raison qu'au critère 4.
+9. **Aucune exception de concurrence PostgreSQL n'est attrapée** par le modèle ou par un contrôleur. Vérifiable par recherche, et par les journaux : un rejeu doit y laisser une trace.
 
 ### Piège
 
