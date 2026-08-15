@@ -83,6 +83,19 @@ class BabanaRide(models.Model):
     )
 
     # --- Tarif figé ----------------------------------------------------------------------------
+    fare_rule_id = fields.Many2one(
+        "babana.fare.rule",
+        string="Règle tarifaire appliquée",
+        index=True,
+        ondelete="set null",
+        help="Référence vers la règle qui a servi (L4-01R2, correction du 13 août -- amoa/"
+        "questions/REPONSES-2026-08-13.md), en plus du gel par valeur ci-dessous. Les deux ne "
+        "s'opposent pas : le gel rend la facture explicable pour toujours, la référence dit "
+        "QUELLE règle a servi -- c'est elle qui permet à babana.fare.rule (L2-01R) de limiter "
+        "son immutabilité aux règles réellement utilisées plutôt qu'à toutes. Peut pointer vers "
+        "une règle supprimée ou archivée sans que la facture en souffre (ondelete='set null') : "
+        "c'est le gel par valeur ci-dessous qui fait foi pour le montant, pas cette référence.",
+    )
     fare_rule_snapshot = fields.Text(
         help="Détail décomposé de la règle tarifaire au moment du gel (JSON) -- figé sur la "
         "course elle-même, pas seulement référencé (L4-01) : survit à toute modification "

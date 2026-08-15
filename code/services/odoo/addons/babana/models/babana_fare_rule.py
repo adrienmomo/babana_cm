@@ -11,12 +11,17 @@ from odoo.exceptions import UserError
 FARE_ROUNDING_STEP_PARAM = "babana.fare_rounding_step"
 FARE_ROUNDING_STEP_FALLBACK = 25.0
 
-# Champs qui affectent le montant calculé -- une fois la règle enregistrée, ils ne se modifient
-# plus en place (critère d'acceptation 4) : toute évolution tarifaire passe par new_version(),
-# qui clôt cette règle et en crée une autre. Sans FK directe de babana.ride vers babana.fare.rule
-# (le gel se fait par valeur -- fare_rule_snapshot, L4-01), il n'existe aucun moyen fiable de
-# savoir si UNE règle donnée a déjà servi ; l'immutabilité s'applique donc à toutes, servies ou
-# non -- plus simple, et strictement plus sûr que la lecture littérale du critère.
+# Champs qui affectent le montant calculé -- une fois qu'une règle a servi à au moins une course,
+# ils ne se modifient plus en place (critère d'acceptation 4) : toute évolution tarifaire passe
+# par new_version(), qui clôt cette règle et en crée une autre.
+#
+# Une règle jamais utilisée reste librement modifiable (L2-01R, correction du 13 août -- amoa/
+# questions/REPONSES-2026-08-13.md) : la version précédente de ce module rendait TOUTE règle
+# immuable dès sa création, faute de moyen fiable de savoir si UNE règle donnée avait servi. La
+# référence babana.ride.fare_rule_id (L4-01R2) lève cette incertitude -- _is_used_by_a_ride()
+# ci-dessous l'interroge directement. Sans cet assouplissement, corriger une faute de frappe dans
+# une règle créée cinq minutes plus tôt aurait exigé une version, une friction quotidienne au
+# back-office pendant le pilote.
 _VERSIONED_FIELDS = {
     "base_fare",
     "price_per_km",
@@ -154,12 +159,21 @@ class BabanaFareRule(models.Model):
             return (current.id if current else False) != (new_value or False)
         return current != new_value
 
+    def _is_used_by_a_ride(self) -> bool:
+        # L2-01R (correction du 13 août) : seule une règle réellement servie est immuable
+        # (critère 4) -- une règle jamais utilisée reste librement modifiable (critère 4 bis).
+        self.ensure_one()
+        return bool(
+            self.env["babana.ride"].sudo().search_count([("fare_rule_id", "=", self.id)])
+        )
+
     def write(self, vals):
         # Comparé à la valeur réellement stockée, pas seulement à la présence du champ dans
         # vals : le chargement des données de seed (data/fare_rule_default.xml) réapplique les
         # mêmes valeurs à chaque réinstallation du module -- noupdate="1" n'en dispense pas
         # nécessairement selon le mode de chargement (constaté en développant L2-02). Un
-        # write() qui ne change rien n'est pas une modification au sens du critère 4.
+        # write() qui ne change rien n'est pas une modification au sens du critère 4 (critère 4
+        # ter : ce qui permet aux données initiales du module de se recharger).
         if not self.env.context.get("babana_allow_versioned_write"):
             for record in self:
                 changed = [
@@ -167,11 +181,11 @@ class BabanaFareRule(models.Model):
                     for field in _VERSIONED_FIELDS.intersection(vals)
                     if record._versioned_field_actually_changes(field, vals[field])
                 ]
-                if changed:
+                if changed and record._is_used_by_a_ride():
                     raise UserError(
-                        "Une règle tarifaire existante ne se modifie pas en place : utiliser "
-                        "new_version() pour créer une nouvelle version et clore celle-ci "
-                        "(L2-01, critère d'acceptation 4)."
+                        "Une règle tarifaire déjà utilisée par une course ne se modifie pas en "
+                        "place : utiliser new_version() pour créer une nouvelle version et "
+                        "clore celle-ci (L2-01, critère d'acceptation 4)."
                     )
         return super().write(vals)
 

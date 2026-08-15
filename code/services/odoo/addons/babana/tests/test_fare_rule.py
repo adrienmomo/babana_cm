@@ -106,12 +106,42 @@ class TestBabanaFareRule(TransactionCase):
             self.env["babana.fare.rule"]._find_applicable_rule(at_datetime=a_tuesday), rule
         )
 
-    # --- Critère 4 : modifier une règle déjà créée crée une version, ne la modifie pas --------
+    # --- Critère 4 : modifier une règle déjà UTILISÉE crée une version, ne la modifie pas -----
 
-    def test_direct_write_of_a_pricing_field_is_rejected(self):
+    def _make_ride_using(self, rule):
+        # L4-01R2 (correction du 13 août) : c'est cette référence, pas seulement le gel par
+        # valeur, qui détermine si une règle a "servi" au sens du critère 4.
+        client = self.env["res.partner"].create({"name": "Client de test"})
+        return (
+            self.env["babana.ride"]
+            .with_context(babana_allow_state_write=True)
+            .create(
+                {
+                    "client_id": client.id,
+                    "pickup_latitude": 4.05,
+                    "pickup_longitude": 9.70,
+                    "dropoff_latitude": 4.06,
+                    "dropoff_longitude": 9.77,
+                    "fare_rule_id": rule.id,
+                }
+            )
+        )
+
+    def test_direct_write_of_a_pricing_field_on_a_used_rule_is_rejected(self):
         rule = self._make_rule()
+        self._make_ride_using(rule)
+
         with self.assertRaises(UserError):
             rule.write({"base_fare": 999.0})
+
+    # --- Critère 4 bis : une règle JAMAIS utilisée reste librement modifiable -----------------
+
+    def test_direct_write_of_a_pricing_field_on_an_unused_rule_is_allowed(self):
+        rule = self._make_rule(base_fare=200.0)
+
+        rule.write({"base_fare": 250.0})
+
+        self.assertEqual(rule.base_fare, 250.0)
 
     def test_new_version_closes_the_old_rule_and_creates_another(self):
         rule = self._make_rule(base_fare=200.0)

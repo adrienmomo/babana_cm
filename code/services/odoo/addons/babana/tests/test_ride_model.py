@@ -116,6 +116,33 @@ class TestBabanaRideModel(TransactionCase):
         frozen = json.loads(ride.fare_rule_snapshot)
         self.assertEqual(frozen["per_km"], 150)
 
+    # --- Critère 3 bis : la course porte une référence vers la règle appliquée (L4-01R2) ------
+
+    def test_ride_carries_a_reference_to_the_applied_fare_rule(self):
+        rule = self.env["babana.fare.rule"].create(
+            {"name": "Règle de test", "base_fare": 200.0, "price_per_km": 100.0,
+             "minimum_fare": 300.0}
+        )
+        ride = self._make_ride(fare_rule_id=rule.id)
+        self.assertEqual(ride.fare_rule_id, rule)
+
+    def test_frozen_fare_snapshot_survives_deletion_of_the_referenced_rule(self):
+        # « La référence peut pointer vers une règle supprimée ou archivée sans que la facture
+        # en souffre : c'est le gel par valeur qui fait foi pour le montant. » (amoa/specs/
+        # L4-course.md, L4-01R2). ondelete='set null' sur fare_rule_id, pas 'restrict'.
+        rule = self.env["babana.fare.rule"].create(
+            {"name": "Règle éphémère", "base_fare": 500.0, "price_per_km": 150.0,
+             "minimum_fare": 300.0}
+        )
+        ride = self._make_ride(
+            fare_rule_id=rule.id, fare_rule_snapshot=json.dumps({"base": 500, "per_km": 150})
+        )
+
+        rule.unlink()
+
+        self.assertFalse(ride.fare_rule_id)
+        self.assertEqual(json.loads(ride.fare_rule_snapshot)["per_km"], 150)
+
     # --- Critère 4 : les index existent -------------------------------------------------------
 
     def test_expected_indexes_exist(self):
