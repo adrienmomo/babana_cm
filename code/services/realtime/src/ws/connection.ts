@@ -12,6 +12,13 @@ import {
 // test/ws.test.ts importe encore WS_CLOSE_UNAUTHENTICATED depuis ce module.
 export { WS_CLOSE_UNAUTHENTICATED, WS_CLOSE_TOKEN_EXPIRED };
 
+// setTimeout au-delà de cette valeur déclenche IMMÉDIATEMENT (le délai est un int32 signé côté
+// Node) -- inatteignable avec un jeton d'une heure, mais D23 rouvre la question de sa durée de
+// vie, et un jeton mal choisi fermerait alors toutes les connexions à l'instant de leur
+// ouverture, avec le code "jeton expiré" -- le symptôme le plus déroutant possible (L3-01,
+// amoa/questions/REPONSES-2026-08-15.md §6).
+const MAX_SET_TIMEOUT_MS = 2 ** 31 - 1;
+
 export function createConnectionHandler(config: Config) {
   const wss = new WebSocketServer({ noServer: true });
   const registry = new ConnectionRegistry();
@@ -32,7 +39,7 @@ export function createConnectionHandler(config: Config) {
     // connexion WebSocket normale reste ouverte bien plus longtemps que la durée de vie d'un
     // jeton d'accès. `unref()` : ce minuteur ne doit jamais empêcher le processus de s'arrêter
     // proprement (tests, arrêt du service) s'il est le seul minuteur en attente.
-    const msUntilExpiry = Math.max(expiresAtMs - Date.now(), 0);
+    const msUntilExpiry = Math.min(Math.max(expiresAtMs - Date.now(), 0), MAX_SET_TIMEOUT_MS);
     const expiryTimer = setTimeout(() => {
       socket.close(WS_CLOSE_TOKEN_EXPIRED, 'jeton applicatif expiré en cours de connexion');
     }, msUntilExpiry);
