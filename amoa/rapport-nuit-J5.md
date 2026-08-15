@@ -153,39 +153,69 @@ Une course est désormais menable de `requested` à `completed` par l'API mobile
 
 ## L3-01 — Authentification des connexions WebSocket
 
-**Non commencée cette nuit.** Le lot des quatre premières tâches (L2-04, L2-05, L4-04, L4-03R)
-a représenté davantage de lecture et de vérification que prévu — en particulier la vérification
-sur base fraîche (voir plus bas), qui a coûté plus de temps que les nuits précédentes parce
-qu'une réinstallation complète depuis un volume vide réinstalle **toutes** les dépendances
-d'Odoo (`base`, `mail`, `hr`, `account`), pas seulement `babana` : plusieurs minutes contre
-quelques secondes sur une base déjà initialisée. Conforme à la consigne du soir (« si tu sens
-que le lot ne passera pas en entier, dis-le plutôt que d'accélérer ») : cinq tâches finies et
-bâclées valent moins que quatre finies et vérifiées.
+**Fait.** `services/realtime/src/ws/auth.ts` (nouveau), `ws/connection.ts` (réécrit pour
+déléguer à `auth.ts`), `test/auth.test.ts`. `ws/token.ts` (L0-04) légèrement étendu -- léger
+écart au découpage indicatif des fichiers de la spécification, documenté ci-dessous, même
+raisonnement que pour la traduction `DRIVER_ALREADY_TAKEN` de L4-03R.
 
-**Ce qui reste à faire pour L3-01** : lire `amoa/specs/L3-temps-reel.md` (L3-01, L3-02, L3-04
-déjà lus cette nuit pour préparer le lot), lire `services/realtime/src/ws/connection.ts` et
-`services/realtime/src/ws/token.ts` (squelette déjà posé par L0-04) pour voir ce qui existe déjà
-avant d'écrire `services/realtime/src/ws/auth.ts`. Le point d'attention du prompt de ce soir
-reste entier pour la prochaine session : le contexte de connexion (identité, rôle) doit être
-immuable, et aucun message entrant ne peut redéfinir l'identité de son émetteur.
+Le squelette L0-04 (`ws/connection.ts`, `ws/token.ts`) posait déjà la vérification locale HS256
+et le refus d'une connexion sans jeton (critère 1). L3-01 ajoute :
+
+- **Contexte de connexion immuable** (`ConnectionContext`, `Object.freeze`) : `userId`, `role`,
+  `driverId`. Posé une seule fois à l'authentification, jamais réécrit ensuite.
+- **Code de fermeture distinct pour un jeton expiré** (critère 2) : `WS_CLOSE_TOKEN_EXPIRED`
+  (4402), différent de `WS_CLOSE_UNAUTHENTICATED` (4401, L0-04) -- l'app doit renouveler et se
+  reconnecter dans un cas, se ré-authentifier entièrement dans l'autre. `ws/token.ts` distingue
+  désormais "invalide" d'"expiré" (`verifyApplicationTokenWithReason`, nouvelle, à côté de
+  `verifyApplicationToken` inchangée -- L0-04 et son test restent verts sans modification).
+- **Fermeture à l'expiration en cours de connexion** (critère 5) : un minuteur posé à
+  l'authentification (`setTimeout`, `unref()` pour ne jamais bloquer l'arrêt du processus) ferme
+  la connexion avec `WS_CLOSE_TOKEN_EXPIRED` quand le jeton expire, pas seulement au handshake.
+- **Aucun appel sortant vers Odoo** (critère 4) : vérifié par construction (aucun client HTTP
+  importé dans `auth.ts`/`token.ts`) et par un test qui pointe `ODOO_INTERNAL_URL` vers une
+  adresse injoignable et vérifie que la validation reste quasi instantanée.
+- **Registre en mémoire des connexions actives**, indexé par `userId` et par `driverId`
+  (`ConnectionRegistry`), pour l'émission ciblée -- demandé par la spécification, pas encore
+  utilisé par un envoi réel (hors de ce lot, L3-07/L3-09).
+- **Garde d'identité générique** (`matchesConnectionIdentity`, critère 3).
+
+**Écart déposé : `amoa/questions/L3-01.md`.** Deux points laissés en anticipation :
+
+1. **`driverId` sur le jeton applicatif** est une hypothèse de plus (comme `sub`/`role`/`exp`
+   déjà posés par L0-04), en attendant que L1-02 (hors de ce lot) émette réellement les jetons
+   applicatifs. Absent d'un jeton `driver` : `ConnectionContext.driverId` vaut `null`, jamais
+   confondu avec `sub` (deux identifiants Odoo distincts).
+2. **Le critère 3 prend pour exemple un message `position.update` portant un identifiant de
+   chauffeur** -- vérifié contre `packages/contracts/src/realtime/client-to-server.ts` (C-02,
+   déjà arrêté) : **aucun message chauffeur-vers-serveur ne porte aujourd'hui de champ
+   `driverId`/`userId` dans son payload.** Pas un défaut de C-02 (rien à usurper si rien ne
+   s'auto-identifie), mais le critère suppose un champ qui n'existe pas encore. `matchesConnectionIdentity`
+   est écrite et testée comme un garde-fou générique, prête pour le premier message qui portera
+   un tel champ (L3-02 très probablement) -- testée avec un exemple synthétique, pas un vrai
+   message du contrat.
 
 ---
 
 ## Vérification sur base fraîche (définition de fini, point de la nuit dernière)
 
-`make reset` puis `make up` puis suite complète, deux fois :
+`make reset` puis `make up` puis suite complète, deux fois (une fois après L4-03R, une fois
+après L3-01) :
 
 1. **Suite Odoo, base fraîche** (première installation, toutes les dépendances Odoo comprises) :
    **0 échec, 0 erreur, 265 tests** (`babana` seul, contre 250 sur une base déjà installée la
-   veille — 15 tests de plus, ceux ajoutés cette nuit). Un défaut préexistant et non lié à cette
-   nuit (`TestBabanaToken.test_rotate_produces_new_pair_and_invalidates_old`) était apparu sur
+   veille — 15 tests de plus, ceux ajoutés cette nuit jusqu'à L4-03R ; L3-01 ne touche aucun code
+   Odoo). Un défaut préexistant et non lié à cette nuit
+   (`TestBabanaToken.test_rotate_produces_new_pair_and_invalidates_old`) était apparu sur
    l'ancienne base (15 h d'accumulation) et **a disparu sur la base fraîche** — confirmation
    directe de l'avertissement du 12 août dans `CLAUDE.md` : une base accumulée masque ou invente
-   des défauts qu'une base fraîche ne reproduit pas. Pas d'investigation plus loin puisqu'il ne
-   s'est pas reproduit et qu'il est hors du périmètre de cette nuit.
-2. **`npm test`** (paquets JS/TS, y compris `test/concurrency` de L4-11 contre la pile réelle) :
-   **0 échec** — scénarios 1 et 2 passent, scénario 3 toujours volontairement ignoré
-   (`POST /rides/{id}/settle`, L4-05/L5-01).
+   des défauts qu'une base fraîche ne reproduit pas. Reconstaté ensuite sur la même base
+   redevenue "vieille" (quelques dizaines de minutes de tests répétés) : mêmes symptômes, même
+   absence sur base fraîche -- confirme qu'il s'agit bien d'un artefact de base, pas d'un test
+   instable par nature. Pas d'investigation plus loin, hors du périmètre de cette nuit.
+2. **`npm test`** (paquets JS/TS, y compris `test/concurrency` de L4-11 contre la pile réelle,
+   et `services/realtime` avec les 13 nouveaux tests de L3-01) : **0 échec** — scénarios 1 et 2
+   de L4-11 passent, scénario 3 toujours volontairement ignoré (`POST /rides/{id}/settle`,
+   L4-05/L5-01).
 3. **`npm run typecheck --workspaces`** et **`npm run lint --workspaces`** : verts sur tout
    l'arbre.
 
@@ -193,14 +223,16 @@ immuable, et aucun message entrant ne peut redéfinir l'identité de son émette
 
 ## Ce que je ferais ensuite
 
-- **L3-01**, en tête de la prochaine session — tout le travail de lecture préalable est fait
-  cette nuit, il ne reste qu'à écrire.
-- **Arbitrer `amoa/questions/L2-04.md`** : les extensions de `quote.ts` (vehicleClass, breakdown,
-  promoApplied, ROUTE_UNAVAILABLE) méritent d'être relues et, si acceptées, consignées comme
-  décision dans `amoa/01-architecture.md` plutôt que de rester une question ouverte.
+- **Le reste du lot L3** (géo-index L3-03, ingestion des positions L3-02, bascule en ligne/hors
+  ligne L3-04, réservation atomique L3-06) — L3-01 pose le contexte de connexion et le registre
+  dont ces tâches ont besoin.
+- **Arbitrer `amoa/questions/L2-04.md` et `amoa/questions/L3-01.md`** : les extensions de
+  `quote.ts` (vehicleClass, breakdown, promoApplied, ROUTE_UNAVAILABLE) et le `driverId` du
+  jeton applicatif méritent d'être relus et, si acceptés, consignés comme décision dans
+  `amoa/01-architecture.md` plutôt que de rester des questions ouvertes. Le `driverId` en
+  particulier engage L1-02, qui n'existe pas encore.
 - **L2-06 (promotions)** devient plus visible qu'avant : deux points d'accroche l'attendent
   maintenant (`babana.quote.promo_applied`, `babana.ride._babana_compute_final_amount`), tous
   deux déjà en place et prêts à être branchés.
-- Le reste du lot L3 (géo-index, réservation atomique, suivi) et L4-05/L5-01 (encaissement, sous
-  revue humaine) restent le gros du travail avant une course démontrable de bout en bout côté
-  temps réel.
+- **L4-05/L5-01** (encaissement, sous revue humaine) restent le gros morceau avant une course
+  démontrable de bout en bout, encaissement compris.
