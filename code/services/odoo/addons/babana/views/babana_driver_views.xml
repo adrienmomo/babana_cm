@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        Vues de lecture et de suivi du dossier chauffeur (L1-06). Comme les autres vues de ce
+        module (motos, affectations, tarifs, zones), aucun bouton n'appelle encore les méthodes
+        action_approve/action_reject/action_suspend/action_reactivate depuis l'écran : ces
+        actions prennent un motif ou un choix de fiche employé (L1-06, critères 1 bis et 3),
+        qu'un simple bouton type="object" ne peut pas collecter sans un assistant (wizard),
+        hors de ce lot, choix d'implémentation non spécifié (voir le message de commit).
+        Utilisables dès maintenant par l'API mobile (L4-03, hors de ce lot) ou en shell Odoo.
+    -->
+    <record id="babana_driver_view_list" model="ir.ui.view">
+        <field name="name">babana.driver.list</field>
+        <field name="model">babana.driver</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="employee_id"/>
+                <field name="user_id"/>
+                <field name="state"/>
+                <field name="motorcycle_id"/>
+                <field name="is_online"/>
+                <field name="ride_count"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="babana_driver_view_form" model="ir.ui.view">
+        <field name="name">babana.driver.form</field>
+        <field name="model">babana.driver</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <widget name="web_ribbon" title="Suspendu" bg_color="text-bg-danger"
+                        invisible="state != 'suspended'"/>
+                    <widget name="web_ribbon" title="Rejeté" bg_color="text-bg-danger"
+                        invisible="state != 'rejected'"/>
+                    <group>
+                        <group string="Dossier">
+                            <field name="state"/>
+                            <field name="employee_id"/>
+                            <field name="user_id"/>
+                            <field name="rejection_reason" invisible="state != 'rejected'"/>
+                        </group>
+                        <group string="Activité">
+                            <field name="motorcycle_id"/>
+                            <field name="is_online"/>
+                            <field name="ride_count"/>
+                            <field name="rating_avg"/>
+                            <field name="rating_count"/>
+                        </group>
+                    </group>
+                    <group string="Caisse">
+                        <field name="cash_balance"/>
+                        <field name="cash_limit"/>
+                    </group>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="babana_driver_view_search" model="ir.ui.view">
+        <field name="name">babana.driver.search</field>
+        <field name="model">babana.driver</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="employee_id"/>
+                <field name="user_id"/>
+                <filter name="filter_pending" string="En attente" domain="[('state', '=', 'pending')]"/>
+                <filter name="filter_approved" string="Approuvés" domain="[('state', '=', 'approved')]"/>
+                <group expand="0" string="Regrouper par">
+                    <filter name="group_by_state" string="État" context="{'group_by': 'state'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="babana_driver_action" model="ir.actions.act_window">
+        <field name="name">Chauffeurs</field>
+        <field name="res_model">babana.driver</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="babana_driver_view_search"/>
+    </record>
+
+    <menuitem id="babana_menu_driver" name="Chauffeurs" parent="babana_menu_root"
+        action="babana_driver_action" sequence="15"/>
+</odoo>

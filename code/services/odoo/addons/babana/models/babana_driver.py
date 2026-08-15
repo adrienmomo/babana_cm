@@ -323,3 +323,100 @@ class BabanaDriver(models.Model):
                 # Critère 3 : mise hors ligne automatique, pas laissée à la vigilance d'un
                 # gestionnaire.
                 driver.write({"is_online": False})
+
+
+    # --- L1-06 : validation du dossier chauffeur --------------------------------------------
+    # Actions réservées à group_babana_manager -- appliqué par les droits d'accès (security/
+    # ir.model.access.csv : babana.driver n'est ouvert en écriture qu'aux groupes manager et
+    # admin), pas par un contrôle explicite ici : ces méthodes appellent write() sans sudo(),
+    # donc un utilisateur sans ce droit échoue déjà à ce niveau (AccessError), avant même
+    # d'atteindre la logique métier.
+
+    _REQUIRED_DOCUMENT_TYPES = ("license", "id_card")
+
+    def _required_documents_are_verified(self) -> bool:
+        self.ensure_one()
+        Document = self.env["babana.driver.document"].sudo()
+        return all(
+            Document.search_count(
+                [
+                    ("driver_id", "=", self.id),
+                    ("document_type", "=", document_type),
+                    ("verification_status", "=", "verified"),
+                ]
+            )
+            for document_type in self._REQUIRED_DOCUMENT_TYPES
+        )
+
+    def action_approve(self, *, employee_id=None, new_employee_name=None):
+        """Approuve le dossier (L1-06). Le gestionnaire choisit : employee_id (fiche existante,
+        cas normal d'un chauffeur déjà embauché) ou new_employee_name (nouvelle fiche) --
+        exactement un des deux, jamais aucun, jamais ce choix fait à sa place."""
+        self.ensure_one()
+        if not self._required_documents_are_verified():
+            raise UserError(
+                "Impossible d'approuver : le permis et la pièce d'identité doivent être "
+                "téléversés et vérifiés (L1-06, critère d'acceptation 1)."
+            )
+        if not self.motorcycle_id:
+            raise UserError(
+                "Impossible d'approuver : aucune moto n'est affectée à ce chauffeur -- un "
+                "chauffeur approuvé sans moto ne peut pas travailler (L1-06, critère 2)."
+            )
+        if bool(employee_id) == bool(new_employee_name):
+            raise UserError(
+                "Choisir soit une fiche employé existante (employee_id), soit un nom pour en "
+                "créer une (new_employee_name) -- pas les deux, pas aucun (L1-06, critère 1 "
+                "bis)."
+            )
+
+        if employee_id:
+            employee = self.env["hr.employee"].browse(employee_id)
+            if not employee.exists():
+                raise UserError("Fiche employé introuvable.")
+        else:
+            # Seul endroit du système qui écrit dans hr (critère 1 bis), et seulement ici, à la
+            # décision explicite d'un gestionnaire -- jamais à l'inscription (L1-01R).
+            employee = self.env["hr.employee"].create({"name": new_employee_name})
+
+        self.write({"employee_id": employee.id, "state": "approved"})
+        self.message_post(body=f"Dossier approuvé, rattaché à l'employé « {employee.name} ».")
+        return self
+
+    def action_reject(self, *, reason):
+        self.ensure_one()
+        if not reason:
+            raise UserError(
+                "Un motif est obligatoire pour rejeter un dossier (L1-06, critère 3)."
+            )
+        self.write({"state": "rejected", "rejection_reason": reason})
+        self.message_post(body=f"Dossier rejeté : {reason}")
+        return self
+
+    def action_suspend(self, *, reason):
+        """is_online passe à faux mécaniquement (write() ci-dessus force is_online=False dès
+        que state != 'approved') -- pas une conséquence recalculée ici (critère 4). Une course
+        en cours n'est pas interrompue (critère 5) : rien ici ne touche babana.ride, la
+        machine à états (L4-02) continue son cours indépendamment de l'état du chauffeur."""
+        self.ensure_one()
+        if not reason:
+            raise UserError(
+                "Un motif est obligatoire pour suspendre un chauffeur (L1-06, critère 3, même "
+                "règle que le rejet)."
+            )
+        self.write({"state": "suspended"})
+        if self.user_id:
+            # Point d'entrée construit par L1-02 précisément pour cet appel (critère 4).
+            self.env["babana.token"].sudo()._revoke_all_for_user(self.user_id)
+        self.message_post(body=f"Chauffeur suspendu : {reason}")
+        return self
+
+    def action_reactivate(self):
+        self.ensure_one()
+        if self.state != "suspended":
+            raise UserError(
+                "Seul un chauffeur suspendu peut être réactivé (L1-06)."
+            )
+        self.write({"state": "approved"})
+        self.message_post(body="Chauffeur réactivé.")
+        return self
