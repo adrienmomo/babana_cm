@@ -2,9 +2,9 @@
   "name": "@babana/concurrency-tests",
   "private": true,
   "version": "0.1.0",
-  "description": "Tests de concurrence contre la pile réelle (L3-13, L4-11) -- TransactionCase ne permet pas de prouver un verrouillage réel (amoa/questions/L4-02.md, point 4). Nécessite `make up`.",
+  "description": "Tests contre la pile réelle démarrée par `make up`, quand TransactionCase ou une suite propre à un service ne peuvent rien prouver : concurrence (L3-13, L4-11 -- amoa/questions/L4-02.md, point 4), et accord inter-services (C-01 critère 5, D23 -- amoa/questions/REPONSES-2026-08-15.md §1).",
   "scripts": {
-    "test": "tsx --test concurrency/*.test.ts",
+    "test": "tsx --test concurrency/*.test.ts auth/*.test.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "devDependencies": {
