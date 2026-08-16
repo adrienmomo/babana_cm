@@ -549,3 +549,89 @@ class TestRideController(HttpCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["error"]["code"], "VALIDATION_ERROR")
+
+    # --- POST /rides/{id}/settle (L4-05) --------------------------------------------------------
+
+    def _ride_ready_to_settle(self, label):
+        client_token, _ = self._sign_in(f"sub-settle-client-{label}", "client")
+        driver_token, driver = self._make_selectable_driver(f"sub-settle-driver-{label}", client_token)
+        quote_id = self._make_quote(client_token)
+        quote = self.env["babana.quote"].sudo().search([("public_id", "=", quote_id)])
+        ride_id = self._post("/api/v1/rides", client_token, {"quoteId": quote_id}).json()["id"]
+        self._post(
+            f"/api/v1/rides/{ride_id}/select-driver", client_token, {"driverId": driver.public_id}
+        )
+        self._accept_via_internal_channel(ride_id, driver.public_id)
+        self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
+        self._post(
+            f"/api/v1/rides/{ride_id}/complete",
+            driver_token,
+            {"distanceMeters": 5200, "durationSeconds": 900, "polyline": "abc123"},
+        )
+        return ride_id, driver_token, driver, quote
+
+    def test_full_happy_path_up_to_settled(self):
+        ride_id, driver_token, driver, quote = self._ride_ready_to_settle("happy")
+
+        response = self._post(
+            f"/api/v1/rides/{ride_id}/settle", driver_token, {"amountCollected": quote.amount}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["rideId"], ride_id)
+        self.assertEqual(body["state"], "settled")
+        self.assertEqual(body["amountCollected"], quote.amount)
+        self.assertEqual(body["driverCashBalance"], quote.amount)
+
+        ride = self.env["babana.ride"].sudo().search([("public_id", "=", ride_id)])
+        self.assertEqual(ride.state, "settled")
+        self.assertTrue(ride.settled_at)
+
+    # --- Critère 4 : le chauffeur ne peut pas saisir un montant différent --------------------
+
+    def test_settle_with_a_different_amount_is_a_settlement_mismatch(self):
+        ride_id, driver_token, _driver, quote = self._ride_ready_to_settle("mismatch")
+
+        response = self._post(
+            f"/api/v1/rides/{ride_id}/settle", driver_token, {"amountCollected": quote.amount + 1}
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"]["code"], "SETTLEMENT_AMOUNT_MISMATCH")
+        ride = self.env["babana.ride"].sudo().search([("public_id", "=", ride_id)])
+        self.assertEqual(ride.state, "completed", "aucune transition ne doit avoir eu lieu")
+
+    # --- Critère 3 : un double encaissement est impossible ------------------------------------
+
+    def test_double_settle_is_rejected(self):
+        ride_id, driver_token, _driver, quote = self._ride_ready_to_settle("double")
+        self._post(
+            f"/api/v1/rides/{ride_id}/settle", driver_token, {"amountCollected": quote.amount}
+        )
+
+        response = self._post(
+            f"/api/v1/rides/{ride_id}/settle", driver_token, {"amountCollected": quote.amount}
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"]["code"], "RIDE_INVALID_TRANSITION")
+
+    def test_settle_by_unassigned_driver_is_rejected(self):
+        ride_id, _driver_token, _driver, quote = self._ride_ready_to_settle("stranger")
+        stranger_token, _stranger_driver = self._make_approved_driver("sub-settle-stranger")
+
+        response = self._post(
+            f"/api/v1/rides/{ride_id}/settle", stranger_token, {"amountCollected": quote.amount}
+        )
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"]["code"], "DRIVER_NOT_IN_PROPOSAL")
+
+    def test_settle_with_missing_amount_is_a_validation_error(self):
+        ride_id, driver_token, _driver, _quote = self._ride_ready_to_settle("badbody")
+
+        response = self._post(f"/api/v1/rides/{ride_id}/settle", driver_token, {})
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"]["code"], "VALIDATION_ERROR")

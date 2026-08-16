@@ -52,7 +52,7 @@ class TestBabanaDriver(TransactionCase):
         with self.assertRaises(Exception):
             driver.write({"cash_balance": 1000})
 
-    def test_cash_balance_is_zero_bridge_value(self):
+    def test_cash_balance_is_zero_without_any_movement(self):
         driver = self._make_driver()
         self.assertEqual(driver.cash_balance, 0.0)
 
@@ -110,9 +110,19 @@ class TestBabanaDriver(TransactionCase):
         driver.invalidate_recordset()
         self.assertEqual(driver.ride_count, 1)
 
-    def test_default_cash_limit_reads_config_parameter(self):
-        self.env["ir.config_parameter"].sudo().set_param(
-            "babana.default_cash_limit", "75000"
-        )
+    def test_cash_limit_reads_the_single_fleet_wide_config_parameter(self):
+        self.env["ir.config_parameter"].sudo().set_param("babana.cash_limit", "75000")
         driver = self._make_driver()
         self.assertEqual(driver.cash_limit, 75000.0)
+
+    def test_cash_limit_is_the_same_for_every_driver(self):
+        # D28 : pas de plafond par chauffeur -- un seul paramètre pour toute la flotte.
+        self.env["ir.config_parameter"].sudo().set_param("babana.cash_limit", "30000")
+        driver_a = self._make_driver()
+        driver_b = self._make_driver()
+        self.assertEqual(driver_a.cash_limit, driver_b.cash_limit)
+
+    def test_direct_write_of_cash_limit_fails(self):
+        driver = self._make_driver()
+        with self.assertRaises(Exception):
+            driver.write({"cash_limit": 1000})

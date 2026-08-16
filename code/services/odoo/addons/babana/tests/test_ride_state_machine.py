@@ -113,7 +113,7 @@ class TestRideStateMachine(TransactionCase):
 
     def test_action_settle(self):
         ride, _client, driver = self._ride_completed()
-        ride.action_settle(by_driver=driver)
+        ride.action_settle(by_driver=driver, amount_collected=ride.final_amount)
         self.assertEqual(ride.state, "settled")
         self.assertTrue(ride.settled_at)
 
@@ -199,9 +199,9 @@ class TestRideStateMachine(TransactionCase):
 
     def test_settled_is_terminal(self):
         ride, _client, driver = self._ride_completed()
-        ride.action_settle(by_driver=driver)
+        ride.action_settle(by_driver=driver, amount_collected=ride.final_amount)
         with self.assertRaises(UserError):
-            ride.action_settle(by_driver=driver)
+            ride.action_settle(by_driver=driver, amount_collected=ride.final_amount)
 
     def test_cancelled_is_terminal(self):
         client = self._make_partner()
@@ -290,20 +290,20 @@ class TestRideStateMachine(TransactionCase):
         # ininstallable. Un champ hors de l'ensemble figé doit rester modifiable après completed
         # (settled_at, écrit par action_settle, en est la preuve la plus directe).
         ride, _client, driver = self._ride_completed()
-        ride.action_settle(by_driver=driver)
+        ride.action_settle(by_driver=driver, amount_collected=ride.final_amount)
         self.assertEqual(ride.state, "settled")
 
     # === Critère 6 : rien ne change après settled ==============================================
 
     def test_nothing_changes_after_settled(self):
         ride, _client, driver = self._ride_completed()
-        ride.action_settle(by_driver=driver)
+        ride.action_settle(by_driver=driver, amount_collected=ride.final_amount)
         with self.assertRaises(UserError):
             ride.write({"pickup_label": "Nouvelle adresse"})
 
     def test_nothing_changes_after_settled_even_via_sudo(self):
         ride, _client, driver = self._ride_completed()
-        ride.action_settle(by_driver=driver)
+        ride.action_settle(by_driver=driver, amount_collected=ride.final_amount)
         with self.assertRaises(UserError):
             ride.sudo().write({"pickup_label": "Nouvelle adresse"})
 

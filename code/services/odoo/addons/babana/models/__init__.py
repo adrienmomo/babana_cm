@@ -13,3 +13,4 @@ from . import babana_quote
 from . import babana_ride
 from . import babana_ride_state
 from . import babana_idempotency_record
+from . import babana_cash_movement

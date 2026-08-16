@@ -16,7 +16,6 @@ from __future__ import annotations
 import os
 import re
 import socket
-import uuid
 from pathlib import Path
 
 from odoo.tests.common import HttpCase, tagged
@@ -126,10 +125,36 @@ class TestRealtimeCommitHook(HttpCase):
     def _reservation_key(self, driver_public_id: str) -> str:
         return f"babana:driver:reservation:{driver_public_id}"
 
+    def _really_engaged_driver_public_id(self) -> str:
+        """Un `public_id` de chauffeur porté par une VRAIE course `assigned` -- pas un simple
+        UUID inventé. Nécessaire : la réconciliation périodique du service temps réel
+        (`driver/reconcile.ts`, L3-17, critère 7, tourne toutes les
+        ENGAGEMENT_RECONCILE_INTERVAL_SECONDS, 20 s par défaut) efface tout marqueur d'engagement
+        Redis qu'`/api/internal/drivers/engaged` ne connaît pas comme réellement engagé -- un
+        chauffeur fictif serait vu comme orphelin et son marqueur effacé, indépendamment de ce que
+        ce fichier teste, rendant les tests ci-dessous authentiquement instables (constaté : un
+        passage sur trois environ, exactement la probabilité qu'un tic de 20 s tombe dans la
+        fenêtre d'un test)."""
+        employee = self.env["hr.employee"].create({"name": "Chauffeur (test D32)"})
+        driver = self.env["babana.driver"].create({"employee_id": employee.id, "state": "approved"})
+        client = self.env["res.partner"].create({"name": "Client (test D32)"})
+        self.env["babana.ride"].with_context(babana_allow_state_write=True).create(
+            {
+                "client_id": client.id,
+                "driver_id": driver.id,
+                "pickup_latitude": 4.05,
+                "pickup_longitude": 9.70,
+                "dropoff_latitude": 4.06,
+                "dropoff_longitude": 9.77,
+                "state": "assigned",
+            }
+        )
+        return driver.public_id
+
     # --- clear_engagement -----------------------------------------------------------------
 
     def test_clear_engagement_does_nothing_if_the_transaction_rolls_back(self):
-        driver_public_id = f"test-driver-{uuid.uuid4()}"
+        driver_public_id = self._really_engaged_driver_public_id()
         key = self._engagement_key(driver_public_id)
         self.addCleanup(_redis_delete, key)
         _redis_set(key, "1")
@@ -149,7 +174,7 @@ class TestRealtimeCommitHook(HttpCase):
         )
 
     def test_clear_engagement_fires_once_the_transaction_actually_commits(self):
-        driver_public_id = f"test-driver-{uuid.uuid4()}"
+        driver_public_id = self._really_engaged_driver_public_id()
         key = self._engagement_key(driver_public_id)
         self.addCleanup(_redis_delete, key)
         _redis_set(key, "1")
@@ -174,7 +199,7 @@ class TestRealtimeCommitHook(HttpCase):
     # --- notify_cancellation_async (relâche réservation ET engagement) ---------------------
 
     def test_notify_cancellation_async_touches_no_redis_key_if_the_transaction_rolls_back(self):
-        driver_public_id = f"test-driver-{uuid.uuid4()}"
+        driver_public_id = self._really_engaged_driver_public_id()
         engagement_key = self._engagement_key(driver_public_id)
         reservation_key = self._reservation_key(driver_public_id)
         self.addCleanup(_redis_delete, engagement_key)
@@ -193,7 +218,7 @@ class TestRealtimeCommitHook(HttpCase):
         self.assertTrue(_redis_exists(reservation_key), "aucune clé Redis ne doit être touchée")
 
     def test_notify_cancellation_async_clears_both_keys_once_committed(self):
-        driver_public_id = f"test-driver-{uuid.uuid4()}"
+        driver_public_id = self._really_engaged_driver_public_id()
         engagement_key = self._engagement_key(driver_public_id)
         reservation_key = self._reservation_key(driver_public_id)
         self.addCleanup(_redis_delete, engagement_key)
@@ -218,13 +243,14 @@ class TestRealtimeCommitHook(HttpCase):
 class TestRealtimeCommitHookLint(HttpCase):
     """Vérifié par le lint (CLAUDE.md, frontière D32) : « Aucun appel sortant vers le service
     temps réel hors d'un point d'accroche au commit ». La protection réelle est déjà structurelle
-    -- `clear_engagement`/`notify_cancellation_async` exigent `env` en premier argument, un appel
-    sans lui échoue à l'exécution (TypeError) -- mais une règle de lint qui échoue vaut mieux
-    qu'une revue qui oublie (CLAUDE.md) : ce test balaie les contrôleurs par recherche plutôt que
-    de faire confiance à la revue, même principe que
-    services/realtime/test/pool-single-writer.test.ts (D26)."""
+    -- `clear_engagement`/`notify_cancellation_async`/`notify_cash_limit_reached` exigent `env` en
+    premier argument, un appel sans lui échoue à l'exécution (TypeError) -- mais une règle de
+    lint qui échoue vaut mieux qu'une revue qui oublie (CLAUDE.md) : ce test balaie les
+    contrôleurs ET les modèles par recherche plutôt que de faire confiance à la revue, même
+    principe que services/realtime/test/pool-single-writer.test.ts (D26)."""
 
-    CONTROLLERS_DIR = Path(__file__).resolve().parent.parent / "controllers"
+    ADDON_ROOT = Path(__file__).resolve().parent.parent
+    SCAN_DIRS = (ADDON_ROOT / "controllers", ADDON_ROOT / "models")
 
     # Fonctions dont l'appel DOIT porter `env` en premier argument -- elles écrivent Redis APRÈS
     # une transition déjà appliquée, et n'ont donc de sens qu'au commit (D32). `reserve_and_propose`
@@ -233,17 +259,21 @@ class TestRealtimeCommitHookLint(HttpCase):
     # compense une transaction qui va de toute façon être annulée -- ni l'un ni l'autre n'a de
     # commit à attendre (voir realtime_client.py, en-tête du module, et les docstrings des deux
     # fonctions ci-dessous pour le raisonnement complet).
-    GATED_CALLS = ("clear_engagement", "notify_cancellation_async")
+    GATED_CALLS = ("clear_engagement", "notify_cancellation_async", "notify_cash_limit_reached")
 
     def test_every_gated_call_passes_env_as_its_first_argument(self):
         offenders = []
-        for path in sorted(self.CONTROLLERS_DIR.glob("*.py")):
-            text = path.read_text()
-            for name in self.GATED_CALLS:
-                for match in re.finditer(rf"realtime_client\.{name}\(([^)]*)", text):
-                    first_arg = match.group(1).strip()
-                    if not (first_arg == "env" or first_arg.startswith("env,")):
-                        offenders.append(f"{path.name}: realtime_client.{name}({first_arg}")
+        for directory in self.SCAN_DIRS:
+            for path in sorted(directory.glob("*.py")):
+                text = path.read_text()
+                for name in self.GATED_CALLS:
+                    for match in re.finditer(rf"realtime_client\.{name}\(([^)]*)", text):
+                        first_arg = match.group(1).split(",", 1)[0].strip()
+                        # Le premier argument doit être positionnel (un `env`/`self.env`, jamais
+                        # un mot-clé) -- une signature qui commence directement par
+                        # `driver_public_id=...` a oublié le point d'accroche au commit.
+                        if not first_arg or re.match(r"^\w+\s*=", first_arg):
+                            offenders.append(f"{path.name}: realtime_client.{name}({first_arg}")
         self.assertEqual(
             offenders,
             [],

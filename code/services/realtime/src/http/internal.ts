@@ -7,6 +7,7 @@ import { wasRecentlySent } from '../nearby/last-sent';
 import { withIdempotency } from '../reservation/idempotency';
 import { clearEngaged } from '../driver/engagement';
 import { reintegrateIfEligible } from '../redis/pool-eligibility';
+import { blockForCash } from '../driver/cash-guard';
 
 /**
  * Endpoint HTTP interne, sens Odoo -> temps réel (L3-17). Authentifié par `REALTIME_SHARED_SECRET`
@@ -22,6 +23,8 @@ import { reintegrateIfEligible } from '../redis/pool-eligibility';
  * - `POST /internal/reservations/release` : compensation quand la réservation a réussi mais que la
  *   transition Odoo qui devait suivre échoue (critère 4).
  * - `POST /internal/engagement/clear` : fin de course, efface le marqueur d'engagement (critère 6).
+ * - `POST /internal/drivers/cash-blocked` : plafond d'encaisse franchi (D8, D28, L5-02), retire
+ *   du pool et bloque toute acceptation en vol pour ce chauffeur.
  */
 
 export const INTERNAL_PATH_PREFIX = '/internal/';
@@ -54,6 +57,7 @@ export type ReservationOutcome =
 
 const ReleaseRequestSchema = z.object({ driverId: z.string().min(1) });
 const ClearEngagementRequestSchema = z.object({ driverId: z.string().min(1) });
+const CashBlockedRequestSchema = z.object({ driverId: z.string().min(1) });
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -128,6 +132,16 @@ async function handleClearEngagement(deps: InternalRouterDeps, rawBody: unknown,
   sendJson(res, 200, { cleared: true });
 }
 
+async function handleCashBlocked(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
+  const parsed = CashBlockedRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    sendJson(res, 400, { error: 'VALIDATION_ERROR', details: parsed.error.issues });
+    return;
+  }
+  await blockForCash(deps.redis, parsed.data.driverId);
+  sendJson(res, 200, { blocked: true });
+}
+
 export function createInternalHandler(deps: InternalRouterDeps) {
   return async function handleInternal(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<void> {
     const secret = req.headers['x-realtime-secret'];
@@ -157,6 +171,9 @@ export function createInternalHandler(deps: InternalRouterDeps) {
         return;
       case '/internal/engagement/clear':
         await handleClearEngagement(deps, body, res);
+        return;
+      case '/internal/drivers/cash-blocked':
+        await handleCashBlocked(deps, body, res);
         return;
       default:
         sendJson(res, 404, { error: 'NOT_FOUND' });

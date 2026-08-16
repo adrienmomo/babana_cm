@@ -94,4 +94,139 @@ finale).
 
 **Vérifications** : suite Odoo complète (`-u babana --test-enable`) 298 tests, 1 échec (même artefact de base ancienne). `test_realtime_commit_hook.py` : 5 tests, tous verts. L4-11 (6 itérations, scénarios 1 et 2) rejoué après le correctif : vert, confirme que `_complete_ride`/`_cancel_ride` fonctionnent toujours de bout en bout avec l'appel désormais différé au commit.
 
+**Flakiness diagnostiquée, pas tolérée (correctif de suivi, même commit que L5-01).** `test_notify_cancellation_async_touches_no_redis_key_if_the_transaction_rolls_back` échouait environ une fois sur trois en suite complète. Cause : les tests seedaient un marqueur d'engagement pour un `driver_public_id` fictif (simple UUID, sans course réelle) -- exactement ce que la réconciliation périodique du service temps réel (`driver/reconcile.ts`, critère 7, toutes les 20 s par défaut) traite comme un orphelin et efface, indépendamment de tout ce que ce fichier teste. Le taux d'échec observé (~1/3) correspond exactement à la probabilité qu'un tic de 20 s tombe dans la fenêtre d'1 s du test. Corrigé : les quatre tests qui seedent une clé d'engagement s'appuient désormais sur une vraie course `assigned` (nouvelle aide `_really_engaged_driver_public_id`), légitimement connue d'`/api/internal/drivers/engaged` -- 4 exécutions consécutives de la suite, toutes vertes. (Tentative de correctif intermédiaire, écartée : `self.env.cr.commit()` dans le fixture, en espérant forcer la visibilité cross-connexion -- sous `--test-enable`, `self.env.cr` reste un `TestCursor` même en `HttpCase`, et son `commit()` ne pousse rien à la vraie base ; l'essai a fait passer le taux d'échec de 1/3 à 4/4, signe qu'il cassait autre chose. Retiré.)
+
+---
+
+Bloc 1 terminé, tout vert. Début du Bloc 2 -- l'encaissement, partie mécanique (L4-05, L5-01,
+L5-02), avec D28 et D29 arbitrés le 18 août (`01-architecture.md` §7).
+
+## L5-01 — Compte courant chauffeur
+
+**`babana.cash.movement`** (nouveau modèle) : `driver_id`, `movement_type` (`collection` /
+`remittance` / `adjustment`), `amount` signé, `ride_id` (origine, nullable -- `remittance_id`
+n'existe pas encore, `babana.cash.remittance` est L5-03, hors de ce lot ; même raisonnement que
+`invoice_id` sur `babana.ride`, un champ ajouté par la tâche qui en a besoin, pas avant), `reason`
+(obligatoire pour un ajustement). Auteur et horodatage : `create_uid`/`create_date` natifs d'Odoo,
+pas de champ redondant. Immuable : `write()` et `unlink()` lèvent inconditionnellement, y compris
+sous `sudo()` -- testé explicitement des deux façons.
+
+**Le solde n'est jamais stocké librement** (critère 1) : `babana.driver.cash_balance` reste un
+champ calculé (déjà le cas depuis L1-03, en champ-pont) mais somme désormais réellement le journal,
+via un nouveau champ `movement_ids` (`One2many`) et `@api.depends("movement_ids.amount")` --
+**pas** un recalcul manuel par `search()` dans le compute lui-même. Piège trouvé en écrivant
+`test_settle_forces_the_driver_offline_when_crossing_the_cash_limit` : un compute sans dépendance
+déclarée reste en cache après la création d'un mouvement (aucun champ de `babana.driver`
+lui-même n'est écrit par cette création, donc rien ne signale à l'ORM que le solde déjà lu est
+périmé) -- `_babana_apply_cash_limit` ne voyait jamais le nouveau solde. `@api.depends` corrige la
+classe de bug, pas seulement ce site d'appel.
+
+**Une remise supérieure au solde est refusée** (critère 4) via une contrainte
+(`_check_collection_and_remittance_never_go_negative`) qui recalcule le solde après le mouvement
+candidat (une méthode Python dédiée, `_babana_cash_balance()`, séparée du champ calculé -- la
+contrainte a besoin d'une lecture garantie fraîche pendant que le `create()` du mouvement qu'elle
+valide est encore en cours, pas d'une valeur qui pourrait être mise en cache avant). **Seul un
+ajustement motivé peut produire un solde négatif** (spécification, testé
+`test_an_adjustment_with_a_reason_is_accepted_and_can_go_negative`) : la contrainte ne s'applique
+qu'aux types `collection`/`remittance`, jamais `adjustment`.
+
+**D29 rendu possible, pas encore utilisé** : une remise partielle laisse un solde non nul qui
+continue de peser sur le plafond (`test_a_partial_remittance_leaves_a_nonzero_balance`) -- rien
+dans ce modèle ne force le solde à zéro après une remise, contrairement à ce qu'une lecture rapide
+de D8 point 4 ("la remise... remet le solde à zéro") pourrait laisser croire : ça n'est vrai que
+pour une remise *complète*. L5-06 (traitement des écarts, hors de ce lot) décidera du reste.
+
+**Correction en passant, découverte en lisant `babana_driver.py` avant d'écrire quoi que ce soit**
+(le réflexe que ce protocole demande) : `babana_driver_cash_balance_not_negative`, une contrainte
+SQL posée le 10 août sur `cash_balance`, n'a jamais pu s'appliquer -- `cash_balance` n'est pas un
+champ stocké (`compute` sans `store=True`), et Odoo n'a donc jamais eu de colonne réelle sur
+laquelle poser ce `CHECK` (log au démarrage : *"unable to add constraint ... as check(cash_balance
+>= 0)"*, silencieusement ignoré depuis huit nuits). Retirée : elle aurait de toute façon été fausse
+sous D29/L5-01 (un ajustement motivé peut légitimement produire un solde négatif) ; la vraie
+protection est la contrainte au niveau du mouvement, pas du solde dérivé.
+
+Champ-pont résolu : `cash_balance` retiré de `code/docs/bridge-fields.md`.
+
+`code/services/odoo/addons/babana/tests/test_cash_balance.py` (nouveau, 15 tests) : solde calculé,
+immutabilité (avec et sans `sudo()`), signe attendu par type, remise excessive refusée, D29,
+ajustement motivé/non motivé, référence à la course d'origine.
+
+## L4-05 — Encaissement espèces
+
+`action_settle(by_driver, amount_collected)` remplace le stub minimal du 17 août. Montant vérifié
+contre `final_amount or estimated_amount or 0` **avant** tout effet (`SETTLEMENT_AMOUNT_MISMATCH`
+si différent, aucun effet appliqué) ; puis trois effets dans un `with self.env.cr.savepoint():`
+unique -- transition, mouvement `collection` (L5-01), contrôle de plafond (L5-02) -- même patron
+que `action_propose` (index unique, 16 août) pour la traduction d'un conflit. **La génération de
+facture (L4-06) n'est pas dans ce lot** -- écart déposé, `amoa/questions/L4-05.md` : le périmètre
+de la nuit ("un montant se déplace, un journal l'enregistre, un seuil bloque") ne la nomme pas,
+elle représente à elle seule un lot substantiel, et rien n'empêche de la rejoindre au même
+savepoint quand L4-06 sera construite.
+
+`POST /rides/{id}/settle` (déjà entièrement spécifié par le contrat C-01, jamais implémenté) :
+traduit HTTP en appel de méthode, rien de plus -- réponse `{rideId, state, amountCollected,
+driverCashBalance}`, pas le `_summary()` générique des autres endpoints (le contrat en décide
+autrement pour celui-ci). `SETTLEMENT_AMOUNT_MISMATCH` mappée en 409 (même famille que
+`DRIVER_ALREADY_TAKEN` : ce que l'appelant croyait vrai a changé, pas une erreur de saisie).
+
+**Preuve d'atomicité** (critère 2, `test_settlement.py`) : `babana.cash.movement.create` mocké
+pour lever une `UserError` en plein savepoint -- la course reste `completed`, aucun mouvement
+n'existe, le solde reste à zéro. Sans le savepoint, la transition aurait déjà été écrite avant
+l'échec du mouvement.
+
+Cinq call sites existants (`test_ride_state_machine.py`, `test_ride_state_machine_generated.py`,
+`test_partition_invariant.py`) appelaient `action_settle(by_driver=driver)` sans montant --
+signature désormais incompatible, corrigés pour passer le montant attendu de chaque fixture. Le
+test généré (L4-10) construisait ses rides `completed` sans `final_amount`/`estimated_amount` :
+`amount_collected=0` aurait passé la vérification de montant mais heurté la contrainte "montant
+non nul" de L5-01 -- fixture corrigée avec un montant plausible plutôt que la contrainte assouplie
+(CLAUDE.md : ne jamais adapter le code qui protège à un test qui suppose moins).
+
+**Piège rencontré, déjà documenté** (`code/docs/odoo-pitfalls.md`) : un test créant une seconde
+course `in_progress` pour le même chauffeur juste après un `action_complete()` heurtait l'index
+unique partiel -- le `write()` de la transition n'était pas encore poussé en base.
+`flush_recordset()` explicite, comme le pitfall le prescrit déjà.
+
+## L5-02 — Plafond d'encaisse bloquant
+
+**D28 appliqué au modèle existant, pas seulement au nouveau code.** `babana.driver.cash_limit`
+existait déjà (10 août, L1-03) comme champ *stocké*, avec une valeur par défaut à la création --
+exactement le "plafond par chauffeur, réglable par un gestionnaire" que la spécification d'origine
+décrivait, et que D28 (18 août) écarte explicitement. Converti en champ calculé
+(`_compute_cash_limit`/`_inverse_cash_limit`, même patron défensif que `cash_balance` : l'inverse
+lève une erreur explicite plutôt que d'ignorer silencieusement une écriture directe), lisant
+`babana.cash_limit` -- un seul paramètre pour toute la flotte, aucune possibilité de divergence
+entre chauffeurs. Paramètre renommé `babana.default_cash_limit` → `babana.cash_limit` ("défaut"
+suggérait une dérogation possible, ce que D28 exclut). `amoa/specs/L5-caisse.md` corrigé pour
+refléter D28 (le débrief l'a explicitement arbitré).
+
+**Deux points de blocage, câblés côté temps réel** (`services/realtime/src/driver/cash-guard.ts`,
+nouveau) :
+1. `pool-eligibility.lua` porte désormais une cinquième condition (non bloqué pour plafond),
+   symétrique des quatre existantes (en ligne, non réservé, non engagé) -- un chauffeur bloqué qui
+   continue d'émettre sa position ne revient jamais au pool.
+2. `ws/dispatch.ts` vérifie le blocage avant de résoudre `proposal.accept` : une proposition émise
+   juste avant le franchissement est traitée comme un refus explicite, jamais acceptée.
+
+**Chaîne complète, testée à chaque bout** : `action_settle` détecte le franchissement
+(`babana.driver._babana_apply_cash_limit`, dans le même savepoint que l'encaissement, critère 3)
+et appelle `realtime_client.notify_cash_limit_reached(env, ...)` -- au commit, jamais pendant (D32,
+même patron que `clear_engagement`). Côté temps réel, `POST /internal/drivers/cash-blocked`
+(nouveau) pose la clé et retire immédiatement du pool. `test_cash_limit.py` (Odoo, nouveau) prouve
+le canal réel jusqu'à Redis, avec et sans commit (même technique que `test_realtime_commit_hook.py`)
+; `test/cash-guard.test.ts` (nouveau) prouve les deux points de blocage contre Redis réel, dont un
+scénario bout en bout (une vraie proposition, bloquée après coup, résolue comme un refus --
+`ride.rejected` reçu par le client, jamais `ride.assigned`).
+
+**Écart déposé, `amoa/questions/L5-02.md`** : le seuil d'alerte (critère 5) n'est pas implémenté --
+il dépend de L7-05 (notifications), qui n'existe pas du tout dans ce dépôt. Rien à câbler qui ne
+puisse rien déclencher.
+
+## Vérifications de fin de Bloc 2
+
+Suite Odoo complète (`-u babana --test-enable`) : 331 tests, 1 échec (même artefact de base
+ancienne, `test_rotate_produces_new_pair_and_invalidates_old`, reconfirmé sur base fraîche en fin
+de session). `npm run typecheck --workspaces` et `npm run lint --workspaces` propres sur tout
+l'arbre. Suite `@babana/realtime` complète (`npm test`, contre Redis réel) : 110 tests, tout vert.
+
 ---

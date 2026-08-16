@@ -325,9 +325,12 @@ class BabanaRideState(models.Model):
 
     # --- 8. completed -> settled ---------------------------------------------------------------
 
-    def action_settle(self, *, by_driver):
-        """Transition minimale (L4-05, hors de ce lot, apportera l'incrément de compte courant,
-        la génération de facture et le contrôle de plafond, dans la même transaction)."""
+    def action_settle(self, *, by_driver, amount_collected):
+        """Encaissement espèces (L4-05, D9). Trois effets dans une transaction unique : la
+        transition elle-même, l'incrément du compte courant (L5-01), le contrôle de plafond
+        (L5-02). **La génération de facture (L4-06) n'est pas ici** -- hors du lot qui a construit
+        cette méthode, voir amoa/questions/L4-05.md ; `invoice_id` reste vide jusqu'à cette tâche,
+        le champ existe déjà (babana_ride.py) précisément pour l'accueillir sans migration."""
         self.ensure_one()
         self._lock_for_update()
 
@@ -336,7 +339,32 @@ class BabanaRideState(models.Model):
         if by_driver != self.driver_id:
             raise RideInvalidTransition("Ce chauffeur n'est pas celui affecté à cette course.")
 
-        self._babana_write_transition({"state": "settled", "settled_at": fields.Datetime.now()})
+        # Le montant encaissé est le montant dû, jamais une saisie libre (spécification) : le
+        # chauffeur CONFIRME, il ne déclare pas. Vérifié avant d'entrer dans le savepoint --
+        # aucun effet n'a encore eu lieu, rien à défaire si ce contrôle échoue.
+        expected_amount = self.final_amount or self.estimated_amount or 0
+        if amount_collected != expected_amount:
+            raise UserError("SETTLEMENT_AMOUNT_MISMATCH")
+
+        # Savepoint : si un effet échoue (le mouvement de compte courant refuse un solde négatif,
+        # improbable pour un encaissement toujours positif mais vérifié par construction plutôt
+        # que par confiance), AUCUN des trois n'est appliqué -- même mécanisme que
+        # action_propose ci-dessus (critère d'acceptation 2 de L4-05 : "l'échec d'un effet annule
+        # tous les autres").
+        with self.env.cr.savepoint():
+            self._babana_write_transition({"state": "settled", "settled_at": fields.Datetime.now()})
+            self.env["babana.cash.movement"].sudo().create(
+                {
+                    "driver_id": by_driver.id,
+                    "movement_type": "collection",
+                    "amount": amount_collected,
+                    "ride_id": self.id,
+                }
+            )
+            # Critère 3 de L5-02 : franchissement mis hors ligne dans la MÊME transaction que
+            # l'encaissement qui l'a provoqué -- doit donc être dans ce savepoint, pas après lui.
+            by_driver._babana_apply_cash_limit()
+
         self._babana_journalize("settlement")
         return self
 

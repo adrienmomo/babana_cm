@@ -13,11 +13,14 @@ from datetime import timedelta
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
-# D21 : valeur par défaut plausible, explicitement provisoire. Le vrai plafond vient du
-# paramètre système babana.default_cash_limit (back-office, L9-06 -- hors de ce lot), jamais
-# codé en dur dans une transaction individuelle.
-DEFAULT_CASH_LIMIT_PARAM = "babana.default_cash_limit"
-DEFAULT_CASH_LIMIT_FALLBACK = 50000.0
+from ..services import realtime_client
+
+# D28 (amoa/questions/REPONSES-2026-08-18.md, 01-architecture.md §7) : plafond FIXE POUR TOUTE LA
+# FLOTTE, jamais par chauffeur -- un plafond individuel créerait une inégalité que quelqu'un
+# devrait justifier à voix haute. Un seul paramètre système, jamais codé en dur (invariant 5) ;
+# 50 000 FCFA au départ, à confirmer en pilote (L9-06, back-office, hors de ce lot).
+CASH_LIMIT_PARAM = "babana.cash_limit"
+CASH_LIMIT_FALLBACK = 50000.0
 
 # L1-01, critère 10 : limitation de débit sur la création de candidature -- par adresse IP, le
 # vecteur concret décrit par la spécification (« n'importe quel compte Google appelant
@@ -118,20 +121,32 @@ class BabanaDriver(models.Model):
         default=lambda self: self.env.company.currency_id.id,
         required=True,
     )
+    movement_ids = fields.One2many(
+        "babana.cash.movement",
+        "driver_id",
+        string="Mouvements de compte courant",
+        help="Déclaré pour que cash_balance (@api.depends) sache s'invalider quand un mouvement "
+        "est créé -- sans lien déclaré, l'ORM ne peut pas deviner qu'un babana.cash.movement "
+        "fraîchement créé rend le cash_balance déjà lu (et mis en cache) pour ce chauffeur "
+        "périmé, la création n'écrivant aucun champ de babana.driver lui-même.",
+    )
     cash_balance = fields.Monetary(
         string="Solde dû à l'entreprise",
         currency_field="currency_id",
         compute="_compute_cash_balance",
         inverse="_inverse_cash_balance",
-        help="[PONT — remplacé par L5-01] Jamais écrit directement (D8) : résultat du journal "
-        "des mouvements de compte courant. Toujours 0 en attendant ce modèle. L'ajout ultérieur "
-        "d'un solde de commission (É3) n'exige aucune migration : un champ calculé de plus, "
-        "indépendant de celui-ci.",
+        help="Jamais écrit directement (D8, L5-01) : somme du journal des mouvements de compte "
+        "courant (babana.cash.movement). L'ajout ultérieur d'un solde de commission (É3) n'exige "
+        "aucune migration : un champ calculé de plus, indépendant de celui-ci.",
     )
     cash_limit = fields.Monetary(
         string="Plafond d'encaisse",
         currency_field="currency_id",
-        default=lambda self: self._default_cash_limit(),
+        compute="_compute_cash_limit",
+        inverse="_inverse_cash_limit",
+        help="Plafond fixe pour toute la flotte (D28) : reflète le paramètre système "
+        "babana.cash_limit, jamais une valeur propre à ce chauffeur -- pas de plafond "
+        "individuel (L9-06, back-office, hors de ce lot, ajustera le paramètre, pas ce champ).",
     )
     phone_verified = fields.Boolean(string="Numéro vérifié", default=False)
 
@@ -142,23 +157,25 @@ class BabanaDriver(models.Model):
             "Un employé n'a qu'une seule fiche chauffeur.",
         ),
         (
-            "babana_driver_cash_balance_not_negative",
-            "check(cash_balance >= 0)",
-            "Un solde négatif signale une erreur de calcul, pas un cas métier (D8).",
-        ),
-        (
             "babana_driver_public_id_unique",
             "unique(public_id)",
             "Collision d'identifiant public chauffeur -- ne devrait jamais se produire (UUID).",
         ),
     ]
 
+    def _babana_cash_balance(self) -> float:
+        """Somme du journal des mouvements (L5-01, critère 6) -- méthode Python plutôt que le
+        champ calculé lui-même : babana_cash_movement.py::_check_collection_and_remittance_
+        never_go_negative en a besoin AVANT que le compute du champ n'ait tourné (le mouvement
+        qu'elle valide n'est pas encore visible d'un browse() mis en cache)."""
+        self.ensure_one()
+        movements = self.env["babana.cash.movement"].sudo().search([("driver_id", "=", self.id)])
+        return sum(movements.mapped("amount"))
+
     @api.model
-    def _default_cash_limit(self) -> float:
+    def _cash_limit(self) -> float:
         return float(
-            self.env["ir.config_parameter"]
-            .sudo()
-            .get_param(DEFAULT_CASH_LIMIT_PARAM, DEFAULT_CASH_LIMIT_FALLBACK)
+            self.env["ir.config_parameter"].sudo().get_param(CASH_LIMIT_PARAM, CASH_LIMIT_FALLBACK)
         )
 
     def _compute_rating(self):
@@ -180,21 +197,41 @@ class BabanaDriver(models.Model):
                 [("driver_id", "=", record.id)], limit=1
             )
 
+    @api.depends("movement_ids.amount")
     def _compute_cash_balance(self):
-        # Champ-pont : voir amoa/questions/L1-03.md. À brancher sur le journal des mouvements de
-        # compte courant (L5-01). Un compute sans inverse est en lecture seule dans l'ORM Odoo :
-        # c'est ce qui rend une écriture directe impossible (critère d'acceptation 4), pas une
-        # vérification ajoutée à côté.
+        # Un compute sans inverse FONCTIONNEL est en lecture seule dans l'ORM Odoo : c'est ce qui
+        # rend une écriture directe impossible (L5-01, critère d'acceptation 1), pas une
+        # vérification ajoutée à côté -- _inverse_cash_balance ci-dessous existe uniquement pour
+        # lever une erreur explicite (un compute sans inverse DU TOUT est ignoré silencieusement
+        # par write(), ce qui ne prouverait rien).
+        #
+        # @api.depends("movement_ids.amount"), pas un recalcul manuel via _babana_cash_balance() :
+        # sans dépendance déclarée, l'ORM ne sait jamais qu'un babana.cash.movement fraîchement
+        # créé rend ce champ périmé pour ce chauffeur (aucun champ de babana.driver lui-même
+        # n'est écrit par cette création) -- un cash_balance lu avant le mouvement resterait alors
+        # en cache, à zéro, pour le reste de la transaction. Constaté en écrivant
+        # _babana_apply_cash_limit (L5-02) : le franchissement du plafond n'était jamais détecté.
         for record in self:
-            record.cash_balance = 0.0
+            record.cash_balance = sum(record.movement_ids.mapped("amount"))
 
     def _inverse_cash_balance(self):
-        # Un compute sans inverse est ignoré silencieusement par write() dans l'ORM Odoo --
-        # insuffisant pour prouver le critère d'acceptation 4 (une tentative d'écriture directe
-        # échoue). Cet inverse existe uniquement pour lever une erreur explicite.
         raise UserError(
             "cash_balance ne s'écrit jamais directement : il se calcule depuis le journal des "
             "mouvements de compte courant (D8, L5-01)."
+        )
+
+    def _compute_cash_limit(self):
+        # Même discipline que cash_balance : compute + inverse-qui-lève, pour qu'une écriture
+        # directe échoue explicitement (D28 -- pas de plafond par chauffeur, un seul paramètre
+        # système pour toute la flotte).
+        limit = self._cash_limit()
+        for record in self:
+            record.cash_limit = limit
+
+    def _inverse_cash_limit(self):
+        raise UserError(
+            "cash_limit ne s'écrit jamais par chauffeur : le plafond d'encaisse est un montant "
+            "unique pour toute la flotte, réglé par le paramètre système babana.cash_limit (D28)."
         )
 
     @api.constrains("state", "employee_id")
@@ -282,16 +319,36 @@ class BabanaDriver(models.Model):
     @api.constrains("is_online")
     def _check_online_requires_cash_under_limit(self):
         # Même famille que les trois contraintes voisines (approbation, assurance, permis) --
-        # ajoutée pour L3-04, critère 4. cash_balance est un champ-pont (toujours 0.0 tant que
-        # L5-01 n'existe pas) : cette contrainte ne peut donc jamais se déclencher aujourd'hui,
-        # mais la forme est prête pour le jour où elle le pourra, plutôt que d'être ajoutée après
-        # coup en même temps que L5-01.
+        # ajoutée pour L3-04, critère 4. Un chauffeur au plafond ne peut pas se déclarer en ligne
+        # via /drivers/me/availability -- complémentaire des deux points de blocage exigés par
+        # L5-02 (nearby.drivers, acceptation), qui vivent côté temps réel : celle-ci empêche en
+        # plus la reconnexion explicite côté Odoo.
         for record in self:
             if record.is_online and record.cash_limit and record.cash_balance >= record.cash_limit:
                 raise ValidationError(
                     "Ce chauffeur ne peut pas passer en ligne : le plafond d'encaisse est "
                     "atteint (D8)."
                 )
+
+    def _babana_apply_cash_limit(self):
+        """Effet 4 de l'encaissement (L4-05, D8, D28) : si l'encaissement qui vient de se
+        produire fait franchir le plafond, le chauffeur passe hors ligne IMMÉDIATEMENT, dans la
+        MÊME transaction que l'encaissement (L5-02, critère 3) -- appelée depuis le bloc
+        savepoint d'action_settle, jamais isolément.
+
+        Une course en cours n'est jamais interrompue par ce franchissement (L5-02, critère 4) :
+        rien ici ne touche babana.ride, seulement la disponibilité FUTURE de ce chauffeur.
+
+        Le passage hors ligne côté Odoo ne suffit pas seul (L5-02, "deux points de blocage, tous
+        deux obligatoires") : le service temps réel garde son propre état (pool géo-indexé,
+        engagement), indépendant d'is_online (deux systèmes délibérément découplés, voir
+        driver/availability.ts côté temps réel). notify_cash_limit_reached l'aligne -- au commit
+        de cette transaction (D32), jamais pendant."""
+        self.ensure_one()
+        if not (self.is_online and self.cash_limit and self.cash_balance >= self.cash_limit):
+            return
+        self.write({"is_online": False})
+        realtime_client.notify_cash_limit_reached(self.env, driver_public_id=self.public_id)
 
     def _has_active_ride(self) -> bool:
         # DRIVER_ACTIVE_STATES (babana_ride.py, L4-01) : la même définition d'« en course » que

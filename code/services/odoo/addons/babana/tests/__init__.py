@@ -20,6 +20,9 @@ from . import test_ride_controller
 from . import test_internal_controller
 from . import test_internal_profiles_controller
 from . import test_realtime_commit_hook
+from . import test_cash_balance
+from . import test_settlement
+from . import test_cash_limit
 from . import test_partition_invariant
 from . import test_routing
 from . import test_quote_controller

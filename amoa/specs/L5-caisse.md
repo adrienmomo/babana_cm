@@ -63,7 +63,7 @@ services/odoo/addons/babana/tests/test_cash_limit.py
 
 ### Spécification
 
-Plafond par chauffeur, avec une valeur par défaut au niveau de la configuration (L9-06). Un plafond individuel peut être relevé par un gestionnaire, avec motif.
+**Corrigé le 18 août (D28) : plafond fixe pour toute la flotte, pas par chauffeur.** Un montant unique, réglé par un paramètre système (L9-06), jamais un plafond individuel réglable par un gestionnaire — ce que cette section prévoyait à l'origine créait une inégalité entre chauffeurs qu'il aurait fallu justifier à voix haute, et un plafond en nombre de courses aurait été décorrélé du risque réel. Voir `01-architecture.md` §7.
 
 **Deux points de blocage, tous deux obligatoires** :
 

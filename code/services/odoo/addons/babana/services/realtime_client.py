@@ -4,10 +4,11 @@
 # (jamais construit, hors périmètre), pas un second à inventer.
 #
 # D32 (amoa/questions/REPONSES-2026-08-18.md §4) : tout appel d'ici déclenché APRÈS une transition
-# Odoo (clear_engagement, notify_cancellation_async) part au commit de la transaction appelante,
-# jamais pendant -- voir leurs docstrings. Seul reserve_and_propose fait exception, et le reste :
-# il PRÉCÈDE délibérément la transition, puisque c'est son résultat qui l'autorise (controllers/
-# ride.py::_select_driver) ; c'est pour cela que son idempotence (D25) a été construite.
+# Odoo (clear_engagement, notify_cancellation_async, notify_cash_limit_reached) part au commit de
+# la transaction appelante, jamais pendant -- voir leurs docstrings. Seul reserve_and_propose fait
+# exception, et le reste : il PRÉCÈDE délibérément la transition, puisque c'est son résultat qui
+# l'autorise (controllers/ride.py::_select_driver) ; c'est pour cela que son idempotence (D25) a
+# été construite.
 #
 # Sens temps réel -> Odoo (acceptation, refus, expiration) : PAS ici. Ce module ne porte que les
 # appels dont Odoo est l'INITIATEUR -- voir controllers/internal.py pour l'autre sens, reçu plutôt
@@ -166,3 +167,29 @@ def notify_cancellation_async(env, driver_public_id: str) -> None:
             daemon=True,
         ).start()
     )
+
+
+def _notify_cash_limit_reached_now(driver_public_id: str) -> None:
+    try:
+        _post("/internal/drivers/cash-blocked", {"driverId": driver_public_id})
+    except RealtimeUnavailable:
+        _logger.warning(
+            "échec du signalement de plafond d'encaisse pour le chauffeur %s -- il pourrait "
+            "rester visible jusqu'à la prochaine tentative (L5-02).",
+            driver_public_id,
+        )
+
+
+def notify_cash_limit_reached(env, *, driver_public_id: str) -> None:
+    """Plafond d'encaisse franchi (D8, D28, L5-02) : signale au service temps réel qu'il doit
+    retirer ce chauffeur du pool ET refuser toute acceptation déjà en vol pour lui -- les deux
+    points de blocage que la spécification exige, tous deux obligatoires (une proposition émise
+    juste avant le franchissement resterait sinon acceptable). Appelée par
+    `babana.driver._babana_apply_cash_limit`, elle-même appelée depuis le bloc savepoint
+    d'`action_settle` (L4-05).
+
+    **D32** : au COMMIT, jamais pendant -- même raisonnement que `clear_engagement` : la
+    disponibilité future de ce chauffeur ne doit changer côté temps réel que si le franchissement
+    est réellement acté côté Odoo (une transaction d'encaissement rejouée ou annulée n'a pas fait
+    franchir quoi que ce soit)."""
+    env.cr.postcommit.add(lambda: _notify_cash_limit_reached_now(driver_public_id=driver_public_id))

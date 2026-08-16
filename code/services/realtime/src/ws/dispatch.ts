@@ -5,6 +5,7 @@ import type { Config } from '../config';
 import type { ConnectionContext } from './auth';
 import { ingestPosition, plausibilityConfigFrom } from '../tracking/ingest';
 import { setOnline, setOffline } from '../driver/availability';
+import { isCashBlocked } from '../driver/cash-guard';
 import type { NearbyManager } from '../nearby/handler';
 import type { ProposalLifecycle } from '../proposal/lifecycle';
 
@@ -72,6 +73,16 @@ export function createMessageDispatcher(
         // `rideId` du message n'est jamais une identité, seulement la donnée que la résolution
         // atomique fait correspondre à la proposition active de CE chauffeur (proposal/resolve.lua).
         if (context.role !== 'driver' || !context.driverId) return;
+        // Point de blocage 2 (D8, D28, L5-02) : un chauffeur au plafond ne peut pas accepter,
+        // même une proposition déjà en vol -- sans ce contrôle, une proposition émise juste avant
+        // le franchissement resterait acceptable (le pool, lui, l'a déjà exclu, mais une
+        // proposition en vol n'y repasse pas). Traité comme un refus explicite : le chauffeur est
+        // déjà hors service pour ce plafond, la proposition doit revenir au client comme n'importe
+        // quel refus, pas rester bloquée sans réponse.
+        if (await isCashBlocked(redis, context.driverId)) {
+          await proposals.reject(context.driverId, message.payload.rideId, 'plafond d’encaisse atteint (L5-02)');
+          return;
+        }
         await proposals.accept(context.driverId, message.payload.rideId);
         return;
       case 'proposal.reject':

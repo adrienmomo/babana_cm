@@ -22,3 +22,6 @@ access_babana_idempotency_record_admin,babana.idempotency.record admin,model_bab
 access_babana_quote_manager,babana.quote manager,model_babana_quote,group_babana_manager,1,1,1,0
 access_babana_quote_admin,babana.quote admin,model_babana_quote,group_babana_admin,1,1,1,1
 access_babana_route_cache_admin,babana.route.cache admin,model_babana_route_cache,group_babana_admin,1,1,1,1
+access_babana_cash_movement_supervisor,babana.cash.movement supervisor,model_babana_cash_movement,group_babana_supervisor,1,0,0,0
+access_babana_cash_movement_manager,babana.cash.movement manager,model_babana_cash_movement,group_babana_manager,1,0,1,0
+access_babana_cash_movement_admin,babana.cash.movement admin,model_babana_cash_movement,group_babana_admin,1,0,1,0

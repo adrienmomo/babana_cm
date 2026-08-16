@@ -94,6 +94,12 @@ class _GeneratedTransitionMatrixBase(TransactionCase):
             "dropoff_latitude": 4.06,
             "dropoff_longitude": 9.77,
             "state": state,
+            # Non nul : action_settle (L4-05) crée un mouvement de compte courant du montant dû,
+            # et babana.cash.movement refuse un montant à zéro (L5-01) -- une course fabriquée
+            # directement à 'completed' sans passer par le vrai calcul de tarif (L2-04/L4-04)
+            # aurait sinon un final_amount/estimated_amount nul par défaut.
+            "estimated_amount": 1200,
+            "final_amount": 1200,
         }
         return self.env["babana.ride"].with_context(babana_allow_state_write=True).create(vals)
 
@@ -114,7 +120,8 @@ class _GeneratedTransitionMatrixBase(TransactionCase):
                 final_amount=1200,
             )
         if action == "action_settle":
-            return ride.action_settle(by_driver=driver)
+            expected_amount = ride.final_amount or ride.estimated_amount or 0
+            return ride.action_settle(by_driver=driver, amount_collected=expected_amount)
         if action == "action_cancel":
             # in_progress n'admet qu'une annulation par le chauffeur (L4-07) -- action_cancel le
             # vérifie après le contrôle d'état, donc seul importe ici pour les cas VALIDES ;

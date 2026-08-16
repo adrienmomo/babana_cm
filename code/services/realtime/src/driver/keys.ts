@@ -15,6 +15,7 @@ const ONLINE_FLAG_PREFIX = 'babana:driver:online:';
 // (SCAN MATCH) l'ensemble des marqueurs d'engagement posés, sans connaître à l'avance la liste
 // des chauffeurs -- même raison que RESERVATION_KEY_PREFIX (reservation/keys.ts).
 export const ENGAGEMENT_KEY_PREFIX = 'babana:driver:engaged:';
+const CASH_BLOCKED_KEY_PREFIX = 'babana:driver:cash-blocked:';
 
 export function onlineFlagKey(driverId: string): string {
   return `${ONLINE_FLAG_PREFIX}${driverId}`;
@@ -22,4 +23,14 @@ export function onlineFlagKey(driverId: string): string {
 
 export function engagementKey(driverId: string): string {
   return `${ENGAGEMENT_KEY_PREFIX}${driverId}`;
+}
+
+/**
+ * Plafond d'encaisse franchi (D8, D28, L5-02) : posée par `driver/cash-guard.ts` sur signal
+ * d'Odoo (`POST /internal/drivers/cash-blocked`), consultée par le script d'éligibilité du pool
+ * (`redis/pool-eligibility.lua`, point de blocage 1) et par la résolution d'acceptation
+ * (`proposal/lifecycle.ts` via `ws/dispatch.ts`, point de blocage 2).
+ */
+export function cashBlockedKey(driverId: string): string {
+  return `${CASH_BLOCKED_KEY_PREFIX}${driverId}`;
 }

@@ -52,6 +52,11 @@ def _map_user_error(message: str) -> tuple[str, int]:
     (babana_ride_state.py) précisément pour cette traduction (L4-02R2, L4-02.md)."""
     if message == "DRIVER_ALREADY_TAKEN":
         return "DRIVER_ALREADY_TAKEN", 409
+    if message == "SETTLEMENT_AMOUNT_MISMATCH":
+        # 409, pas 400 : la forme de la requête est valide, c'est son contenu qui ne correspond
+        # plus au dû calculé côté serveur -- même famille que DRIVER_ALREADY_TAKEN (ce que
+        # l'appelant croyait vrai a changé entre-temps), pas une erreur de saisie.
+        return "SETTLEMENT_AMOUNT_MISMATCH", 409
     if "chauffeur approuvé" in message:
         return "DRIVER_NOT_APPROVED", 403
     return "VALIDATION_ERROR", 400
@@ -281,6 +286,40 @@ class RideController(http.Controller):
         payload["distanceMeters"] = round(ride.actual_distance_km * 1000)
         payload["durationSeconds"] = round(ride.actual_duration_minutes * 60)
         return payload, 200
+
+    # --- POST /rides/{id}/settle (L4-05) --------------------------------------------------------
+
+    @http.route("/api/v1/rides/<string:ride_id>/settle", **_ROUTE)
+    def settle_ride(self, ride_id, **_kwargs):
+        return self._dispatch("settleRide", lambda: self._settle_ride(ride_id))
+
+    def _settle_ride(self, ride_id):
+        env, user = _common.authenticated_user()
+        ride, driver, error = self._find_ride_and_assigned_driver(env, user, ride_id)
+        if error:
+            return error
+
+        body = _common.parse_json_body() or {}
+        amount_collected = body.get("amountCollected")
+        if not isinstance(amount_collected, (int, float)) or amount_collected < 0:
+            return _common.error_payload(
+                "VALIDATION_ERROR", "amountCollected (nombre positif) est requis"
+            ), 400
+
+        # Toute la logique -- transition, mouvement de compte courant, contrôle de plafond -- vit
+        # dans action_settle (invariant 3 : aucune règle métier dans le contrôleur). Un montant
+        # qui ne correspond pas au dû lève SETTLEMENT_AMOUNT_MISMATCH, traduite ci-dessous
+        # (_map_user_error ne la connaît pas : c'est un message littéral, pas une UserError
+        # générique -- même patron que DRIVER_ALREADY_TAKEN).
+        ride.sudo().action_settle(by_driver=driver, amount_collected=amount_collected)
+
+        driver.invalidate_recordset()
+        return {
+            "rideId": ride.public_id,
+            "state": "settled",
+            "amountCollected": amount_collected,
+            "driverCashBalance": driver.cash_balance,
+        }, 200
 
     @staticmethod
     def _validate_complete_body(body):

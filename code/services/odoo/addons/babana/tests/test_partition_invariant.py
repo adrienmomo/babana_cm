@@ -54,7 +54,7 @@ class TestPartitionInvariant(TransactionCase):
             actual_duration_minutes=actual_duration_minutes,
             final_amount=1500,
         )
-        ride.action_settle(by_driver=driver)
+        ride.action_settle(by_driver=driver, amount_collected=ride.final_amount)
         return ride
 
     def test_same_decision_count_produces_same_write_count_regardless_of_duration_and_distance(
