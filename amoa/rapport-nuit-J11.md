@@ -61,3 +61,47 @@ par une fraction flottante infinitésimale (`1200.00000000001` contre `1200`) es
 dernière section de ce rapport).
 
 ---
+
+## L5-03 — Modèle de remise de caisse
+
+`babana.cash.remittance` (nouveau) : `reference` (séquence dédiée `babana.cash.remittance`,
+préfixe `R%(year)s`, même patron que `babana.ride`), `public_id` (UUID, exposé à l'API mobile --
+`CreateRemittanceResponseSchema` du contrat C-01 attendait déjà un `id` UUID), `driver_id`,
+`expected_amount` (figé), `declared_amount`, `counted_amount`, `discrepancy_amount` (calculé),
+`state`, `supervisor_id`, `declared_at`, `validated_at`, `discrepancy_reason`, `move_id`
+(`account.move`, vide jusqu'à L5-05), `covered_movement_ids` (M2M vers `babana.cash.movement`),
+`ride_ids` (calculé depuis `covered_movement_ids.ride_id`).
+
+**Le gel se fait dans `create()`, pas dans une action dédiée.** `expected_amount` =
+`driver._babana_cash_balance()` à l'instant de la création (pas le champ calculé `cash_balance`,
+en cache -- même réflexe que `babana_cash_movement.py` l'applique déjà). `covered_movement_ids` =
+les mouvements `collection` du chauffeur pas encore couverts par une remise précédente (recherche
+`id not in <union des covered_movement_ids de toutes les remises existantes de ce chauffeur>`,
+restreinte au type `collection` -- jamais aux mouvements `remittance` ou `adjustment`, qui ne
+correspondent à aucune course). Cette restriction au type résout d'elle-même le risque qu'une
+remise vienne un jour "couvrir" son propre mouvement de sortie ou celui d'une remise antérieure.
+
+**`state` compte quatre valeurs (`draft`, `declared`, `validated`, `disputed`) mais `draft` n'est
+jamais atteint par le chemin normal** : L5-04 (prochaine tâche) crée directement en `declared` via
+`action_declare`. `draft` reste dans l'énumération pour respecter l'exhaustivité de la
+spécification, documenté comme tel dans le `help` du champ -- pas un oubli.
+
+**Immutabilité, deux formes distinctes.** `expected_amount` : jamais réécrit, à n'importe quel
+état (`write()` lève dès que ce champ apparaît dans `vals`, inconditionnellement -- il ne s'agit
+pas de protéger un état particulier, mais un fait déjà arrêté). Le reste des champs : bloqué
+seulement une fois `state == 'validated'` (vérifié sur l'état AVANT l'écriture, donc la
+transition elle-même vers `validated` passe -- même mécanisme que `babana_ride_state.py::write`).
+`disputed` n'est délibérément pas bloqué : L5-06 doit encore pouvoir y référencer un traitement
+d'écart après coup.
+
+**Tests** (`test_remittance_model.py`, 7 cas, les transitions L5-04 n'existant pas encore --
+création et écriture directes, comme `test_ride_state_machine.py` le faisait pour `babana.ride`
+avant L4-02R) : gel du montant attendu malgré un encaissement postérieur, non-couverture d'une
+course encaissée après coup, couverture explicite (une et deux courses), non-double-couverture
+entre deux remises successives, écart nul avant validation puis calculé après, immutabilité
+post-`validated`, et un contrôle négatif -- une remise `declared` reste modifiable (le
+superviseur doit pouvoir y écrire `counted_amount`).
+
+`make test` ciblé (`TestCashRemittanceModel`) : 7 tests, 0 échec.
+
+---
