@@ -84,6 +84,15 @@ const ConfigSchema = z.object({
    * cette réconciliation périodique, qui aligne les marqueurs de Redis sur les courses réellement
    * actives dans Odoo (source de vérité, D27) et journalise l'écart constaté à chaque passage. */
   ENGAGEMENT_RECONCILE_INTERVAL_SECONDS: z.coerce.number().int().positive().default(20),
+
+  /** Durée pendant laquelle un profil chauffeur en cache (L3-16, redis/driver-profiles.ts) est
+   * servi sans rafraîchissement -- "durée de vie courte" (spécification). PROVISOIRE au sens de
+   * D21, même écart que les valeurs de L3-02/L3-03/L3-04 : ce paramètre devrait vivre en base
+   * (L3-15, canal de configuration Odoo -> temps réel), qui n'existe pas encore. Passé ce délai,
+   * une entrée est rafraîchie à la prochaine lecture ; un profil jamais lu n'a pas d'entrée du
+   * tout (D30 : c'est nearby/projection.ts qui traduit son absence en champs à `null`, jamais ce
+   * paramètre). */
+  DRIVER_PROFILE_CACHE_TTL_SECONDS: z.coerce.number().positive().default(30),
 }).refine((config) => config.RESERVATION_TTL_SECONDS > config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS, {
   // Sans cette marge, le filet de sécurité Redis (RESERVATION_TTL_SECONDS) pourrait expirer une
   // réservation AVANT le minuteur JS qui doit normalement trancher en premier (proposal/timeout.ts)

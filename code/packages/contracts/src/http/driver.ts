@@ -21,14 +21,20 @@ export type NearbyDriversQuery = z.infer<typeof NearbyDriversQuerySchema>;
 /**
  * .strict() : mêmes garde-fous que nearby.drivers en C-02 (C2b) — rejeter le surplus, pas
  * seulement valider les champs présents. Aucun nom complet, téléphone ou immatriculation.
+ *
+ * firstName/photoUrl/rating/motorcycleClass nullables (D30) : un défaut de cache du profil
+ * chauffeur (L3-16) ne doit jamais retirer un chauffeur de la flotte -- seule une position
+ * manquante l'écarte (sans position, pas de distance, une liste "des plus proches" n'a plus de
+ * sens). `null` avoue l'absence de la donnée ; l'app affiche un avatar générique plutôt que
+ * d'inventer un prénom ou une note.
  */
 export const NearbyDriverSchema = z
   .object({
     driverId: DriverIdSchema,
-    firstName: z.string(),
+    firstName: z.string().nullable(),
     photoUrl: z.string().url().nullable(),
-    rating: z.number().min(0).max(5),
-    motorcycleClass: z.enum(['standard', 'premium']),
+    rating: z.number().min(0).max(5).nullable(),
+    motorcycleClass: z.enum(['standard', 'premium']).nullable(),
     /** Position arrondie — précision fixée dans docs/contracts/realtime-events.md (C-02), même règle que nearby.drivers. */
     position: LatLngSchema,
     distanceMeters: z.number().int().nonnegative(),

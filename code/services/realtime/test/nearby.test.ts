@@ -100,13 +100,19 @@ function configWith(overrides: Partial<Record<string, string>> = {}): Config {
   return parseConfig({ ...BASE_ENV, ...overrides });
 }
 
-describe('projectNearbyDrivers (L3-05)', () => {
+// ODOO_INTERNAL_URL (BASE_ENV) ne résout jamais depuis ce processus de test (nom d'hôte Docker,
+// `odoo`) : tout appel de secours vers `getDriverProfiles` (redis/driver-profiles.ts, L3-16)
+// échoue donc et laisse le cache tel quel -- exactement le comportement attendu du critère 2
+// (Odoo injoignable), déjà exercé par ces tests sans configuration Odoo dédiée.
+const config = configWith();
+
+describe('projectNearbyDrivers (L3-05, L3-16)', () => {
   test('critère 3 -- les positions renvoyées sont arrondies', async () => {
     const origin = { latitude: 4.12, longitude: 9.62 };
     const rawPosition = { latitude: 4.120123456, longitude: 9.620123456 };
     const driverId = await freshDriver('c3-driver', rawPosition);
 
-    const results = await projectNearbyDrivers(redis, origin, 3_000, 5);
+    const results = await projectNearbyDrivers(config, redis, origin, 3_000, 5);
     const found = results.find((r) => r.driverId === driverId);
     assert.ok(found, 'le chauffeur doit apparaître');
     assert.notEqual(found!.position.latitude, rawPosition.latitude, 'la position brute ne doit jamais être renvoyée telle quelle');
@@ -118,7 +124,7 @@ describe('projectNearbyDrivers (L3-05)', () => {
     const origin = { latitude: 4.0, longitude: 9.7 };
     const driverId = await freshDriver('c4-driver', origin);
 
-    const results = await projectNearbyDrivers(redis, origin, 3_000, 5);
+    const results = await projectNearbyDrivers(config, redis, origin, 3_000, 5);
     const found = results.find((r) => r.driverId === driverId);
     assert.ok(found);
     assert.deepEqual(Object.keys(found!).sort(), NEARBY_DRIVER_WHITELIST);
@@ -127,7 +133,11 @@ describe('projectNearbyDrivers (L3-05)', () => {
     }
   });
 
-  test('un chauffeur disponible sans profil en cache est omis, jamais complété par une valeur inventée (amoa/questions/L3-05.md)', async () => {
+  // D30 (amoa/questions/REPONSES-2026-08-18.md §2) : l'ancienne règle ("omis") a produit un
+  // blocage total en production -- aucun chauffeur réel ne portait de profil en cache, donc
+  // aucune liste, donc aucune course possible. Un défaut de cache ne retire plus jamais un
+  // chauffeur de la flotte ; seule l'absence de position (donc de distance) l'écarte.
+  test('un chauffeur disponible sans profil en cache reste présent, champs de profil à null (D30)', async () => {
     const origin = { latitude: 4.06, longitude: 9.7 };
     const driverId = id('c-no-profile');
     usedIds.add(driverId);
@@ -138,10 +148,17 @@ describe('projectNearbyDrivers (L3-05)', () => {
       60
     );
     await putInPool(redis,driverId, origin.latitude, origin.longitude);
-    // Pas de setDriverProfile ici, délibérément.
+    // Pas de setDriverProfile ici, délibérément -- et pas d'Odoo réel joignable à
+    // ODOO_INTERNAL_URL pour cette configuration (config() ci-dessous), donc pas de source pour
+    // ce chauffeur : le cas exact que D30 couvre.
 
-    const results = await projectNearbyDrivers(redis, origin, 3_000, 5);
-    assert.equal(results.some((r) => r.driverId === driverId), false);
+    const results = await projectNearbyDrivers(config, redis, origin, 3_000, 5);
+    const found = results.find((r) => r.driverId === driverId);
+    assert.ok(found, 'un chauffeur sans profil reste dans la liste, jamais omis');
+    assert.equal(found!.firstName, null);
+    assert.equal(found!.photoUrl, null);
+    assert.equal(found!.rating, null);
+    assert.equal(found!.motorcycleClass, null);
   });
 
   test("exactement 5 résultats renvoyés, les plus proches, même avec des positions expirées en masse (critère 2, en dur -- projection = géo-index + profil)", async () => {
@@ -159,7 +176,7 @@ describe('projectNearbyDrivers (L3-05)', () => {
       freshIds.push(await freshDriver(`c2-fresh-${i}`, { latitude: origin.latitude, longitude: origin.longitude + 0.01 + i * 0.0002 }));
     }
 
-    const results = await projectNearbyDrivers(redis, origin, 3_000, 5);
+    const results = await projectNearbyDrivers(config, redis, origin, 3_000, 5);
     assert.equal(results.length, 5, `attendu 5, obtenu ${results.length}`);
     assert.deepEqual(
       results.map((r) => r.driverId),

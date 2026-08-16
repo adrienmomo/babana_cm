@@ -54,7 +54,7 @@ export class NearbyManager {
         this.clearSubscription(context.userId);
         return;
       }
-      const drivers = await projectNearbyDrivers(this.redis, origin, radiusMeters, NEARBY_RESULT_LIMIT);
+      const drivers = await projectNearbyDrivers(this.config, this.redis, origin, radiusMeters, NEARBY_RESULT_LIMIT);
       // Précondition C-03 (L3-17) : mémorise cette liste comme "la dernière montrée à ce client",
       // pour que /internal/reservations puisse refuser un chauffeur jamais affiché.
       await recordLastSent(this.redis, context.userId, drivers.map((d) => d.driverId), this.config.NEARBY_LAST_SENT_TTL_SECONDS);

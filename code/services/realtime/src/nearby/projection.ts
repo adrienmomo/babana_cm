@@ -1,11 +1,12 @@
 import type Redis from 'ioredis';
 import { http } from '@babana/contracts';
+import type { Config } from '../config';
 import { findNearby } from '../redis/geo-index';
-import { getDriverProfile } from '../redis/driver-profiles';
+import { getDriverProfiles } from '../redis/driver-profiles';
 
 /**
  * Projection des chauffeurs proches (L3-05, D14) : géo-index (L3-03, position + distance) +
- * profil en cache (redis/driver-profiles.ts, amoa/questions/L3-05.md) -> `NearbyDriver` (C-02).
+ * profil en cache (redis/driver-profiles.ts, L3-16) -> `NearbyDriver` (C-02).
  *
  * **Liste blanche de champs, jamais une exclusion** (piège documenté par la spécification) : le
  * littéral ci-dessous construit chaque champ un par un depuis les sources disponibles. Ajouter un
@@ -13,36 +14,35 @@ import { getDriverProfile } from '../redis/driver-profiles';
  * client -- il faut l'ajouter ici, explicitement, en connaissance de cause (C2b, critère 4 :
  * aucune donnée personnelle au-delà du prénom, de la photo, de la note et de la gamme de moto).
  *
- * Un chauffeur disponible mais sans profil en cache est omis du résultat plutôt que complété par
- * une valeur inventée (amoa/questions/L3-05.md : rien n'écrit encore ce cache en production).
+ * **Un chauffeur disponible mais sans profil en cache reste dans le résultat, champs à `null`
+ * (D30).** Un défaut de cache ne doit jamais retirer un chauffeur de la flotte -- seule
+ * l'absence de position (donc de distance) l'écarte, `findNearby` ne renvoyant que des candidats
+ * positionnés. Voir amoa/questions/REPONSES-2026-08-18.md §2 : l'ancienne règle (omission) a
+ * produit un blocage total en production, aucun chauffeur réel ne portant de profil en cache.
  */
 export async function projectNearbyDrivers(
+  config: Config,
   redis: Redis,
   origin: { latitude: number; longitude: number },
   radiusMeters: number,
   limit: number
 ): Promise<http.NearbyDriver[]> {
   const candidates = await findNearby(redis, origin, radiusMeters, limit);
+  const profiles = await getDriverProfiles(config, redis, candidates.map((c) => c.driverId));
 
-  const projected: http.NearbyDriver[] = [];
-  for (const candidate of candidates) {
-    // eslint-disable-next-line no-await-in-loop -- ordre de distance croissante à préserver,
-    // même raisonnement que findNearby (geo-index.ts) : au plus `limit` candidats par appel.
-    const profile = await getDriverProfile(redis, candidate.driverId);
-    if (!profile) continue;
-
-    projected.push({
+  return candidates.map((candidate) => {
+    const profile = profiles.get(candidate.driverId);
+    return {
       driverId: candidate.driverId,
-      firstName: profile.firstName,
-      photoUrl: profile.photoUrl,
-      rating: profile.rating,
-      motorcycleClass: profile.motorcycleClass,
+      firstName: profile?.firstName ?? null,
+      photoUrl: profile?.photoUrl ?? null,
+      rating: profile?.rating ?? null,
+      motorcycleClass: profile?.motorcycleClass ?? null,
       position: {
         latitude: http.roundToNearbyPrecision(candidate.latitude),
         longitude: http.roundToNearbyPrecision(candidate.longitude),
       },
       distanceMeters: Math.round(candidate.distanceMeters),
-    });
-  }
-  return projected;
+    };
+  });
 }

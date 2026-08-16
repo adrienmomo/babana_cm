@@ -21,7 +21,6 @@ import requests
 from odoo.tests.common import HttpCase, tagged
 
 from ._realtime_ws import bring_driver_online, make_driver_visible_to_client
-from ._redis_fixture import seed_driver_profile
 
 
 def _mock_google_base_url() -> str:
@@ -113,11 +112,10 @@ class TestRideController(HttpCase):
         bring_driver_online(
             driver_token, self._DEFAULT_POSITION["latitude"], self._DEFAULT_POSITION["longitude"]
         )
-        # Champ-pont (amoa/questions/L3-05.md, code/docs/bridge-fields.md) : nearby.drivers omet
-        # TOUJOURS un chauffeur sans profil en cache -- aucun canal Odoo -> temps réel ne le
-        # peuple encore (L3-16, jamais implémentée). Seedé directement, comme test/nearby.test.ts
-        # le fait déjà côté TypeScript.
-        seed_driver_profile(driver.public_id, first_name=f"Chauffeur {sub}")
+        # Aucun profil à seeder (L3-16, D30) : un chauffeur en ligne et positionné apparaît dans
+        # nearby.drivers même sans profil en cache -- le service temps réel le lira réellement
+        # depuis Odoo (controllers/internal_profiles.py) au premier passage, champs à `null` si
+        # jamais lu à temps, mais jamais omis.
         for client_token in client_tokens:
             make_driver_visible_to_client(client_token, driver.public_id, self._DEFAULT_POSITION)
         return driver_token, driver
