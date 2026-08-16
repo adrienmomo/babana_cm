@@ -37,6 +37,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D30 | **Une donnée de profil manquante dégrade l'affichage d'un chauffeur, elle ne le retire jamais de la flotte.** Champs à `null`, jamais omission | Omettre le chauffeur | L'omission a produit un blocage total : aucun profil en cache, donc aucune liste, donc aucune course possible. Un défaut de cache ne doit pas rendre quelqu'un invisible |
 | D31 | **Acceptation et refus n'ont qu'un chemin d'écriture** : `proposal.accept` / `proposal.reject` en temps réel, puis transition Odoo par le canal interne. Les endpoints HTTP publics sont retirés | Endpoints HTTP en parallèle du temps réel | D26 remonté d'un cran : un état à deux écrivains, dont l'un ignore l'autre |
 | D32 | **Un appel sortant vers le service temps réel se déclenche au commit de la transaction Odoo, jamais pendant** | Appel direct dans le contrôleur, synchrone ou en fil de fond | Une transaction rejouée ou annulée aurait déjà modifié Redis pour une décision qui n'a pas eu lieu. Voir §2 ter |
+| D33 | **Un appel au commit ne s'enregistre jamais depuis l'intérieur d'un savepoint** : l'intention est retenue, puis enregistrée à la sortie réussie du bloc | Enregistrement au point où l'effet se produit | Le point d'accroche au commit ignore les savepoints. Or ce dépôt annule des savepoints dans des transactions qui commitent ensuite pour renvoyer leur erreur. Voir §2 ter |
 
 ---
 
@@ -112,6 +113,12 @@ Le 16 août, la réservation atomique a été livrée avec un script Lua irrépr
 **Le corollaire, découvert le 17 août (D32) : un effet hors de la base ne doit jamais partir avant le commit.** L'annulation d'une course déclenchait, depuis le contrôleur, le relâchement de la réservation et l'effacement de l'engagement côté Redis — dans un fil de fond, mais surtout **pendant la transaction**. Or D25 dit qu'Odoo rejoue ou annule une transaction en conflit. Une annulation qui échoue au commit laisse alors Redis dans l'état d'une annulation qui n'a pas eu lieu : le chauffeur revient au pool alors que sa course est toujours vivante.
 
 C'est le même raisonnement que D26, appliqué à travers la frontière des deux services. À l'intérieur d'une base, la transaction protège de ça toute seule ; dès qu'un effet sort de la base, plus rien ne le rattrape. Tout appel sortant se déclenche donc **au commit**, jamais avant. Odoo fournit ce point d'accroche ; il ne se remplace pas par un fil de fond, qui répond à une autre question — la latence, pas l'atomicité.
+
+**Et le corollaire du corollaire (D33), trouvé le 19 août en relisant l'encaissement.** Le point d'accroche au commit **ignore les savepoints** : un rappel enregistré à l'intérieur d'un savepoint survit à l'annulation de ce savepoint et s'exécute quand même, dès lors que la transaction englobante commite.
+
+Ce n'est pas une bizarrerie théorique ici, parce que ce dépôt commite délibérément des transactions dont un savepoint a été annulé : c'est ainsi qu'un contrôleur renvoie une erreur métier propre après un conflit. Les deux idiomes — savepoint pour l'erreur, accroche au commit pour l'effet externe — sont chacun corrects et ne composent pas.
+
+La règle est donc de les séparer dans le temps : **l'intention est retenue pendant le savepoint, enregistrée après sa sortie réussie.** Écrit autrement : un effet qui sort de la base ne s'annonce qu'une fois qu'on sait qu'il a vraiment eu lieu, et le savepoint est précisément l'endroit où on ne le sait pas encore.
 
 **Réservation et engagement sont deux états distincts, et c'est leur durée qui les sépare.** Une réservation expire vite, parce qu'un chauffeur qui ne répond pas doit être libéré. Une course n'a pas de durée prévisible : un embouteillage ne doit pas remettre au pool un chauffeur qui transporte quelqu'un. Confondre les deux revient à borner la durée d'une course par un délai d'acceptation.
 

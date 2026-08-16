@@ -695,6 +695,10 @@ Ce qui n'est pas acceptable, c'est de ne pas trancher. Un appel sortant non idem
 
 **Sens temps réel → Odoo** : c'est L3-12, et rien ici ne doit le réimplémenter. Acceptation, refus et expiration écrivent leurs transitions par ce chemin-là.
 
+**Les routes internes d'écriture ne sont pas un point d'entrée** (précision du 19 août). `/api/internal/rides/{id}/driver-accepted` et sa jumelle pour le refus sont la **seconde moitié** d'une opération dont la première est `ProposalLifecycle.accept()` / `.reject()`. Les appeler directement écrit bien la transition dans Odoo, et laisse la réservation Redis en place et le minuteur d'expiration armé — un chauffeur affecté qui reste « réservé » indéfiniment, invisible pour tout le monde.
+
+Découvert en écrivant le scénario 3 de L4-11, dont la préparation prenait ce raccourci. Les scénarios 1 et 2 ne l'avaient jamais montré parce que leur nettoyage passe par une annulation, qui relâche la réservation en effet de bord sans le nommer. La règle : ces routes n'ont qu'un appelant légitime, et un test qui a besoin d'amener une course à `assigned` emprunte le vrai chemin.
+
 **La précondition C-03 « chauffeur présent dans la dernière liste des 5 »**, signalée depuis L3-06 et jamais vérifiée nulle part, se traite ici : c'est la première fois que les deux côtés se parlent, donc la première fois que la vérification a un effet.
 
 **Fin de course : le marqueur d'engagement s'efface.** Sans quoi le chauffeur ne revient jamais dans le pool.

@@ -251,6 +251,12 @@ Le montant encaissé est le montant final, sans saisie libre : un chauffeur ne s
 
 Un écart réel — le client n'a pas l'appoint — se traite en remise de caisse (L5-06), pas ici.
 
+**Deux précisions du 19 août, après relecture.**
+
+**La comparaison des montants passe par la comparaison monétaire d'Odoo**, à la précision de la devise, jamais par une égalité de flottants. Le franc CFA n'a pas de sous-unité et les montants stockés sont arrondis à l'unité, si bien qu'une égalité stricte fonctionne aujourd'hui — mais elle dépend d'un arrondi qui se produit ailleurs, et un montant qui prendrait un jour une fraction rendrait l'encaissement **définitivement impossible** pour cette course, avec un message qui accuserait le chauffeur d'avoir saisi un montant différent. C'est un cas où le coût de la prudence est d'une ligne et le coût de l'erreur est une course qui ne se solde jamais.
+
+**L'appel sortant qui annonce le franchissement du plafond ne s'enregistre pas dans le savepoint** (D33). L'intention est retenue pendant le bloc, enregistrée après sa sortie réussie.
+
 ### Critères d'acceptation
 
 1. L'encaissement incrémente le compte courant du montant exact.
@@ -258,6 +264,7 @@ Un écart réel — le client n'a pas l'appoint — se traite en remise de caiss
 3. Un double encaissement est impossible.
 4. Le chauffeur ne peut pas saisir un montant différent.
 5. Le passage au plafond met hors ligne dans la même transaction.
+6. **Un savepoint annulé ne laisse partir aucune notification** — y compris quand la transaction englobante commite ensuite pour renvoyer son erreur métier.
 
 ---
 
