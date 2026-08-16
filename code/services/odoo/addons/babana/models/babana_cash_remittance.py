@@ -1,6 +1,6 @@
-# Remise de caisse chauffeur (D8, L5-03, L5-04). Le chauffeur déclare ce qu'il remet
+# Remise de caisse chauffeur (D8, L5-03, L5-04, L5-05). Le chauffeur déclare ce qu'il remet
 # (action_declare), un superviseur compte et valide (action_validate) -- la double saisie est ce
-# qui rend un écart détectable.
+# qui rend un écart détectable. La validation pose aussi la pièce comptable (L5-05).
 from __future__ import annotations
 
 import uuid
@@ -9,6 +9,14 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 
 from ..services import realtime_client
+
+# L5-05 : comptes et journal paramétrables (invariant 5), jamais codés en dur -- voir
+# data/accounting_config.xml pour les valeurs par défaut (provisoires, plan comptable générique
+# de démonstration, pas OHADA -- même réserve que CASH_LIMIT_FALLBACK, babana_driver.py).
+CASH_REMITTANCE_JOURNAL_PARAM = "babana.cash_remittance_journal_id"
+CASH_REMITTANCE_CASH_ACCOUNT_PARAM = "babana.cash_remittance_cash_account_id"
+CASH_REMITTANCE_RECEIVABLE_ACCOUNT_PARAM = "babana.cash_remittance_receivable_account_id"
+CASH_REMITTANCE_DISCREPANCY_ACCOUNT_PARAM = "babana.cash_remittance_discrepancy_account_id"
 
 
 class BabanaCashRemittance(models.Model):
@@ -90,8 +98,9 @@ class BabanaCashRemittance(models.Model):
         "account.move",
         copy=False,
         ondelete="restrict",
-        help="Pièce comptable de la validation (L5-05, hors de ce lot) -- vide tant que cette "
-        "tâche n'existe pas ; le champ existe déjà pour l'accueillir sans migration.",
+        help="Pièce comptable de la validation (L5-05) -- vide tant que la remise n'est pas "
+        "validée. La pièce référence la remise en retour (account_move.py, L5-05) : référence "
+        "mutuelle (critère d'acceptation 4 de L5-05).",
     )
     covered_movement_ids = fields.Many2many(
         "babana.cash.movement",
@@ -219,18 +228,33 @@ class BabanaCashRemittance(models.Model):
 
         concordant = self.currency_id.compare_amounts(counted_amount, self.declared_amount) == 0
         new_state = "validated" if concordant else "disputed"
-
-        vals = {
-            "counted_amount": counted_amount,
-            "state": new_state,
-            "supervisor_id": supervisor.id,
-            "validated_at": fields.Datetime.now(),
-        }
-        if reason is not None:
-            vals["discrepancy_reason"] = reason
+        # Calculé ici, pas lu sur self.discrepancy_amount (compute, ne reflète le nouveau
+        # counted_amount qu'après le write() plus bas) -- et surtout pas dans un second write()
+        # après coup : le premier aura déjà posé state='validated' le cas échéant, et le garde-
+        # fou d'immutabilité (write(), critère 4 de L5-03) bloquerait tout appel suivant, y
+        # compris depuis l'intérieur de cette méthode.
+        discrepancy_amount = self.expected_amount - counted_amount
 
         with self.env.cr.savepoint():
+            # La pièce comptable d'abord (L5-05) : son échec (compte non configuré, par exemple)
+            # ne doit laisser aucun des trois effets appliqué, même raisonnement que
+            # action_settle -- et move_id part dans le MÊME write() que la transition, plus bas,
+            # jamais un second après coup (voir la note ci-dessus).
+            move = self._babana_post_accounting_entry(
+                counted_amount=counted_amount, discrepancy_amount=discrepancy_amount
+            )
+
+            vals = {
+                "counted_amount": counted_amount,
+                "state": new_state,
+                "supervisor_id": supervisor.id,
+                "validated_at": fields.Datetime.now(),
+                "move_id": move.id,
+            }
+            if reason is not None:
+                vals["discrepancy_reason"] = reason
             self.write(vals)
+
             if counted_amount:
                 # Un compte à zéro (chauffeur qui déclare, puis remet effectivement 0 -- écart
                 # total) ne crée aucun mouvement : babana_cash_movement.py interdit un mouvement
@@ -256,6 +280,91 @@ class BabanaCashRemittance(models.Model):
             )
 
         return self
+
+    def _babana_accounting_param(self, param: str, label: str) -> int:
+        value = self.env["ir.config_parameter"].sudo().get_param(param)
+        if not value:
+            raise UserError(
+                f"{label} n'est pas configuré ({param}) -- impossible de poser la pièce "
+                "comptable de la remise (L5-05)."
+            )
+        return int(value)
+
+    def _babana_post_accounting_entry(self, *, counted_amount, discrepancy_amount):
+        """Pièce comptable de la validation (L5-05) : `account.move` natif d'Odoo, pas un modèle
+        maison (`01-architecture.md` §6) -- numérotation légale, PDF et envoi par email sont
+        acquis sans code supplémentaire. Deux paires débit/crédit distinctes plutôt qu'une
+        seule fusionnée : un écart absorbé dans le montant principal serait invisible au
+        contrôle (spécification, critère d'acceptation 3).
+
+        Le compte de créance sur les chauffeurs est crédité pour le montant attendu EN ENTIER
+        (counted_amount + discrepancy_amount = expected_amount) : la créance de cette remise est
+        soldée en comptabilité, l'écart est reclassé sur son propre compte de suivi -- pas
+        laissé tel quel sur la créance générale. Ceci ne contredit pas D29 : le compte courant
+        Odoo (babana.cash.movement, source du plafond) est un système distinct, qui continue
+        pour sa part de porter l'écart au débit du chauffeur (action_validate, ci-dessus) --
+        deux systèmes, deux vérités compatibles, pas une seule redondante.
+
+        Aucun montant nul : une paire dont le montant serait 0 (compte à zéro entièrement en
+        écart, ou remise sans le moindre écart) n'est simplement pas ajoutée aux lignes."""
+        self.ensure_one()
+        journal_id = self._babana_accounting_param(
+            CASH_REMITTANCE_JOURNAL_PARAM, "Le journal de caisse"
+        )
+        cash_account_id = self._babana_accounting_param(
+            CASH_REMITTANCE_CASH_ACCOUNT_PARAM, "Le compte de caisse"
+        )
+        receivable_account_id = self._babana_accounting_param(
+            CASH_REMITTANCE_RECEIVABLE_ACCOUNT_PARAM,
+            "Le compte de créance sur les chauffeurs",
+        )
+
+        line_vals = []
+        if counted_amount:
+            line_vals += [
+                (0, 0, {
+                    "name": f"Remise de caisse {self.reference}",
+                    "account_id": cash_account_id,
+                    "debit": counted_amount,
+                    "credit": 0.0,
+                }),
+                (0, 0, {
+                    "name": f"Remise de caisse {self.reference}",
+                    "account_id": receivable_account_id,
+                    "debit": 0.0,
+                    "credit": counted_amount,
+                }),
+            ]
+        if discrepancy_amount:
+            discrepancy_account_id = self._babana_accounting_param(
+                CASH_REMITTANCE_DISCREPANCY_ACCOUNT_PARAM, "Le compte d'écart"
+            )
+            line_vals += [
+                (0, 0, {
+                    "name": f"Écart de caisse {self.reference}",
+                    "account_id": discrepancy_account_id,
+                    "debit": discrepancy_amount,
+                    "credit": 0.0,
+                }),
+                (0, 0, {
+                    "name": f"Écart de caisse {self.reference}",
+                    "account_id": receivable_account_id,
+                    "debit": 0.0,
+                    "credit": discrepancy_amount,
+                }),
+            ]
+
+        move = self.env["account.move"].sudo().create(
+            {
+                "move_type": "entry",
+                "journal_id": journal_id,
+                "date": fields.Date.today(),
+                "ref": self.reference,
+                "line_ids": line_vals,
+            }
+        )
+        move.sudo().action_post()
+        return move
 
     def button_validate(self):
         """Bouton du formulaire (`views/babana_remittance_views.xml`) : sans argument, contra-

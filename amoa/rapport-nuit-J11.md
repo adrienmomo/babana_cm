@@ -203,3 +203,69 @@ reproduise : un 404 inattendu sur une route tout juste ajoutée côté temps ré
 qu'elle a vraiment rechargé avant de chercher plus loin dans le code.
 
 ---
+
+## L5-05 — Écriture comptable
+
+**`account.move` natif, pas de modèle maison** (`01-architecture.md` §6) -- numérotation légale,
+PDF et envoi par email acquis sans code supplémentaire.
+
+**Le plan comptable de démonstration n'est pas OHADA.** Vérifié avant d'écrire quoi que ce soit
+(`env["res.company"].chart_template`) : la base installe le plan générique d'Odoo
+(`generic_coa`, comptes numérotés à l'anglaise), pas le plan OHADA en usage au Cameroun. Plutôt que
+de prêter un rôle détourné à un compte générique existant (`121000`, déjà la créance client
+standard) ou d'inventer de faux codes OHADA, `data/accounting_config.xml` pose trois comptes et un
+journal propres au module -- valeurs par défaut explicitement provisoires, même réserve que
+`CASH_LIMIT_FALLBACK` (`babana_driver.py`, "à confirmer en pilote"). Numérotation dans la famille
+OHADA classe 4 (comptes de tiers) à titre indicatif, pas une prétention d'exactitude. Les quatre
+comptes/journal sont ensuite lus par `ir.config_parameter` (invariant 5) -- un administrateur qui
+installe un vrai plan OHADA au pilote repointe les quatre paramètres, sans toucher au code.
+
+Le compte de caisse est un enregistrement XML explicite plutôt que le `default_account_id`
+auto-provisionné par la création d'un journal `type='cash'` : vérifié en écrivant cette tâche
+(`odoo shell`) qu'Odoo en crée bien un automatiquement, mais son xmlid n'est pas prévisible depuis
+un fichier de données statique -- même compte réel, juste une référence stable pour y pointer.
+
+**Deux paires débit/crédit distinctes**, jamais fusionnées : la caisse (`compte de caisse` /
+`compte de créance`) pour `counted_amount`, et si l'écart est non nul, une seconde paire
+(`compte d'écart` / `compte de créance`) pour la différence -- critère 3, "un écart absorbé dans le
+montant principal est invisible au contrôle". La créance sur ce chauffeur est donc soldée en
+comptabilité pour le montant attendu EN ENTIER (les deux paires s'additionnent), l'écart reclassé
+sur son propre compte de suivi plutôt que laissé tel quel sur la créance générale. **Ceci ne
+contredit pas D29** : le compte courant Odoo (`babana.cash.movement`, source réelle du plafond)
+reste un système distinct, qui continue de porter l'écart au débit du chauffeur -- deux systèmes,
+deux vérités compatibles, pas une seule redondante. Aucune ligne à montant nul : une remise sans
+écart ne pose pas de paire écart, une remise entièrement en écart (`counted_amount` nul) ne pose
+pas de paire caisse.
+
+**Piège évité en écrivant `action_validate`** (retouché cette nuit) : la pièce comptable doit être
+créée *avant* le `write()` qui pose `state='validated'`, jamais après dans un second `write()` --
+l'immutabilité post-validation (critère 4 de L5-03) aurait sinon bloqué ce second appel, y compris
+depuis l'intérieur de la même méthode. `move_id` part donc dans le même `write()` que la
+transition, le montant de l'écart est calculé en Python (`expected_amount - counted_amount`)
+plutôt que lu sur `discrepancy_amount` (champ calculé, qui ne refléterait le nouveau
+`counted_amount` qu'après ce même `write()`). Trouvé en écrivant le test d'atomicité, pas en
+production -- mais c'est exactement la classe de défaut que L4-05/D33 vient de documenter cette
+nuit dans `odoo-pitfalls.md`, un cousin de la même famille.
+
+**Immutabilité, vérifiée plutôt que supposée.** Une pièce postée refuse `unlink()`
+(`UserError` natif d'Odoo) mais **accepte `write()` sur des champs non financiers** (`ref`,
+`narration`) -- constaté en écrivant le test, pas un défaut de ce lot : Odoo protège les lignes
+comptables (débit/crédit/compte), pas les champs de métadonnées. Le critère 5 ("annuler une pièce
+validée est impossible sans passer par un mécanisme d'extourne tracé") est vérifié sur
+`_reverse_moves()` (natif) plutôt que sur un blocage total de `write()`, qui n'existe pas et
+n'aurait pas de sens à ajouter -- une pièce dont on ne pourrait plus jamais corriger le libellé ne
+serait pas plus sûre, seulement plus pénible.
+
+**Tests** (`test_remittance_accounting.py`, 8 cas) : pièce équilibrée, référence mutuelle
+(`move.ref == remittance.reference`, `remittance.move_id == move`), écart sur son propre compte
+avec le bon montant (scénario D29 : 45 000 dus, 40 000 remis, 5 000 en écart), absence de ligne
+d'écart sur une remise complète, comptes/journal effectivement lus depuis la configuration (testé
+en la changeant), configuration manquante bloque la validation sans rien appliquer (atomicité),
+suppression directe refusée, extourne tracée qui fonctionne.
+
+`make test` ciblé (`TestRemittanceAccounting`) : 8 tests, 0 échec. Suite complète relancée après
+(`TestRemittanceValidation`, `TestRemittanceController`, `TestCashRemittanceModel`,
+`TestCashLimitRealtimeChannel`, `TestSettlement`) : 33 tests, 0 échec -- aucune régression de la
+restructuration d'`action_validate`.
+
+---

@@ -16,6 +16,7 @@ racine du dépôt pour le contexte complet.
         'security/ir.model.access.csv',
         'data/babana_ride_sequence.xml',
         'data/babana_cash_remittance_sequence.xml',
+        'data/accounting_config.xml',
         'data/cron.xml',
         'views/babana_motorcycle_views.xml',
         'views/babana_driver_views.xml',
