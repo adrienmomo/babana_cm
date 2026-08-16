@@ -31,7 +31,7 @@ import {
   Session,
   signIn,
 } from './helpers/odoo-session';
-import { makeDriverSelectable, waitForDriverVisible } from './helpers/realtime';
+import { acceptProposalOverWs, makeDriverSelectable, waitForDriverVisible } from './helpers/realtime';
 
 // Même point que odoo-session.ts::createRideRequest -- le chauffeur doit être positionné là où
 // nearby.subscribe le cherchera (précondition C-03, L3-17).
@@ -59,6 +59,7 @@ interface Actors {
   driverSession: Session;
   driverPublicId: string;
   clientSocket: WebSocket;
+  driverSocket: WebSocket;
 }
 
 const openSockets: WebSocket[] = [];
@@ -85,7 +86,7 @@ async function setUpActors(label: string): Promise<Actors> {
     [clientSession.accessToken]
   );
   openSockets.push(driverSocket, ...clientSockets);
-  return { clientSession, driverSession, driverPublicId, clientSocket: clientSockets[0]! };
+  return { clientSession, driverSession, driverPublicId, clientSocket: clientSockets[0]!, driverSocket };
 }
 
 async function proposedRide(actors: Actors, debugLabel = ''): Promise<string> {
@@ -105,6 +106,33 @@ async function proposedRide(actors: Actors, debugLabel = ''): Promise<string> {
     select.status,
     200,
     `select-driver a échoué en préparation (${debugLabel}) : ${JSON.stringify(select.body)}`
+  );
+  return ridePublicId;
+}
+
+/** Mène une course jusqu'à 'completed' (L4-11, scénario 3) : proposée, acceptée (par le VRAI
+ * chemin temps réel, `proposal.accept` -- PAS le canal interne : ce scénario cible la
+ * concurrence sur `/settle`, pas sur l'acceptation, et a besoin que l'état temps réel (réservation
+ * relâchée, minuteur d'expiration annulé) reste cohérent pour que le chauffeur redevienne
+ * sélectionnable à l'itération suivante -- voir le commentaire d'acceptProposalOverWs), démarrée,
+ * terminée. Le montant (1500, posé par createRideRequest dans helpers/odoo-session.ts) doit être
+ * non nul -- action_settle refuse un mouvement de compte courant à zéro (L5-01). */
+async function completedRide(actors: Actors, debugLabel = ''): Promise<string> {
+  const ridePublicId = await proposedRide(actors, debugLabel);
+  await acceptProposalOverWs(actors.driverSocket, ridePublicId);
+  const acceptedState = await readRideState(ridePublicId);
+  assert.equal(acceptedState, 'assigned', `accept a échoué en préparation (${debugLabel}) : état ${acceptedState}`);
+  const start = await callRideEndpoint(`/rides/${ridePublicId}/start`, actors.driverSession);
+  assert.equal(start.status, 200, `start a échoué en préparation (${debugLabel}) : ${JSON.stringify(start.body)}`);
+  const complete = await callRideEndpoint(`/rides/${ridePublicId}/complete`, actors.driverSession, {
+    distanceMeters: 4200,
+    durationSeconds: 600,
+    polyline: 'abc123',
+  });
+  assert.equal(
+    complete.status,
+    200,
+    `complete a échoué en préparation (${debugLabel}) : ${JSON.stringify(complete.body)}`,
   );
   return ridePublicId;
 }
@@ -278,7 +306,55 @@ test(
 );
 
 // --- Scénario 3 : encaissement concurrent --------------------------------------------------
+// Deux action_settle réellement simultanés sur la même course 'completed'. Exclusion mutuelle
+// réelle (contrairement au scénario 2) : un seul encaissement peut jamais réussir. "Une seule
+// facture" (spécification) n'est pas vérifié ici -- L4-06 (génération de facture) est hors de ce
+// lot, voir amoa/questions/L4-05.md ; "un seul mouvement de compte courant" l'est.
 
-test('scénario 3 -- encaissement concurrent', {
-  skip: 'POST /rides/{id}/settle non implémenté (L4-03 dépend de L4-05/L5-01, hors de ce lot) -- voir amoa/questions/L4-03.md',
-}, () => {});
+test(
+  `scénario 3 -- encaissement concurrent (${ITERATIONS} itérations)`,
+  { timeout: 180_000 },
+  async () => {
+    const actors = await setUpActors('s3');
+
+    for (let iteration = 0; iteration < ITERATIONS; iteration += 1) {
+      const ridePublicId = await completedRide(actors, `s3 iteration ${iteration}`);
+
+      // eslint-disable-next-line no-await-in-loop -- chaque itération doit être résolue avant la
+      // suivante, la concurrence testée est DANS l'itération (les deux appels ci-dessous).
+      const [responseA, responseB] = await Promise.all([
+        callRideEndpoint(`/rides/${ridePublicId}/settle`, actors.driverSession, { amountCollected: 1500 }),
+        callRideEndpoint(`/rides/${ridePublicId}/settle`, actors.driverSession, { amountCollected: 1500 }),
+      ]);
+
+      const successes = [responseA, responseB].filter((r) => r.status === 200);
+      const failures = [responseA, responseB].filter((r) => r.status !== 200);
+
+      assert.equal(
+        successes.length,
+        1,
+        `itération ${iteration} : exactement un succès attendu sur les deux encaissements concurrents, obtenu ${successes.length} -- ${JSON.stringify([responseA, responseB])}`,
+      );
+      assert.equal(failures.length, 1);
+      assert.equal(
+        failures[0]!.body?.error?.code,
+        'RIDE_INVALID_TRANSITION',
+        `itération ${iteration} : le perdant doit échouer proprement (déjà 'settled'), pas par un double mouvement -- ${JSON.stringify(failures[0]!.body)}`,
+      );
+
+      // eslint-disable-next-line no-await-in-loop
+      const finalState = await readRideState(ridePublicId);
+      assert.equal(finalState, 'settled', `itération ${iteration} : état final incohérent (${finalState})`);
+
+      // eslint-disable-next-line no-await-in-loop
+      const movementCount = await execute<number>('babana.cash.movement', 'search_count', [
+        [['ride_id.public_id', '=', ridePublicId]],
+      ]);
+      assert.equal(
+        movementCount,
+        1,
+        `itération ${iteration} : un seul mouvement de compte courant attendu, obtenu ${movementCount}`,
+      );
+    }
+  },
+);

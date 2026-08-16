@@ -260,6 +260,11 @@ export async function createRideRequest(session: Session): Promise<{ ridePublicI
       pickup_longitude: 9.7,
       dropoff_latitude: 4.06,
       dropoff_longitude: 9.77,
+      // Montant plausible (L4-11, scénario 3, encaissement) : une course créée directement par
+      // action_request (pas par le vrai parcours quote -> createRide) n'a sinon aucun montant --
+      // action_settle refuserait alors la création du mouvement de compte courant (L5-01, montant
+      // non nul).
+      estimated_amount: 1500,
     },
   ]);
 

@@ -219,3 +219,24 @@ export async function makeDriverSelectable(
   }
   return { driverSocket, clientSockets };
 }
+
+/**
+ * Accepte une proposition par le VRAI chemin (D31, `proposal.accept` en temps réel) -- jamais par
+ * le canal interne (`/api/internal/rides/{id}/driver-accepted`), qui n'est destiné qu'à Odoo. Un
+ * scénario qui a besoin d'une course réellement `assigned` puis relâchée normalement (le
+ * chauffeur redevenant sélectionnable ensuite) doit passer par ici : appeler l'endpoint interne
+ * directement contourne `ProposalLifecycle.accept()` (résolution de la réservation, annulation du
+ * minuteur d'expiration) -- la réservation posée par `propose()` reste alors active indéfiniment
+ * (jusqu'à son TTL), et le chauffeur n'apparaît plus dans `nearby.drivers` tant qu'elle n'a pas
+ * expiré ou été relâchée par un mécanisme qui la connaît (`/cancel`, par exemple -- voir
+ * ride-transitions.test.ts, scénarios 1 et 2, où le nettoyage entre itérations passe justement par
+ * `/cancel`). Utile là où le test cible autre chose que l'acceptation elle-même (ex. L4-11
+ * scénario 3, l'encaissement) et a besoin que l'état temps réel reste cohérent après.
+ */
+export async function acceptProposalOverWs(driverSocket: WebSocket, rideId: string): Promise<void> {
+  driverSocket.send(JSON.stringify(envelope('proposal.accept', { rideId })));
+  // Pas d'accusé de réception direct pour le chauffeur (seul le client reçoit ride.assigned) --
+  // laisse le temps au serveur de résoudre avant de continuer, même principe que
+  // bringDriverOnline ci-dessus.
+  await new Promise((resolve) => setTimeout(resolve, 500));
+}

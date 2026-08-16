@@ -229,4 +229,43 @@ ancienne, `test_rotate_produces_new_pair_and_invalidates_old`, reconfirmé sur b
 de session). `npm run typecheck --workspaces` et `npm run lint --workspaces` propres sur tout
 l'arbre. Suite `@babana/realtime` complète (`npm test`, contre Redis réel) : 110 tests, tout vert.
 
+## Vérification finale sur base fraîche, et L4-11 scénario 3 débloqué
+
+`make reset` puis `make up` puis `make test` (le vrai chemin, `-i babana` sur une base neuve
+plutôt que `-u`) : **2130 tests Odoo, 0 échec, 0 erreur** -- y compris
+`test_rotate_produces_new_pair_and_invalidates_old`, vert comme attendu sur base fraîche (artefact
+de base ancienne, pas un défaut réel, confirmé une fois de plus). 397 tests portés par le module
+`babana` lui-même.
+
+**`POST /rides/{id}/settle` existant maintenant, le scénario 3 de L4-11 (« encaissement
+concurrent »), laissé `test.skip` depuis sa création, est débloqué.** Deux `action_settle`
+réellement simultanés sur la même course `completed` : exactement un succès, l'autre
+`RIDE_INVALID_TRANSITION`, un seul mouvement de compte courant créé -- vérifié par requête RPC
+directe (`babana.cash.movement`, `search_count`), pas seulement par les codes de retour. 20
+itérations, toutes vertes, aux côtés des scénarios 1 et 2 rejoués sans régression.
+
+**Piège trouvé en l'écrivant, du genre que ce protocole demande de ne pas contourner.** La première
+version amenait la course jusqu'à `completed` en acceptant par le canal interne
+(`/api/internal/rides/{id}/driver-accepted`, comme le scénario 1) -- raisonnable en apparence,
+puisque D31 en fait le seul chemin d'écriture restant. Mais appeler ce canal directement contourne
+`ProposalLifecycle.accept()` côté temps réel : la réservation posée par `propose()` n'est jamais
+relâchée, le minuteur d'expiration de la proposition (30 s par défaut) n'est jamais annulé. La
+course avance bien côté Odoo, mais le chauffeur reste « réservé » indéfiniment côté Redis --
+invisible dans `nearby.drivers` dès la deuxième itération, `waitForDriverVisible` finit par
+expirer après 20 s. Les scénarios 1 et 2 ne l'avaient jamais révélé : leur nettoyage entre
+itérations passe par `/cancel`, qui relâche la réservation en effet de bord sans le nommer. Le
+scénario 3, qui termine par `settled` plutôt que par une annulation, n'avait pas ce filet.
+
+**Corrigé en acceptant par le VRAI chemin** (nouvelle aide `acceptProposalOverWs`,
+`helpers/realtime.ts`, `proposal.accept` sur la connexion WebSocket du chauffeur) plutôt qu'en
+élargissant artificiellement le nettoyage entre itérations pour compenser un raccourci de test. Le
+canal interne reste le bon choix pour le scénario 1 (qui teste précisément le verrouillage
+d'Odoo) ; il ne l'est pas ici, où l'acceptation n'est qu'une préparation.
+
+Un second ajustement, même famille que le générateur L4-10 plus haut : `createRideRequest`
+(`helpers/odoo-session.ts`, partagée par les trois scénarios) ne posait aucun montant --
+`action_settle` aurait refusé la création du mouvement de compte courant (L5-01, montant non nul).
+`estimated_amount: 1500` ajouté, sans effet sur les scénarios 1 et 2, qui ne regardent jamais ce
+champ.
+
 ---
