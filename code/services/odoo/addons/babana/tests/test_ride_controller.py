@@ -4,6 +4,12 @@
 # le contrôleur ») n'est pas un comportement observable à l'exécution -- vérifié par construction
 # (controllers/ride.py ne teste jamais un champ métier, seulement l'identité de l'appelant) et en
 # revue, pas par un test ici.
+#
+# Depuis L3-17, select-driver réserve réellement contre le service temps réel (D26) : un
+# chauffeur approuvé par simple RPC (_make_approved_driver) n'est plus sélectionnable tel quel --
+# il doit être réellement passé en ligne, avoir émis une position, et avoir été montré au client
+# via nearby.drivers (précondition C-03, critère 8). _realtime_ws.py fait les trois par le
+# chemin réel (WebSocket), jamais par une écriture Redis directe.
 from __future__ import annotations
 
 import json
@@ -14,9 +20,16 @@ import requests
 
 from odoo.tests.common import HttpCase, tagged
 
+from ._realtime_ws import bring_driver_online, make_driver_visible_to_client
+from ._redis_fixture import seed_driver_profile
+
 
 def _mock_google_base_url() -> str:
     return os.environ.get("GOOGLE_MOCK_IDENTITY_URL", "http://mock-google-identity:4000")
+
+
+def _realtime_internal_url() -> str:
+    return os.environ.get("REALTIME_INTERNAL_URL", "http://realtime:3000")
 
 
 def _first_allowed_audience() -> str:
@@ -39,7 +52,14 @@ def _mint_google_token(**overrides) -> str:
 class TestRideController(HttpCase):
     @classmethod
     def _request_handler(cls, s, r, **kw):
-        if r.url.startswith(_mock_google_base_url()) or "mock-maps" in r.url:
+        # Sens Odoo -> temps réel (L3-17) : select-driver et complete appellent réellement le
+        # service temps réel pendant ces tests (contre la pile réelle, `make up`), pas un double
+        # -- au même titre que mock-google-identity et mock-maps, déjà autorisés ici.
+        if (
+            r.url.startswith(_mock_google_base_url())
+            or r.url.startswith(_realtime_internal_url())
+            or "mock-maps" in r.url
+        ):
             from odoo.tests.common import _super_send
 
             return _super_send(s, r, **kw)
@@ -80,6 +100,28 @@ class TestRideController(HttpCase):
         driver.action_approve(new_employee_name=f"Chauffeur {sub}")
         return access_token, driver
 
+    # Position par défaut de ces fixtures -- même point que _make_ride ci-dessous, pour que le
+    # chauffeur tombe dans le rayon interrogé par défaut par make_driver_visible_to_client.
+    _DEFAULT_POSITION = {"latitude": 4.05, "longitude": 9.70}
+
+    def _make_selectable_driver(self, sub, *client_tokens):
+        """Chauffeur approuvé, réellement en ligne et positionné (L3-01/L3-02/L3-04), et montré
+        via nearby.drivers à chacun des clients fournis (précondition C-03, critère 8) -- sans ce
+        dernier point, select-driver renverrait DRIVER_NOT_IN_LAST_LIST (traduit en
+        DRIVER_ALREADY_TAKEN, amoa/questions/L3-17.md §3) pour un chauffeur pourtant disponible."""
+        driver_token, driver = self._make_approved_driver(sub)
+        bring_driver_online(
+            driver_token, self._DEFAULT_POSITION["latitude"], self._DEFAULT_POSITION["longitude"]
+        )
+        # Champ-pont (amoa/questions/L3-05.md, code/docs/bridge-fields.md) : nearby.drivers omet
+        # TOUJOURS un chauffeur sans profil en cache -- aucun canal Odoo -> temps réel ne le
+        # peuple encore (L3-16, jamais implémentée). Seedé directement, comme test/nearby.test.ts
+        # le fait déjà côté TypeScript.
+        seed_driver_profile(driver.public_id, first_name=f"Chauffeur {sub}")
+        for client_token in client_tokens:
+            make_driver_visible_to_client(client_token, driver.public_id, self._DEFAULT_POSITION)
+        return driver_token, driver
+
     def _post(self, path, token, body=None, idempotency_key=None):
         headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
         if idempotency_key:
@@ -118,7 +160,7 @@ class TestRideController(HttpCase):
         client_user = self.env["res.users"].sudo().search(
             [("babana_public_id", "=", client_public_id)]
         )
-        driver_token, driver = self._make_approved_driver("sub-ride-driver")
+        driver_token, driver = self._make_selectable_driver("sub-ride-driver", client_token)
         ride = self._make_ride(client_user.partner_id)
 
         select_response = self._post(
@@ -181,7 +223,7 @@ class TestRideController(HttpCase):
         client_user = self.env["res.users"].sudo().search(
             [("babana_public_id", "=", client_public_id)]
         )
-        _assigned_token, assigned_driver = self._make_approved_driver("sub-ride-assigned")
+        _assigned_token, assigned_driver = self._make_selectable_driver("sub-ride-assigned", client_token)
         stranger_token, _stranger_driver = self._make_approved_driver("sub-ride-stranger-driver")
         ride = self._make_ride(client_user.partner_id)
         self._post(
@@ -208,7 +250,9 @@ class TestRideController(HttpCase):
         second_client_user = self.env["res.users"].sudo().search(
             [("babana_public_id", "=", second_client_public_id)]
         )
-        driver_token, driver = self._make_approved_driver("sub-ride-taken")
+        driver_token, driver = self._make_selectable_driver(
+            "sub-ride-taken", first_client_token, second_client_token
+        )
         first_ride = self._make_ride(first_client_user.partner_id)
         second_ride = self._make_ride(second_client_user.partner_id)
 
@@ -235,7 +279,7 @@ class TestRideController(HttpCase):
         client_user = self.env["res.users"].sudo().search(
             [("babana_public_id", "=", client_public_id)]
         )
-        driver_token, driver = self._make_approved_driver("sub-ride-idem-driver")
+        driver_token, driver = self._make_selectable_driver("sub-ride-idem-driver", client_token)
         ride = self._make_ride(client_user.partner_id)
         key = "idem-key-select-driver-1"
 
@@ -277,7 +321,7 @@ class TestRideController(HttpCase):
         )
         self.assertEqual(first.status_code, 400)
 
-        driver_token, driver = self._make_approved_driver("sub-ride-idem-2-driver")
+        driver_token, driver = self._make_selectable_driver("sub-ride-idem-2-driver", client_token)
         retry = self._post(
             f"/api/v1/rides/{ride.public_id}/select-driver",
             client_token,
@@ -410,7 +454,7 @@ class TestRideController(HttpCase):
 
     def test_full_happy_path_up_to_completed(self):
         client_token, client_public_id = self._sign_in("sub-complete-client", "client")
-        driver_token, driver = self._make_approved_driver("sub-complete-driver")
+        driver_token, driver = self._make_selectable_driver("sub-complete-driver", client_token)
         quote_id = self._make_quote(client_token)
         quote = self.env["babana.quote"].sudo().search([("public_id", "=", quote_id)])
 
@@ -444,7 +488,7 @@ class TestRideController(HttpCase):
 
     def test_complete_by_unassigned_driver_is_rejected(self):
         client_token, _ = self._sign_in("sub-complete-client-2", "client")
-        driver_token, driver = self._make_approved_driver("sub-complete-driver-2")
+        driver_token, driver = self._make_selectable_driver("sub-complete-driver-2", client_token)
         stranger_token, _stranger_driver = self._make_approved_driver("sub-complete-stranger")
         quote_id = self._make_quote(client_token)
         ride_id = self._post(
@@ -467,7 +511,7 @@ class TestRideController(HttpCase):
 
     def test_complete_with_missing_fields_is_a_validation_error(self):
         client_token, _ = self._sign_in("sub-complete-client-3", "client")
-        driver_token, driver = self._make_approved_driver("sub-complete-driver-3")
+        driver_token, driver = self._make_selectable_driver("sub-complete-driver-3", client_token)
         quote_id = self._make_quote(client_token)
         ride_id = self._post(
             "/api/v1/rides", client_token, {"quoteId": quote_id}

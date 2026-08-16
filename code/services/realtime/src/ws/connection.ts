@@ -24,7 +24,18 @@ export { WS_CLOSE_UNAUTHENTICATED, WS_CLOSE_TOKEN_EXPIRED };
 // amoa/questions/REPONSES-2026-08-15.md §6).
 const MAX_SET_TIMEOUT_MS = 2 ** 31 - 1;
 
-export function createConnectionHandler(config: Config, redis: Redis) {
+export interface ConnectionHandler {
+  wss: WebSocketServer;
+  /**
+   * Exposé pour `server.ts` (L3-17) : `http/internal.ts::/internal/reservations` appelle
+   * `proposals.propose(...)` directement, sur cette MÊME instance -- pas une seconde, qui
+   * porterait ses propres minuteurs et son propre registre de connexions déconnecté de celui des
+   * WebSocket réellement ouvertes.
+   */
+  proposals: ProposalLifecycle;
+}
+
+export function createConnectionHandler(config: Config, redis: Redis): ConnectionHandler {
   const wss = new WebSocketServer({ noServer: true });
   const registry = new ConnectionRegistry();
   const nearby = new NearbyManager(config, redis);
@@ -92,5 +103,5 @@ export function createConnectionHandler(config: Config, redis: Redis) {
     });
   });
 
-  return wss;
+  return { wss, proposals };
 }

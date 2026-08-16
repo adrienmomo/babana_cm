@@ -4,6 +4,7 @@ import type { Config } from './config';
 import { pingRedis } from './redis/client';
 import { pingOdoo } from './odoo/client';
 import { createConnectionHandler } from './ws/connection';
+import { createInternalHandler, isInternalPath } from './http/internal';
 
 /**
  * /health (nu) : vérifié directement par le healthcheck Docker, sans passer par Caddy
@@ -23,6 +24,12 @@ async function computeHealth(config: Config, redis: Redis) {
 }
 
 export function createServer(config: Config, redis: Redis): Server {
+  const { wss, proposals } = createConnectionHandler(config, redis);
+  // Même instance que celle qui traite proposal.accept/proposal.reject côté WebSocket
+  // (ws/connection.ts) -- /internal/reservations doit poser sa proposition sur les mêmes
+  // minuteurs et le même registre de connexions, pas sur une seconde instance isolée.
+  const internal = createInternalHandler({ config, redis, proposals });
+
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '', 'http://internal');
 
@@ -39,11 +46,20 @@ export function createServer(config: Config, redis: Redis): Server {
       return;
     }
 
+    // Jamais public (spécification L3-17) : servi ici, mais Caddy (infra/caddy/Caddyfile) ne
+    // route jamais vers ce préfixe depuis l'extérieur -- seuls /rt/* et /s/* le sont.
+    if (isInternalPath(url.pathname)) {
+      internal(req, res, url.pathname).catch(() => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'INTERNAL_ERROR' }));
+      });
+      return;
+    }
+
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'not found' }));
   });
 
-  const wss = createConnectionHandler(config, redis);
   server.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url ?? '', 'http://internal');
     if (url.pathname !== '/rt/ws') {

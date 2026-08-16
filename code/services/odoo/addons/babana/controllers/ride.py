@@ -20,6 +20,7 @@ from odoo.service.model import PG_CONCURRENCY_EXCEPTIONS_TO_RETRY
 
 from . import _common
 from ..models.babana_ride_state import RideInvalidTransition
+from ..services import realtime_client
 
 _logger = logging.getLogger(__name__)
 
@@ -173,7 +174,44 @@ class RideController(http.Controller):
         if not driver:
             return _common.error_payload("VALIDATION_ERROR", "driverId inconnu ou manquant"), 400
 
-        ride.sudo().action_propose(by_partner=user.partner_id, driver=driver)
+        # Sens Odoo -> temps réel (L3-06, L3-17) : réserve et propose AVANT toute transition Odoo.
+        # Le piège du rejeu (D25) est encaissé côté temps réel (reservation/idempotency.ts), par
+        # la clé d'idempotence du client si l'app en a fourni une, sinon une clé composite
+        # course+chauffeur -- toutes deux stables à travers un rejeu de CETTE requête par Odoo.
+        reservation = realtime_client.reserve_and_propose(
+            ride=ride, driver=driver, client_user=user, idempotency_key=_common.idempotency_key()
+        )
+        outcome = reservation.get("outcome")
+        if outcome == "DRIVER_ALREADY_TAKEN":
+            return _common.error_payload(
+                "DRIVER_ALREADY_TAKEN", "ce chauffeur vient d'être réservé par une autre course"
+            ), 409
+        if outcome == "DRIVER_NOT_IN_LAST_LIST":
+            # Précondition C-03 (critère 8) : un identifiant jamais montré à ce client -- même
+            # réaction côté client que DRIVER_ALREADY_TAKEN (revenir à la sélection), aucun code
+            # dédié dans le catalogue C-01 aujourd'hui (amoa/questions/L3-17.md §3).
+            return _common.error_payload(
+                "DRIVER_ALREADY_TAKEN", "ce chauffeur n'est pas dans la liste proposée à ce client"
+            ), 409
+        if outcome != "PROPOSED":
+            return _common.error_payload("INTERNAL_ERROR", "réponse inattendue du service temps réel"), 500
+
+        # Critère 4 : si la transition Odoo échoue DÉFINITIVEMENT à partir d'ici, la réservation
+        # doit être relâchée -- sans quoi le chauffeur reste bloqué hors du pool sans course
+        # correspondante.
+        try:
+            ride.sudo().action_propose(by_partner=user.partner_id, driver=driver)
+        except PG_CONCURRENCY_EXCEPTIONS_TO_RETRY:
+            # D25 : PAS un échec définitif -- Odoo va rejouer la requête entière avec un curseur
+            # neuf. La réservation temps réel doit SURVIVRE à ce rejeu (c'est précisément ce que
+            # l'idempotence de reserve_and_propose protège, clé stable à travers le rejeu) :
+            # la relâcher ici la ferait disparaître avant que la tentative rejouée n'ait eu la
+            # moindre chance de la réutiliser -- exactement l'inverse de ce que le piège central
+            # de cette tâche demande d'éviter.
+            raise
+        except Exception:
+            realtime_client.release_reservation(driver=driver)
+            raise
 
         # Fenêtre informative seulement (L3, hors de ce lot, portera l'expiration réelle du
         # côté du service temps réel -- voir amoa/questions/L4-03.md). Paramétrable (invariant
@@ -259,6 +297,13 @@ class RideController(http.Controller):
             track_polyline=polyline,
             final_amount=final_amount,
         )
+        # Sens Odoo -> temps réel (L3-17, critère 6) : efface le marqueur d'engagement -- sans
+        # lui, le chauffeur ne revient jamais dans le pool (D26). Après la transition, jamais
+        # avant : la course doit être réellement terminée côté Odoo (source de vérité, D27) avant
+        # que le service temps réel ne considère ce chauffeur de nouveau disponible.
+        # 'completed', pas 'settled' (DRIVER_ACTIVE_STATES, babana_ride.py) : l'encaissement ne
+        # bloque pas une nouvelle course.
+        realtime_client.clear_engagement(driver=driver)
         payload = _summary(ride)
         payload["distanceMeters"] = round(ride.actual_distance_km * 1000)
         payload["durationSeconds"] = round(ride.actual_duration_minutes * 60)

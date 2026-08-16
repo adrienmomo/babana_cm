@@ -76,7 +76,7 @@ export function createMessageDispatcher(
         return;
       case 'proposal.reject':
         if (context.role !== 'driver' || !context.driverId) return;
-        await proposals.reject(context.driverId, message.payload.rideId);
+        await proposals.reject(context.driverId, message.payload.rideId, message.payload.reason);
         return;
       default:
         return;

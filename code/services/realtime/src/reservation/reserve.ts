@@ -2,8 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type Redis from 'ioredis';
 import { AVAILABLE_DRIVERS_KEY } from '../redis/geo-index';
-import { addEligibleToPool } from '../redis/pool-eligibility';
-import { getPosition } from '../redis/positions';
+import { reintegrateIfEligible } from '../redis/pool-eligibility';
 import { reservationKey, RESERVATION_KEY_PREFIX } from './keys';
 
 export { reservationKey };
@@ -51,10 +50,7 @@ export async function reserveDriver(redis: Redis, driverId: string, ttlSeconds: 
  */
 export async function releaseDriver(redis: Redis, driverId: string): Promise<void> {
   await redis.del(reservationKey(driverId));
-  const position = await getPosition(redis, driverId);
-  if (position) {
-    await addEligibleToPool(redis, driverId, position.latitude, position.longitude);
-  }
+  await reintegrateIfEligible(redis, driverId);
 }
 
 export async function isReserved(redis: Redis, driverId: string): Promise<boolean> {

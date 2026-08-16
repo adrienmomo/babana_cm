@@ -10,6 +10,7 @@ import { reserveDriver, releaseDriver, reservationKey } from '../reservation/res
 import { engagementKey } from '../driver/keys';
 import { proposalRideIdKey, proposalRecordKey } from './keys';
 import { ProposalTimeoutTimers } from './timeout';
+import { reportDriverAccepted, reportDriverRejected } from '../odoo/rides';
 
 /**
  * Cycle de proposition (L3-07) : après une réservation réussie (L3-06), notifier le chauffeur,
@@ -114,6 +115,25 @@ export class ProposalLifecycle {
   }
 
   /**
+   * Annule une proposition tout juste posée (L3-17, critère 4) : appelée par
+   * `http/internal.ts::/internal/reservations/release`, le chemin de compensation quand la
+   * réservation côté temps réel a réussi mais que la transition Odoo `requested -> proposed` qui
+   * devait suivre échoue -- sans ce nettoyage, le chauffeur resterait hors du pool jusqu'à
+   * l'expiration de la réservation (`RESERVATION_TTL_SECONDS`), sans course correspondante nulle
+   * part (même défaut que celui déjà couvert par `reserveDriver`/`releaseDriver`, critère 4 de
+   * L3-06, une couche plus haut : à l'échelle du cycle de proposition entier plutôt que de la
+   * seule réservation Redis).
+   *
+   * Idempotent : annuler une proposition déjà résolue (acceptée, refusée, expirée) ou déjà
+   * annulée ne fait rien de plus qu'une tentative de relâchement sans effet visible.
+   */
+  async cancel(driverId: string): Promise<void> {
+    this.timers.cancel(driverId);
+    await Promise.all([this.redis.del(proposalRideIdKey(driverId)), this.redis.del(proposalRecordKey(driverId))]);
+    await releaseDriver(this.redis, driverId);
+  }
+
+  /**
    * Acceptation (critères 1, 4, 5). `rideId` vient du message `proposal.accept` (C-02) -- une
    * donnée métier à faire correspondre à la proposition active, jamais une identité (celle-ci ne
    * vient que du contexte de connexion, invariant L3-01 ; `driverId` est déjà acquis par
@@ -123,6 +143,11 @@ export class ProposalLifecycle {
     this.timers.cancel(driverId);
     const resolved = await resolveProposal(this.redis, driverId, rideId, 'accepted');
     if (!resolved) return false;
+
+    // Sens temps réel -> Odoo (L3-17) : écrit la transition proposed -> assigned. Volontairement
+    // non attendu -- voir odoo/rides.ts pour le raisonnement complet -- la résolution Redis
+    // ci-dessus fait déjà foi pour les deux parties connectées.
+    reportDriverAccepted(this.config, rideId, driverId);
 
     const record = await this.consumeRecord(driverId);
     if (record) {
@@ -137,14 +162,16 @@ export class ProposalLifecycle {
   }
 
   /** Refus explicite (critère 2) : libère le chauffeur et notifie le client, motif distinct de
-   * l'expiration (le distinguo lui-même est porté par l'appelant, voir ws/dispatch.ts -- ce
-   * module ne transmet aujourd'hui aucun motif à Odoo, le câblage n'existant pas encore). */
-  async reject(driverId: string, rideId: string): Promise<boolean> {
+   * l'expiration (le distinguo lui-même est porté par l'appelant, voir ws/dispatch.ts). Le motif
+   * (message `proposal.reject`, C-02, optionnel) est désormais transmis à Odoo (L3-17) --
+   * auparavant recueilli puis jamais utilisé nulle part. */
+  async reject(driverId: string, rideId: string, reason?: string): Promise<boolean> {
     this.timers.cancel(driverId);
     const resolved = await resolveProposal(this.redis, driverId, rideId, 'released');
     if (!resolved) return false;
 
     await releaseDriver(this.redis, driverId);
+    reportDriverRejected(this.config, rideId, driverId, { expired: false, reason });
     const record = await this.consumeRecord(driverId);
     if (record) {
       this.sendToClient(record.clientUserId, {
@@ -168,6 +195,7 @@ export class ProposalLifecycle {
     await releaseDriver(this.redis, driverId);
     const record = await this.consumeRecord(driverId);
     if (record) {
+      reportDriverRejected(this.config, record.rideId, driverId, { expired: true });
       this.sendToClient(record.clientUserId, {
         type: 'ride.rejected',
         id: randomUUID(),

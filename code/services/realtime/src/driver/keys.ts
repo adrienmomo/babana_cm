@@ -11,7 +11,10 @@
  */
 
 const ONLINE_FLAG_PREFIX = 'babana:driver:online:';
-const ENGAGEMENT_KEY_PREFIX = 'babana:driver:engaged:';
+// Exporté (pas seulement local) : driver/reconcile.ts (L3-17) en a besoin pour balayer
+// (SCAN MATCH) l'ensemble des marqueurs d'engagement posés, sans connaître à l'avance la liste
+// des chauffeurs -- même raison que RESERVATION_KEY_PREFIX (reservation/keys.ts).
+export const ENGAGEMENT_KEY_PREFIX = 'babana:driver:engaged:';
 
 export function onlineFlagKey(driverId: string): string {
   return `${ONLINE_FLAG_PREFIX}${driverId}`;

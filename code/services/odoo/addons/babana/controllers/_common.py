@@ -3,7 +3,9 @@
 # porte l'en-tête Authorization: Bearer <accessToken> (docs/contracts/http-api.md).
 from __future__ import annotations
 
+import hmac
 import json
+import os
 
 from odoo import SUPERUSER_ID
 from odoo.http import request
@@ -54,6 +56,28 @@ def authenticated_user():
         # qu'InvalidAccessToken (services/access_token.py).
         raise AuthenticationFailed("UNAUTHORIZED")
     return env, user
+
+
+def authenticated_internal_call() -> None:
+    """Vérifie l'en-tête X-Realtime-Secret contre REALTIME_SHARED_SECRET (L3-17) -- même secret,
+    même mécanisme que le sens sortant (services/realtime_client.py, L3-15) : pas un second à
+    inventer. Réservé aux appels du service temps réel vers Odoo (controllers/internal.py),
+    jamais atteignable depuis l'extérieur : ni le domaine mobile, ni Caddy ne routent vers ce
+    contrôleur (vérifié dans infra/caddy/Caddyfile avant d'écrire cette fonction) -- ce secret est
+    une seconde barrière, indépendante du routage, pas la seule.
+
+    Lève AuthenticationFailed sinon, comme authenticated_user() -- même traitement d'erreur par
+    l'appelant, un seul type d'exception à traduire en réponse HTTP.
+
+    `hmac.compare_digest` plutôt que `==` : une comparaison à temps variable sur un secret de
+    haute entropie (infra/env/README.md) fuiterait sa valeur octet par octet à un attaquant
+    mesurant les temps de réponse -- même réflexe que la vérification de signature d'un jeton
+    (jwt.decode le fait déjà pour nous côté access_token.py ; ici, rien ne le fait à notre place).
+    """
+    provided = request.httprequest.headers.get("X-Realtime-Secret", "")
+    expected = os.environ["REALTIME_SHARED_SECRET"]
+    if not provided or not hmac.compare_digest(provided, expected):
+        raise AuthenticationFailed("UNAUTHORIZED")
 
 
 def json_response(payload, status=200):

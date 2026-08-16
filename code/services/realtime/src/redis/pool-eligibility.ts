@@ -4,6 +4,7 @@ import type Redis from 'ioredis';
 import { AVAILABLE_DRIVERS_KEY } from './geo-index';
 import { onlineFlagKey, engagementKey } from '../driver/keys';
 import { reservationKey } from '../reservation/keys';
+import { getPosition } from './positions';
 
 /**
  * Unique point d'écriture GEOADD sur le pool (D26, L3-06R) -- voir pool-eligibility.lua pour la
@@ -38,4 +39,22 @@ export async function addEligibleToPool(
     latitude
   );
   return result === 1;
+}
+
+/**
+ * Remet un chauffeur dans le pool s'il est toujours éligible -- jamais un ajout inconditionnel
+ * (même discipline que `addEligibleToPool` ci-dessus, dont cette fonction n'est qu'un appelant de
+ * plus). Partagée par `reservation/reserve.ts::releaseDriver` (L3-06, critères 4 et 5) et par le
+ * câblage L3-17 (relâchement d'une réservation sur échec Odoo, effacement de l'engagement en fin
+ * de course) : dans les deux cas, "le chauffeur redevient disponible" veut dire "réévalué par le
+ * script d'éligibilité avec sa dernière position connue", jamais "réinséré directement".
+ *
+ * Sans position connue (jamais émise, ou expirée depuis), il n'y a rien à réintégrer : la
+ * prochaine position acceptée (L3-02/`tracking/ingest.ts`) s'en chargera.
+ */
+export async function reintegrateIfEligible(redis: Redis, driverId: string): Promise<void> {
+  const position = await getPosition(redis, driverId);
+  if (position) {
+    await addEligibleToPool(redis, driverId, position.latitude, position.longitude);
+  }
 }
