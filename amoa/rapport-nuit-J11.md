@@ -362,11 +362,45 @@ ne le lui demandait explicitement) et l'historique des remises par chauffeur
 
 ## Vérification finale, sur base fraîche
 
-`make reset` puis `make up`, puis `make test` complet (suite Odoo, `@babana/realtime`,
-`@babana/contracts`, `@babana/concurrency-tests`, `npm run typecheck`, `npm run lint`) --
-lancé en tâche de fond, résultat à confirmer dans une reprise de session si elle intervient avant
-la fin de cette vérification. Les vérifications ciblées de chaque tâche (ci-dessus), elles, ont
-toutes tourné contre une pile réellement réinstallée depuis la nuit du 16 août (`make reset`
-initial de cette session, avant L5-03).
+`make reset` puis `make up`, puis chaque suite lancée séparément (les scénarios de concurrence,
+seuls, dépassent le budget d'une seule invocation) :
+
+- Suite Odoo, module réinstallé sur base vierge : **2175 tests, 0 échec**.
+- `@babana/realtime` (tests unitaires) : **110 tests, 0 échec** -- y compris
+  `DisconnectGraceTimers`, signalé plus haut comme un flake isolé sous charge pendant la
+  vérification intermédiaire, vert ici sans réserve.
+- `@babana/contracts` : **63 tests, 0 échec**.
+- `@babana/client`, `@babana/driver` : 1 test chacun (squelette L0-03), 0 échec.
+- `@babana/concurrency-tests` (contre la pile réelle, `make up`) : **6 tests, 0 échec** -- les
+  trois scénarios de L4-11 (accept/cancel/encaissement concurrents, 20 itérations chacun) et le
+  critère 3 de L3-17 (rejeu sur conflit de sérialisation PostgreSQL).
+- `docs/contracts/verify-ride-state-machine.js` : `OK` (9 états, 13 transitions, 7 événements
+  métier).
+- `npm run typecheck --workspaces` : propre sur les neuf paquets/apps.
+- `npm run lint --workspaces` (`@babana/client`, `@babana/driver`, les deux seuls paquets avec un
+  script de lint) : propre.
+- `tools/secret-scan/scan.sh` : `OK`, aucun secret détecté.
+
+Aucun raccourci sur cette vérification : c'est la même base fraîche qui a servi de révélateur au
+12 août (`CLAUDE.md`) qui a servi ici de dernier filet avant de déclarer le lot fini. Les
+vérifications ciblées de chaque tâche (ci-dessus) avaient déjà toutes tourné contre une pile
+réellement réinstallée en cours de nuit ; celle-ci est la dernière, sur la même base que celle qui
+sera trouvée à la reprise.
 
 ---
+
+## Ce qui reste ouvert pour la prochaine session
+
+1. **L6 — les deux applications mobiles, rien n'a commencé.** Priorité de la semaine prochaine
+   (`REPONSES-2026-08-19.md`). L5-07 (écran de recette) en fait partie et a été délibérément
+   différée cette nuit -- voir plus haut.
+2. **`GET /drivers/me/cash`** n'existe pas encore côté contrôleur, alors que le contrat C-01 le
+   prévoit et que L5-07 en aura besoin. Aucune tâche de ce soir ne le demandait explicitement ;
+   à couvrir au début de L6 ou par une tâche dédiée.
+3. **L3-12** — file persistante avec rejeu pour les appels sortants du service temps réel. Le
+   dernier chemin sans filet, inchangé depuis J10.
+4. **La vérification développeur Android** — inchangé.
+
+Le lot financier (L5-01 à L5-06) est maintenant complet et vérifié de bout en bout : encaissement,
+compte courant, plafond, remise, validation, écriture comptable, écarts. C'est le morceau le plus
+sensible du projet, et il est fermé.
