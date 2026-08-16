@@ -210,7 +210,7 @@ class RideController(http.Controller):
             # de cette tâche demande d'éviter.
             raise
         except Exception:
-            realtime_client.release_reservation(driver=driver)
+            realtime_client.release_reservation(driver_public_id=driver.public_id)
             raise
 
         # Fenêtre informative seulement (L3, hors de ce lot, portera l'expiration réelle du
@@ -303,7 +303,7 @@ class RideController(http.Controller):
         # que le service temps réel ne considère ce chauffeur de nouveau disponible.
         # 'completed', pas 'settled' (DRIVER_ACTIVE_STATES, babana_ride.py) : l'encaissement ne
         # bloque pas une nouvelle course.
-        realtime_client.clear_engagement(driver=driver)
+        realtime_client.clear_engagement(driver_public_id=driver.public_id)
         payload = _summary(ride)
         payload["distanceMeters"] = round(ride.actual_distance_km * 1000)
         payload["durationSeconds"] = round(ride.actual_duration_minutes * 60)
@@ -374,5 +374,16 @@ class RideController(http.Controller):
             ), 403
 
         reason = (_common.parse_json_body() or {}).get("reason")
+        cancelled_driver = ride.driver_id  # action_cancel ne l'efface jamais (contrairement au refus)
         ride.sudo().action_cancel(actor_role=actor_role, actor_record=actor_record, reason=reason)
+
+        # Sens Odoo -> temps réel (L3-17) : une annulation met fin à l'implication du chauffeur,
+        # quel qu'ait été son état réel côté temps réel -- réservé ('proposed' annulé, critère 4
+        # de L3-06 une couche plus haut) ou engagé ('assigned'/'in_progress' annulé, critère 6).
+        # Les deux appels sont idempotents (sans effet si l'état visé n'existe pas) : plutôt que
+        # de déterminer lequel s'applique, les deux nettoient ce qui doit l'être. En tâche de
+        # fond (voir notify_cancellation_async) : la transition est déjà appliquée, rien n'oblige
+        # le client à attendre ce nettoyage.
+        if cancelled_driver:
+            realtime_client.notify_cancellation_async(cancelled_driver.public_id)
         return _summary(ride), 200

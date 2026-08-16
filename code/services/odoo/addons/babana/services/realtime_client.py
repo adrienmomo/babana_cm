@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import threading
 
 import requests
 
@@ -80,41 +81,61 @@ def reserve_and_propose(*, ride, driver, client_user, idempotency_key: str | Non
     )
 
 
-def release_reservation(*, driver) -> None:
+def release_reservation(*, driver_public_id: str) -> None:
     """Compensation (L3-06 critère 4, câblée par cette tâche) : la réservation a réussi côté
     temps réel mais la transition Odoo qui devait suivre a échoué (`action_propose` a levé --
     chauffeur suspendu entre-temps, course déjà annulée, ...). Sans cet appel, le chauffeur
     resterait hors du pool jusqu'à l'expiration de la réservation, sans course correspondante nulle
     part.
 
+    Prend un identifiant public (`str`), pas un recordset `babana.driver` -- appelable depuis un
+    fil d'exécution séparé (voir `notify_cancellation_async` ci-dessous), où un recordset lié au
+    curseur de la transaction appelante ne serait pas sûr à utiliser.
+
     Best-effort, volontairement : la vraie erreur métier a déjà été déterminée par l'appelant
     (`_select_driver`) au moment où celui-ci appelle cette fonction -- une seconde panne du
     service temps réel ici ne doit jamais la masquer ni en ajouter une nouvelle. Le filet de
     dernier recours reste l'expiration naturelle de la réservation côté Redis (L3-06, critère 5)."""
     try:
-        _post("/internal/reservations/release", {"driverId": driver.public_id})
+        _post("/internal/reservations/release", {"driverId": driver_public_id})
     except RealtimeUnavailable:
         _logger.warning(
             "échec du relâchement de la réservation pour le chauffeur %s -- elle expirera "
             "d'elle-même (L3-06, critère 5).",
-            driver.public_id,
+            driver_public_id,
         )
 
 
-def clear_engagement(*, driver) -> None:
+def clear_engagement(*, driver_public_id: str) -> None:
     """Fin de course (L3-17, critère 6) : efface le marqueur d'engagement côté temps réel --
     sans lui, le chauffeur ne revient jamais dans le pool (D26, l'engagement n'expire jamais tout
-    seul, délibérément).
+    seul, délibérément). Même remarque que release_reservation sur `driver_public_id`.
 
     Best-effort, même raisonnement que release_reservation ci-dessus : la fin de course reste
     appliquée côté Odoo même si cet appel échoue. La réconciliation périodique
     (`driver/reconcile.ts`, critère 7) reste le filet si ce message ne parvient jamais au service
     temps réel."""
     try:
-        _post("/internal/engagement/clear", {"driverId": driver.public_id})
+        _post("/internal/engagement/clear", {"driverId": driver_public_id})
     except RealtimeUnavailable:
         _logger.warning(
             "échec de l'effacement de l'engagement pour le chauffeur %s -- la réconciliation "
             "périodique corrigera l'écart (L3-17, critère 7).",
-            driver.public_id,
+            driver_public_id,
         )
+
+
+def notify_cancellation_async(driver_public_id: str) -> None:
+    """Annulation (L3-17) : relâche la réservation ET efface l'engagement, en tâche de fond.
+
+    Contrairement à `reserve_and_propose` (qui gate la transition, donc doit être attendu) et à
+    `clear_engagement` appelé depuis `_complete_ride` (où rien d'autre ne se dispute la latence),
+    la réponse de `/cancel` n'a besoin d'attendre ni l'un ni l'autre : la transition Odoo est déjà
+    appliquée quand cette fonction est appelée, et retarder la réponse au client le temps de deux
+    appels HTTP internes n'apporterait rien -- seulement une latence perceptible sans bénéfice
+    pour lui. Fil démon (`daemon=True`) : ne doit jamais empêcher le processus de se terminer, et
+    n'a besoin d'aucune synchronisation avec le fil appelant (best-effort des deux côtés)."""
+    threading.Thread(
+        target=lambda: (release_reservation(driver_public_id=driver_public_id), clear_engagement(driver_public_id=driver_public_id)),
+        daemon=True,
+    ).start()

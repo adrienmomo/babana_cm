@@ -162,10 +162,16 @@ export async function callRideEndpoint<T = any>(
   path: string,
   session: Session,
   payload: Record<string, unknown> = {},
+  idempotencyKey?: string,
 ): Promise<ApiResponse<T>> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${session.accessToken}`,
+  };
+  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
   const response = await fetch(`${ODOO_API_ROOT}${path}`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.accessToken}` },
+    headers,
     body: JSON.stringify(payload),
   });
   const body = (await response.json()) as T;

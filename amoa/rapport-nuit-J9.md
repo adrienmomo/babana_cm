@@ -155,3 +155,92 @@ la preuve avec un vrai rejeu Odoo est dans l'entrée suivante.
 effacé, marqueur manquant posé, cas cohérent ni touché ni compté.
 
 `npm test` (paquet `@babana/realtime`) : 103 tests, 25 suites, tout vert.
+
+### Câblage côté Odoo
+
+`services/odoo/addons/babana/services/realtime_client.py` (sens Odoo → temps réel) et
+`controllers/internal.py` (sens temps réel → Odoo reçu, secret partagé — `_common.
+authenticated_internal_call`, `hmac.compare_digest`, jamais `==`, même réflexe que la vérification
+de signature d'un jeton).
+
+`controllers/ride.py::_select_driver` : appelle `reserve_and_propose` avant `action_propose` ;
+`PG_CONCURRENCY_EXCEPTIONS_TO_RETRY` laissée passer sans relâcher la réservation (D25 — la
+relâcher là aurait défait la réservation juste avant qu'Odoo ne rejoue avec la même clé, l'inverse
+de ce que le critère 3 demande) ; toute autre exception relâche puis se propage.
+
+**Découverte en vérifiant contre la pile réelle, pas supposée** : `action_cancel` ne touchait à
+aucun état temps réel. Une course annulée depuis `'proposed'` laissait la réservation Redis vivre
+jusqu'à son expiration (45 s, auto-guérison) ; annulée depuis `'assigned'`/`'in_progress'`, elle
+laissait l'engagement en place **indéfiniment** — exactement le défaut D26 que L3-06R/L3-07 ont
+passé deux nuits à fermer, rouvert par un angle que ni l'une ni l'autre spécification ne
+couvrait. Trouvé par `test/concurrency/ride-transitions.test.ts` (scénario 1, L4-11) qui a
+commencé à échouer avec `DRIVER_ALREADY_TAKEN` dès la deuxième itération une fois le câblage en
+place — pas une supposition, un test existant qui s'est mis à échouer pour de bon.
+**Corrigé** : `_cancel_ride` appelle désormais `release_reservation` et `clear_engagement` pour le
+chauffeur annulé (les deux, idempotents, sans chercher lequel des deux états s'applique).
+
+**Second effet découvert par le même test** (scénario 2, annulation contre acceptation
+concurrentes) : appeler ces deux relâchements en bloquant la réponse HTTP de `/cancel` changeait
+la latence relative des deux requêtes en course et biaisait systématiquement l'issue de la
+concurrence (accept gagnait toujours, jamais l'inverse) — un artefact introduit par ce lot, pas un
+défaut du mécanisme de verrouillage lui-même. `realtime_client.notify_cancellation_async` : les
+deux appels partent dans un fil démon (`threading.Thread(daemon=True)`), jamais attendus par la
+réponse au client — cohérent avec le choix déjà pris pour acceptation/refus/expiration (non
+bloquant, section précédente). `release_reservation`/`clear_engagement` prennent désormais un
+`driver_public_id: str`, pas un recordset `babana.driver` — un recordset lié au curseur de la
+transaction appelante n'est pas sûr à passer à un fil séparé.
+
+### Le test du critère 3 — un vrai rejeu, pas un double appel simulé
+
+`test/concurrency/select-driver-replay.test.ts`. **Première version fausse, corrigée avant de la
+garder** : envoyer N requêtes select-driver réellement concurrentes avec le **même** chauffeur et
+la **même** clé d'idempotence, en espérant que l'idempotence absorbe les doublons. Elle ne le fait
+pas de façon fiable — vérifié en pratique : N requêtes HTTP concurrentes deviennent N tentatives
+concurrentes côté temps réel, qui peuvent toutes lire `withIdempotency` avant qu'aucune n'ait eu le
+temps d'y écrire (rien ne verrouille la lecture-puis-écriture du cache, seule `reserve.lua`
+elle-même est atomique). Ce n'est tout simplement pas ce que fait Odoo : le rejeu de D25 est
+**séquentiel**, une seule requête HTTP externe rejouée par le même fil après l'échec de sa
+première tentative — jamais deux fils concurrents qui se disputent le même chauffeur.
+
+**La bonne provocation** : deux requêtes select-driver concurrentes sur la **même course**, avec
+**deux chauffeurs différents** (donc deux clés d'idempotence distinctes, sans aliasing). Les deux
+verrouillent la même ligne `babana_ride` dans `action_propose::_lock_for_update()` — même
+mécanisme que L4-11 scénario 2. Le perdant subit un vrai `SerializationFailure` et Odoo rejoue SA
+requête entière avec SA propre clé ; c'est ce rejeu, réellement déclenché par Postgres, qui
+exerce le chemin de `withIdempotency`. Vérifié sur 8 itérations : exactement un succès à chaque
+fois, le perdant proprement relâché (resélectionnable immédiatement sur une course neuve), le
+gagnant resté réservé (une autre course ne peut pas le voler).
+
+**Vérifié une fois que le test détecte bien le défaut** (même discipline que L3-13/L4-11) :
+`withIdempotency` court-circuité temporairement dans `http/internal.ts` (recalcul systématique au
+lieu de rejouer) → le test échoue bien, avec `DRIVER_ALREADY_TAKEN` sur une tentative qui avait
+pourtant déjà réussi — exactement le symptôme que la spécification décrit. Fix restauré, retesté
+vert.
+
+**Flakiness résolue en cours de route, deux causes réelles, pas des artefacts de test à ignorer** :
+1. La limitation de débit de `nearby.subscribe` (L3-05, critère 6) épuisée par un ré-abonnement à
+   chaque tentative de vérification de visibilité — `waitForDriverVisible` (`test/concurrency/
+   helpers/realtime.ts`) est devenu purement passif (écoute la diffusion périodique déjà active,
+   ne réémet plus jamais `nearby.subscribe`), et les deux connexions client du test sont
+   désormais ouvertes une seule fois pour tout le fichier, jamais par itération.
+2. Les chauffeurs d'itérations précédentes, fermés par une simple coupure de socket, restaient
+   dans le pool pendant toute la période de grâce de déconnexion (45 s) — au même point que les
+   suivants, ils finissaient par déborder la limite des 5 plus proches (D14) et masquer les
+   chauffeurs de l'itération courante. `takeDriverOffline` bascule explicitement hors ligne avant
+   de fermer, retrait immédiat (L3-04) plutôt que différé.
+
+Les deux causes touchent aussi potentiellement une vraie flotte à forte rotation ; documentées ici
+parce qu'elles ont d'abord semblé être des défauts du câblage lui-même avant d'être identifiées
+comme des artefacts du test — la distinction a demandé de vérifier, pas de supposer.
+
+### Champ-pont L3-16 : un blocage découvert en vérifiant contre la pile réelle
+
+En câblant la précondition C-03, `nearby.drivers` s'est révélé omettre **systématiquement** tout
+chauffeur réel (aucun ne porte de profil en cache — L3-16, canal de profil Odoo → temps réel,
+n'a jamais été implémentée ; seul `redis/driver-profiles.ts` existe, un champ-pont déjà documenté
+dans `amoa/questions/L3-05.md`). Sans profil, aucun chauffeur ne peut jamais satisfaire C-03 —
+un blocage total du chemin nominal, pas un cas limite. Les fixtures de test (Python et
+TypeScript) seedent désormais ce cache directement, comme `test/nearby.test.ts` le fait déjà côté
+`@babana/realtime` — mais **la vraie flotte reste bloquée tant que L3-16 n'existe pas**. Signalé
+dans `amoa/questions/L3-17.md`, priorité pour la prochaine session : sans elle, aucune course ne
+peut aboutir en production, même avec tout le reste de ce lot en place.
