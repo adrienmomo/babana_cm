@@ -44,8 +44,15 @@ class BabanaCashMovement(models.Model):
         "babana.ride",
         ondelete="restrict",
         help="Course à l'origine d'un mouvement `collection`. Vide pour une remise ou un "
-        "ajustement -- babana.cash.remittance (L5-03, hors de ce lot) portera la référence "
-        "équivalente pour les remises le jour où ce modèle existera.",
+        "ajustement -- babana.cash.remittance (L5-03) porte la référence équivalente pour les "
+        "remises (covered_movement_ids).",
+    )
+    discrepancy_id = fields.Many2one(
+        "babana.cash.discrepancy",
+        ondelete="restrict",
+        help="Écart à l'origine d'un mouvement `adjustment` produit par un traitement explicite "
+        "(L5-06, babana.cash.discrepancy::action_close) -- vide pour tout autre mouvement, y "
+        "compris un ajustement posé directement au back-office sans écart associé.",
     )
     reason = fields.Text(
         string="Motif",

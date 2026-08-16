@@ -1,6 +1,8 @@
-# Remise de caisse chauffeur (D8, L5-03, L5-04, L5-05). Le chauffeur déclare ce qu'il remet
-# (action_declare), un superviseur compte et valide (action_validate) -- la double saisie est ce
-# qui rend un écart détectable. La validation pose aussi la pièce comptable (L5-05).
+# Remise de caisse chauffeur (D8, L5-03, L5-04, L5-05, L5-06). Le chauffeur déclare ce qu'il
+# remet (action_declare), un superviseur compte et valide (action_validate) -- la double saisie
+# est ce qui rend un écart détectable. La validation pose aussi la pièce comptable (L5-05) et,
+# si l'écart est non nul, l'enregistrement dédié qui le rend visible (L5-06, D29,
+# babana_cash_discrepancy.py) -- jamais absorbé en silence dans le montant principal.
 from __future__ import annotations
 
 import uuid
@@ -265,6 +267,19 @@ class BabanaCashRemittance(models.Model):
                         "driver_id": self.driver_id.id,
                         "movement_type": "remittance",
                         "amount": -counted_amount,
+                    }
+                )
+
+            if discrepancy_amount:
+                # L5-06, critère 1 : tout écart non nul crée systématiquement un enregistrement
+                # dédié -- dans le même savepoint que le reste, jamais un effet séparé qui
+                # pourrait exister sans la remise qui l'a produit.
+                self.env["babana.cash.discrepancy"].sudo().create(
+                    {
+                        "remittance_id": self.id,
+                        "driver_id": self.driver_id.id,
+                        "amount": discrepancy_amount,
+                        "direction": "shortfall",
                     }
                 )
 

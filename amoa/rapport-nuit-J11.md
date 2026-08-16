@@ -269,3 +269,104 @@ suppression directe refusée, extourne tracée qui fonctionne.
 restructuration d'`action_validate`.
 
 ---
+
+## L5-06 — Traitement des écarts
+
+**C'est ici que D29 devient réel.** Jusqu'à cette tâche, le compte courant *permettait* qu'un
+écart reste au solde (rien ne l'empêchait) ; `action_validate` (L5-04) le *produit* mécaniquement
+depuis hier soir (le mouvement `remittance` ne porte que `counted_amount`) ; cette tâche le rend
+*visible* : `babana.cash.discrepancy`, créé systématiquement dans le même savepoint que la
+validation dès que `discrepancy_amount` est non nul (critère 1).
+
+**`amount` toujours positif, `direction` porte le sens.** Dans ce lot, `direction` vaut toujours
+`shortfall` : une remise ne peut jamais dépasser le solde attendu (le mouvement `remittance`
+correspondant serait refusé par la contrainte de L5-01, critère 4), donc `counted_amount` ne
+dépasse jamais `expected_amount`. Le champ reste générique pour un mécanisme futur qui produirait
+un excédent -- documenté comme non atteignable aujourd'hui plutôt que supprimé.
+
+**Traitement par défaut vs. traitements explicites, séparés au niveau du mouvement.**
+`left_on_balance` (le défaut, D29) ne crée **aucun** mouvement supplémentaire : l'écart pèse déjà
+sur le solde du chauffeur par construction (le mouvement de la validation ne portait que le
+montant compté), rien à journaliser de plus. `adjustment` et `withheld` (décisions humaines
+explicites, jamais le comportement par défaut) créent chacun un mouvement `adjustment` de
+`-amount`, tracé par un nouveau champ `babana.cash.movement.discrepancy_id` (critère 3) -- la
+différence entre les deux décisions n'est pas mécanique, seulement le motif consigné pour
+l'audit ; les deux ramènent le solde au même endroit.
+
+**Alerte, deux mécanismes indépendants, l'un ou l'autre suffit.** Seuil cumulé (critère 4) et
+seuil de série (critère 5) sur une fenêtre glissante, les trois paramétrables
+(`babana.cash_discrepancy_alert_window_days`, `..._amount_threshold`, `..._series_count`,
+invariant 5) : un montant cumulé qui dépasse le seuil déclenche l'alerte même pour un écart
+unique déjà important ; un nombre d'écarts qui atteint le seuil de série la déclenche même si
+chacun est trop petit pour jamais franchir le premier seuil seul -- "une série de petits écarts
+qui ne cumulerait jamais assez" est exactement le détournement progressif que la spécification
+demande de détecter. Vérifié au fil de l'eau, à la création de chaque écart (`create()`
+surchargé), pas en cron différé -- un détournement en cours ne doit pas attendre le lendemain.
+`driver.message_post` (chatter, `mail.thread` déjà hérité par `babana.driver`) plutôt qu'un champ
+dédié -- visible immédiatement en back-office sans écran supplémentaire.
+
+**Critère 2, deux couches.** `action_close` refuse une clôture sans `reason_category`, et une
+contrainte `@api.constrains` refuse indépendamment `reason_category == 'other'` sans commentaire
+-- la même règle vérifiée à deux endroits (l'action et le modèle) pour qu'une écriture directe au
+back-office (hors du bouton) ne puisse pas la contourner.
+
+**Vue back-office ajoutée bien que non listée dans les fichiers de la tâche** (`views/
+babana_discrepancy_views.xml`) : la spécification la demande explicitement ("vue back-office
+listant les écarts en attente, triés par ancienneté"), coût marginal, même patron que
+`babana_remittance_views.xml` (`decision`/`reason_category`/`reason_comment` sont des champs de
+formulaire, `button_close()` sans argument).
+
+**Tests** (`test_discrepancy.py`, 11 cas) : création systématique sur écart non nul, absence sur
+remise complète, reliquat au solde (critère 1 bis, le scénario 45 000/40 000/5 000 explicitement
+demandé par la nuit), clôture refusée sans motif et sans commentaire pour 'autre', immutabilité
+post-clôture, traitement par défaut sans mouvement supplémentaire (solde inchangé), ajustement
+explicite qui trace un mouvement et solde le compte, alerte déclenchée par le montant cumulé (et
+son contrôle négatif, sous le seuil), alerte déclenchée par la série (et son contrôle négatif, un
+seul écart isolé n'alerte pas).
+
+`make test` ciblé (`TestCashDiscrepancy`) : 11 tests, 0 échec. Suite élargie
+(`TestCashDiscrepancy`, `TestRemittanceAccounting`, `TestRemittanceValidation`,
+`TestRemittanceController`, `TestCashRemittanceModel`, `TestCashBalance`, `TestSettlement`,
+`TestCashLimitOnlineEligibility`, `TestCashLimitRealtimeChannel`) : 70 tests, 0 échec.
+
+**Ce qui manque encore pour que la nuit tienne sa promesse.** Le scénario du rapport de demain
+matin (« un chauffeur qui remet 40 000 sur 45 000 dus, une remise validée, une écriture comptable
+posée, et 5 000 qui restent à son solde et pèsent sur son plafond ») est maintenant démontrable de
+bout en bout par `action_declare` + `action_validate` seuls, sans passer par L5-06 : le mouvement
+`remittance`, l'écriture comptable et le reliquat sont tous des effets de la validation
+elle-même (L5-04/L5-05). L5-06 ajoute la visibilité de l'écart (l'enregistrement dédié) et sa
+détection en série -- une couche de traçabilité et de contrôle, pas une condition pour que le
+scénario fonctionne.
+
+---
+
+## Arrêt propre après L5-06, L5-07 différée
+
+**L5-07 (écran de recette, app Chauffeur) n'est pas commencée.** Vérifié avant de l'écarter,
+pas supposé : `apps/driver/src/` n'existe pas -- ni `screens/`, ni `api/`, ni navigation. Le seul
+fichier de l'app est `App.tsx` à la racine, et son propre commentaire le dit explicitement :
+« Squelette L0-03 ... Aucun écran métier ce soir, hors du lot autorisé. » `apps/driver/src/api/
+cash.ts` peut s'appuyer sur `createHttpClient` (`@babana/api-client`, déjà générique, construit
+sur `HTTP_ENDPOINTS`) sans code nouveau à ce niveau, mais `CashScreen.tsx` demanderait de poser la
+première pierre de la navigation et de l'architecture d'écran du lot L6 tout entier -- bien
+au-delà du périmètre d'une tâche d'écran unique, et précisément la situation anticipée par la
+consigne de ce soir (« l'écran peut attendre »).
+
+Ce lot s'arrête donc ici, comme prévu. Le prochain lot à ouvrir L6 (les deux applications
+mobiles, qui n'ont pas commencé) trouvera un back-end de caisse complet et testé à consommer :
+`POST /remittances`, `GET /drivers/me/cash` (à vérifier -- non construit par ce lot, aucune tâche
+ne le lui demandait explicitement) et l'historique des remises par chauffeur
+(`babana.cash.remittance`, déjà consultable par `driver_id`).
+
+---
+
+## Vérification finale, sur base fraîche
+
+`make reset` puis `make up`, puis `make test` complet (suite Odoo, `@babana/realtime`,
+`@babana/contracts`, `@babana/concurrency-tests`, `npm run typecheck`, `npm run lint`) --
+lancé en tâche de fond, résultat à confirmer dans une reprise de session si elle intervient avant
+la fin de cette vérification. Les vérifications ciblées de chaque tâche (ci-dessus), elles, ont
+toutes tourné contre une pile réellement réinstallée depuis la nuit du 16 août (`make reset`
+initial de cette session, avant L5-03).
+
+---

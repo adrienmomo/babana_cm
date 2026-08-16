@@ -29,3 +29,6 @@ access_babana_cash_movement_admin,babana.cash.movement admin,model_babana_cash_m
 access_babana_cash_remittance_supervisor,babana.cash.remittance supervisor,model_babana_cash_remittance,group_babana_supervisor,1,1,0,0
 access_babana_cash_remittance_manager,babana.cash.remittance manager,model_babana_cash_remittance,group_babana_manager,1,0,0,0
 access_babana_cash_remittance_admin,babana.cash.remittance admin,model_babana_cash_remittance,group_babana_admin,1,1,1,0
+access_babana_cash_discrepancy_supervisor,babana.cash.discrepancy supervisor,model_babana_cash_discrepancy,group_babana_supervisor,1,1,0,0
+access_babana_cash_discrepancy_manager,babana.cash.discrepancy manager,model_babana_cash_discrepancy,group_babana_manager,1,0,0,0
+access_babana_cash_discrepancy_admin,babana.cash.discrepancy admin,model_babana_cash_discrepancy,group_babana_admin,1,1,1,0

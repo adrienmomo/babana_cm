@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        L5-06 : "vue back-office listant les écarts en attente, triés par ancienneté"
+        (spécification). Non listée dans les fichiers de la tâche, ajoutée quand même, coût
+        marginal pour une demande explicite de la spécification. decision/reason_category/reason_comment
+        se saisissent directement sur le formulaire, comme counted_amount sur la remise
+        (babana_remittance_views.xml) : button_close() ne prend donc aucun argument.
+    -->
+    <record id="babana_cash_discrepancy_view_list" model="ir.ui.view">
+        <field name="name">babana.cash.discrepancy.list</field>
+        <field name="model">babana.cash.discrepancy</field>
+        <field name="arch" type="xml">
+            <list default_order="create_date asc">
+                <field name="create_date" string="Constaté le"/>
+                <field name="remittance_id"/>
+                <field name="driver_id"/>
+                <field name="amount"/>
+                <field name="direction"/>
+                <field name="status" decoration-warning="status == 'pending'"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="babana_cash_discrepancy_view_form" model="ir.ui.view">
+        <field name="name">babana.cash.discrepancy.form</field>
+        <field name="model">babana.cash.discrepancy</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="button_close" type="object" string="Clôturer"
+                        class="oe_highlight" invisible="status != 'pending'"
+                        groups="babana.group_babana_supervisor"/>
+                    <field name="status" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group string="Écart">
+                            <field name="remittance_id" readonly="1"/>
+                            <field name="driver_id" readonly="1"/>
+                            <field name="amount" readonly="1"/>
+                            <field name="direction" readonly="1"/>
+                            <field name="currency_id" invisible="1"/>
+                        </group>
+                        <group string="Traitement">
+                            <field name="decision" readonly="status == 'closed'"/>
+                            <field name="reason_category" readonly="status == 'closed'"/>
+                            <field name="reason_comment" readonly="status == 'closed'"/>
+                            <field name="decided_by" readonly="1"/>
+                            <field name="closed_at" readonly="1"/>
+                            <field name="adjustment_movement_id" readonly="1"/>
+                        </group>
+                    </group>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="babana_cash_discrepancy_view_search" model="ir.ui.view">
+        <field name="name">babana.cash.discrepancy.search</field>
+        <field name="model">babana.cash.discrepancy</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="driver_id"/>
+                <field name="remittance_id"/>
+                <filter name="filter_pending" string="En attente" domain="[('status', '=', 'pending')]"/>
+                <group expand="0" string="Regrouper par">
+                    <filter name="group_by_driver" string="Chauffeur" context="{'group_by': 'driver_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="babana_cash_discrepancy_action" model="ir.actions.act_window">
+        <field name="name">Écarts de caisse</field>
+        <field name="res_model">babana.cash.discrepancy</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="babana_cash_discrepancy_view_search"/>
+        <field name="context">{'search_default_filter_pending': 1}</field>
+    </record>
+
+    <menuitem id="babana_menu_cash_discrepancy" name="Écarts de caisse" parent="babana_menu_root"
+        action="babana_cash_discrepancy_action" sequence="26"/>
+</odoo>

@@ -30,3 +30,4 @@ from . import test_ride_completion
 from . import test_remittance_model
 from . import test_remittance_validation
 from . import test_remittance_accounting
+from . import test_discrepancy
