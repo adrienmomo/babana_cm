@@ -6,6 +6,7 @@ import type { ConnectionContext } from './auth';
 import { ingestPosition, plausibilityConfigFrom } from '../tracking/ingest';
 import { setOnline, setOffline } from '../driver/availability';
 import type { NearbyManager } from '../nearby/handler';
+import type { ProposalLifecycle } from '../proposal/lifecycle';
 
 /**
  * Routage des messages entrants (C-02) vers leur gestionnaire, par `type`. Un seul point
@@ -16,13 +17,18 @@ import type { NearbyManager } from '../nearby/handler';
  * intermittent, un message tronqué ou en retard n'est pas une faute qui justifie de couper le
  * chauffeur.
  *
- * Les types non encore traités par ce lot (la majorité de C-02 : `proposal.accept`,
- * `ride.start`, ...) sont ignorés silencieusement -- ce n'est pas une erreur, seulement une
+ * Les types non encore traités par ce lot (`ride.start`, `ride.complete`, `ride.track`,
+ * `session.resync`, ...) sont ignorés silencieusement -- ce n'est pas une erreur, seulement une
  * fonctionnalité que les tâches suivantes ajoutent au fil de l'eau.
  */
 export type MessageDispatcher = (context: ConnectionContext, socket: WebSocket, raw: string) => Promise<void>;
 
-export function createMessageDispatcher(config: Config, redis: Redis, nearby: NearbyManager): MessageDispatcher {
+export function createMessageDispatcher(
+  config: Config,
+  redis: Redis,
+  nearby: NearbyManager,
+  proposals: ProposalLifecycle
+): MessageDispatcher {
   const plausibility = plausibilityConfigFrom(config);
 
   return async function dispatch(context, socket, raw) {
@@ -60,6 +66,17 @@ export function createMessageDispatcher(config: Config, redis: Redis, nearby: Ne
       case 'nearby.unsubscribe':
         if (context.role !== 'client') return;
         nearby.unsubscribe(context);
+        return;
+      case 'proposal.accept':
+        // Émetteur : chauffeur (C-02). L'identité vient du contexte de connexion (L3-01) --
+        // `rideId` du message n'est jamais une identité, seulement la donnée que la résolution
+        // atomique fait correspondre à la proposition active de CE chauffeur (proposal/resolve.lua).
+        if (context.role !== 'driver' || !context.driverId) return;
+        await proposals.accept(context.driverId, message.payload.rideId);
+        return;
+      case 'proposal.reject':
+        if (context.role !== 'driver' || !context.driverId) return;
+        await proposals.reject(context.driverId, message.payload.rideId);
         return;
       default:
         return;

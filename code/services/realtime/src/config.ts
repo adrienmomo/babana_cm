@@ -48,9 +48,15 @@ const ConfigSchema = z.object({
   AVAILABILITY_DISCONNECT_GRACE_SECONDS: z.coerce.number().int().positive().default(45),
 
   /** Durée de vie d'une réservation de chauffeur (L3-06) avant libération automatique -- doit
-   * couvrir au moins le délai d'acceptation de la proposition (L3-07, 30 s par défaut, hors de
-   * ce lot) ; marge incluse plutôt qu'une valeur strictement égale. */
+   * couvrir au moins le délai d'acceptation de la proposition (L3-07), avec marge incluse plutôt
+   * qu'une valeur strictement égale : c'est le filet de sécurité qui survit à un redémarrage du
+   * service (le minuteur JS de PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS, lui, ne survit pas). Vérifié
+   * au niveau du schéma ci-dessous (`.refine`), pas seulement documenté ici. */
   RESERVATION_TTL_SECONDS: z.coerce.number().int().positive().default(45),
+
+  /** Délai d'acceptation d'une proposition (L3-07), 30 s par défaut (L9-06). Seul juge de
+   * l'expiration côté serveur -- le compte à rebours affiché côté chauffeur est indicatif. */
+  PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
 
   /** Fréquence de diffusion des mises à jour nearby.drivers pendant un abonnement actif (L3-05). */
   NEARBY_BROADCAST_INTERVAL_SECONDS: z.coerce.number().positive().default(5),
@@ -58,6 +64,14 @@ const ConfigSchema = z.object({
    * la flotte) : au plus ce nombre d'abonnements par fenêtre glissante, par utilisateur. */
   NEARBY_RATE_LIMIT_MAX_SUBSCRIPTIONS: z.coerce.number().int().positive().default(10),
   NEARBY_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().positive().default(60),
+}).refine((config) => config.RESERVATION_TTL_SECONDS > config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS, {
+  // Sans cette marge, le filet de sécurité Redis (RESERVATION_TTL_SECONDS) pourrait expirer une
+  // réservation AVANT le minuteur JS qui doit normalement trancher en premier (proposal/timeout.ts)
+  // -- une proposition expirerait alors sans que personne n'émette ride.rejected/proposal.expired,
+  // silencieusement (L3-07).
+  message:
+    'RESERVATION_TTL_SECONDS doit être strictement supérieur à PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS (marge de sécurité, L3-07)',
+  path: ['RESERVATION_TTL_SECONDS'],
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

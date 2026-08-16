@@ -11,6 +11,7 @@ import {
 import { createMessageDispatcher } from './dispatch';
 import { DisconnectGraceTimers } from '../driver/availability';
 import { NearbyManager } from '../nearby/handler';
+import { ProposalLifecycle } from '../proposal/lifecycle';
 
 // Réexportés pour compatibilité : posés ici par L0-04, avant que ws/auth.ts (L3-01) n'existe.
 // test/ws.test.ts importe encore WS_CLOSE_UNAUTHENTICATED depuis ce module.
@@ -27,7 +28,11 @@ export function createConnectionHandler(config: Config, redis: Redis) {
   const wss = new WebSocketServer({ noServer: true });
   const registry = new ConnectionRegistry();
   const nearby = new NearbyManager(config, redis);
-  const dispatch = createMessageDispatcher(config, redis, nearby);
+  // registry est aussi le registre d'émission ciblée de ProposalLifecycle (L3-07) : proposal.new
+  // au chauffeur, ride.assigned/ride.rejected au client -- même registre que celui qui suit les
+  // connexions actives (spécification L3-01).
+  const proposals = new ProposalLifecycle(config, redis, registry);
+  const dispatch = createMessageDispatcher(config, redis, nearby, proposals);
   const disconnectGrace = new DisconnectGraceTimers();
 
   wss.on('connection', (socket: WebSocket, request: IncomingMessage) => {
