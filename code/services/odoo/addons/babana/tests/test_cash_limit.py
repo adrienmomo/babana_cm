@@ -60,6 +60,13 @@ def _redis_command(*parts: str) -> bytes:
     return out
 
 
+def _redis_set(key: str, value: str, timeout: float = 5.0) -> None:
+    host, port = _redis_host_port()
+    with socket.create_connection((host, port), timeout=timeout) as sock:
+        sock.sendall(_redis_command("SET", key, value))
+        sock.recv(4096)
+
+
 def _redis_exists(key: str, timeout: float = 5.0) -> bool:
     host, port = _redis_host_port()
     with socket.create_connection((host, port), timeout=timeout) as sock:
@@ -156,3 +163,40 @@ class TestCashLimitRealtimeChannel(HttpCase):
 
         time.sleep(1.0)
         self.assertFalse(_redis_exists(key), "aucune clé ne doit être posée si la transaction n'a pas commité")
+
+    # --- L5-04, symétrique de notify_cash_limit_reached ----------------------------------------
+
+    def test_notify_cash_limit_cleared_removes_the_redis_key_once_committed(self):
+        employee = self.env["hr.employee"].create({"name": "Chauffeur (test L5-04)"})
+        driver = self.env["babana.driver"].create({"employee_id": employee.id, "state": "approved"})
+        key = f"babana:driver:cash-blocked:{driver.public_id}"
+        self.addCleanup(_redis_delete, key)
+        _redis_set(key, "1")
+
+        env = _FakeEnv()
+        realtime_client.notify_cash_limit_cleared(env, driver_public_id=driver.public_id)
+        env.cr.commit()
+
+        import time
+
+        for _ in range(20):
+            if not _redis_exists(key):
+                break
+            time.sleep(0.25)
+        self.assertFalse(_redis_exists(key), "la clé de blocage doit être levée une fois committé")
+
+    def test_notify_cash_limit_cleared_does_nothing_if_the_transaction_rolls_back(self):
+        employee = self.env["hr.employee"].create({"name": "Chauffeur (test L5-04 bis)"})
+        driver = self.env["babana.driver"].create({"employee_id": employee.id, "state": "approved"})
+        key = f"babana:driver:cash-blocked:{driver.public_id}"
+        self.addCleanup(_redis_delete, key)
+        _redis_set(key, "1")
+
+        env = _FakeEnv()
+        realtime_client.notify_cash_limit_cleared(env, driver_public_id=driver.public_id)
+        env.cr.rollback()
+
+        import time
+
+        time.sleep(1.0)
+        self.assertTrue(_redis_exists(key), "la clé ne doit pas être levée si la transaction n'a pas commité")

@@ -196,3 +196,32 @@ def notify_cash_limit_reached(env, *, driver_public_id: str) -> None:
     est réellement acté côté Odoo (une transaction d'encaissement rejouée ou annulée n'a pas fait
     franchir quoi que ce soit)."""
     env.cr.postcommit.add(lambda: _notify_cash_limit_reached_now(driver_public_id=driver_public_id))
+
+
+def _notify_cash_limit_cleared_now(driver_public_id: str) -> None:
+    try:
+        _post("/internal/drivers/cash-unblocked", {"driverId": driver_public_id})
+    except RealtimeUnavailable:
+        _logger.warning(
+            "échec du dé-blocage de plafond d'encaisse pour le chauffeur %s -- il resterait "
+            "invisible jusqu'à la prochaine tentative (L5-04).",
+            driver_public_id,
+        )
+
+
+def notify_cash_limit_cleared(env, *, driver_public_id: str) -> None:
+    """Remise de caisse validée, le chauffeur repasse sous le plafond (D8, L5-04, critère
+    d'acceptation 5) : symétrique de `notify_cash_limit_reached` -- retire la clé de blocage
+    côté temps réel (`cash-guard.ts::unblockForCash`, exportée depuis L5-02 spécifiquement pour
+    cet appel) et réintègre le chauffeur au pool géo-indexé s'il redevient éligible (même
+    fonction que `clear_engagement`, `reintegrateIfEligible`, jamais un ajout inconditionnel).
+    Ne remet jamais `is_online` à vrai côté temps réel ou Odoo -- le blocage retire une
+    disponibilité, le lever n'en recrée pas une : le chauffeur redevient visible seulement s'il
+    repasse en ligne lui-même.
+
+    Appelée par `babana_cash_remittance.py::action_validate`, APRÈS la sortie réussie de son
+    savepoint -- même discipline D33 que `notify_cash_limit_reached`.
+
+    **D32** : au COMMIT, jamais pendant -- une validation rejouée ou finalement annulée n'a pas
+    réellement fait repasser le chauffeur sous le plafond."""
+    env.cr.postcommit.add(lambda: _notify_cash_limit_cleared_now(driver_public_id=driver_public_id))

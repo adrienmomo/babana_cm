@@ -28,3 +28,4 @@ from . import test_routing
 from . import test_quote_controller
 from . import test_ride_completion
 from . import test_remittance_model
+from . import test_remittance_validation

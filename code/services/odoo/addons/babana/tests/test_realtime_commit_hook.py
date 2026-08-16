@@ -260,7 +260,12 @@ class TestRealtimeCommitHookLint(HttpCase):
     # compense une transaction qui va de toute façon être annulée -- ni l'un ni l'autre n'a de
     # commit à attendre (voir realtime_client.py, en-tête du module, et les docstrings des deux
     # fonctions ci-dessous pour le raisonnement complet).
-    GATED_CALLS = ("clear_engagement", "notify_cancellation_async", "notify_cash_limit_reached")
+    GATED_CALLS = (
+        "clear_engagement",
+        "notify_cancellation_async",
+        "notify_cash_limit_reached",
+        "notify_cash_limit_cleared",
+    )
 
     def test_every_gated_call_passes_env_as_its_first_argument(self):
         offenders = []

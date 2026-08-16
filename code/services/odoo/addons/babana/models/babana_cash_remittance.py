@@ -1,13 +1,14 @@
-# Remise de caisse chauffeur (D8, L5-03). Le chauffeur déclare ce qu'il remet (L5-04), un
-# superviseur compte et valide -- la double saisie est ce qui rend un écart détectable. Ce
-# fichier ne porte, pour l'instant (L5-03), que le modèle et le gel à la création : les
-# transitions (action_declare, action_validate) sont ajoutées par L5-04, dans ce même fichier.
+# Remise de caisse chauffeur (D8, L5-03, L5-04). Le chauffeur déclare ce qu'il remet
+# (action_declare), un superviseur compte et valide (action_validate) -- la double saisie est ce
+# qui rend un écart détectable.
 from __future__ import annotations
 
 import uuid
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError
+
+from ..services import realtime_client
 
 
 class BabanaCashRemittance(models.Model):
@@ -89,9 +90,8 @@ class BabanaCashRemittance(models.Model):
         "account.move",
         copy=False,
         ondelete="restrict",
-        help="Pièce comptable de la validation (L5-05) -- vide tant que la remise n'est pas "
-        "validée. La pièce référence la remise en retour (account_move.py, L5-05) : référence "
-        "mutuelle (critère d'acceptation 4 de L5-05).",
+        help="Pièce comptable de la validation (L5-05, hors de ce lot) -- vide tant que cette "
+        "tâche n'existe pas ; le champ existe déjà pour l'accueillir sans migration.",
     )
     covered_movement_ids = fields.Many2many(
         "babana.cash.movement",
@@ -177,3 +177,93 @@ class BabanaCashRemittance(models.Model):
                 "d'acceptation 1, L5-03)."
             )
         return super().write(vals)
+
+    # --- L5-04 : déclaration puis validation ---------------------------------------------------
+
+    def action_declare(self, *, driver, declared_amount):
+        """Le chauffeur déclare (parcours en deux temps, L5-04) : crée la remise directement à
+        l'état 'declared' -- 'draft' n'est jamais atteint par ce chemin (voir le help de
+        `state`). create() (L5-03) fait le gel de expected_amount et covered_movement_ids."""
+        if declared_amount <= 0:
+            raise UserError("Le montant déclaré doit être strictement positif (L5-04).")
+        return self.create(
+            {
+                "driver_id": driver.id,
+                "declared_amount": declared_amount,
+                "state": "declared",
+                "declared_at": fields.Datetime.now(),
+            }
+        )
+
+    def action_validate(self, *, supervisor, counted_amount, reason=None):
+        """Le superviseur compte et valide (L5-04). Concordance déclaré/compté -> 'validated' ;
+        discordance -> 'disputed' -- les deux produisent le même mouvement de compte courant
+        (critère 6 : SEULE la validation, jamais la déclaration seule, ne touche le solde) : la
+        discordance n'est pas un refus, c'est un signal que le comptage et la déclaration ne
+        s'accordent pas, à instruire (L5-06), pas à bloquer.
+
+        Le montant réellement remis peut être inférieur au montant dû (D29, arbitré le 17 août,
+        `01-architecture.md` §7) : le mouvement `remittance` ne porte que `counted_amount`, la
+        différence reste au solde du chauffeur et continue de peser sur son plafond -- "la remise
+        remet le solde à zéro" (D8) n'est vrai que pour une remise complète."""
+        self.ensure_one()
+        if self.state != "declared":
+            raise UserError(
+                f"Impossible de valider une remise depuis l'état '{self.state}' (L5-04)."
+            )
+        if self.driver_id.user_id and self.driver_id.user_id == supervisor:
+            raise UserError(
+                "Un chauffeur ne peut pas valider sa propre remise, même avec le rôle de "
+                "superviseur (L5-04, critère d'acceptation 2)."
+            )
+
+        concordant = self.currency_id.compare_amounts(counted_amount, self.declared_amount) == 0
+        new_state = "validated" if concordant else "disputed"
+
+        vals = {
+            "counted_amount": counted_amount,
+            "state": new_state,
+            "supervisor_id": supervisor.id,
+            "validated_at": fields.Datetime.now(),
+        }
+        if reason is not None:
+            vals["discrepancy_reason"] = reason
+
+        with self.env.cr.savepoint():
+            self.write(vals)
+            if counted_amount:
+                # Un compte à zéro (chauffeur qui déclare, puis remet effectivement 0 -- écart
+                # total) ne crée aucun mouvement : babana_cash_movement.py interdit un mouvement
+                # à zéro (_sql_constraints, L5-01), et il n'y a rien à journaliser sur le solde
+                # dans ce cas -- l'écart couvre déjà tout.
+                self.env["babana.cash.movement"].sudo().create(
+                    {
+                        "driver_id": self.driver_id.id,
+                        "movement_type": "remittance",
+                        "amount": -counted_amount,
+                    }
+                )
+
+        # D33/D32 : la même discipline que action_settle -- l'appel sortant, une fois qu'on sait
+        # que l'effet a vraiment eu lieu, jamais depuis l'intérieur du savepoint. Débloquer un
+        # chauffeur déjà en dessous du plafond ne coûte rien (DEL Redis best-effort côté service
+        # temps réel, cash-guard.ts::unblockForCash) -- appelé systématiquement plutôt que suivi
+        # d'un état "était-il bloqué avant ?" à faire porter par cette méthode.
+        self.driver_id.invalidate_recordset(["cash_balance"])
+        if not (self.driver_id.cash_limit and self.driver_id.cash_balance >= self.driver_id.cash_limit):
+            realtime_client.notify_cash_limit_cleared(
+                self.env, driver_public_id=self.driver_id.public_id
+            )
+
+        return self
+
+    def button_validate(self):
+        """Bouton du formulaire (`views/babana_remittance_views.xml`) : sans argument, contra-
+        irement à `action_validate` -- `counted_amount` est un champ du formulaire, déjà
+        modifiable pendant que la remise est 'declared' (write(), ci-dessus), donc déjà enregistré
+        au moment du clic (Odoo sauvegarde les modifications en attente avant d'appeler une
+        méthode de bouton). Pas de sudo() : l'appartenance à group_babana_supervisor est ce qui
+        autorise l'écriture (ir.model.access.csv), même discipline que
+        babana_driver.py::action_approve."""
+        self.ensure_one()
+        return self.action_validate(supervisor=self.env.user, counted_amount=self.counted_amount)

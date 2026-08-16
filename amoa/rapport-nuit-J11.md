@@ -105,3 +105,101 @@ superviseur doit pouvoir y écrire `counted_amount`).
 `make test` ciblé (`TestCashRemittanceModel`) : 7 tests, 0 échec.
 
 ---
+
+## L5-04 — Validation de la remise
+
+**`action_declare` et `action_validate`**, ajoutées à `babana_cash_remittance.py`. `action_declare`
+crée directement à l'état `declared` (le gel vient de `create()`, L5-03). `action_validate`
+compare `counted_amount` à `declared_amount` par `currency_id.compare_amounts` (même précision
+que la correction D33/§3 de ce soir sur `action_settle`) : concordance -> `validated`, discordance
+-> `disputed` -- **les deux produisent le même mouvement `remittance`**, de `-counted_amount`.
+La discordance n'est pas un refus : c'est un signal à instruire (L5-06), pas un blocage.
+
+**D29, concrètement.** Le mouvement ne porte jamais `expected_amount`, seulement
+`counted_amount` -- une remise de 40 000 sur un solde de 45 000 laisse mécaniquement 5 000 au
+compte courant, sans code dédié à ce cas : c'est la conséquence directe de ne journaliser que ce
+qui a réellement été remis.
+
+**Critère 2, vérifié par comparaison d'identité.** `self.driver_id.user_id == supervisor` --
+un chauffeur qui possède aussi le groupe superviseur ne peut valider aucune remise dont il est le
+chauffeur, quelle que soit la façon dont il est arrivé sur le formulaire.
+
+**Critère 1, par les droits d'accès, pas par un contrôle explicite** -- même discipline que
+`babana_driver.py::action_approve` : `action_validate`/`button_validate` appellent `write()` sans
+`sudo()`, `ir.model.access.csv` n'ouvre l'écriture qu'à `group_babana_supervisor` et
+`group_babana_admin`. **Trouvé en écrivant le test du critère 1** : `group_babana_supervisor`
+seul ne suffit pas à lire `babana.driver` (aucune ligne ACL supervisor n'existait pour ce modèle)
+ni les modèles de base (`res.currency`, pour `compare_amounts`) -- un vrai compte superviseur
+porte toujours `base.group_user` (Utilisateur interne), attribué par l'écran "Utilisateurs"
+d'Odoo, jamais par le seul groupe métier. Ligne ACL `access_babana_driver_supervisor` (lecture
+seule, même forme que la ligne équivalente sur `babana.ride`) ajoutée pour combler le manque réel ;
+`base.group_user` ajouté aux comptes de test pour refléter un compte réel.
+
+**Déblocage, symétrique du blocage (L5-02).** `realtime_client.notify_cash_limit_cleared` (nouveau,
+même patron D32/D33 que `notify_cash_limit_reached` : enregistrée au commit, jamais dans le
+savepoint) appelle `POST /internal/drivers/cash-unblocked` (nouveau côté temps réel,
+`http/internal.ts`) -- lève `cashBlockedKey` (`cash-guard.ts::unblockForCash`, exportée depuis
+L5-02 spécifiquement pour cette tâche) et réintègre le chauffeur au pool s'il est par ailleurs
+éligible (`reintegrateIfEligible`, même fonction que `clear_engagement`). Ne remet jamais
+`is_online` à vrai -- le blocage retire une disponibilité, le lever n'en recrée pas une. Appelé
+systématiquement en fin de validation dès lors que le nouveau solde repasse sous le plafond,
+plutôt que de faire porter à la méthode un état "était-il bloqué avant ?" -- idempotent côté Redis
+(DEL best-effort), donc sans coût réel sur un chauffeur qui n'était pas bloqué.
+
+**Contrôleur** (`controllers/remittance.py`, `POST /remittances`) : même patron d'idempotence que
+`RideController._dispatch` (clé `Idempotency-Key`, réponse rejouée plutôt que déclarer deux fois)
+-- non prévu par le fichier de spécification lui-même, mais L5-07 (écran chauffeur) exige
+explicitement ce rejeu et le réseau mobile est intermittent par hypothèse de travail (`CLAUDE.md`).
+Statut public à trois valeurs (`pending`/`validated`/`rejected`, contrat C-01 déjà écrit avant ce
+lot) mappé depuis les quatre états internes : `draft`/`declared` -> `pending`, `disputed` ->
+`rejected`.
+
+**Vue** (`views/babana_remittance_views.xml`) : `counted_amount` est un champ de formulaire
+normal, modifiable tant que `declared` -- `button_validate()` ne prend donc aucun argument
+(contrairement à `action_approve`/`action_reject` sur `babana.driver`, qui exigent un motif ou un
+choix de fiche employé et donc un assistant). Bouton "Valider" visible seulement à l'état
+`declared`, réservé à `group_babana_supervisor` par l'attribut `groups` -- redondant avec l'ACL,
+volontairement (défense en profondeur).
+
+**Piège rencontré : `tsx watch` n'a pas rechargé le service temps réel après l'ajout de la route.**
+Le fichier modifié était bien visible dans le conteneur (montage bind), mais `curl` renvoyait
+encore 404 sur `/internal/drivers/cash-unblocked` jusqu'à un redémarrage explicite du conteneur
+(`docker compose restart realtime`) -- après quoi la route répondait. Cause non creusée plus loin
+(watcher qui a raté un événement de montage bind sur ce système de fichiers plutôt qu'un défaut du
+code) ; noté ici au cas où ça se reproduise plus tard dans la nuit : un 404 inattendu sur une route
+tout juste ajoutée côté temps réel, vérifier d'abord qu'elle a vraiment rechargé avant de chercher
+plus loin dans le code.
+
+**Tests** (`test_remittance_validation.py`, 17 cas au total avec le contrôleur) : déclaration seule
+ne touche pas le solde, montant non positif refusé, concordance/discordance, remise complète vs
+partielle (le test D29 explicite), refus ACL pour un non-superviseur, refus pour le chauffeur qui
+valide sa propre remise, déblocage effectif du plafond (`_check_online_eligibility()` ne renvoie
+plus `CASH_LIMIT_REACHED`). Côté contrôleur : déclaration réussie, rejeu sur la même clé
+d'idempotence (aucune seconde remise créée), montant invalide, chauffeur non approuvé. Côté canal
+temps réel (`test_cash_limit.py`), symétrique des tests déjà écrits pour `notify_cash_limit_reached` :
+la clé Redis tombe au commit, jamais au rollback.
+
+`make test` ciblé (`TestRemittanceValidation`, `TestRemittanceController`,
+`TestCashLimitRealtimeChannel`) : 17 tests, 0 échec. `npx tsc --noEmit` (`@babana/realtime`) :
+propre.
+
+**Vérification intermédiaire sur base fraîche.** `make reset && make up` puis `make test` complet :
+suite Odoo (2156 tests, fresh) au vert, suite `@babana/realtime` avec un seul échec -- un test de
+minuterie de grâce de déconnexion (`DisconnectGraceTimers`, L3-04) sans rapport avec ce lot,
+reconfirmé vert isolément (`npx tsx --test test/availability.test.ts`, 7/7) : flakiness sous charge
+(la machine faisait tourner la suite Odoo complète et un redémarrage Docker en parallèle), pas une
+régression. La suite de concurrence (`@babana/concurrency-tests`, scénarios 1 à 3 de L4-11 plus le
+critère 3 de L3-17) relancée séparément pour la même raison de timeout d'outil : 6/6, y compris le
+scénario 3 (encaissement concurrent, débloqué la nuit dernière). Aucune trace des changements
+L5-03/L5-04 dans ces deux suites -- elles n'ont pas de raison d'avoir bougé, vérifié plutôt que
+supposé.
+
+**Piège rencontré : `tsx watch` n'a pas rechargé le service temps réel après l'ajout de la route**
+`/internal/drivers/cash-unblocked`. Le fichier modifié était bien visible dans le conteneur
+(montage bind), mais `curl` renvoyait encore 404 jusqu'à un redémarrage explicite du conteneur
+(`docker compose restart realtime`), après quoi la route répondait. Cause non creusée plus loin
+(un événement de montage bind raté par le watcher, pas un défaut du code) ; noté au cas où ça se
+reproduise : un 404 inattendu sur une route tout juste ajoutée côté temps réel, vérifier d'abord
+qu'elle a vraiment rechargé avant de chercher plus loin dans le code.
+
+---

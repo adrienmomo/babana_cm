@@ -6,4 +6,5 @@ from . import driver
 from . import internal
 from . import internal_profiles
 from . import quote
+from . import remittance
 from . import ride
