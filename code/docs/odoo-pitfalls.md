@@ -91,3 +91,30 @@ produit une fenêtre d'incohérence quotidienne d'environ deux heures.
 par défaut d'un modèle, fenêtre de validité) utilise `fields.Date.today()`, jamais
 `fields.Date.context_today()`. Réservé à `context_today()` : un contexte où une personne connectée
 regarde effectivement un écran dans son propre fuseau horaire.
+
+---
+
+## `cr.postcommit` ignore les savepoints
+
+Un rappel enregistré via `env.cr.postcommit.add(...)` **à l'intérieur** d'un `with
+self.env.cr.savepoint():` n'est pas défait si ce savepoint est annulé. `postcommit` ne connaît que
+la transaction englobante : le rappel s'exécute dès que celle-ci commite réellement, que le
+savepoint qui l'a vu naître ait réussi ou non.
+
+Ce dépôt commite délibérément des transactions dont un savepoint a été annulé -- c'est ainsi qu'un
+contrôleur renvoie une erreur métier propre après un conflit (`_lock_for_update()`,
+`babana_ride_state.py`) : l'exception est attrapée, traduite, et la requête HTTP se termine
+normalement, donc la transaction Odoo commite. Un appel sortant enregistré à l'intérieur d'un
+savepoint annulé partirait donc quand même -- pour un effet qui, du point de vue de la base, n'a
+jamais eu lieu.
+
+Découvert le 19 août en relisant `action_settle` (L4-05) : le signalement de franchissement de
+plafond (`notify_cash_limit_reached`) s'enregistrait depuis l'intérieur du savepoint de
+l'encaissement. Pas atteignable ce soir-là (rien n'échouait après ce point dans le savepoint), mais
+la ligne suivante -- un effet de plus dans le même savepoint, comme la génération de facture prévue
+par L4-06 -- l'aurait rendu réel. Arbitrage : D33 (`amoa/questions/REPONSES-2026-08-19.md` §2).
+
+**Règle** : un effet qui sort de la base (notification, appel HTTP sortant, tout ce qui passe par
+`env.cr.postcommit`) ne s'enregistre qu'**après la sortie réussie** du savepoint qui l'a produit,
+jamais depuis l'intérieur. Retenir l'intention (un booléen, un identifiant) pendant le savepoint,
+enregistrer l'appel une fois qu'on sait que l'effet a vraiment eu lieu.

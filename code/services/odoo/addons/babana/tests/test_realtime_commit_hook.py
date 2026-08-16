@@ -13,6 +13,7 @@
 # ce module ne sert qu'aux tests).
 from __future__ import annotations
 
+import ast
 import os
 import re
 import socket
@@ -279,4 +280,50 @@ class TestRealtimeCommitHookLint(HttpCase):
             [],
             "un appel sortant post-transition doit toujours passer env en premier argument "
             "(point d'accroche au commit, D32) : " + "; ".join(offenders),
+        )
+
+    @staticmethod
+    def _is_savepoint_with_item(item: ast.withitem) -> bool:
+        expr = item.context_expr
+        return isinstance(expr, ast.Call) and isinstance(expr.func, ast.Attribute) and expr.func.attr == "savepoint"
+
+    def _is_gated_call(self, func: ast.expr) -> str | None:
+        if (
+            isinstance(func, ast.Attribute)
+            and func.attr in self.GATED_CALLS
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "realtime_client"
+        ):
+            return func.attr
+        return None
+
+    def test_no_gated_call_is_lexically_inside_a_savepoint_block(self):
+        """D33 (amoa/questions/REPONSES-2026-08-19.md §2, CLAUDE.md frontière) : `cr.postcommit`
+        ignore les savepoints -- un appel gated (voir GATED_CALLS ci-dessus) enregistré à
+        l'intérieur d'un `with ...savepoint():` survivrait à l'annulation de ce savepoint précis,
+        dès lors que la transaction englobante commite quand même pour renvoyer une erreur
+        métier propre (`_lock_for_update`, `controllers/ride.py::_dispatch`). Balayage AST plutôt
+        que par revue, même principe que le test ci-dessus -- limité à l'imbrication lexicale
+        dans le MÊME fichier (comme `action_settle`/`babana_ride_state.py`) ; un appel gated
+        placé dans une fonction appelée depuis l'intérieur d'un savepoint mais définie ailleurs
+        échapperait à ce balayage, d'où la seconde ligne de défense : GATED_CALLS lui-même
+        n'écrit jamais dans babana.driver ou babana.ride, seulement dans Redis via HTTP -- voir
+        realtime_client.py."""
+        offenders = []
+        for directory in self.SCAN_DIRS:
+            for path in sorted(directory.glob("*.py")):
+                tree = ast.parse(path.read_text(), filename=str(path))
+                for with_node in (n for n in ast.walk(tree) if isinstance(n, ast.With)):
+                    if not any(self._is_savepoint_with_item(item) for item in with_node.items):
+                        continue
+                    for inner in ast.walk(with_node):
+                        if isinstance(inner, ast.Call):
+                            name = self._is_gated_call(inner.func)
+                            if name:
+                                offenders.append(f"{path.name}:{inner.lineno}: realtime_client.{name}")
+        self.assertEqual(
+            offenders,
+            [],
+            "un appel gated est enregistré à l'intérieur d'un savepoint (D33) : "
+            + "; ".join(offenders),
         )

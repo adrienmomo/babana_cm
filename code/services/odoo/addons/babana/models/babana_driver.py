@@ -13,8 +13,6 @@ from datetime import timedelta
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
-from ..services import realtime_client
-
 # D28 (amoa/questions/REPONSES-2026-08-18.md, 01-architecture.md §7) : plafond FIXE POUR TOUTE LA
 # FLOTTE, jamais par chauffeur -- un plafond individuel créerait une inégalité que quelqu'un
 # devrait justifier à voix haute. Un seul paramètre système, jamais codé en dur (invariant 5) ;
@@ -330,7 +328,7 @@ class BabanaDriver(models.Model):
                     "atteint (D8)."
                 )
 
-    def _babana_apply_cash_limit(self):
+    def _babana_apply_cash_limit(self) -> bool:
         """Effet 4 de l'encaissement (L4-05, D8, D28) : si l'encaissement qui vient de se
         produire fait franchir le plafond, le chauffeur passe hors ligne IMMÉDIATEMENT, dans la
         MÊME transaction que l'encaissement (L5-02, critère 3) -- appelée depuis le bloc
@@ -342,13 +340,19 @@ class BabanaDriver(models.Model):
         Le passage hors ligne côté Odoo ne suffit pas seul (L5-02, "deux points de blocage, tous
         deux obligatoires") : le service temps réel garde son propre état (pool géo-indexé,
         engagement), indépendant d'is_online (deux systèmes délibérément découplés, voir
-        driver/availability.ts côté temps réel). notify_cash_limit_reached l'aligne -- au commit
-        de cette transaction (D32), jamais pendant."""
+        driver/availability.ts côté temps réel).
+
+        N'appelle plus notify_cash_limit_reached elle-même (D33, amoa/questions/
+        REPONSES-2026-08-19.md §2) : cet appel s'accroche au commit (cr.postcommit), qui ignore
+        les savepoints -- l'enregistrer ici, à l'intérieur du savepoint d'action_settle, le
+        ferait survivre à l'annulation de ce savepoint. Renvoie donc seulement si le
+        franchissement a eu lieu ; c'est action_settle qui enregistre l'appel sortant, une fois
+        le savepoint sorti avec succès."""
         self.ensure_one()
         if not (self.is_online and self.cash_limit and self.cash_balance >= self.cash_limit):
-            return
+            return False
         self.write({"is_online": False})
-        realtime_client.notify_cash_limit_reached(self.env, driver_public_id=self.public_id)
+        return True
 
     def _has_active_ride(self) -> bool:
         # DRIVER_ACTIVE_STATES (babana_ride.py, L4-01) : la même définition d'« en course » que

@@ -17,6 +17,8 @@ import psycopg2
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 
+from ..services import realtime_client
+
 _logger = logging.getLogger(__name__)
 
 # Champs figés après `completed` (L4-01/L4-02) : distance, durée, tracé, montant final ne
@@ -342,8 +344,16 @@ class BabanaRideState(models.Model):
         # Le montant encaissé est le montant dû, jamais une saisie libre (spécification) : le
         # chauffeur CONFIRME, il ne déclare pas. Vérifié avant d'entrer dans le savepoint --
         # aucun effet n'a encore eu lieu, rien à défaire si ce contrôle échoue.
+        #
+        # Comparaison monétaire d'Odoo (compare_amounts), pas une égalité de flottants
+        # (amoa/questions/REPONSES-2026-08-19.md §3) : les montants sont aujourd'hui des Monetary
+        # arrondis à l'unité et le franc CFA n'a pas de sous-unité, donc l'égalité stricte
+        # fonctionne encore -- mais elle dépend d'un arrondi qui se produit ailleurs, et son mode
+        # de défaillance est brutal (une course qui ne se solde jamais, avec un message qui accuse
+        # le chauffeur à tort). compare_amounts compare à la précision de la devise, quelle que
+        # soit l'origine de l'arrondi.
         expected_amount = self.final_amount or self.estimated_amount or 0
-        if amount_collected != expected_amount:
+        if self.currency_id.compare_amounts(amount_collected, expected_amount) != 0:
             raise UserError("SETTLEMENT_AMOUNT_MISMATCH")
 
         # Savepoint : si un effet échoue (le mouvement de compte courant refuse un solde négatif,
@@ -361,9 +371,22 @@ class BabanaRideState(models.Model):
                     "ride_id": self.id,
                 }
             )
-            # Critère 3 de L5-02 : franchissement mis hors ligne dans la MÊME transaction que
-            # l'encaissement qui l'a provoqué -- doit donc être dans ce savepoint, pas après lui.
-            by_driver._babana_apply_cash_limit()
+            # Critère 3 de L5-02 : la mise hors ligne elle-même est un effet Odoo, défait avec les
+            # deux autres si l'un d'eux échoue -- elle reste donc dans ce savepoint. L'appel
+            # sortant qu'elle déclenche, lui, n'y est plus : D33 (amoa/questions/
+            # REPONSES-2026-08-19.md §2, critère 6 de L4-05) -- voir plus bas, après la sortie
+            # réussie du savepoint.
+            cash_limit_crossed = by_driver._babana_apply_cash_limit()
+
+        # D33 : cr.postcommit ignore les savepoints -- un rappel enregistré à l'intérieur y
+        # survivrait même si le savepoint était annulé, dès lors que la transaction englobante
+        # commite quand même (ce dépôt le fait délibérément, voir _lock_for_update ci-dessus).
+        # L'intention (« ce chauffeur a franchi son plafond ») est donc retenue pendant le
+        # savepoint sous la forme d'un simple booléen, et l'appel sortant n'est enregistré
+        # qu'après sa sortie réussie -- pas avant, puisque c'est précisément l'endroit où l'on ne
+        # sait pas encore si l'effet a vraiment eu lieu.
+        if cash_limit_crossed:
+            realtime_client.notify_cash_limit_reached(self.env, driver_public_id=by_driver.public_id)
 
         self._babana_journalize("settlement")
         return self

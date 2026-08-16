@@ -11,6 +11,8 @@ from unittest.mock import patch
 from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase, tagged
 
+from ..services import realtime_client
+
 
 @tagged("post_install", "-at_install")
 class TestSettlement(TransactionCase):
@@ -119,6 +121,72 @@ class TestSettlement(TransactionCase):
 
         driver.invalidate_recordset()
         self.assertTrue(driver.is_online, "bien en dessous du plafond, rien ne doit changer")
+
+    # --- Critère 6 (D33, amoa/questions/REPONSES-2026-08-19.md §2) : l'appel sortant ne
+    # s'enregistre qu'après la sortie réussie du savepoint -----------------------------------
+
+    def test_settle_notifies_the_realtime_service_once_the_limit_is_crossed(self):
+        self.env["ir.config_parameter"].sudo().set_param("babana.cash_limit", "1000")
+        ride, driver = self._ride_ready_to_settle(final_amount=1200)
+        motorcycle = self.env["babana.motorcycle"].create({"license_plate": "LT-5555-ZZ"})
+        motorcycle.write({"driver_id": driver.id})
+        driver.write({"is_online": True})
+
+        with patch.object(realtime_client, "notify_cash_limit_reached") as mock_notify:
+            ride.action_settle(by_driver=driver, amount_collected=1200)
+
+        mock_notify.assert_called_once_with(self.env, driver_public_id=driver.public_id)
+
+    def test_settle_registers_no_notification_if_a_later_effect_fails_inside_the_savepoint(self):
+        """Rien, aujourd'hui, ne s'exécute après le contrôle de plafond à l'intérieur du
+        savepoint d'action_settle (amoa/questions/REPONSES-2026-08-19.md §2 : "vérifié plutôt que
+        supposé"). Ce test simule le futur effet déjà planifié pour rejoindre ce même savepoint
+        (la facture, L4-06) en faisant échouer un effet APRÈS que le plafond a été franchi et
+        écrit -- exactement le cas que D33 protège. Sans le correctif, l'appel sortant aurait été
+        enregistré (cr.postcommit ignore les savepoints) avant l'échec et aurait survécu à
+        l'annulation du savepoint dès lors que la transaction englobante commite ensuite pour
+        renvoyer son erreur métier (_lock_for_update, controllers/ride.py::_dispatch)."""
+        self.env["ir.config_parameter"].sudo().set_param("babana.cash_limit", "1000")
+        ride, driver = self._ride_ready_to_settle(final_amount=1200)
+        motorcycle = self.env["babana.motorcycle"].create({"license_plate": "LT-4444-ZZ"})
+        motorcycle.write({"driver_id": driver.id})
+        driver.write({"is_online": True})
+
+        DriverModel = type(driver)
+        real_apply_cash_limit = DriverModel._babana_apply_cash_limit
+
+        def _apply_then_fail_like_a_future_effect_would(self):
+            real_apply_cash_limit(self)
+            raise UserError("effet ultérieur simulé (celui que L4-06 rejoindra dans ce savepoint)")
+
+        with patch.object(realtime_client, "notify_cash_limit_reached") as mock_notify:
+            with patch.object(
+                DriverModel, "_babana_apply_cash_limit", _apply_then_fail_like_a_future_effect_would
+            ):
+                with self.assertRaises(UserError):
+                    ride.action_settle(by_driver=driver, amount_collected=1200)
+
+        mock_notify.assert_not_called()
+
+        ride.invalidate_recordset()
+        driver.invalidate_recordset()
+        self.assertEqual(ride.state, "completed", "le savepoint doit avoir tout défait")
+        self.assertTrue(driver.is_online, "la mise hors ligne doit avoir été défaite avec le reste")
+        self.assertEqual(driver.cash_balance, 0)
+
+    # --- §3 (amoa/questions/REPONSES-2026-08-19.md) : comparaison monétaire, pas une égalité de
+    # flottants ---------------------------------------------------------------------------------
+
+    def test_settle_accepts_an_amount_equal_at_currency_precision_but_not_as_a_raw_float(self):
+        ride, driver = self._ride_ready_to_settle(final_amount=1200)
+        # 1200.00000000001 est différent de 1200 par égalité stricte de flottants, mais identique
+        # à la précision de la devise (XAF, zéro décimale) -- exactement l'écart qu'un arrondi
+        # ailleurs dans le calcul pourrait produire un jour (§3).
+        ride.action_settle(by_driver=driver, amount_collected=1200.00000000001)
+
+        movement = self.env["babana.cash.movement"].search([("ride_id", "=", ride.id)])
+        self.assertEqual(len(movement), 1)
+        self.assertEqual(ride.state, "settled")
 
     # --- Critère 4 (L5-02) : une course en cours n'est jamais interrompue par le franchissement -
 

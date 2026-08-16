@@ -185,8 +185,11 @@ def notify_cash_limit_reached(env, *, driver_public_id: str) -> None:
     retirer ce chauffeur du pool ET refuser toute acceptation déjà en vol pour lui -- les deux
     points de blocage que la spécification exige, tous deux obligatoires (une proposition émise
     juste avant le franchissement resterait sinon acceptable). Appelée par
-    `babana.driver._babana_apply_cash_limit`, elle-même appelée depuis le bloc savepoint
-    d'`action_settle` (L4-05).
+    `babana_ride_state.py::action_settle`, APRÈS la sortie réussie de son savepoint -- jamais
+    depuis `babana.driver._babana_apply_cash_limit` elle-même, qui se contente d'écrire
+    `is_online` et de renvoyer si le plafond a été franchi (D33, amoa/questions/
+    REPONSES-2026-08-19.md §2) : `cr.postcommit` ignore les savepoints, un appel enregistré à
+    l'intérieur y survivrait même si ce savepoint précis était annulé.
 
     **D32** : au COMMIT, jamais pendant -- même raisonnement que `clear_engagement` : la
     disponibilité future de ce chauffeur ne doit changer côté temps réel que si le franchissement
