@@ -244,3 +244,46 @@ TypeScript) seedent désormais ce cache directement, comme `test/nearby.test.ts`
 `@babana/realtime` — mais **la vraie flotte reste bloquée tant que L3-16 n'existe pas**. Signalé
 dans `amoa/questions/L3-17.md`, priorité pour la prochaine session : sans elle, aucune course ne
 peut aboutir en production, même avec tout le reste de ce lot en place.
+
+---
+
+## Vérification finale, sur base fraîche
+
+`make reset` (volumes Postgres et Redis effacés) puis `make up`, `sh infra/smoke-test.sh` (6
+critères, tout `OK`), puis `make test` complet :
+
+- Suite Odoo sur base vierge, module `babana` réinstallé : **338 tests, 0 échec** — et l'ensemble
+  des modules Odoo dont il dépend (2085 tests au total avec les modules de base), également à 0
+  échec, sur une base qui n'a jamais rien vu tourner avant ce lancement.
+- `@babana/contracts` : 67/67.
+- `@babana/realtime` : 103/103, dont les 9 nouveaux tests de `internal.test.ts` et les 3 de
+  `reconcile.test.ts`.
+- `@babana/concurrency-tests` (contre la pile réelle) : scénarios 1 et 2 de L4-11 (accept/cancel
+  concurrents, désormais avec réservation réelle) et le test du critère 3 de L3-17 — 5/5, un
+  scénario resté volontairement `SKIP` (encaissement, hors périmètre).
+- `docs/contracts/verify-ride-state-machine.js` : `OK`.
+
+`npm run typecheck --workspaces` et `npm run lint --workspaces` (tous paquets) : propres.
+`tools/secret-scan/scan.sh` : aucun secret détecté.
+
+Aucun raccourci pris sur cette vérification : c'est la même base fraîche qui a servi de révélateur
+au 12 août (CLAUDE.md) qui a servi ici de dernier filet avant de déclarer la tâche finie.
+
+---
+
+## Ce qui reste ouvert pour la prochaine session
+
+1. **L3-16** (profils chauffeur, canal Odoo → temps réel) — priorité absolue : sans elle, la
+   précondition C-03 câblée cette nuit bloque **toute** sélection de chauffeur réel en production
+   (`amoa/questions/L3-17.md` §0).
+2. **L3-12** (file persistante avec rejeu pour les appels sortants du service temps réel) — le
+   canal temps réel → Odoo construit cette nuit (acceptation, refus, expiration) n'a, en son
+   absence, que les réessais en mémoire de `callOdoo` ; un Odoo indisponible plus longtemps que ces
+   réessais laisse une course bloquée en `proposed` sans filet (`amoa/questions/L3-17.md` §1).
+3. Les endpoints publics `/accept`/`/reject` (L4-03) restent un second chemin d'écriture qui
+   contourne la réservation atomique — à trancher quand le câblage mobile de l'acceptation sera
+   fait (`amoa/questions/L3-17.md` §2).
+4. **L4-05/L5-01** — encaissement, neuvième nuit d'attente. Après L3-16, c'est ce qui manque pour
+   une course démontrable de bout en bout jusqu'à l'encaissement.
+5. **L3-08 à L3-12 (hors L3-12 déjà cité), L3-14, L3-15** — la seconde moitié du lot temps réel.
+6. Le compte Google Play — inchangé.
