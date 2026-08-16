@@ -80,6 +80,14 @@ class BabanaCashDiscrepancy(models.Model):
         "ne modifie rien : l'écart pèse déjà sur le solde par construction, rien à journaliser "
         "de plus.",
     )
+    write_off_move_id = fields.Many2one(
+        "account.move",
+        ondelete="restrict",
+        help="Pièce comptable qui éteint le reliquat de créance (D34, "
+        "babana_cash_remittance.py::_babana_post_discrepancy_writeoff) -- vide pour le "
+        "traitement par défaut, exactement comme adjustment_movement_id : c'est ici, et "
+        "seulement ici, que le compte d'écart entre en comptabilité (spécification L5-05).",
+    )
 
     @api.constrains("reason_category", "reason_comment")
     def _check_other_requires_comment(self):
@@ -181,6 +189,16 @@ class BabanaCashDiscrepancy(models.Model):
 
         with self.env.cr.savepoint():
             if decision != "left_on_balance":
+                # La pièce comptable d'abord (même discipline que action_validate,
+                # babana_cash_remittance.py) : son échec (compte non configuré) ne doit laisser
+                # ni le mouvement de compte courant ni la clôture appliqués. C'est ici, et
+                # seulement ici (decision != 'left_on_balance'), que le compte d'écart entre en
+                # comptabilité (D34) -- le reliquat de créance restait dû depuis la validation.
+                write_off_move = self.remittance_id.sudo()._babana_post_discrepancy_writeoff(
+                    amount=self.amount
+                )
+                vals["write_off_move_id"] = write_off_move.id
+
                 # -self.amount : correct pour 'shortfall', le seul sens atteignable dans ce lot
                 # (voir le help de `direction`) -- un futur mécanisme produisant un `surplus`
                 # devra revoir ce signe, pas le réutiliser tel quel.

@@ -241,17 +241,16 @@ class BabanaCashRemittance(models.Model):
             # La pièce comptable d'abord (L5-05) : son échec (compte non configuré, par exemple)
             # ne doit laisser aucun des trois effets appliqué, même raisonnement que
             # action_settle -- et move_id part dans le MÊME write() que la transition, plus bas,
-            # jamais un second après coup (voir la note ci-dessus).
-            move = self._babana_post_accounting_entry(
-                counted_amount=counted_amount, discrepancy_amount=discrepancy_amount
-            )
+            # jamais un second après coup (voir la note ci-dessus). Le seul montant compté est
+            # posté ici (D34) -- un compte à zéro ne pose aucune pièce (move est alors False).
+            move = self._babana_post_accounting_entry(counted_amount=counted_amount)
 
             vals = {
                 "counted_amount": counted_amount,
                 "state": new_state,
                 "supervisor_id": supervisor.id,
                 "validated_at": fields.Datetime.now(),
-                "move_id": move.id,
+                "move_id": move.id if move else False,
             }
             if reason is not None:
                 vals["discrepancy_reason"] = reason
@@ -305,24 +304,28 @@ class BabanaCashRemittance(models.Model):
             )
         return int(value)
 
-    def _babana_post_accounting_entry(self, *, counted_amount, discrepancy_amount):
-        """Pièce comptable de la validation (L5-05) : `account.move` natif d'Odoo, pas un modèle
-        maison (`01-architecture.md` §6) -- numérotation légale, PDF et envoi par email sont
-        acquis sans code supplémentaire. Deux paires débit/crédit distinctes plutôt qu'une
-        seule fusionnée : un écart absorbé dans le montant principal serait invisible au
-        contrôle (spécification, critère d'acceptation 3).
+    def _babana_post_accounting_entry(self, *, counted_amount):
+        """Pièce comptable de la validation (L5-05, D34) : `account.move` natif d'Odoo, pas un
+        modèle maison (`01-architecture.md` §6) -- numérotation légale, PDF et envoi par email
+        sont acquis sans code supplémentaire.
 
-        Le compte de créance sur les chauffeurs est crédité pour le montant attendu EN ENTIER
-        (counted_amount + discrepancy_amount = expected_amount) : la créance de cette remise est
-        soldée en comptabilité, l'écart est reclassé sur son propre compte de suivi -- pas
-        laissé tel quel sur la créance générale. Ceci ne contredit pas D29 : le compte courant
-        Odoo (babana.cash.movement, source du plafond) est un système distinct, qui continue
-        pour sa part de porter l'écart au débit du chauffeur (action_validate, ci-dessus) --
-        deux systèmes, deux vérités compatibles, pas une seule redondante.
+        **La créance n'est soldée qu'à hauteur du seul montant compté** (D34, corrigé le 20 août)
+        -- caisse au débit, créance au crédit, jamais plus. La rédaction précédente créditait la
+        créance du montant attendu EN ENTIER (counted_amount + discrepancy_amount), en reclassant
+        l'écart sur son propre compte au même instant : la créance se retrouvait soldée alors que
+        D29 et le compte courant disaient encore le chauffeur débiteur -- deux systèmes en
+        désaccord, la dérive se voyant à la remise suivante (solde créditeur, voir
+        amoa/questions/REPONSES-2026-08-20.md §1). Le reliquat reste dû ici, exactement comme au
+        compte courant (action_validate, ci-dessus, ne journalise que counted_amount) ; le compte
+        d'écart n'entre en comptabilité que plus tard, si une décision humaine éteint la dette
+        (babana_cash_discrepancy.py::_babana_post_discrepancy_writeoff, L5-06).
 
-        Aucun montant nul : une paire dont le montant serait 0 (compte à zéro entièrement en
-        écart, ou remise sans le moindre écart) n'est simplement pas ajoutée aux lignes."""
+        Aucune pièce si counted_amount est nul (compte à zéro entièrement en écart) : il n'y a
+        rien de réellement reçu à journaliser -- move_id reste vide (action_validate, ci-dessus)."""
         self.ensure_one()
+        if not counted_amount:
+            return self.env["account.move"]
+
         journal_id = self._babana_accounting_param(
             CASH_REMITTANCE_JOURNAL_PARAM, "Le journal de caisse"
         )
@@ -334,48 +337,71 @@ class BabanaCashRemittance(models.Model):
             "Le compte de créance sur les chauffeurs",
         )
 
-        line_vals = []
-        if counted_amount:
-            line_vals += [
-                (0, 0, {
-                    "name": f"Remise de caisse {self.reference}",
-                    "account_id": cash_account_id,
-                    "debit": counted_amount,
-                    "credit": 0.0,
-                }),
-                (0, 0, {
-                    "name": f"Remise de caisse {self.reference}",
-                    "account_id": receivable_account_id,
-                    "debit": 0.0,
-                    "credit": counted_amount,
-                }),
-            ]
-        if discrepancy_amount:
-            discrepancy_account_id = self._babana_accounting_param(
-                CASH_REMITTANCE_DISCREPANCY_ACCOUNT_PARAM, "Le compte d'écart"
-            )
-            line_vals += [
-                (0, 0, {
-                    "name": f"Écart de caisse {self.reference}",
-                    "account_id": discrepancy_account_id,
-                    "debit": discrepancy_amount,
-                    "credit": 0.0,
-                }),
-                (0, 0, {
-                    "name": f"Écart de caisse {self.reference}",
-                    "account_id": receivable_account_id,
-                    "debit": 0.0,
-                    "credit": discrepancy_amount,
-                }),
-            ]
-
         move = self.env["account.move"].sudo().create(
             {
                 "move_type": "entry",
                 "journal_id": journal_id,
                 "date": fields.Date.today(),
                 "ref": self.reference,
-                "line_ids": line_vals,
+                "line_ids": [
+                    (0, 0, {
+                        "name": f"Remise de caisse {self.reference}",
+                        "account_id": cash_account_id,
+                        "debit": counted_amount,
+                        "credit": 0.0,
+                    }),
+                    (0, 0, {
+                        "name": f"Remise de caisse {self.reference}",
+                        "account_id": receivable_account_id,
+                        "debit": 0.0,
+                        "credit": counted_amount,
+                    }),
+                ],
+            }
+        )
+        move.sudo().action_post()
+        return move
+
+    def _babana_post_discrepancy_writeoff(self, *, amount):
+        """Éteint le reliquat de créance resté dû après une remise partielle (L5-06, D34) --
+        appelée uniquement depuis babana.cash.discrepancy::action_close, au moment où une
+        décision humaine (ajustement, retenue) éteint la dette, jamais depuis la validation
+        elle-même (_babana_post_accounting_entry, ci-dessus, qui ne solde que le compté). Compte
+        d'écart au débit, créance chauffeur au crédit -- symétrique à la paire de la validation,
+        pour le seul reliquat qui restait dû. C'est ici, et seulement ici, que le compte d'écart
+        entre en comptabilité (spécification L5-05)."""
+        self.ensure_one()
+        journal_id = self._babana_accounting_param(
+            CASH_REMITTANCE_JOURNAL_PARAM, "Le journal de caisse"
+        )
+        receivable_account_id = self._babana_accounting_param(
+            CASH_REMITTANCE_RECEIVABLE_ACCOUNT_PARAM,
+            "Le compte de créance sur les chauffeurs",
+        )
+        discrepancy_account_id = self._babana_accounting_param(
+            CASH_REMITTANCE_DISCREPANCY_ACCOUNT_PARAM, "Le compte d'écart"
+        )
+
+        move = self.env["account.move"].sudo().create(
+            {
+                "move_type": "entry",
+                "journal_id": journal_id,
+                "date": fields.Date.today(),
+                "ref": f"Écart de caisse {self.reference}",
+                "line_ids": [
+                    (0, 0, {
+                        "name": f"Écart de caisse {self.reference}",
+                        "account_id": discrepancy_account_id,
+                        "debit": amount,
+                        "credit": 0.0,
+                    }),
+                    (0, 0, {
+                        "name": f"Écart de caisse {self.reference}",
+                        "account_id": receivable_account_id,
+                        "debit": 0.0,
+                        "credit": amount,
+                    }),
+                ],
             }
         )
         move.sudo().action_post()

@@ -173,6 +173,62 @@ class TestCashDiscrepancy(TransactionCase):
         driver.invalidate_recordset()
         self.assertEqual(driver.cash_balance, 0)
 
+    # --- D34 : c'est ici, et seulement ici, que le compte d'écart entre en comptabilité -------
+
+    def test_an_explicit_adjustment_writes_off_the_remaining_receivable(self):
+        remittance, driver = self._partial_remittance(expected=45000, given=40000)
+        discrepancy = self.env["babana.cash.discrepancy"].search(
+            [("remittance_id", "=", remittance.id)]
+        )
+        supervisor = self._make_supervisor()
+
+        discrepancy.with_user(supervisor).action_close(
+            decided_by=supervisor,
+            decision="adjustment",
+            reason_category="counting_error",
+        )
+
+        move = discrepancy.write_off_move_id
+        self.assertTrue(move, "la décision qui éteint la dette pose sa propre pièce comptable")
+        self.assertEqual(move.state, "posted")
+
+        discrepancy_account = self.env["ir.config_parameter"].sudo().get_param(
+            "babana.cash_remittance_discrepancy_account_id"
+        )
+        discrepancy_lines = move.line_ids.filtered(
+            lambda line: line.account_id.id == int(discrepancy_account)
+        )
+        self.assertEqual(discrepancy_lines.debit, 5000)
+
+        receivable_account = self.env["ir.config_parameter"].sudo().get_param(
+            "babana.cash_remittance_receivable_account_id"
+        )
+        # Créance totalement soldée en comptabilité une fois la dette éteinte : 40 000 crédités à
+        # la validation (remittance.move_id) + 5 000 ici = 45 000, le montant attendu en entier.
+        total_credited = sum(
+            self.env["account.move.line"]
+            .search([("account_id", "=", int(receivable_account))])
+            .mapped("credit")
+        )
+        self.assertEqual(total_credited, 45000)
+
+    def test_the_default_treatment_posts_no_write_off_move(self):
+        remittance, _driver = self._partial_remittance(expected=45000, given=40000)
+        discrepancy = self.env["babana.cash.discrepancy"].search(
+            [("remittance_id", "=", remittance.id)]
+        )
+        supervisor = self._make_supervisor()
+
+        discrepancy.with_user(supervisor).action_close(
+            decided_by=supervisor,
+            decision="left_on_balance",
+            reason_category="change_shortage",
+        )
+
+        self.assertFalse(
+            discrepancy.write_off_move_id, "ne rien décider, c'est laisser la dette où elle est"
+        )
+
     # --- Critère 4 : le seuil d'écart cumulé déclenche une alerte -----------------------------
 
     def test_a_cumulative_amount_over_the_threshold_triggers_an_alert(self):

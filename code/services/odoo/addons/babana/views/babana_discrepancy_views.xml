@@ -49,6 +49,7 @@
                             <field name="decided_by" readonly="1"/>
                             <field name="closed_at" readonly="1"/>
                             <field name="adjustment_movement_id" readonly="1"/>
+                            <field name="write_off_move_id" readonly="1"/>
                         </group>
                     </group>
                 </sheet>
