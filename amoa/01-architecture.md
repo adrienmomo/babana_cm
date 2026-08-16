@@ -32,6 +32,11 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D25 | Un **échec de sérialisation PostgreSQL se rejoue**, il ne se traduit jamais en erreur métier. Le rejeu est celui d'Odoo, à la frontière HTTP — notre code ne l'attrape pas | Traduction en `RIDE_INVALID_TRANSITION` ; rejeu maison dans le modèle | Une transition valide était refusée dix-neuf fois sur vingt selon la microseconde de l'instantané. Et le rejeu existait déjà un niveau au-dessus. Voir §2 bis |
 | D26 | **Toute écriture sur le pool des chauffeurs disponibles passe par un seul script atomique**, qui porte l'unique définition de l'éligibilité — en ligne, non réservé, non engagé | Chaque appelant ajoute au pool selon sa propre logique | Une réservation atomique ne vaut rien si un autre chemin remet le chauffeur dans le pool. Voir §2 ter |
 | D27 | **Le service temps réel lit Odoo ; Odoo n'écrit jamais dans Redis.** Un seul sens de dépendance, un seul canal interne, deux formes de charge utile (L3-15, L3-16) | Poussée événementielle d'Odoo vers Redis | Plus frais, mais donne à Odoo une dépendance Redis et toute la réconciliation qui va avec. Une note affichée trente secondes en retard ne coûte rien |
+| D28 | **Plafond d'encaisse : montant fixe pour toute la flotte**, paramétrable, 50 000 FCFA au départ | Plafond par chauffeur ; plafond en nombre de courses | Un plafond par chauffeur crée une inégalité que quelqu'un devra justifier ; un plafond en courses est décorrélé de l'encaisse réelle. Voir §7 |
+| D29 | **Un écart de caisse est accepté et reste au solde du chauffeur**, où il continue de peser sur le plafond | Refus de la remise ; écart sorti du compte courant | Le logiciel enregistre un fait, il ne prend aucune décision RH. Et un écart qui ne pèse nulle part est un écart que personne ne regarde. Voir §7 |
+| D30 | **Une donnée de profil manquante dégrade l'affichage d'un chauffeur, elle ne le retire jamais de la flotte.** Champs à `null`, jamais omission | Omettre le chauffeur | L'omission a produit un blocage total : aucun profil en cache, donc aucune liste, donc aucune course possible. Un défaut de cache ne doit pas rendre quelqu'un invisible |
+| D31 | **Acceptation et refus n'ont qu'un chemin d'écriture** : `proposal.accept` / `proposal.reject` en temps réel, puis transition Odoo par le canal interne. Les endpoints HTTP publics sont retirés | Endpoints HTTP en parallèle du temps réel | D26 remonté d'un cran : un état à deux écrivains, dont l'un ignore l'autre |
+| D32 | **Un appel sortant vers le service temps réel se déclenche au commit de la transaction Odoo, jamais pendant** | Appel direct dans le contrôleur, synchrone ou en fil de fond | Une transaction rejouée ou annulée aurait déjà modifié Redis pour une décision qui n'a pas eu lieu. Voir §2 ter |
 
 ---
 
@@ -103,6 +108,10 @@ Conséquence à ne pas perdre de vue quand un contrôleur appellera le service t
 Le 16 août, la réservation atomique a été livrée avec un script Lua irréprochable — et l'invariant qu'elle porte était cassé quand même. `ingestPosition` remettait le chauffeur dans le pool à chaque position reçue, sans rien savoir de la réservation. Un chauffeur réservé y revenait en quelques secondes, et un second client pouvait le gagner.
 
 **L'atomicité d'une opération ne protège rien si l'état qu'elle garde a plusieurs écrivains.** La question n'est jamais « cette opération est-elle indivisible ? » mais « cet état a-t-il un seul chemin d'écriture ? ». Ici : un seul script porte l'entrée au pool, et il porte l'unique définition de l'éligibilité — en ligne, non réservé, non engagé. Aucun `GEOADD` direct ne subsiste ailleurs, et c'est vérifiable par recherche plutôt que par relecture.
+
+**Le corollaire, découvert le 17 août (D32) : un effet hors de la base ne doit jamais partir avant le commit.** L'annulation d'une course déclenchait, depuis le contrôleur, le relâchement de la réservation et l'effacement de l'engagement côté Redis — dans un fil de fond, mais surtout **pendant la transaction**. Or D25 dit qu'Odoo rejoue ou annule une transaction en conflit. Une annulation qui échoue au commit laisse alors Redis dans l'état d'une annulation qui n'a pas eu lieu : le chauffeur revient au pool alors que sa course est toujours vivante.
+
+C'est le même raisonnement que D26, appliqué à travers la frontière des deux services. À l'intérieur d'une base, la transaction protège de ça toute seule ; dès qu'un effet sort de la base, plus rien ne le rattrape. Tout appel sortant se déclenche donc **au commit**, jamais avant. Odoo fournit ce point d'accroche ; il ne se remplace pas par un fil de fond, qui répond à une autre question — la latence, pas l'atomicité.
 
 **Réservation et engagement sont deux états distincts, et c'est leur durée qui les sépare.** Une réservation expire vite, parce qu'un chauffeur qui ne répond pas doit être libéré. Une course n'a pas de durée prévisible : un embouteillage ne doit pas remettre au pool un chauffeur qui transporte quelqu'un. Confondre les deux revient à borner la durée d'une course par un délai d'acceptation.
 
@@ -199,6 +208,18 @@ Un chauffeur salarié qui encaisse des espèces détient des fonds appartenant �
 2. Le solde est un compte courant permanent, pas un solde de session — cohérent avec D7.
 3. Un plafond d'encaisse est paramétré dans le back-office. Au-delà, le chauffeur ne peut plus accepter de nouvelle course.
 4. La remise à un superviseur remet le solde à zéro et génère l'écriture comptable Odoo.
+
+**Deux paramètres arbitrés le 17 août** (maîtrise d'ouvrage), après huit nuits pendant lesquelles le lot L5 a été tenu à l'écart faute de les avoir posés.
+
+**Le plafond est un montant fixe pour toute la flotte**, paramétrable en back-office, valeur de départ 50 000 FCFA à confirmer en pilote. Écarté : un plafond par chauffeur, qui crée une inégalité visible que quelqu'un devra justifier à voix haute ; et un plafond en nombre de courses, décorrélé du risque réel — dix courses courtes ne portent pas la même encaisse que dix longues.
+
+**Un écart de caisse est accepté et porté en dette (D29).** Le superviseur valide ce qui est réellement remis ; la différence reste au solde du chauffeur et **continue de compter dans son plafond**. Trois conséquences voulues :
+
+- Le logiciel ne prend aucune décision de ressources humaines. Il enregistre un fait — il manque tel montant — et laisse la suite à des humains. Sur des chauffeurs salariés, c'est la seule position tenable.
+- L'écart reste visible tant qu'il n'est pas réglé, parce qu'il pèse là où le chauffeur le sent : sur sa capacité à travailler. Un écart sorti du compte courant serait un écart que plus personne ne regarde.
+- Refuser la remise tant que le compte n'y est pas aurait un effet pervers : un chauffeur bloqué au plafond avec 500 FCFA manquants ne peut plus travailler du tout, donc plus rembourser.
+
+Le plafond bloquant est ce qui empêche cette dette de croître indéfiniment : elle se heurte au plafond, et le chauffeur doit régulariser pour reprendre.
 5. Tout écart entre montant attendu et montant remis est enregistré, jamais absorbé silencieusement.
 
 Le plafond remplace la clôture de service comme mécanisme de contrôle. Il ne coûte qu'une règle métier et un champ de configuration.

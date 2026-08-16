@@ -218,7 +218,13 @@ Tout écart non nul crée un enregistrement dédié : remise, chauffeur, montant
 
 Motifs proposés : appoint manquant, erreur de comptage, course contestée, autre avec commentaire obligatoire.
 
-Traitements possibles : report sur la remise suivante, ajustement avec justification, retenue selon la politique de l'entreprise. Chaque traitement produit un mouvement de compte courant tracé (L5-01).
+**Traitement par défaut, arbitré le 17 août (D29) : l'écart reste au solde du chauffeur.** La remise est acceptée pour le montant réellement remis ; la différence demeure au compte courant et **continue de compter dans le plafond d'encaisse**. Ce n'est pas un choix de commodité :
+
+- Le logiciel enregistre un fait — il manque tel montant — et ne prend aucune décision de ressources humaines. Sur des chauffeurs salariés, c'est la seule position tenable.
+- L'écart pèse là où le chauffeur le sent, sur sa capacité à travailler, et le plafond bloquant l'empêche de croître indéfiniment. Un écart sorti du compte courant serait un écart que plus personne ne regarde.
+- Refuser la remise tant que le compte n'y est pas produirait l'effet inverse de celui recherché : un chauffeur bloqué au plafond pour 500 FCFA manquants ne peut plus travailler, donc plus rembourser.
+
+Les autres traitements — ajustement avec justification, retenue selon la politique de l'entreprise — restent possibles, mais ce sont des **décisions humaines explicites** prises dans le back-office, jamais le comportement par défaut du système. Chaque traitement produit un mouvement de compte courant tracé (L5-01).
 
 **Alerte automatique** au-delà d'un seuil d'écart cumulé par chauffeur sur une période glissante. Un écart isolé est banal ; une série d'écarts dans le même sens ne l'est pas. C'est le seul mécanisme qui détectera un détournement progressif.
 
@@ -227,6 +233,7 @@ Vue back-office listant les écarts en attente, triés par ancienneté.
 ### Critères d'acceptation
 
 1. Un écart non nul crée systématiquement un enregistrement.
+1 bis. **Une remise partielle est acceptée, et le reliquat demeure au solde du chauffeur** — vérifié sur le solde, pas seulement sur l'enregistrement d'écart. Un chauffeur qui remet 40 000 sur 45 000 dus repart avec 5 000 au compte courant, qui pèsent sur son plafond.
 2. Aucun écart ne peut être clos sans motif.
 3. Le traitement produit un mouvement de compte courant tracé.
 4. Le seuil d'écart cumulé déclenche une alerte.

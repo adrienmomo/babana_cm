@@ -146,8 +146,6 @@ Endpoints à spécifier :
 | POST | `/quote` | Estimation : départ, arrivée, promo éventuelle → montant, distance, ETA |
 | POST | `/rides` | Création d'une demande à partir d'une estimation |
 | POST | `/rides/{id}/select-driver` | Sélection d'un chauffeur parmi les 5 proposés |
-| POST | `/rides/{id}/accept` | Acceptation par le chauffeur |
-| POST | `/rides/{id}/reject` | Refus par le chauffeur |
 | POST | `/rides/{id}/start` | Démarrage |
 | POST | `/rides/{id}/complete` | Fin, consolidation |
 | POST | `/rides/{id}/settle` | Encaissement espèces |
@@ -171,6 +169,12 @@ Le catalogue est **partagé entre C-01 et C-02** : un même code peut être émi
 **Idempotence** — l'identifiant voyage dans l'en-tête `Idempotency-Key`, convention REST courante, plutôt que dans le corps : les schémas de corps n'ont pas à porter de mécanique de transport. Seules les transitions **réellement appliquées** sont mises en cache — rejouer un appel qui a échoué pour raison métier est sans risque, et parfois nécessaire puisque la condition qui l'a fait échouer peut avoir changé.
 
 **Versionnement** — le préfixe `/v1` est figé. Toute rupture de compatibilité crée `/v2`, elle ne modifie pas `/v1`. Documenter cette règle explicitement : une app installée sur le téléphone d'un chauffeur ne se met pas à jour à la demande.
+
+**Acceptation et refus ne sont pas des endpoints HTTP** (D31, 17 août). `/rides/{id}/accept` et `/rides/{id}/reject` ont été retirés de ce tableau. Ils y figuraient depuis la première rédaction, et L4-03 les a implémentés en appelant directement la machine à états — créant un second chemin d'écriture à côté de la résolution atomique du service temps réel. C'est le défaut D26 remonté d'un cran : un état à deux écrivains, dont l'un ne connaît pas l'autre.
+
+Le chauffeur accepte et refuse par `proposal.accept` / `proposal.reject` (C-02), sur la connexion qui lui a présenté la proposition. Le service temps réel résout atomiquement, puis écrit la transition dans Odoo par le canal interne. Un seul chemin, une seule résolution.
+
+**Attention en retirant ces endpoints** : les scénarios de concurrence de L4-11 les utilisent pour prouver le verrouillage d'Odoo, qui reste nécessaire — le service temps réel écrit toujours ses transitions dans Odoo. Ces tests visent désormais les routes internes, ils ne disparaissent pas avec les endpoints publics.
 
 **Durée de validité de l'estimation** — une estimation a une date d'expiration. Passée cette date, `/rides` la refuse avec `QUOTE_EXPIRED`. Sinon un client peut faire estimer à 6h du matin et commander à 18h au tarif creux.
 

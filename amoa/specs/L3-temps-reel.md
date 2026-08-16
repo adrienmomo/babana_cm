@@ -186,6 +186,14 @@ Sur `nearby.subscribe`, renvoyer les 5 chauffeurs disponibles les plus proches, 
 
 La projection est implémentée comme une **liste blanche de champs**, jamais comme une exclusion : une liste noire laisse passer tout champ ajouté plus tard.
 
+**Un profil manquant dégrade l'affichage, jamais la disponibilité** (D30, ajouté le 17 août). La première rédaction faisait omettre un chauffeur dont le profil n'était pas en cache, au nom du principe — juste — qu'on n'invente jamais un prénom. La conséquence a été découverte en câblant : aucun chauffeur réel ne portait de profil, donc la liste était systématiquement vide, donc **aucune course ne pouvait aboutir**. Ce n'était pas un cas limite, c'était un blocage total.
+
+Le principe reste, la conclusion change. Le chauffeur est renvoyé avec ce qu'on sait — distance, position, gamme si connue — et les champs de profil à `null`. L'application affiche un avatar générique et un libellé neutre. Ce n'est pas inventer une donnée, c'est avouer son absence.
+
+Ce qui compte au-delà de ce cas : **un défaut de cache ne doit jamais retirer un chauffeur de la flotte.** C'est la même famille de panne que le marqueur d'engagement resté en place — un état technique qui rend quelqu'un invisible sans que rien ne le signale. Chaque fois qu'une donnée manquante peut faire disparaître un chauffeur plutôt que dégrader son affichage, c'est la disparition qu'il faut refuser.
+
+`NearbyDriverSchema` (C-01) rend donc `firstName`, `photoUrl`, `rating` et `motorcycleClass` nullables. Un chauffeur écarté faute de position, en revanche, reste écarté : sans position, il n'y a pas de distance, et la liste des plus proches n'a plus de sens.
+
 **Cinq résultats, vraiment cinq** (ajouté le 16 août). L3-03 filtre les chauffeurs dont la position a expiré au moment de la requête, en sur-échantillonnant d'un facteur fixe pour absorber ce filtrage. Cela suppose qu'au plus une fraction du pool soit périmée — vrai en régime normal, faux après une coupure réseau généralisée, qui est le cas courant à Douala. Cette tâche doit donc **compléter jusqu'à cinq**, par élargissement ou par nouvelle requête, plutôt que de renvoyer deux chauffeurs parce que le sur-échantillonnage n'a pas suffi. Un client qui voit deux chauffeurs au lieu de cinq croit que la ville est vide.
 
 ### Critères d'acceptation
@@ -640,7 +648,7 @@ Le service temps réel demande les profils des chauffeurs qu'il s'apprête à re
 
 **Liste blanche de champs, côté Odoo aussi.** L'endpoint ne sert que les quatre champs, jamais l'enregistrement `babana.driver` projeté. Le garde-fou de L3-05 ne doit pas être le seul : si la seule protection contre la fuite du numéro de téléphone est une projection côté temps réel, elle tombera le jour où quelqu'un ajoutera un champ « pratique » à la réponse.
 
-**Un chauffeur sans profil disponible est omis de `nearby.drivers`**, jamais complété par une valeur inventée. C'est déjà le comportement posé par L3-05 ; il reste vrai quand Odoo est injoignable.
+**Un chauffeur sans profil disponible est renvoyé avec ses champs de profil à `null`** (D30), jamais complété par une valeur inventée et jamais omis. Odoo injoignable dégrade l'affichage de la liste ; il ne vide pas la liste.
 
 Cette tâche fait disparaître le hash Redis provisoire posé par L3-05 — règle des champs-pont.
 
@@ -709,3 +717,4 @@ L'écart constaté à chaque passage est compté et journalisé. Un écart durab
 6. La fin de course efface le marqueur d'engagement et le chauffeur redevient disponible.
 7. **Un marqueur d'engagement orphelin est effacé par la réconciliation**, et l'écart est journalisé.
 8. Un chauffeur absent de la dernière liste des 5 envoyée au client ne peut pas être sélectionné.
+9. **Aucun appel sortant vers le service temps réel ne part avant le commit de la transaction Odoo** (D32). Test explicite : une transition dont la transaction échoue au commit ne doit avoir modifié aucune clé Redis. `reserve_and_propose` fait exception et doit le rester — il précède délibérément la transition, puisque c'est son résultat qui l'autorise.
