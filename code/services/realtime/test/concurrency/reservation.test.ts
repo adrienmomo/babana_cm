@@ -19,7 +19,8 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import { reserveDriver, releaseDriver, isReserved } from '../../src/reservation/reserve';
-import { addToPool, isInPool, removeFromPool } from '../../src/redis/geo-index';
+import { isInPool, removeFromPool } from '../../src/redis/geo-index';
+import { addEligibleToPool } from '../../src/redis/pool-eligibility';
 import { storePosition } from '../../src/redis/positions';
 import { setOnline, setOffline } from '../../src/driver/availability';
 
@@ -64,7 +65,7 @@ async function freshAvailableDriver(label: string): Promise<string> {
     { ...SOMEWHERE, accuracyMeters: 10, speedMetersPerSecond: 0, headingDegrees: 0, capturedAtMs: Date.now() },
     60
   );
-  await addToPool(cleanup, driverId, SOMEWHERE.latitude, SOMEWHERE.longitude);
+  await addEligibleToPool(cleanup, driverId, SOMEWHERE.latitude, SOMEWHERE.longitude);
   return driverId;
 }
 
@@ -115,7 +116,7 @@ describe('réservation concurrente sur le même chauffeur (L3-13)', () => {
         // sur les AUTRES chauffeurs, pendant que la réservation ci-dessous s'exécute sur driverId.
         await Promise.all(
           churnIds.map((churnId, i) =>
-            i % 2 === 0 ? removeFromPool(cleanup, churnId) : addToPool(cleanup, churnId, SOMEWHERE.latitude, SOMEWHERE.longitude)
+            i % 2 === 0 ? removeFromPool(cleanup, churnId) : addEligibleToPool(cleanup, churnId, SOMEWHERE.latitude, SOMEWHERE.longitude)
           )
         );
       }

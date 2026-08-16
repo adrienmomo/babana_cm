@@ -14,12 +14,13 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import {
-  addToPool,
   removeFromPool,
   isInPool,
   findNearby,
 } from '../src/redis/geo-index';
 import { storePosition } from '../src/redis/positions';
+import { setOffline } from '../src/driver/availability';
+import { putInPool } from './helpers/pool';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const RUN_ID = randomUUID().slice(0, 8);
@@ -39,6 +40,7 @@ before(() => {
 after(async () => {
   await Promise.all(
     [...usedIds].flatMap((driverId) => [
+      setOffline(redis, driverId), // efface aussi le drapeau "en ligne" posé par putInPool
       removeFromPool(redis, driverId),
       redis.del(`babana:driver:position:${driverId}`),
     ])
@@ -67,7 +69,7 @@ function trackedId(label: string): string {
 describe('géo-index des chauffeurs disponibles (L3-03)', () => {
   test('critère 1 -- un chauffeur en ligne apparaît, hors ligne il en sort', async () => {
     const driverId = await freshen('c1-driver-a', AKWA);
-    await addToPool(redis, driverId, AKWA.latitude, AKWA.longitude);
+    await putInPool(redis,driverId, AKWA.latitude, AKWA.longitude);
     assert.equal(await isInPool(redis, driverId), true);
 
     await removeFromPool(redis, driverId);
@@ -76,8 +78,8 @@ describe('géo-index des chauffeurs disponibles (L3-03)', () => {
 
   test("critère 2 -- un chauffeur jamais mis en ligne (équivalent : en course) n'apparaît jamais", async () => {
     // Ce module ne connaît aucune notion de "en course" -- c'est L3-04/L3-06/L3-07 (l'appelant)
-    // qui décide de ne jamais appeler addToPool, ou d'appeler removeFromPool à l'affectation.
-    // Absence de addToPool() est donc la façon correcte de représenter ce cas ici.
+    // qui décide de ne jamais appeler putInPool, ou d'appeler removeFromPool à l'affectation.
+    // Absence de putInPool() est donc la façon correcte de représenter ce cas ici.
     await freshen('c2-driver-a', AKWA);
     const results = await findNearby(redis, AKWA, 5_000, 5);
     assert.deepEqual(
@@ -96,9 +98,9 @@ describe('géo-index des chauffeurs disponibles (L3-03)', () => {
     const a = await freshen('c4-driver-a', BONABERI);
     const b = await freshen('c4-driver-b', AKWA);
     const c = await freshen('c4-driver-c', BONAPRISO);
-    await addToPool(redis, a, BONABERI.latitude, BONABERI.longitude);
-    await addToPool(redis, b, AKWA.latitude, AKWA.longitude);
-    await addToPool(redis, c, BONAPRISO.latitude, BONAPRISO.longitude);
+    await putInPool(redis,a, BONABERI.latitude, BONABERI.longitude);
+    await putInPool(redis,b, AKWA.latitude, AKWA.longitude);
+    await putInPool(redis,c, BONAPRISO.latitude, BONAPRISO.longitude);
 
     const results = (await findNearby(redis, AKWA, 10_000, 20)).filter((r) => usedIds.has(r.driverId));
     assert.deepEqual(
@@ -118,7 +120,7 @@ describe('géo-index des chauffeurs disponibles (L3-03)', () => {
 
   test('un rayon en dehors de tout chauffeur exclut les candidats trop loin', async () => {
     const driverId = await freshen('c6-driver-a', BONABERI); // ~7 km
-    await addToPool(redis, driverId, BONABERI.latitude, BONABERI.longitude);
+    await putInPool(redis,driverId, BONABERI.latitude, BONABERI.longitude);
 
     const results = await findNearby(redis, AKWA, 1_000, 20);
     assert.equal(results.some((r) => r.driverId === driverId), false);
@@ -127,7 +129,7 @@ describe('géo-index des chauffeurs disponibles (L3-03)', () => {
   test('un chauffeur dont la position a expiré est exclu, et nettoyé du pool au passage', async () => {
     // Ajouté au géo-index, mais sans position fraîche stockée (L3-02) -- simule une expiration.
     const driverId = trackedId('c7-driver-a');
-    await addToPool(redis, driverId, AKWA.latitude, AKWA.longitude);
+    await putInPool(redis,driverId, AKWA.latitude, AKWA.longitude);
     assert.equal(await isInPool(redis, driverId), true);
 
     const results = await findNearby(redis, AKWA, 5_000, 20);
@@ -153,7 +155,7 @@ describe('géo-index des chauffeurs disponibles (L3-03)', () => {
       for (let i = 0; i < 30; i += 1) {
         const driverId = trackedId(`c8-stale-${i}`);
         staleIds.push(driverId);
-        await addToPool(redis, driverId, base.latitude, base.longitude + i * 0.00005);
+        await putInPool(redis,driverId, base.latitude, base.longitude + i * 0.00005);
       }
 
       // ~1.1 à 1.2 km du centre -- toujours dans le rayon de 3 km interrogé plus bas, mais
@@ -161,7 +163,7 @@ describe('géo-index des chauffeurs disponibles (L3-03)', () => {
       const freshIds: string[] = [];
       for (let i = 0; i < 6; i += 1) {
         freshIds.push(await freshen(`c8-fresh-${i}`, { latitude: base.latitude, longitude: base.longitude + 0.01 + i * 0.0002 }));
-        await addToPool(redis, freshIds[i]!, base.latitude, base.longitude + 0.01 + i * 0.0002);
+        await putInPool(redis,freshIds[i]!, base.latitude, base.longitude + 0.01 + i * 0.0002);
       }
 
       const results = await findNearby(redis, base, 3_000, 5);

@@ -12,9 +12,11 @@ import { reservationKey } from '../reservation/keys';
  * Redis -- c'est précisément ce qui a cassé l'invariant une première fois (tracking/ingest.ts,
  * avant ce correctif, amoa/questions/REPONSES-2026-08-16-J7.md §2).
  *
- * `redis/geo-index.ts` conserve son propre `addToPool` (GEOADD inconditionnel), mais réservé aux
- * fixtures de test qui n'ont pas de rapport avec la réservation ou l'engagement (nearby.test.ts,
- * geo-index.test.ts) -- voir son docstring. Aucun appelant de production n'y touche plus.
+ * Depuis la correction du 17 août (amoa/questions/REPONSES-2026-08-17.md §1, critère 6 bis),
+ * `redis/geo-index.ts` ne porte plus aucun `GEOADD` -- l'ancien `addToPool` (GEOADD
+ * inconditionnel) a été retiré de `src/` : les fixtures de test qui en avaient besoin
+ * (nearby.test.ts, geo-index.test.ts, availability.test.ts) composent désormais le pool par ce
+ * même script, via `test/helpers/pool.ts` ou un appel direct à `addEligibleToPool`.
  */
 const POOL_ELIGIBILITY_SCRIPT = readFileSync(path.join(__dirname, 'pool-eligibility.lua'), 'utf8');
 

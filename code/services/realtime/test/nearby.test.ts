@@ -15,11 +15,13 @@ import Redis from 'ioredis';
 import type { WebSocket } from 'ws';
 import { NearbyManager } from '../src/nearby/handler';
 import { projectNearbyDrivers } from '../src/nearby/projection';
-import { addToPool, removeFromPool } from '../src/redis/geo-index';
+import { removeFromPool } from '../src/redis/geo-index';
 import { storePosition } from '../src/redis/positions';
 import { setDriverProfile, removeDriverProfile, type DriverProfile } from '../src/redis/driver-profiles';
+import { setOffline } from '../src/driver/availability';
 import { parseConfig, type Config } from '../src/config';
 import type { ConnectionContext } from '../src/ws/auth';
+import { putInPool } from './helpers/pool';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const RUN_ID = randomUUID().slice(0, 8);
@@ -51,6 +53,7 @@ before(() => {
 after(async () => {
   await Promise.all(
     [...usedIds].flatMap((driverId) => [
+      setOffline(redis, driverId), // efface aussi le drapeau "en ligne" posé par putInPool
       removeFromPool(redis, driverId),
       removeDriverProfile(redis, driverId),
       redis.del(`babana:driver:position:${driverId}`),
@@ -72,7 +75,7 @@ async function freshDriver(
     { ...position, accuracyMeters: 10, speedMetersPerSecond: 5, headingDegrees: 0, capturedAtMs: Date.now() },
     60
   );
-  await addToPool(redis, driverId, position.latitude, position.longitude);
+  await putInPool(redis,driverId, position.latitude, position.longitude);
   await setDriverProfile(redis, driverId, profile);
   return driverId;
 }
@@ -134,7 +137,7 @@ describe('projectNearbyDrivers (L3-05)', () => {
       { ...origin, accuracyMeters: 10, speedMetersPerSecond: 0, headingDegrees: 0, capturedAtMs: Date.now() },
       60
     );
-    await addToPool(redis, driverId, origin.latitude, origin.longitude);
+    await putInPool(redis,driverId, origin.latitude, origin.longitude);
     // Pas de setDriverProfile ici, délibérément.
 
     const results = await projectNearbyDrivers(redis, origin, 3_000, 5);
@@ -148,7 +151,7 @@ describe('projectNearbyDrivers (L3-05)', () => {
       const driverId = id(`c2-stale-${i}`);
       usedIds.add(driverId);
       staleIds.push(driverId);
-      await addToPool(redis, driverId, origin.latitude, origin.longitude + i * 0.00005);
+      await putInPool(redis,driverId, origin.latitude, origin.longitude + i * 0.00005);
       await setDriverProfile(redis, driverId, PROFILE);
     }
     const freshIds: string[] = [];

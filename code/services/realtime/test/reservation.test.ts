@@ -9,7 +9,8 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import { reserveDriver, releaseDriver, isReserved, startReservationExpiryWatcher } from '../src/reservation/reserve';
-import { addToPool, isInPool, removeFromPool } from '../src/redis/geo-index';
+import { isInPool, removeFromPool } from '../src/redis/geo-index';
+import { addEligibleToPool } from '../src/redis/pool-eligibility';
 import { storePosition } from '../src/redis/positions';
 import { setOnline, setOffline } from '../src/driver/availability';
 import { setEngaged, clearEngaged, isEngaged } from '../src/driver/engagement';
@@ -80,7 +81,7 @@ async function availableDriver(label: string): Promise<string> {
     { ...SOMEWHERE, accuracyMeters: 10, speedMetersPerSecond: 0, headingDegrees: 0, capturedAtMs: Date.now() },
     60
   );
-  await addToPool(redis, driverId, SOMEWHERE.latitude, SOMEWHERE.longitude);
+  await addEligibleToPool(redis, driverId, SOMEWHERE.latitude, SOMEWHERE.longitude);
   return driverId;
 }
 

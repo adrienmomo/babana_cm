@@ -15,7 +15,8 @@ import {
   isMarkedOnline,
   DisconnectGraceTimers,
 } from '../src/driver/availability';
-import { addToPool, isInPool, removeFromPool } from '../src/redis/geo-index';
+import { isInPool, removeFromPool } from '../src/redis/geo-index';
+import { addEligibleToPool } from '../src/redis/pool-eligibility';
 import { ingestPosition } from '../src/tracking/ingest';
 import type { PlausibilityConfig } from '../src/tracking/validation';
 import type { ConnectionContext } from '../src/ws/auth';
@@ -87,7 +88,7 @@ describe('setOnline/setOffline/isMarkedOnline (L3-04)', () => {
   test('le passage hors ligne est immédiat et inconditionnel : retire aussi du géo-index', async () => {
     const driverId = trackedId('flag-b');
     await setOnline(redis, driverId);
-    await addToPool(redis, driverId, 4.0483, 9.6934);
+    await addEligibleToPool(redis, driverId, 4.0483, 9.6934);
     assert.equal(await isInPool(redis, driverId), true);
 
     await setOffline(redis, driverId);
@@ -115,7 +116,7 @@ describe('DisconnectGraceTimers (L3-04, critère 3)', () => {
   test('sans reconnexion, le chauffeur sort du pool à expiration de la période de grâce', async () => {
     const driverId = trackedId('grace-a');
     await setOnline(redis, driverId);
-    await addToPool(redis, driverId, 4.0483, 9.6934);
+    await addEligibleToPool(redis, driverId, 4.0483, 9.6934);
 
     const timers = new DisconnectGraceTimers();
     timers.schedule(redis, driverId, 0.05);
@@ -130,7 +131,7 @@ describe('DisconnectGraceTimers (L3-04, critère 3)', () => {
   test('une reconnexion avant échéance (cancel) annule la sortie du pool', async () => {
     const driverId = trackedId('grace-b');
     await setOnline(redis, driverId);
-    await addToPool(redis, driverId, 4.0483, 9.6934);
+    await addEligibleToPool(redis, driverId, 4.0483, 9.6934);
 
     const timers = new DisconnectGraceTimers();
     timers.schedule(redis, driverId, 0.05);

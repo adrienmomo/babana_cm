@@ -20,26 +20,6 @@ import { hasFreshPosition } from './positions';
 // une chaîne dupliquée qui pourrait diverger.
 export const AVAILABLE_DRIVERS_KEY = 'babana:drivers:available';
 
-/**
- * GEOADD inconditionnel -- **réservé aux fixtures de test** (nearby.test.ts, geo-index.test.ts,
- * availability.test.ts) qui n'ont aucun rapport avec la réservation ou l'engagement et n'ont donc
- * pas à composer les préconditions d'éligibilité pour placer un chauffeur dans le pool.
- *
- * Depuis L3-06R (D26), aucun code de production n'appelle plus cette fonction : le seul point
- * d'écriture réel sur le pool est `redis/pool-eligibility.ts` (`addEligibleToPool`), qui vérifie
- * en ligne/non réservé/non engagé dans le même script Lua avant d'écrire. `test/pool-single-
- * writer.test.ts` vérifie par recherche qu'aucun autre appel à GEOADD ne subsiste ailleurs dans le
- * service.
- */
-export async function addToPool(
-  redis: Redis,
-  driverId: string,
-  latitude: number,
-  longitude: number
-): Promise<void> {
-  await redis.geoadd(AVAILABLE_DRIVERS_KEY, longitude, latitude, driverId);
-}
-
 export async function removeFromPool(redis: Redis, driverId: string): Promise<void> {
   await redis.zrem(AVAILABLE_DRIVERS_KEY, driverId);
 }
@@ -70,7 +50,7 @@ const OVERFETCH_MAX_MULTIPLIER = OVERFETCH_FACTOR * 8;
  * chauffeurs proches, un appel de routage par chauffeur serait prohibitif -- ce qui est affiché
  * au client doit être présenté comme une proximité, jamais comme un temps d'arrivée précis.
  *
- * Filtre les candidats dont la position a expiré (L3-02) : `addToPool`/`removeFromPool`
+ * Filtre les candidats dont la position a expiré (L3-02) : `addEligibleToPool`/`removeFromPool`
  * n'écoutent aucun événement d'expiration Redis (pas de notification keyspace, hors de ce lot),
  * un chauffeur peut donc rester un court instant dans l'index après l'expiration de sa position
  * -- jamais le renvoyer tant qu'il n'a pas explicitement quitté le pool serait pire qu'un
