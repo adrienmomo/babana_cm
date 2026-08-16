@@ -274,8 +274,9 @@ class RideController(http.Controller):
         # avant : la course doit être réellement terminée côté Odoo (source de vérité, D27) avant
         # que le service temps réel ne considère ce chauffeur de nouveau disponible.
         # 'completed', pas 'settled' (DRIVER_ACTIVE_STATES, babana_ride.py) : l'encaissement ne
-        # bloque pas une nouvelle course.
-        realtime_client.clear_engagement(driver_public_id=driver.public_id)
+        # bloque pas une nouvelle course. Au COMMIT, jamais pendant (D32) : voir la docstring de
+        # clear_engagement (services/realtime_client.py) pour le raisonnement complet.
+        realtime_client.clear_engagement(env, driver_public_id=driver.public_id)
         payload = _summary(ride)
         payload["distanceMeters"] = round(ride.actual_distance_km * 1000)
         payload["durationSeconds"] = round(ride.actual_duration_minutes * 60)
@@ -356,7 +357,9 @@ class RideController(http.Controller):
         # Les deux appels sont idempotents (sans effet si l'état visé n'existe pas) : plutôt que
         # de déterminer lequel s'applique, les deux nettoient ce qui doit l'être. En tâche de
         # fond (voir notify_cancellation_async) : la transition est déjà appliquée, rien n'oblige
-        # le client à attendre ce nettoyage.
+        # le client à attendre ce nettoyage. Au COMMIT, jamais pendant (D32) : un appel parti
+        # pendant la transaction aurait déjà modifié Redis pour une annulation qui, en cas de
+        # rejeu ou d'échec au commit (D25), n'aurait pas eu lieu.
         if cancelled_driver:
-            realtime_client.notify_cancellation_async(cancelled_driver.public_id)
+            realtime_client.notify_cancellation_async(env, cancelled_driver.public_id)
         return _summary(ride), 200

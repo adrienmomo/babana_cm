@@ -1,7 +1,13 @@
 # Sens Odoo -> temps réel (L3-17) : select-driver réserve et propose AVANT toute transition Odoo
 # (D10 §C2a, L3-06) ; la fin de course efface le marqueur d'engagement (D26, L3-07). Authentifié
 # par REALTIME_SHARED_SECRET -- même secret, même mécanisme que le canal interne prévu par L3-15
-# (jamais construit ce soir, hors périmètre), pas un second à inventer.
+# (jamais construit, hors périmètre), pas un second à inventer.
+#
+# D32 (amoa/questions/REPONSES-2026-08-18.md §4) : tout appel d'ici déclenché APRÈS une transition
+# Odoo (clear_engagement, notify_cancellation_async) part au commit de la transaction appelante,
+# jamais pendant -- voir leurs docstrings. Seul reserve_and_propose fait exception, et le reste :
+# il PRÉCÈDE délibérément la transition, puisque c'est son résultat qui l'autorise (controllers/
+# ride.py::_select_driver) ; c'est pour cela que son idempotence (D25) a été construite.
 #
 # Sens temps réel -> Odoo (acceptation, refus, expiration) : PAS ici. Ce module ne porte que les
 # appels dont Odoo est l'INITIATEUR -- voir controllers/internal.py pour l'autre sens, reçu plutôt
@@ -106,15 +112,13 @@ def release_reservation(*, driver_public_id: str) -> None:
         )
 
 
-def clear_engagement(*, driver_public_id: str) -> None:
-    """Fin de course (L3-17, critère 6) : efface le marqueur d'engagement côté temps réel --
-    sans lui, le chauffeur ne revient jamais dans le pool (D26, l'engagement n'expire jamais tout
-    seul, délibérément). Même remarque que release_reservation sur `driver_public_id`.
+def _clear_engagement_now(driver_public_id: str) -> None:
+    """L'appel HTTP réel, best-effort : la fin de course reste appliquée côté Odoo même si cet
+    appel échoue, la réconciliation périodique (`driver/reconcile.ts`, critère 7) reste le filet.
 
-    Best-effort, même raisonnement que release_reservation ci-dessus : la fin de course reste
-    appliquée côté Odoo même si cet appel échoue. La réconciliation périodique
-    (`driver/reconcile.ts`, critère 7) reste le filet si ce message ne parvient jamais au service
-    temps réel."""
+    Jamais appelée directement depuis un contrôleur -- toujours derrière un point d'accroche au
+    commit (D32) : `clear_engagement()` ci-dessous pour la fin de course, ou le fil de fond de
+    `notify_cancellation_async()` (déjà après le commit, voir sa docstring)."""
     try:
         _post("/internal/engagement/clear", {"driverId": driver_public_id})
     except RealtimeUnavailable:
@@ -125,17 +129,40 @@ def clear_engagement(*, driver_public_id: str) -> None:
         )
 
 
-def notify_cancellation_async(driver_public_id: str) -> None:
-    """Annulation (L3-17) : relâche la réservation ET efface l'engagement, en tâche de fond.
+def clear_engagement(env, *, driver_public_id: str) -> None:
+    """Fin de course (L3-17, critère 6) : efface le marqueur d'engagement côté temps réel --
+    sans lui, le chauffeur ne revient jamais dans le pool (D26, l'engagement n'expire jamais tout
+    seul, délibérément).
 
-    Contrairement à `reserve_and_propose` (qui gate la transition, donc doit être attendu) et à
-    `clear_engagement` appelé depuis `_complete_ride` (où rien d'autre ne se dispute la latence),
-    la réponse de `/cancel` n'a besoin d'attendre ni l'un ni l'autre : la transition Odoo est déjà
-    appliquée quand cette fonction est appelée, et retarder la réponse au client le temps de deux
-    appels HTTP internes n'apporterait rien -- seulement une latence perceptible sans bénéfice
-    pour lui. Fil démon (`daemon=True`) : ne doit jamais empêcher le processus de se terminer, et
-    n'a besoin d'aucune synchronisation avec le fil appelant (best-effort des deux côtés)."""
-    threading.Thread(
-        target=lambda: (release_reservation(driver_public_id=driver_public_id), clear_engagement(driver_public_id=driver_public_id)),
-        daemon=True,
-    ).start()
+    **D32** (amoa/questions/REPONSES-2026-08-18.md §4) : appelée au COMMIT de la transaction
+    Odoo, jamais pendant -- même défaut que `notify_cancellation_async` avant sa correction, en
+    plus doux (la réconciliation le rattrape en vingt secondes ; pour l'annulation, il n'y a que
+    le TTL de réservation, quarante-cinq secondes, et rien du tout pour l'engagement). Prend
+    `env` explicitement : c'est `env.cr.postcommit` qui porte le point d'accroche, pas un détail
+    laissé à la discrétion de chaque appelant."""
+    env.cr.postcommit.add(lambda: _clear_engagement_now(driver_public_id=driver_public_id))
+
+
+def notify_cancellation_async(env, driver_public_id: str) -> None:
+    """Annulation (L3-17, D32) : relâche la réservation ET efface l'engagement, en tâche de fond
+    -- déclenchée au COMMIT de la transaction Odoo, jamais pendant.
+
+    **D32** (amoa/questions/REPONSES-2026-08-18.md §4) : ce fil démon a longtemps démarré pendant
+    la transaction d'annulation. Il répond correctement à la question de la latence -- la réponse
+    de `/cancel` n'a besoin d'attendre ni le relâchement ni l'effacement, la transition Odoo est
+    déjà appliquée quand cette fonction est appelée. Il ne répond pas du tout à celle de
+    l'atomicité : si la transaction échoue au commit (D25, rejouée ou finalement annulée), Redis
+    avait déjà été modifié pour une annulation qui n'a pas eu lieu -- le chauffeur revient au pool
+    avec une course toujours vivante. `env.cr.postcommit` est le point d'accroche qu'Odoo fournit
+    pour ça : le fil démon ne le remplace pas, il n'a jamais répondu à la même question.
+
+    `env.cr.postcommit.add(...)` n'exécute son callback qu'après un COMMIT réellement réussi --
+    jamais après un ROLLBACK (`sql_db.py::Cursor.rollback` vide `postcommit` sans l'exécuter) --
+    et jamais dans un test `TransactionCase`/`HttpCase` dont la transaction n'est jamais vraiment
+    commitée (`TestCursor.commit` : "TestCursor ignores post-commit hooks by default")."""
+    env.cr.postcommit.add(
+        lambda: threading.Thread(
+            target=lambda: (release_reservation(driver_public_id=driver_public_id), _clear_engagement_now(driver_public_id=driver_public_id)),
+            daemon=True,
+        ).start()
+    )
