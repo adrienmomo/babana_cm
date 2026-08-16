@@ -257,6 +257,7 @@ Après réservation réussie, appeler Odoo pour la transition `requested → pro
 4. L'échec de l'appel Odoo libère la réservation.
 5. La réservation expire et libère le chauffeur — **et l'engagement, lui, n'expire jamais tout seul.**
 6. **Aucun appel à `GEOADD` sur la clé du pool ne subsiste hors du script d'éligibilité**, dans tout le service. Vérifiable par recherche : c'est le genre de règle qu'une revue oublie et qu'un `grep` n'oublie pas.
+6 bis. **Aucune fonction de code source n'écrit dans le pool sans passer par le script** — précision du 17 août. Une première implémentation gardait un `addToPool` inconditionnel exporté depuis `src/`, réservé par convention aux fixtures de test. La recherche du critère 6 ne l'attrapait pas, puisque `addToPool` ne contient pas la chaîne `geoadd` : un appelant de production aurait contourné la garantie en toute discrétion. Une aide de test vit dans les tests. Une règle de lint avec un trou documenté est pire qu'aucune règle, parce qu'elle donne confiance.
 
 ---
 
@@ -651,3 +652,60 @@ Cette tâche fait disparaître le hash Redis provisoire posé par L3-05 — règ
 4. L'endpoint Odoo ne sert que les quatre champs — test explicite sur l'**absence** de nom complet, téléphone, immatriculation.
 5. Une modification de profil dans Odoo se voit côté temps réel au plus tard après la durée de cache, sans redémarrage.
 6. `services/odoo` ne porte aucune dépendance à un client Redis.
+
+---
+
+## L3-17 — Câblage Odoo ↔ temps réel
+
+### Objectif
+
+Faire en sorte que la réservation, la proposition, l'acceptation et le refus existent réellement — et non seulement dans des modules sans appelant.
+
+### Contexte
+
+**Créée le 17 août.** Trois nuits ont produit la réservation atomique (L3-06), le pool à écrivain unique (L3-06R) et le cycle de proposition (L3-07). Chacun est testé, chacun est correct, **et aucun n'a d'appelant en production.** `select-driver` (L4-03) ne réserve toujours rien ; une acceptation n'écrit rien dans Odoo. Cela a été signalé honnêtement chaque nuit, et c'est devenu le chemin critique : tant que ce câblage n'existe pas, rien de ce qui a été construit n'est intégré, et les défauts d'assemblage restent invisibles.
+
+### Fichiers
+
+```
+services/realtime/src/http/internal.ts
+services/odoo/addons/babana/services/realtime_client.py
+services/odoo/addons/babana/controllers/ride.py
+services/realtime/src/driver/reconcile.ts
+```
+
+### Spécification
+
+**Sens Odoo → temps réel.** Un endpoint HTTP interne sur le service temps réel, authentifié par `REALTIME_SHARED_SECRET`, jamais exposé publiquement. `select-driver` l'appelle pour réserver et proposer, **avant** la transition Odoo. Un échec de réservation donne `DRIVER_ALREADY_TAKEN` sans qu'aucune transition n'ait lieu.
+
+**Le piège du rejeu, et c'est le point central de cette tâche.** Odoo rejoue la requête HTTP entière sur conflit de concurrence (D25). Un appel sortant placé dans un contrôleur rejouable **s'exécute donc deux fois**. Deux réponses possibles, à choisir explicitement et à documenter :
+
+- rendre l'appel idempotent de bout en bout, par une clé de requête que le service temps réel reconnaît et dont il rejoue la réponse ;
+- ou sortir l'appel de la transaction rejouable.
+
+Ce qui n'est pas acceptable, c'est de ne pas trancher. Un appel sortant non idempotent dans une transaction rejouable est un défaut qui ne se manifeste que sous charge, exactement comme ceux que L4-11 a mis trois nuits à révéler.
+
+**Sens temps réel → Odoo** : c'est L3-12, et rien ici ne doit le réimplémenter. Acceptation, refus et expiration écrivent leurs transitions par ce chemin-là.
+
+**La précondition C-03 « chauffeur présent dans la dernière liste des 5 »**, signalée depuis L3-06 et jamais vérifiée nulle part, se traite ici : c'est la première fois que les deux côtés se parlent, donc la première fois que la vérification a un effet.
+
+**Fin de course : le marqueur d'engagement s'efface.** Sans quoi le chauffeur ne revient jamais dans le pool.
+
+### La réconciliation, qui fait partie de cette tâche
+
+Le marqueur d'engagement n'expire jamais — c'est délibéré, un embouteillage à Douala ne doit pas remettre au pool un chauffeur qui transporte quelqu'un. Mais un marqueur qui n'expire jamais et qu'un seul échec laisse en place rend le chauffeur **invisible pour toujours**, sans erreur, sans alerte. C'est mot pour mot le scénario du contexte terrain : la flotte se vide et personne ne comprend pourquoi.
+
+Le service temps réel demande donc périodiquement à Odoo la liste des chauffeurs réellement en course, et **aligne ses marqueurs dessus** : il efface les orphelins, il pose ceux qui manquent. Odoo est la source de vérité (D27) ; le service temps réel ne décide de rien, il reflète (invariant 3).
+
+L'écart constaté à chaque passage est compté et journalisé. Un écart durablement non nul n'est pas un incident de réconciliation, c'est un défaut du chemin nominal — la réconciliation le répare et le **dénonce**, elle ne le masque pas.
+
+### Critères d'acceptation
+
+1. Une course va de `requested` à `assigned` par l'API mobile, réservation atomique comprise, contre la pile réelle.
+2. Deux clients sélectionnant le même chauffeur : un seul gagne, l'autre reçoit `DRIVER_ALREADY_TAKEN`, et aucune course fantôme n'est créée.
+3. **Une requête `select-driver` rejouée par Odoo ne produit qu'une réservation.** Test explicite, avec un rejeu réellement provoqué — pas simulé par un double appel du test.
+4. L'échec de l'appel au service temps réel ne laisse aucune transition Odoo appliquée.
+5. Un chauffeur qui refuse réintègre le pool ; un chauffeur qui accepte n'y revient pas jusqu'à la fin de course.
+6. La fin de course efface le marqueur d'engagement et le chauffeur redevient disponible.
+7. **Un marqueur d'engagement orphelin est effacé par la réconciliation**, et l'écart est journalisé.
+8. Un chauffeur absent de la dernière liste des 5 envoyée au client ne peut pas être sélectionné.

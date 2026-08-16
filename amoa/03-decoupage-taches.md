@@ -145,6 +145,7 @@ Les états `brouillon → demandée → proposée → affectée → en_cours →
 | L3-14 | **Test de résilience** : coupure du service temps réel en pleine course, redémarrage, la course se retrouve et se termine correctement | M | L3-12 |
 | L3-15 | **Canal de configuration Odoo → temps réel** : endpoint interne authentifié, sous-ensemble fermé de clés, cache court, repli sur les dernières valeurs connues. Fait disparaître les variables d'environnement métier posées par L3-02 à L3-04 | M | L3-04, L9-06 |
 | L3-16 | **Profils chauffeurs lisibles par le temps réel** : prénom, photo, note, gamme, servis par lot sur le canal de L3-15, liste blanche côté Odoo. Fait disparaître le hash Redis provisoire de L3-05 | S | L3-15, L3-05, L1-03 |
+| L3-17 | **Câblage Odoo ↔ temps réel** : endpoint interne entrant, `select-driver` réserve et propose réellement, idempotence face au rejeu de requête d'Odoo, précondition des 5, effacement de l'engagement en fin de course, et **réconciliation des marqueurs depuis Odoo** | L | L3-07, L3-12, L4-03 |
 
 **Sur L3-06** : la tâche la plus risquée du projet. Une réservation implémentée en deux temps — lire l'état puis écrire — laisse une fenêtre de course qui produit deux gagnants. Le bug est intermittent, invisible en test unitaire, et se manifeste en production sous charge. L3-13 n'est pas optionnelle : c'est la seule preuve que L3-06 est correcte.
 
