@@ -126,20 +126,19 @@ Chaque endpoint ci-dessous correspond à une transition de
 [`ride-state-machine.md`](./ride-state-machine.md) (C-03). Les préconditions détaillées et les
 écritures Odoo associées y sont décrites ; elles ne sont pas redupliquées ici.
 
-**Cinq endpoints sur huit implémentés (L4-03).** `POST /rides`, `POST /rides/{id}/complete` et
-`POST /rides/{id}/rate` ne le sont pas encore — chacun dépend d'une tâche non prévue cette nuit
-(`babana.quote`/L2-04, consolidation/L4-04, `babana.rating`/L4-09). Détail dans
-`amoa/questions/L4-03.md`. Colonne « Implémenté » ci-dessous, pas de suppression de ligne : ce
-contrat décrit la cible C-01, pas l'avancement d'une nuit précise.
+**D31 (amoa/questions/REPONSES-2026-08-18.md §3) : acceptation et refus n'ont plus de route HTTP
+publique.** Seul chemin d'écriture désormais : `proposal.accept` / `proposal.reject` en temps réel
+(C-02), résolus atomiquement côté service temps réel, puis écrits dans Odoo par le canal interne
+(`/api/internal/rides/{id}/driver-accepted` / `driver-rejected`, jamais exposé publiquement). Le
+reste de ce tableau a dérivé de l'avancement réel depuis sa rédaction initiale (L4-03) — en cas de
+doute, le code (`packages/contracts/src/http/`) a raison, pas cette colonne.
 
 | Endpoint | Transition | Erreurs spécifiques | Implémenté |
 |---|---|---|---|
-| `POST /rides` | `draft → requested` | `QUOTE_EXPIRED`, `QUOTE_NOT_FOUND` | Non — attend L2-04 |
-| `POST /rides/{id}/select-driver` | `requested → proposed` ou `rejected → proposed` | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_INVALID_TRANSITION`, `DRIVER_ALREADY_TAKEN`, `DRIVER_NOT_APPROVED` | Oui (réservation atomique L3-06 absente — chemin rapide non garanti seul, voir `amoa/questions/L4-03.md`) |
-| `POST /rides/{id}/accept` | `proposed → assigned` | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL`, `PROPOSAL_EXPIRED` | Oui (`PROPOSAL_EXPIRED` jamais émis — pas d'expiration réelle avant le lot L3) |
-| `POST /rides/{id}/reject` | `proposed → rejected` | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui |
+| `POST /rides` | `draft → requested` | `QUOTE_EXPIRED`, `QUOTE_NOT_FOUND` | Oui |
+| `POST /rides/{id}/select-driver` | `requested → proposed` ou `rejected → proposed` | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_INVALID_TRANSITION`, `DRIVER_ALREADY_TAKEN`, `DRIVER_NOT_APPROVED` | Oui |
 | `POST /rides/{id}/start` | `assigned → in_progress` | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui |
-| `POST /rides/{id}/complete` | `in_progress → completed` | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Non — attend L4-04 |
+| `POST /rides/{id}/complete` | `in_progress → completed` | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui |
 | `POST /rides/{id}/cancel` | `{requested,proposed,assigned,rejected} → cancelled` | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_INVALID_TRANSITION` | Oui |
 | `POST /rides/{id}/rate` | (aucune — ride déjà `settled`) | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RATING_NOT_ALLOWED`, `RATING_ALREADY_SUBMITTED` | Non — attend L4-09 |
 

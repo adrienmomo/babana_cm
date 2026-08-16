@@ -179,6 +179,29 @@ export async function callRideEndpoint<T = any>(
 }
 
 /**
+ * Appelle un endpoint du canal interne (D31, amoa/questions/REPONSES-2026-08-18.md §3) --
+ * `/api/internal/rides/{id}/driver-accepted` en particulier, plus de route publique `/accept`.
+ * Authentifié par le secret partagé (`X-Realtime-Secret`), jamais par un jeton d'utilisateur --
+ * ces appels n'ont pas d'utilisateur humain derrière eux, même mécanisme que
+ * services/odoo/addons/babana/controllers/internal.py côté Odoo.
+ */
+export async function callInternalEndpoint<T = any>(
+  path: string,
+  payload: Record<string, unknown> = {},
+): Promise<ApiResponse<T>> {
+  const response = await fetch(`${ODOO_HTTP_ROOT}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Realtime-Secret': env('REALTIME_SHARED_SECRET'),
+    },
+    body: JSON.stringify(payload),
+  });
+  const body = (await response.json()) as T;
+  return { status: response.status, body };
+}
+
+/**
  * Prépare un chauffeur approuvé, prêt à être proposé sur une course (documents vérifiés, moto
  * affectée, dossier approuvé) -- toutes des opérations à arguments simples (create/write/
  * action_approve), sûres en RPC (voir l'en-tête de ce fichier). `session` vient d'un vrai

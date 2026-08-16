@@ -97,52 +97,18 @@ export const selectDriverResponseExample: SelectDriverResponse = {
 };
 
 /**
- * POST /rides/{id}/accept
- * Transition proposed -> assigned. Appelé par le chauffeur.
+ * Acceptation et refus n'ont plus de route HTTP publique (D31,
+ * amoa/questions/REPONSES-2026-08-18.md §3) : un seul chemin d'écriture, `proposal.accept` /
+ * `proposal.reject` en temps réel (C-02), résolus atomiquement côté service temps réel puis
+ * écrits dans Odoo par le canal interne (`/api/internal/rides/{id}/driver-accepted` /
+ * `driver-rejected`, controllers/internal.py) -- jamais un second chemin qui ignorerait la
+ * réservation atomique (même défaut de fond que D26). `RideSummary.state` passe directement de
+ * `proposed` à `assigned` ou `rejected` du point de vue du client, porté par `ride.assigned` /
+ * `ride.rejected` (C-02), jamais par une réponse HTTP à cet endpoint.
  */
-export const AcceptRideRequestSchema = z.object({});
-export type AcceptRideRequest = z.infer<typeof AcceptRideRequestSchema>;
-
-export const AcceptRideResponseSchema = RideSummarySchema;
-export type AcceptRideResponse = z.infer<typeof AcceptRideResponseSchema>;
-
-export const AcceptRideErrors = [
-  'RIDE_NOT_FOUND',
-  'RIDE_INVALID_TRANSITION',
-  'DRIVER_NOT_IN_PROPOSAL',
-  'PROPOSAL_EXPIRED',
-] as const;
-
-export const acceptRideRequestExample: AcceptRideRequest = {};
-
-export const acceptRideResponseExample: AcceptRideResponse = {
+const rideAcceptedExample: RideSummary = {
   ...selectDriverResponseExample,
   state: 'assigned',
-};
-
-/**
- * POST /rides/{id}/reject
- * Transition proposed -> rejected. Appelé par le chauffeur (le timeout système emprunte la
- * même transition mais n'a pas de route HTTP dédiée — il est déclenché côté service temps réel).
- */
-export const RejectRideRequestSchema = z.object({
-  reason: z.string().min(1).max(280).optional(),
-});
-export type RejectRideRequest = z.infer<typeof RejectRideRequestSchema>;
-
-export const RejectRideResponseSchema = RideSummarySchema;
-export type RejectRideResponse = z.infer<typeof RejectRideResponseSchema>;
-
-export const RejectRideErrors = ['RIDE_NOT_FOUND', 'RIDE_INVALID_TRANSITION', 'DRIVER_NOT_IN_PROPOSAL'] as const;
-
-export const rejectRideRequestExample: RejectRideRequest = {
-  reason: 'Trop loin',
-};
-
-export const rejectRideResponseExample: RejectRideResponse = {
-  ...createRideResponseExample,
-  state: 'rejected',
-  assignedDriverId: null,
 };
 
 /**
@@ -160,7 +126,7 @@ export const StartRideErrors = ['RIDE_NOT_FOUND', 'RIDE_INVALID_TRANSITION', 'DR
 export const startRideRequestExample: StartRideRequest = {};
 
 export const startRideResponseExample: StartRideResponse = {
-  ...acceptRideResponseExample,
+  ...rideAcceptedExample,
   state: 'in_progress',
 };
 

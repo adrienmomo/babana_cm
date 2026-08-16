@@ -41,6 +41,7 @@ const config: Config = {
   NEARBY_LAST_SENT_TTL_SECONDS: 30,
   RESERVATION_IDEMPOTENCY_TTL_SECONDS: 60,
   ENGAGEMENT_RECONCILE_INTERVAL_SECONDS: 20,
+  DRIVER_PROFILE_CACHE_TTL_SECONDS: 30,
 };
 
 function sign(claims: Record<string, unknown>, secret = config.JWT_SECRET): string {

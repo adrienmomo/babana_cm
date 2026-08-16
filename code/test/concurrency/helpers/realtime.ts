@@ -173,11 +173,12 @@ export async function waitForDriverVisible(
 }
 
 /**
- * Seede le profil chauffeur en cache (L3-05/L3-16, champ-pont documenté --
- * amoa/questions/L3-05.md, code/docs/bridge-fields.md) : nearby.drivers omet TOUJOURS un
- * chauffeur sans profil, et aucun canal Odoo -> temps réel ne le peuple encore en production
- * (L3-16 jamais implémentée). Seedé directement, comme test/nearby.test.ts le fait déjà côté
- * @babana/realtime.
+ * Pré-remplit le cache de profil chauffeur (L3-16). Plus une condition de visibilité depuis D30
+ * (amoa/questions/REPONSES-2026-08-18.md §2) : un chauffeur en ligne et positionné apparaît dans
+ * nearby.drivers même sans profil en cache, champs à `null` sinon. Seedé quand même ici, pour
+ * garder la fenêtre de temps de ces tests stable (critère 4 de L4-11) -- sans lui, le premier
+ * `nearby.drivers` qui montre un chauffeur fraîchement en ligne déclenche un aller-retour Odoo
+ * réel (redis/driver-profiles.ts) au lieu de lire un cache déjà chaud.
  */
 export async function seedDriverProfile(driverPublicId: string, firstName: string): Promise<void> {
   const redis = new Redis(REDIS_URL);

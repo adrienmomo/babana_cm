@@ -126,6 +126,25 @@ class TestRideController(HttpCase):
             headers["Idempotency-Key"] = idempotency_key
         return self.url_open(path, data=json.dumps(body or {}).encode(), headers=headers)
 
+    def _accept_via_internal_channel(self, ride_public_id, driver_public_id):
+        # D31 (amoa/questions/REPONSES-2026-08-18.md §3) : plus de route publique /accept -- le
+        # seul chemin d'écriture réel est proposal.accept (temps réel) -> canal interne
+        # (controllers/internal.py::driver_accepted). Ce fichier teste la couche REST du cycle de
+        # vie (select-driver, start, complete, cancel) ; l'acceptation elle-même, câblée par
+        # L3-17, n'a pas besoin d'un aller-retour WebSocket ici pour amener une course à
+        # 'assigned' -- ce test-ci n'exerce pas le mécanisme d'acceptation, seulement ce qui vient
+        # après (voir test_internal_controller.py pour l'acceptation elle-même, et L4-11 pour sa
+        # preuve de concurrence).
+        headers = {
+            "Content-Type": "application/json",
+            "X-Realtime-Secret": os.environ["REALTIME_SHARED_SECRET"],
+        }
+        return self.url_open(
+            f"/api/internal/rides/{ride_public_id}/driver-accepted",
+            data=json.dumps({"driverId": driver_public_id}).encode(),
+            headers=headers,
+        )
+
     def _make_ride(self, client_partner):
         return self.env["babana.ride"].action_request(
             {
@@ -172,9 +191,9 @@ class TestRideController(HttpCase):
         self.assertEqual(select_body["assignedDriverId"], driver.public_id)
         self.assertTrue(select_body["proposalExpiresAt"])
 
-        accept_response = self._post(f"/api/v1/rides/{ride.public_id}/accept", driver_token)
+        accept_response = self._accept_via_internal_channel(ride.public_id, driver.public_id)
         self.assertEqual(accept_response.status_code, 200)
-        self.assertEqual(accept_response.json()["state"], "assigned")
+        self.assertEqual(ride.state, "assigned")
 
         start_response = self._post(f"/api/v1/rides/{ride.public_id}/start", driver_token)
         self.assertEqual(start_response.status_code, 200)
@@ -214,15 +233,20 @@ class TestRideController(HttpCase):
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["error"]["code"], "RIDE_NOT_OWNED")
 
-    # --- Critère 3 : un chauffeur non affecté tentant accept est rejeté -----------------------
+    # --- Critère 3 : un chauffeur non affecté ne peut pas être écrit comme acceptant ----------
+    # D31 : accept n'a plus de route publique, donc plus d'identité vérifiée par ce contrôleur --
+    # la garantie vient maintenant du modèle (action_accept, by_driver != self.driver_id) et de
+    # l'identité de connexion côté temps réel (proposal.accept, invariant L3-01). Ce test vérifie
+    # ce qui reste vrai côté Odoo : un appel du canal interne portant un chauffeur étranger à la
+    # proposition échoue proprement, jamais en double affectation.
 
-    def test_unassigned_driver_cannot_accept(self):
+    def test_unassigned_driver_cannot_be_recorded_as_accepting(self):
         client_token, client_public_id = self._sign_in("sub-ride-client-3", "client")
         client_user = self.env["res.users"].sudo().search(
             [("babana_public_id", "=", client_public_id)]
         )
         _assigned_token, assigned_driver = self._make_selectable_driver("sub-ride-assigned", client_token)
-        stranger_token, _stranger_driver = self._make_approved_driver("sub-ride-stranger-driver")
+        _stranger_token, stranger_driver = self._make_approved_driver("sub-ride-stranger-driver")
         ride = self._make_ride(client_user.partner_id)
         self._post(
             f"/api/v1/rides/{ride.public_id}/select-driver",
@@ -230,10 +254,11 @@ class TestRideController(HttpCase):
             {"driverId": assigned_driver.public_id},
         )
 
-        response = self._post(f"/api/v1/rides/{ride.public_id}/accept", stranger_token)
+        response = self._accept_via_internal_channel(ride.public_id, stranger_driver.public_id)
 
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()["error"]["code"], "DRIVER_NOT_IN_PROPOSAL")
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"]["code"], "RIDE_INVALID_TRANSITION")
+        self.assertEqual(ride.state, "proposed", "aucune affectation ne doit avoir eu lieu")
 
     # --- Critère 5 (chemin rapide, pas la garantie L3-06 -- amoa/questions/L4-03.md) ----------
 
@@ -462,7 +487,7 @@ class TestRideController(HttpCase):
         self._post(
             f"/api/v1/rides/{ride_id}/select-driver", client_token, {"driverId": driver.public_id}
         )
-        self._post(f"/api/v1/rides/{ride_id}/accept", driver_token)
+        self._accept_via_internal_channel(ride_id, driver.public_id)
         self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
 
         complete_response = self._post(
@@ -495,7 +520,7 @@ class TestRideController(HttpCase):
         self._post(
             f"/api/v1/rides/{ride_id}/select-driver", client_token, {"driverId": driver.public_id}
         )
-        self._post(f"/api/v1/rides/{ride_id}/accept", driver_token)
+        self._accept_via_internal_channel(ride_id, driver.public_id)
         self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
 
         response = self._post(
@@ -517,7 +542,7 @@ class TestRideController(HttpCase):
         self._post(
             f"/api/v1/rides/{ride_id}/select-driver", client_token, {"driverId": driver.public_id}
         )
-        self._post(f"/api/v1/rides/{ride_id}/accept", driver_token)
+        self._accept_via_internal_channel(ride_id, driver.public_id)
         self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
 
         response = self._post(f"/api/v1/rides/{ride_id}/complete", driver_token, {})

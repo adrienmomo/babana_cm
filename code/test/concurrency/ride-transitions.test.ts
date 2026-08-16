@@ -23,6 +23,7 @@ import type WebSocket from 'ws';
 
 import {
   approveDriver,
+  callInternalEndpoint,
   callRideEndpoint,
   createRideRequest,
   execute,
@@ -122,9 +123,13 @@ async function freeUpDriver(actors: Actors, ridePublicId: string): Promise<void>
 }
 
 // --- Scénario 1 : acceptation concurrente ------------------------------------------------------
-// N appels réellement simultanés à /accept, par le MÊME chauffeur (une salve de doubles-appels
-// réseau -- le cas concret que _lock_for_update() protège) sur la même course 'proposed'.
-// Exactement un succès, N-1 échecs explicites, à chaque itération.
+// N appels réellement simultanés à driver-accepted (canal interne, D31 -- /accept n'a plus de
+// route publique, voir amoa/questions/REPONSES-2026-08-18.md §3), par le MÊME chauffeur (une
+// salve de doubles-appels réseau -- le cas concret que _lock_for_update() protège) sur la même
+// course 'proposed'. Exactement un succès, N-1 échecs explicites, à chaque itération. La preuve
+// du verrouillage d'Odoo ne disparaît pas avec l'endpoint public : ce canal reste le seul chemin
+// par lequel une transition proposed -> assigned s'écrit réellement, que l'appel vienne d'un
+// vrai chauffeur (proposal.accept, temps réel) ou -- comme ici -- directement du canal interne.
 
 test(
   `scénario 1 -- acceptation concurrente (${ITERATIONS} itérations x ${CONCURRENCY} appels simultanés)`,
@@ -137,7 +142,9 @@ test(
 
       const responses = await Promise.all(
         Array.from({ length: CONCURRENCY }, () =>
-          callRideEndpoint(`/rides/${ridePublicId}/accept`, actors.driverSession),
+          callInternalEndpoint(`/api/internal/rides/${ridePublicId}/driver-accepted`, {
+            driverId: actors.driverPublicId,
+          }),
         ),
       );
 
@@ -194,11 +201,32 @@ test(
     for (let iteration = 0; iteration < ITERATIONS; iteration += 1) {
       const ridePublicId = await proposedRide(actors);
 
+      // Stagger délibéré, alterné par itération (D31, amoa/questions/REPONSES-2026-08-18.md §3) :
+      // depuis que l'acceptation vise le canal interne (secret partagé, sans résolution d'un
+      // utilisateur ni recherche de chauffeur affecté), elle est structurellement plus rapide que
+      // /cancel (authentification complète par jeton). Sans ce petit décalage, l'accept gagne
+      // quasi systématiquement et le scénario n'observe jamais "cancel gagne d'abord" -- ce
+      // n'était pas le cas avant D31, les deux endpoints avaient un coût d'authentification
+      // comparable. Les deux appels restent réellement concurrents : le décalage (10 ms) reste
+      // largement sous le temps de traitement serveur des deux transitions, qui continuent de se
+      // disputer le même verrou de ligne (_lock_for_update()) -- seul l'ORDRE DE DÉPART est
+      // biaisé, jamais le résultat.
+      const STAGGER_MS = 10;
+      const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+      const acceptDelay = iteration % 2 === 0 ? STAGGER_MS : 0;
+      const cancelDelay = iteration % 2 === 0 ? 0 : STAGGER_MS;
+
       const [acceptResponse, cancelResponse] = await Promise.all([
-        callRideEndpoint(`/rides/${ridePublicId}/accept`, actors.driverSession),
-        callRideEndpoint(`/rides/${ridePublicId}/cancel`, actors.clientSession, {
-          reason: 'changement de plan (test L4-11)',
-        }),
+        delay(acceptDelay).then(() =>
+          callInternalEndpoint(`/api/internal/rides/${ridePublicId}/driver-accepted`, {
+            driverId: actors.driverPublicId,
+          }),
+        ),
+        delay(cancelDelay).then(() =>
+          callRideEndpoint(`/rides/${ridePublicId}/cancel`, actors.clientSession, {
+            reason: 'changement de plan (test L4-11)',
+          }),
+        ),
       ]);
 
       // L'annulation n'échoue JAMAIS dans ce scénario : depuis 'proposed' (cancel gagne) comme

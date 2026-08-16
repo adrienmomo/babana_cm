@@ -3,11 +3,12 @@
 # babana_ride_state.py ; une condition écrite ici serait contournée par le back-office, qui
 # appelle les méthodes de transition directement.
 #
-# Sept endpoints ce soir (L4-03R, J5) : createRide et completeRide s'ajoutent aux cinq de L4-03
-# (amoa/questions/L4-03.md), débloqués par babana.quote (L2-04) et par la consolidation de fin
-# de course (L4-04, babana.ride._babana_compute_final_amount). settleRide et rateRide restent
-# hors de portée -- ils dépendent respectivement du compte courant chauffeur (L4-05/L5-01,
-# logique financière sous revue humaine) et de babana.rating (L4-09), aucun des deux dans ce lot.
+# D31 (amoa/questions/REPONSES-2026-08-18.md §3) : accept et reject n'ont plus de route ici.
+# Acceptation et refus n'ont qu'un chemin d'écriture -- proposal.accept / proposal.reject en temps
+# réel (C-02), résolus atomiquement côté service temps réel puis écrits dans Odoo par le canal
+# interne (controllers/internal.py::driver_accepted/driver_rejected) -- jamais un second chemin
+# HTTP public qui ignorerait la réservation. rateRide reste hors de portée (babana.rating, L4-09,
+# hors de ce lot).
 from __future__ import annotations
 
 import logging
@@ -225,35 +226,6 @@ class RideController(http.Controller):
         ).isoformat()
         return payload, 200
 
-    # --- POST /rides/{id}/accept ----------------------------------------------------------------
-
-    @http.route("/api/v1/rides/<string:ride_id>/accept", **_ROUTE)
-    def accept_ride(self, ride_id, **_kwargs):
-        return self._dispatch("acceptRide", lambda: self._accept_ride(ride_id))
-
-    def _accept_ride(self, ride_id):
-        env, user = _common.authenticated_user()
-        ride, driver, error = self._find_ride_and_assigned_driver(env, user, ride_id)
-        if error:
-            return error
-        ride.sudo().action_accept(by_driver=driver)
-        return _summary(ride), 200
-
-    # --- POST /rides/{id}/reject ----------------------------------------------------------------
-
-    @http.route("/api/v1/rides/<string:ride_id>/reject", **_ROUTE)
-    def reject_ride(self, ride_id, **_kwargs):
-        return self._dispatch("rejectRide", lambda: self._reject_ride(ride_id))
-
-    def _reject_ride(self, ride_id):
-        env, user = _common.authenticated_user()
-        ride, driver, error = self._find_ride_and_assigned_driver(env, user, ride_id)
-        if error:
-            return error
-        reason = (_common.parse_json_body() or {}).get("reason")
-        ride.sudo().action_reject(by_driver=driver, reason=reason)
-        return _summary(ride), 200
-
     # --- POST /rides/{id}/start -----------------------------------------------------------------
 
     @http.route("/api/v1/rides/<string:ride_id>/start", **_ROUTE)
@@ -329,9 +301,10 @@ class RideController(http.Controller):
         return distance_meters, duration_seconds, polyline, None
 
     def _find_ride_and_assigned_driver(self, env, user, ride_id):
-        """Commun à accept/reject/start (SelectDriverErrors/AcceptRideErrors/... du contrat C-01
-        partagent tous DRIVER_NOT_IN_PROPOSAL pour le même cas : l'appelant n'est pas le
-        chauffeur affecté). Renvoie (ride, driver, None) ou (None, None, (payload, status))."""
+        """Commun à start/complete (D31 a retiré accept/reject d'ici -- StartRideErrors/
+        CompleteRideErrors du contrat C-01 partagent tous DRIVER_NOT_IN_PROPOSAL pour le même cas :
+        l'appelant n'est pas le chauffeur affecté). Renvoie (ride, driver, None) ou
+        (None, None, (payload, status))."""
         ride = self._find_ride(env, ride_id)
         if not ride:
             return None, None, (_common.error_payload("RIDE_NOT_FOUND", "course inconnue"), 404)
