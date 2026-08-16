@@ -36,6 +36,14 @@ class FakeRedis {
   async exists(key: string): Promise<number> {
     return (await this.get(key)) === null ? 0 : 1;
   }
+
+  // ingestPosition (L3-06R) appelle addEligibleToPool, qui passe par redis.eval -- ce fichier ne
+  // teste ni le pool ni l'éligibilité (aucun driver ici n'est marqué en ligne), seulement la
+  // validation de plausibilité et le stockage de position ; un simulacre minimal qui ne fait
+  // jamais gagner l'éligibilité suffit, il ne fausse aucune assertion de ce fichier.
+  async eval(): Promise<number> {
+    return 0;
+  }
 }
 
 function fakeRedis(): Redis {

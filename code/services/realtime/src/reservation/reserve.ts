@@ -1,9 +1,12 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type Redis from 'ioredis';
-import { AVAILABLE_DRIVERS_KEY, addToPool } from '../redis/geo-index';
+import { AVAILABLE_DRIVERS_KEY } from '../redis/geo-index';
+import { addEligibleToPool } from '../redis/pool-eligibility';
 import { getPosition } from '../redis/positions';
-import { isMarkedOnline } from '../driver/availability';
+import { reservationKey, RESERVATION_KEY_PREFIX } from './keys';
+
+export { reservationKey };
 
 /**
  * Réservation atomique du chauffeur (L3-06, D10 §C2a) : quand un client sélectionne un
@@ -15,11 +18,6 @@ import { isMarkedOnline } from '../driver/availability';
  */
 
 const RESERVE_SCRIPT = readFileSync(path.join(__dirname, 'reserve.lua'), 'utf8');
-const RESERVATION_KEY_PREFIX = 'babana:driver:reservation:';
-
-function reservationKey(driverId: string): string {
-  return `${RESERVATION_KEY_PREFIX}${driverId}`;
-}
 
 export type ReservationOutcome = { reserved: true } | { reserved: false };
 
@@ -35,12 +33,16 @@ export async function reserveDriver(redis: Redis, driverId: string, ttlSeconds: 
 }
 
 /**
- * Remet le chauffeur dans le pool s'il est toujours éligible -- en ligne, position fraîche --
- * jamais un ajout inconditionnel (mêmes conditions d'entrée que L3-02/L3-04). Deux appelants :
- * explicitement, à l'échec de l'appel Odoo qui devait suivre la réservation (critère 4) ; et le
- * mécanisme d'expiration ci-dessous (critère 5). Idempotent : relâcher une réservation déjà
- * relâchée ou expirée ne fait rien de plus qu'un GEOADD sans effet visible si le chauffeur est
- * déjà dans le pool.
+ * Remet le chauffeur dans le pool s'il est toujours éligible -- jamais un ajout inconditionnel.
+ * Depuis L3-06R (D26), la décision d'éligibilité (en ligne, non réservé, non engagé) n'est plus
+ * vérifiée ici en TypeScript : elle est déléguée en entier à `addEligibleToPool`, le seul script
+ * qui a le droit d'écrire dans le pool. Ce module se contente de fournir la position à écrire s'il
+ * y a une réécriture à tenter -- la décision elle-même est reprise, atomiquement, dans le script.
+ *
+ * Deux appelants : explicitement, à l'échec de l'appel Odoo qui devait suivre la réservation
+ * (critère 4) ; et le mécanisme d'expiration ci-dessous (critère 5). Idempotent : relâcher une
+ * réservation déjà relâchée ou expirée ne fait rien de plus qu'une tentative d'éligibilité sans
+ * effet visible si le chauffeur est déjà dans le pool.
  *
  * Pas de section critique ici : contrairement à la réservation, personne d'autre ne dispute ce
  * chauffeur au moment du relâchement -- au pire, une expiration et un relâchement explicite se
@@ -49,9 +51,9 @@ export async function reserveDriver(redis: Redis, driverId: string, ttlSeconds: 
  */
 export async function releaseDriver(redis: Redis, driverId: string): Promise<void> {
   await redis.del(reservationKey(driverId));
-  const [online, position] = await Promise.all([isMarkedOnline(redis, driverId), getPosition(redis, driverId)]);
-  if (online && position) {
-    await addToPool(redis, driverId, position.latitude, position.longitude);
+  const position = await getPosition(redis, driverId);
+  if (position) {
+    await addEligibleToPool(redis, driverId, position.latitude, position.longitude);
   }
 }
 

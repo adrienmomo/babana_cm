@@ -20,6 +20,17 @@ import { hasFreshPosition } from './positions';
 // une chaîne dupliquée qui pourrait diverger.
 export const AVAILABLE_DRIVERS_KEY = 'babana:drivers:available';
 
+/**
+ * GEOADD inconditionnel -- **réservé aux fixtures de test** (nearby.test.ts, geo-index.test.ts,
+ * availability.test.ts) qui n'ont aucun rapport avec la réservation ou l'engagement et n'ont donc
+ * pas à composer les préconditions d'éligibilité pour placer un chauffeur dans le pool.
+ *
+ * Depuis L3-06R (D26), aucun code de production n'appelle plus cette fonction : le seul point
+ * d'écriture réel sur le pool est `redis/pool-eligibility.ts` (`addEligibleToPool`), qui vérifie
+ * en ligne/non réservé/non engagé dans le même script Lua avant d'écrire. `test/pool-single-
+ * writer.test.ts` vérifie par recherche qu'aucun autre appel à GEOADD ne subsiste ailleurs dans le
+ * service.
+ */
 export async function addToPool(
   redis: Redis,
   driverId: string,

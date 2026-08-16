@@ -3,8 +3,7 @@ import { realtime } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ConnectionContext } from '../ws/auth';
 import { getPosition, storePosition } from '../redis/positions';
-import { addToPool } from '../redis/geo-index';
-import { isMarkedOnline } from '../driver/availability';
+import { addEligibleToPool } from '../redis/pool-eligibility';
 import { checkPlausibility, type PlausibilityConfig, type PlausibilityFailureReason } from './validation';
 
 /**
@@ -134,9 +133,14 @@ export async function ingestPosition(
   // Rejoint L3-04 : un chauffeur marqué en ligne (availability.set) mais sans position connue
   // n'a rien à mettre dans le géo-index tant qu'aucune position valide n'est arrivée -- c'est
   // ici, à la première acceptée, qu'il y entre réellement (L3-03).
-  if (await isMarkedOnline(redis, context.driverId)) {
-    await addToPool(redis, context.driverId, sample.latitude, sample.longitude);
-  }
+  //
+  // La décision d'éligibilité (en ligne, non réservé, non engagé -- D26) est entièrement dans le
+  // script Lua : plus aucun `if` ici entre la lecture de l'état et l'écriture dans le pool. C'est
+  // exactement l'inverse de ce qui a cassé l'invariant une première fois (amoa/questions/
+  // REPONSES-2026-08-16-J7.md §2) -- un chauffeur réservé ou engagé qui émet une position ne
+  // revient donc jamais dans le pool, quelle que soit la fréquence de ses positions (L3-06R,
+  // critères 3 bis et 3 ter).
+  await addEligibleToPool(redis, context.driverId, sample.latitude, sample.longitude);
 
   ingestMetrics.recordAccepted();
   return { accepted: true };

@@ -12,6 +12,10 @@ import { reserveDriver, releaseDriver, isReserved, startReservationExpiryWatcher
 import { addToPool, isInPool, removeFromPool } from '../src/redis/geo-index';
 import { storePosition } from '../src/redis/positions';
 import { setOnline, setOffline } from '../src/driver/availability';
+import { setEngaged, clearEngaged, isEngaged } from '../src/driver/engagement';
+import { ingestPosition } from '../src/tracking/ingest';
+import type { PlausibilityConfig } from '../src/tracking/validation';
+import type { ConnectionContext } from '../src/ws/auth';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const RUN_ID = randomUUID().slice(0, 8);
@@ -31,12 +35,40 @@ after(async () => {
     [...usedIds].flatMap((driverId) => [
       removeFromPool(redis, driverId),
       setOffline(redis, driverId),
+      clearEngaged(redis, driverId),
       redis.del(`babana:driver:reservation:${driverId}`),
       redis.del(`babana:driver:position:${driverId}`),
     ])
   );
   redis.disconnect();
 });
+
+const PLAUSIBILITY: PlausibilityConfig = {
+  bounds: { minLatitude: 3.95, maxLatitude: 4.15, minLongitude: 9.6, maxLongitude: 9.85 },
+  maxAccuracyMeters: 150,
+  maxTimestampFutureMs: 5_000,
+  maxTimestampAgeMs: 30_000,
+  maxImpliedSpeedMetersPerSecond: 38.9,
+};
+
+function driverContext(driverId: string): ConnectionContext {
+  return Object.freeze({ userId: `user-${driverId}`, role: 'driver', driverId });
+}
+
+function positionMessage(latitude: number, longitude: number) {
+  return {
+    type: 'position.update' as const,
+    id: randomUUID(),
+    emittedAt: new Date().toISOString(),
+    payload: {
+      latitude,
+      longitude,
+      accuracyMeters: 10,
+      speedMetersPerSecond: 0,
+      headingDegrees: 0,
+    },
+  };
+}
 
 async function availableDriver(label: string): Promise<string> {
   const driverId = id(label);
@@ -116,4 +148,101 @@ describe('reserveDriver/releaseDriver (L3-06)', () => {
       stopWatcher();
     }
   });
+
+  test(
+    'critère 3 bis (D26) -- un chauffeur réservé qui continue d\'émettre des positions ne revient jamais dans le pool',
+    async () => {
+      const driverId = await availableDriver('r3bis');
+      const outcome = await reserveDriver(redis, driverId, 30);
+      assert.deepEqual(outcome, { reserved: true });
+      assert.equal(await isInPool(redis, driverId), false, 'hors du pool juste après la réservation');
+
+      // Le défaut relevé le 16 août (amoa/questions/REPONSES-2026-08-16-J7.md §2) : ingestPosition
+      // (L3-02) rappelait addToPool à chaque position acceptée, sans rien savoir de la
+      // réservation -- quelques positions suffisaient à ramener le chauffeur dans le pool pendant
+      // que sa réservation était toujours active.
+      const context = driverContext(driverId);
+      for (let i = 0; i < 3; i += 1) {
+        // Coordonnées inchangées d'une itération à l'autre, volontairement : ce test vérifie
+        // l'appartenance au pool, pas la validation de plausibilité (L3-02) -- un déplacement
+        // même modeste, sur le délai réel de quelques millisecondes entre deux positions dans
+        // cette boucle, produirait une vitesse implicite artificiellement énorme et serait rejeté
+        // à bon droit par checkPlausibility, ce qui ne prouverait rien pour ce critère.
+        const message = positionMessage(SOMEWHERE.latitude, SOMEWHERE.longitude);
+        // eslint-disable-next-line no-await-in-loop -- chaque position doit être traitée avant la
+        // suivante pour observer l'état du pool entre deux, pas seulement à la fin.
+        const result = await ingestPosition(redis, context, message, PLAUSIBILITY, 60);
+        assert.equal(result.accepted, true, `position ${i} doit être acceptée`);
+        // eslint-disable-next-line no-await-in-loop
+        assert.equal(
+          await isInPool(redis, driverId),
+          false,
+          `après la position ${i} : un chauffeur réservé ne doit jamais réapparaître dans le pool`
+        );
+      }
+
+      assert.equal(await isReserved(redis, driverId), true, 'la réservation doit rester active pendant tout ce temps');
+    }
+  );
+
+  test('critère 3 ter (D26) -- un chauffeur engagé sur une course ne revient jamais dans le pool, quoi qu\'il émette', async () => {
+    const driverId = await availableDriver('r3ter');
+    await reserveDriver(redis, driverId, 30);
+
+    // L'acceptation (L3-07) pose l'engagement en remplacement de la réservation -- simulé ici
+    // directement, cette tâche ne couvrant que le pool et l'engagement, pas le cycle de
+    // proposition qui les relie (voir test/proposal.test.ts, L3-07).
+    await redis.del(`babana:driver:reservation:${driverId}`);
+    await setEngaged(redis, driverId);
+
+    const context = driverContext(driverId);
+    for (let i = 0; i < 3; i += 1) {
+      // Coordonnées inchangées d'une itération à l'autre, volontairement (voir le commentaire du
+      // test précédent) : ce test vérifie l'appartenance au pool, pas la validation de
+      // plausibilité (L3-02).
+      const message = positionMessage(SOMEWHERE.latitude, SOMEWHERE.longitude);
+      // eslint-disable-next-line no-await-in-loop
+      const result = await ingestPosition(redis, context, message, PLAUSIBILITY, 60);
+      assert.equal(result.accepted, true);
+      // eslint-disable-next-line no-await-in-loop
+      assert.equal(
+        await isInPool(redis, driverId),
+        false,
+        `après la position ${i} : un chauffeur engagé ne doit jamais réapparaître dans le pool`
+      );
+    }
+
+    assert.equal(await isEngaged(redis, driverId), true, 'engagement toujours actif, aucune expiration automatique');
+  });
+
+  test(
+    "critère 5 (D26) -- l'engagement, lui, n'expire jamais tout seul : le veilleur de réservation ne le touche pas",
+    async () => {
+      const stopWatcher = startReservationExpiryWatcher(redis);
+      try {
+        const driverId = await availableDriver('r5-engaged');
+        await reserveDriver(redis, driverId, 1);
+
+        // Le second défaut du même sang (amoa/questions/REPONSES-2026-08-16-J7.md §2) : rien ne
+        // supprimait la réservation à l'acceptation, si bien qu'elle expirait en pleine course et
+        // le veilleur d'expiration remettait au pool un chauffeur qui transportait un passager.
+        // L'acceptation remplace donc la réservation par l'engagement -- simulé ici comme ci-dessus.
+        await redis.del(`babana:driver:reservation:${driverId}`);
+        await setEngaged(redis, driverId);
+
+        // Largement au-delà du TTL de réservation (1 s) posé ci-dessus : si le veilleur touchait
+        // encore ce chauffeur, il réapparaîtrait dans le pool ici.
+        await new Promise((resolve) => setTimeout(resolve, 1_500));
+
+        assert.equal(await isEngaged(redis, driverId), true, "l'engagement ne porte aucun TTL, il doit survivre");
+        assert.equal(
+          await isInPool(redis, driverId),
+          false,
+          'un chauffeur engagé ne doit jamais être remis au pool par le veilleur de réservation'
+        );
+      } finally {
+        stopWatcher();
+      }
+    }
+  );
 });

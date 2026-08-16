@@ -1,5 +1,6 @@
 import type Redis from 'ioredis';
 import { removeFromPool } from '../redis/geo-index';
+import { onlineFlagKey } from './keys';
 
 /**
  * Bascule en ligne / hors ligne côté temps réel (L3-04, D7). Odoo reste la source de vérité de
@@ -16,12 +17,6 @@ import { removeFromPool } from '../redis/geo-index';
  * Le passage hors ligne, lui, est immédiat et inconditionnel (spécification L3-04) : retire du
  * drapeau ET du géo-index dans la même opération.
  */
-
-const ONLINE_FLAG_PREFIX = 'babana:driver:online:';
-
-function onlineFlagKey(driverId: string): string {
-  return `${ONLINE_FLAG_PREFIX}${driverId}`;
-}
 
 export async function setOnline(redis: Redis, driverId: string): Promise<void> {
   await redis.set(onlineFlagKey(driverId), '1');
