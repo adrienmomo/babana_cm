@@ -181,7 +181,13 @@ services/odoo/addons/babana/tests/test_remittance_accounting.py
 
 Comptes et journaux **paramétrables** : compte de créance sur les chauffeurs, compte de caisse, journal de caisse, compte d'écart. Le plan comptable OHADA en usage au Cameroun a ses propres numéros — les coder en dur rendrait le module inutilisable après le premier audit.
 
-Un écart génère une écriture distincte sur le compte d'écart, pour rester visible en comptabilité. Un écart absorbé dans le montant principal est invisible au contrôle.
+**La créance n'est soldée qu'à hauteur de ce qui a été réellement reçu (D34, corrigé le 20 août).** La rédaction précédente disait « un écart génère une écriture distincte sur le compte d'écart, pour rester visible en comptabilité » — et elle a été lue, raisonnablement, comme une instruction de sortir l'écart de la créance dès la remise. Le résultat créditait la créance du montant attendu en entier : en comptabilité, le chauffeur ne devait plus rien, alors que D29 et le compte courant disent qu'il doit encore.
+
+Deux systèmes qui prétendent tous deux dire ce que le chauffeur doit, et qui disent le contraire. La dérive se voit à la remise suivante : le chauffeur remet les 5 000 manquants, la créance est créditée de 5 000 de plus, et passe en solde créditeur — les livres affirment alors que l'entreprise lui doit de l'argent.
+
+**Écriture correcte** : caisse au débit et créance au crédit, **pour le seul montant compté**. Le reliquat reste dû au bilan, exactement comme au compte courant. Le compte d'écart n'intervient qu'au moment où une **décision humaine éteint la dette** — retenue ou ajustement (L5-06) — parce que c'est le seul moment où la créance cesse réellement d'exister.
+
+La visibilité que la rédaction d'origine cherchait est obtenue autrement, et mieux : par `babana.cash.discrepancy` (L5-06), qui porte l'écart, son sens, son motif et son traitement. Un écart visible dans un enregistrement dédié et dans une créance non soldée est plus visible qu'un écart reclassé dans un compte de suspens.
 
 La pièce référence la remise, et la remise référence la pièce.
 
@@ -189,9 +195,10 @@ La pièce référence la remise, et la remise référence la pièce.
 
 1. La validation produit une pièce comptable équilibrée.
 2. Comptes et journaux viennent de la configuration.
-3. Un écart produit une écriture distincte sur le compte d'écart.
+3. **La créance du chauffeur n'est créditée que du montant compté** ; une remise partielle laisse le reliquat dû au bilan, du même montant que celui resté au compte courant. Les deux systèmes se vérifient l'un l'autre — un test compare explicitement les deux.
 4. La pièce et la remise se référencent mutuellement.
 5. Annuler une pièce validée est impossible sans passer par un mécanisme d'extourne tracé.
+6. **Deux remises successives soldant une même dette ne laissent jamais la créance en solde créditeur.** Scénario : 45 000 dus, 40 000 remis, puis 5 000 remis — créance à zéro à la fin, jamais négative.
 
 ---
 
@@ -225,6 +232,8 @@ Motifs proposés : appoint manquant, erreur de comptage, course contestée, autr
 - Refuser la remise tant que le compte n'y est pas produirait l'effet inverse de celui recherché : un chauffeur bloqué au plafond pour 500 FCFA manquants ne peut plus travailler, donc plus rembourser.
 
 Les autres traitements — ajustement avec justification, retenue selon la politique de l'entreprise — restent possibles, mais ce sont des **décisions humaines explicites** prises dans le back-office, jamais le comportement par défaut du système. Chaque traitement produit un mouvement de compte courant tracé (L5-01).
+
+**Et c'est ici, et seulement ici, que le compte d'écart entre en comptabilité** (D34). Une décision qui éteint la dette — retenue, ajustement — solde le reliquat de créance vers le compte d'écart. Tant qu'aucune décision n'est prise, la dette reste une dette, au bilan comme au compte courant. Le traitement par défaut de D29 ne produit donc aucune écriture comptable, exactement comme il ne produit aucun mouvement de compte courant : ne rien décider, c'est laisser la dette où elle est.
 
 **Alerte automatique** au-delà d'un seuil d'écart cumulé par chauffeur sur une période glissante. Un écart isolé est banal ; une série d'écarts dans le même sens ne l'est pas. C'est le seul mécanisme qui détectera un détournement progressif.
 

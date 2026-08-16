@@ -38,6 +38,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D31 | **Acceptation et refus n'ont qu'un chemin d'écriture** : `proposal.accept` / `proposal.reject` en temps réel, puis transition Odoo par le canal interne. Les endpoints HTTP publics sont retirés | Endpoints HTTP en parallèle du temps réel | D26 remonté d'un cran : un état à deux écrivains, dont l'un ignore l'autre |
 | D32 | **Un appel sortant vers le service temps réel se déclenche au commit de la transaction Odoo, jamais pendant** | Appel direct dans le contrôleur, synchrone ou en fil de fond | Une transaction rejouée ou annulée aurait déjà modifié Redis pour une décision qui n'a pas eu lieu. Voir §2 ter |
 | D33 | **Un appel au commit ne s'enregistre jamais depuis l'intérieur d'un savepoint** : l'intention est retenue, puis enregistrée à la sortie réussie du bloc | Enregistrement au point où l'effet se produit | Le point d'accroche au commit ignore les savepoints. Or ce dépôt annule des savepoints dans des transactions qui commitent ensuite pour renvoyer leur erreur. Voir §2 ter |
+| D34 | **La créance sur le chauffeur n'est soldée qu'à hauteur du montant réellement reçu.** Le compte d'écart n'intervient qu'au moment où une décision humaine éteint la dette | Reclasser l'écart hors de la créance dès la remise | Deux systèmes prétendaient dire ce que le chauffeur doit, et disaient le contraire. Voir §7 |
 
 ---
 
@@ -227,6 +228,12 @@ Un chauffeur salarié qui encaisse des espèces détient des fonds appartenant �
 - Refuser la remise tant que le compte n'y est pas aurait un effet pervers : un chauffeur bloqué au plafond avec 500 FCFA manquants ne peut plus travailler du tout, donc plus rembourser.
 
 Le plafond bloquant est ce qui empêche cette dette de croître indéfiniment : elle se heurte au plafond, et le chauffeur doit régulariser pour reprendre.
+
+**La comptabilité dit la même chose que le compte courant, jamais autre chose (D34, 20 août).** C'est une évidence tant qu'on ne l'écrit pas, et une source de dérive dès qu'on l'oublie. La créance sur le chauffeur n'est soldée qu'à hauteur de ce qui a été **réellement reçu** ; le reliquat reste dû au bilan, du même montant que celui resté au compte courant. Les deux systèmes se vérifient alors l'un l'autre au lieu de se contredire.
+
+Le compte d'écart n'intervient qu'au moment où une **décision humaine éteint la dette** — retenue, ajustement — parce que c'est le seul moment où la créance cesse réellement d'exister. Reclasser l'écart hors de la créance dès la remise revenait à écrire dans les livres que le chauffeur ne doit plus rien, et produisait, à la remise suivante, une créance en solde créditeur : l'entreprise devant de l'argent à un chauffeur qui lui en doit.
+
+**Comptes et journaux sont provisoires jusqu'à validation par un comptable.** Le plan de la base de développement n'est pas le SYSCOHADA en usage au Cameroun ; les comptes livrés sont des valeurs par défaut plausibles, paramétrables, à repointer avant le pilote. Voir `05-prerequis-et-simulation.md` §5.
 5. Tout écart entre montant attendu et montant remis est enregistré, jamais absorbé silencieusement.
 
 Le plafond remplace la clôture de service comme mécanisme de contrôle. Il ne coûte qu'une règle métier et un champ de configuration.

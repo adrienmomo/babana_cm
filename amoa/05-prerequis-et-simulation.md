@@ -185,6 +185,7 @@ Rien dans cette liste ne bloque le démarrage. Les délais indiqués justifient 
 | Vérification développeur Android | Installation directe sur appareil certifié, à terme | Avant fin 2026 | Jours — validation d'identité |
 | Passerelle SMS | Vérification de numéro réelle — L1-09 | Avant J4 | Jours — contractualisation locale |
 | Stockage de sauvegarde externe | L8-08 | Avec le VPS | Heures |
+| **Validation du plan comptable par un comptable** | Écritures de remise réelles — L5-05 | Avant le pilote | Jours — disponibilité d'un tiers |
 
 **Correction du 18 août — j'ai surestimé ce blocage pendant huit jours.** J'ai répété que le compte Google Play était le seul délai que rien ne rattraperait. C'est faux pour ce qui nous occupe : **le compte Play n'est nécessaire que pour publier sur le Store.** Tester un APK n'en demande aucun. On construit, on transfère le fichier sur le téléphone, on autorise l'installation depuis une source inconnue, et l'application tourne.
 
@@ -198,6 +199,10 @@ Deux conséquences pratiques :
 - Un compte gratuit existe pour la distribution vers un nombre limité d'appareils, sans pièce d'identité officielle. À vérifier au moment venu : selon la taille de la flotte pilote, il peut suffire.
 
 Reste que rien de tout cela ne bloque aujourd'hui. **Un APK est testable dès qu'un APK existe** — et il en existe un depuis le 13 août. Mieux : l'application Client s'exporte en web (D22), donc elle est testable dans un navigateur sans passer par Android du tout.
+
+**Le plan comptable livré est provisoire, et c'est le seul prérequis qui produise de vraies conséquences légales.** La base de développement installe le plan générique d'Odoo, pas le SYSCOHADA en usage au Cameroun. Le module pose donc trois comptes et un journal qui lui sont propres, numérotés dans la famille classe 4 à titre indicatif — des valeurs par défaut plausibles au sens de D21, pas une prétention d'exactitude.
+
+Les quatre références sont des paramètres : un comptable qui installe un vrai plan OHADA les repointe sans qu'une ligne de code change. Mais tant que personne ne l'a fait, **les écritures produites sont plausibles et fausses** — et c'est le genre d'erreur qui se découvre au premier audit, pas en test. À faire valider avant le pilote, au même titre que la grille tarifaire.
 
 **L'empreinte de signature Android** mérite une mention : l'identifiant client OAuth Android est lié à l'empreinte du certificat de signature. Il en faut une pour le certificat de développement et une pour celui de publication. Oublier la seconde produit une connexion Google qui fonctionne en développement et échoue en production — un classique, et découvert tard.
 
