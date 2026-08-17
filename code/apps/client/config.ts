@@ -10,3 +10,12 @@
  */
 export const API_BASE_URL = process.env.BABANA_API_URL || 'https://api.babana.cm';
 export const REALTIME_WS_URL = process.env.BABANA_REALTIME_WS_URL || 'wss://api.babana.cm/rt/ws';
+
+/**
+ * Google Sign-In natif (L6-02, D22) -- `GOOGLE_WEB_CLIENT_ID` doit être l'un des identifiants
+ * listés dans `GOOGLE_OAUTH_CLIENT_IDS` côté serveur (`infra/env/.env.example`), jamais
+ * l'identifiant Android (celui-ci se déduit côté console Google du nom de package et de
+ * l'empreinte SHA-1 du certificat de signature, jamais passé en configuration ici).
+ */
+export const GOOGLE_WEB_CLIENT_ID = process.env.BABANA_GOOGLE_WEB_CLIENT_ID || '';
+export const GOOGLE_IOS_CLIENT_ID = process.env.BABANA_GOOGLE_IOS_CLIENT_ID || undefined;
