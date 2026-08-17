@@ -1,4 +1,6 @@
+import { http } from '@babana/contracts';
 import type { Config } from '../config';
+import type { ConnectionContext } from '../ws/auth';
 import { callOdoo } from './client';
 
 /**
@@ -68,4 +70,32 @@ export async function fetchEngagedDriverIds(config: Config): Promise<string[]> {
   const body = result as { driverIds?: unknown };
   if (!Array.isArray(body.driverIds)) return [];
   return body.driverIds.filter((value): value is string => typeof value === 'string');
+}
+
+export interface ActiveRide {
+  rideId: string | null;
+  state: http.RideState | null;
+}
+
+/**
+ * Sens Odoo -> temps réel, comme `fetchEngagedDriverIds` ci-dessus : bloquante pour son
+ * appelant (`ws/resync.ts`, L3-11), qui a besoin du résultat pour répondre à `session.resync`.
+ * Odoo est la source de vérité (D27) -- le service temps réel ne garde aucune trace durable de
+ * l'état d'une course (invariant 1), donc rien à lire dans Redis pour cette réponse.
+ */
+export async function fetchActiveRide(
+  config: Config,
+  context: Pick<ConnectionContext, 'userId' | 'role'>,
+  lastKnownRideId: string | null
+): Promise<ActiveRide> {
+  const result = await callOdoo(config, '/api/internal/session/active-ride', {
+    userId: context.userId,
+    role: context.role,
+    lastKnownRideId,
+  });
+  const body = result as { rideId?: unknown; state?: unknown };
+  return {
+    rideId: typeof body.rideId === 'string' ? body.rideId : null,
+    state: typeof body.state === 'string' ? (body.state as http.RideState) : null,
+  };
 }

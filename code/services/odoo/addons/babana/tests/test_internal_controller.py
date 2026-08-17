@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import uuid
 
 from odoo.tests.common import HttpCase, tagged
 
@@ -49,6 +50,37 @@ class TestInternalController(HttpCase):
         ride = self.env["babana.ride"].sudo().action_request(self._base_vals(client))
         ride.sudo().action_propose(by_partner=client, driver=driver)
         return ride, driver
+
+    def _make_client_user(self, sub):
+        return self.env["res.users"].sudo()._babana_find_or_create_from_google(
+            sub=sub, email=f"{sub}@example.invalid", name=f"Client {sub}", role="client"
+        )
+
+    def _make_driver_user(self, sub):
+        # Même montage que TestDriverCashController._make_driver_user
+        # (test_driver_cash_controller.py) : documents vérifiés + moto affectée sont les
+        # préconditions réelles d'action_approve, pas un raccourci d'écriture directe de `state`.
+        user = self.env["res.users"].sudo()._babana_find_or_create_from_google(
+            sub=sub, email=f"{sub}@example.invalid", name=f"Chauffeur {sub}", role="driver"
+        )
+        driver = user._babana_driver()
+        for document_type in ("license", "id_card"):
+            vals = {
+                "driver_id": driver.id,
+                "document_type": document_type,
+                "storage_key": f"test/{document_type}.jpg",
+                "verification_status": "verified",
+            }
+            if document_type == "license":
+                vals["expires_on"] = "2030-01-01"
+            self.env["babana.driver.document"].sudo().create(vals)
+        moto = self.env["babana.motorcycle"].sudo().create(
+            {"license_plate": f"LT-{uuid.uuid4().hex[:4].upper()}-CI"}
+        )
+        moto.write({"driver_id": driver.id})
+        driver.invalidate_recordset()
+        driver.sudo().action_approve(new_employee_name=f"Chauffeur {sub}")
+        return user, driver
 
     # --- Authentification, commune aux trois routes --------------------------------------------
 
@@ -161,3 +193,112 @@ class TestInternalController(HttpCase):
             driver_ids,
             "'proposed' est protégé par la réservation à expiration (L3-06), pas par l'engagement",
         )
+
+    # --- session/active-ride (L3-11, resynchronisation à la reconnexion) -----------------------
+
+    def test_active_ride_missing_fields_is_validation_error(self):
+        response = self._post("/session/active-ride", {}, secret=self._real_secret())
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"]["code"], "VALIDATION_ERROR")
+
+    def test_active_ride_unknown_user_returns_nulls_not_an_error(self):
+        response = self._post(
+            "/session/active-ride",
+            {"userId": "jamais-vu", "role": "client"},
+            secret=self._real_secret(),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"rideId": None, "state": None})
+
+    def test_active_ride_for_client_returns_the_one_active_ride(self):
+        client = self._make_client_user("sub-active-ride-client")
+        _driver_user, driver = self._make_driver_user("sub-active-ride-client-driver")
+        ride = self.env["babana.ride"].sudo().action_request(self._base_vals(client.partner_id))
+        ride.sudo().action_propose(by_partner=client.partner_id, driver=driver)
+
+        response = self._post(
+            "/session/active-ride",
+            {"userId": client.babana_public_id, "role": "client"},
+            secret=self._real_secret(),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"rideId": ride.public_id, "state": "proposed"})
+
+    def test_active_ride_for_driver_returns_the_one_active_ride(self):
+        client = self._make_client_user("sub-active-ride-driver-client")
+        driver_user, driver = self._make_driver_user("sub-active-ride-driver")
+        ride = self.env["babana.ride"].sudo().action_request(self._base_vals(client.partner_id))
+        ride.sudo().action_propose(by_partner=client.partner_id, driver=driver)
+        ride.sudo().action_accept(by_driver=driver)
+
+        response = self._post(
+            "/session/active-ride",
+            {"userId": driver_user.babana_public_id, "role": "driver"},
+            secret=self._real_secret(),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"rideId": ride.public_id, "state": "assigned"})
+
+    def test_active_ride_none_active_returns_nulls(self):
+        client = self._make_client_user("sub-active-ride-none")
+
+        response = self._post(
+            "/session/active-ride",
+            {"userId": client.babana_public_id, "role": "client"},
+            secret=self._real_secret(),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"rideId": None, "state": None})
+
+    def test_active_ride_falls_back_to_last_known_ride_id_when_nothing_is_active(self):
+        # Un client qui se reconnecte juste après que sa course est passée `completed` (hors de
+        # CLIENT_ACTIVE_STATES, l'encaissement n'étant pas bloquant) doit apprendre ce vrai état
+        # plutôt qu'un néant ambigu -- exactement le cas que lastKnownRideId cible.
+        client = self._make_client_user("sub-active-ride-fallback")
+        _driver_user, driver = self._make_driver_user("sub-active-ride-fallback-driver")
+        ride = self.env["babana.ride"].sudo().action_request(self._base_vals(client.partner_id))
+        ride.sudo().action_propose(by_partner=client.partner_id, driver=driver)
+        ride.sudo().action_accept(by_driver=driver)
+        ride.sudo().action_start(by_driver=driver)
+        ride.sudo().action_complete(by_driver=driver, actual_distance_km=1.0, actual_duration_minutes=5, final_amount=1200)
+
+        response = self._post(
+            "/session/active-ride",
+            {"userId": client.babana_public_id, "role": "client", "lastKnownRideId": ride.public_id},
+            secret=self._real_secret(),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"rideId": ride.public_id, "state": "completed"})
+
+    def test_active_ride_never_leaks_a_ride_that_does_not_belong_to_the_caller(self):
+        # lastKnownRideId est un identifiant public, présentable par n'importe quel appelant : la
+        # réponse doit toujours être filtrée par propriété, jamais renvoyée telle quelle.
+        victim = self._make_client_user("sub-active-ride-owner")
+        attacker = self._make_client_user("sub-active-ride-attacker")
+        _driver_user, driver = self._make_driver_user("sub-active-ride-leak-driver")
+        ride = self.env["babana.ride"].sudo().action_request(self._base_vals(victim.partner_id))
+        ride.sudo().action_propose(by_partner=victim.partner_id, driver=driver)
+        ride.sudo().action_accept(by_driver=driver)
+        ride.sudo().action_start(by_driver=driver)
+        ride.sudo().action_complete(by_driver=driver, actual_distance_km=1.0, actual_duration_minutes=5, final_amount=1200)
+
+        response = self._post(
+            "/session/active-ride",
+            {"userId": attacker.babana_public_id, "role": "client", "lastKnownRideId": ride.public_id},
+            secret=self._real_secret(),
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"rideId": None, "state": None})
+
+    def test_active_ride_missing_secret_is_unauthorized(self):
+        response = self._post("/session/active-ride", {"userId": "irrelevant", "role": "client"})
+
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["error"]["code"], "UNAUTHORIZED")

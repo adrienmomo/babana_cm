@@ -16,6 +16,7 @@ from odoo.http import request
 from odoo.service.model import PG_CONCURRENCY_EXCEPTIONS_TO_RETRY
 
 from . import _common
+from ..models.babana_ride import CLIENT_ACTIVE_STATES, DRIVER_ACTIVE_STATES
 from ..models.babana_ride_state import RideInvalidTransition
 
 _logger = logging.getLogger(__name__)
@@ -118,3 +119,60 @@ class InternalController(http.Controller):
             [("state", "in", ["assigned", "in_progress"]), ("driver_id", "!=", False)]
         )
         return {"driverIds": rides.mapped("driver_id.public_id")}, 200
+
+    # --- POST /internal/session/active-ride (L3-11, resynchronisation à la reconnexion) -------
+
+    @http.route("/api/internal/session/active-ride", **_READ_ROUTE)
+    def active_ride(self, **_kwargs):
+        return self._dispatch("activeRide", self._active_ride)
+
+    def _active_ride(self):
+        """Odoo est la source de vérité (D27) : le service temps réel ne garde aucune trace
+        durable de l'état d'une course (invariant 1), il interroge ici l'état réel avant de
+        répondre à `session.resync` (L3-11). `userId`/`role` identifient la connexion
+        (`ConnectionContext`, ws/auth.ts) -- jamais un `driverId` seul, qui n'a pas de sens pour
+        un client.
+
+        Une course "active" est celle qui bloquerait une seconde course du même acteur
+        (`CLIENT_ACTIVE_STATES`/`DRIVER_ACTIVE_STATES`, babana_ride.py -- la même liste que la
+        contrainte "une seule course active", pas une nouvelle définition). À défaut, et
+        seulement si `lastKnownRideId` est fourni, la course précise que le client croyait
+        encore en cours est relue avec son état réel -- un client qui se reconnecte juste après
+        que sa course est passée `completed` (donc hors des états "actifs", l'encaissement n'est
+        pas bloquant) doit apprendre ce vrai état plutôt qu'un néant ambigu. Toujours vérifié par
+        propriété : jamais l'état d'une course qui n'appartient pas à l'appelant.
+        """
+        env = request.env(user=SUPERUSER_ID)
+        body = _common.parse_json_body() or {}
+        user_public_id = body.get("userId")
+        role = body.get("role")
+        last_known_ride_id = body.get("lastKnownRideId")
+        if not user_public_id or role not in ("client", "driver"):
+            return _common.error_payload("VALIDATION_ERROR", "userId et role sont requis"), 400
+
+        user = env["res.users"].sudo().search(
+            [("babana_public_id", "=", user_public_id)], limit=1
+        )
+        if not user:
+            return {"rideId": None, "state": None}, 200
+
+        if role == "client":
+            owner_domain = [("client_id", "=", user.partner_id.id)]
+            active_states = CLIENT_ACTIVE_STATES
+        else:
+            driver = user._babana_driver()
+            if not driver:
+                return {"rideId": None, "state": None}, 200
+            owner_domain = [("driver_id", "=", driver.id)]
+            active_states = DRIVER_ACTIVE_STATES
+
+        ride = env["babana.ride"].sudo().search(
+            owner_domain + [("state", "in", list(active_states))], limit=1
+        )
+        if not ride and last_known_ride_id:
+            ride = env["babana.ride"].sudo().search(
+                owner_domain + [("public_id", "=", last_known_ride_id)], limit=1
+            )
+        if not ride:
+            return {"rideId": None, "state": None}, 200
+        return {"rideId": ride.public_id, "state": ride.state}, 200

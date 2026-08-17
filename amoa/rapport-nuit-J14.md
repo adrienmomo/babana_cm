@@ -167,6 +167,73 @@ Vérifié : suite Odoo ciblée (`TestBabanaToken`, `TestAuthRefreshAndLogout`, `
 
 ---
 
-## L3-11 et L6-06
+## L3-11 — Reconnexion et rattrapage d'état, côté serveur
 
-À suivre dans ce même rapport, entrées séparées, dans l'ordre indiqué par la nuit.
+**Le pont manquant depuis L6-04.** Le client (J13) sait déjà envoyer `session.resync` à
+l'ouverture et rejouer sa file d'actions ; personne ne répondait. `session.resync` sortait donc
+du `default:` silencieux de `ws/dispatch.ts`, sans jamais de `session.synced` en retour.
+
+**Source de vérité : Odoo, interrogé à chaque resynchronisation, rien lu dans Redis.**
+`services/realtime` ne garde aucune trace durable de l'état d'une course (invariant 1) — la
+réponse à `session.resync` ne pouvait donc venir que d'un appel sortant vers Odoo, même famille
+que `fetchEngagedDriverIds` (L3-17, réconciliation) : bloquant pour son appelant, à la différence
+des notifications d'acceptation/refus qui ne bloquent jamais personne. Nouvel endpoint interne,
+`POST /api/internal/session/active-ride` (`controllers/internal.py`), authentifié par le même
+secret partagé que le reste de ce fichier. Il réutilise `CLIENT_ACTIVE_STATES` /
+`DRIVER_ACTIVE_STATES` (`babana_ride.py`, déjà la définition de « une seule course active » qui
+porte l'index unique partiel) — pas une nouvelle notion d'« actif » inventée pour l'occasion.
+
+**`lastKnownRideId` sert à quelque chose, pas seulement transmis.** Avec l'invariant « une seule
+course active par acteur », il n'y a jamais d'ambiguïté sur QUELLE course chercher tant qu'une
+est active. Mais un client qui se reconnecte juste après que sa course est passée `completed`
+(hors de `CLIENT_ACTIVE_STATES` — l'encaissement n'est pas bloquant, un nouveau `requested` peut
+déjà être créé) recevrait `activeRideId: null` : un néant ambigu, indistinguable d'« aucune
+course n'a jamais existé ». À défaut de course active, l'endpoint relit la course précise
+désignée par `lastKnownRideId` et renvoie son état réel, quel qu'il soit — **toujours filtré par
+propriété** (le `client_id`/`driver_id` de l'appelant), un identifiant public étant présentable
+par n'importe qui : un jeton valide ne doit jamais suffire à lire l'état de la course de
+quelqu'un d'autre en devinant son identifiant. Testé explicitement
+(`test_active_ride_never_leaks_a_ride_that_does_not_belong_to_the_caller`).
+
+**Dégradation silencieuse si Odoo est injoignable.** `ws/resync.ts` catch l'échec, le journalise,
+et n'envoie rien — jamais `activeRideId: null` par défaut sur une panne réseau, ce qui laisserait
+croire à tort qu'aucune course n'est en cours (même risque que la disparition de chauffeur
+décrite en D30, transposée à une course). La connexion reste ouverte, le rejeu de la file
+d'actions locale (déjà en cours côté client, indépendant de cette réponse) n'attend pas
+`session.synced` pour continuer.
+
+**Un état complet à chaque fois, jamais mémorisé, jamais un différentiel** — literalement : la
+fonction ne connaît que la dernière réponse d'Odoo, aucun état intermédiaire n'est conservé entre
+deux appels. `serverTime` posé à l'envoi, pas à la réception de la requête Odoo (l'écart entre
+les deux est de l'ordre de la milliseconde, sans intérêt à distinguer).
+
+**Tests.** Service (`test/resync.test.ts`, faux serveur Odoo local comme `reconcile.test.ts`) :
+état complet renvoyé une fois, aucune course active, identité prise du contexte de connexion
+jamais du message (même garde-fou que L3-01), `lastKnownRideId` transmis, socket déjà fermé
+n'écrit rien, panne Odoo dégradée silencieusement. Odoo (`test_internal_controller.py`, nouvelle
+section) : validation des champs requis, utilisateur inconnu (nulls, pas une erreur), course
+active pour un client, pour un chauffeur, aucune course active, repli sur `lastKnownRideId`
+quand la course est `completed`, **fuite refusée** quand `lastKnownRideId` désigne la course d'un
+autre utilisateur, secret manquant.
+
+**Un flake de plus, sous charge combinée, ni nouveau ni lié à cette tâche.** La suite complète du
+service (`npm test -w @babana/realtime`, exécution parallèle par fichier du test-runner Node) a
+fait échouer tantôt `proposal.test.ts` (critère 1), tantôt `reservation.test.ts` (critère 5), en
+plus du `DisconnectGraceTimers` déjà documenté J12/J13 — tous des minuteurs sensibles au temps
+réel écoulé, aucun touché par cette tâche. Reconfirmé : chaque fichier isolé passe systématiquement,
+et la suite entière passe intégralement (118 tests, 0 échec) avec `--test-concurrency=1` (exécution
+séquentielle plutôt que parallèle par fichier). Ce n'est plus un cas isolé (un seul fichier
+documenté jusqu'ici) mais une famille de tests sensibles au parallélisme du test-runner sous
+charge — à signaler pour arbitrage : soit border ces minuteurs avec une marge plus généreuse, soit
+figer `--test-concurrency=1` pour ce paquet en CI. Pas corrigé cette nuit, hors du périmètre de
+L3-11, mais plus une réserve mineure maintenant que trois fichiers distincts y sont sujets.
+
+Vérifié : `test/resync.test.ts` (6 tests), suite Odoo ciblée
+(`TestInternalController`, 17 tests) puis complète sur base fraîche (398 tests, 0 échec),
+`npm run typecheck --workspaces` propre, `npm run lint --workspaces` propre.
+
+---
+
+## L6-06
+
+À suivre dans ce même rapport.

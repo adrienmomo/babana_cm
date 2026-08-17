@@ -8,6 +8,7 @@ import { setOnline, setOffline } from '../driver/availability';
 import { isCashBlocked } from '../driver/cash-guard';
 import type { NearbyManager } from '../nearby/handler';
 import type { ProposalLifecycle } from '../proposal/lifecycle';
+import { handleSessionResync } from './resync';
 
 /**
  * Routage des messages entrants (C-02) vers leur gestionnaire, par `type`. Un seul point
@@ -18,9 +19,10 @@ import type { ProposalLifecycle } from '../proposal/lifecycle';
  * intermittent, un message tronqué ou en retard n'est pas une faute qui justifie de couper le
  * chauffeur.
  *
- * Les types non encore traités par ce lot (`ride.start`, `ride.complete`, `ride.track`,
- * `session.resync`, ...) sont ignorés silencieusement -- ce n'est pas une erreur, seulement une
- * fonctionnalité que les tâches suivantes ajoutent au fil de l'eau.
+ * Les types non encore traités par ce lot (`ride.start`, `ride.complete`, `ride.track`, ...) sont
+ * ignorés silencieusement -- ce n'est pas une erreur, seulement une fonctionnalité que les
+ * tâches suivantes ajoutent au fil de l'eau. `session.resync` (L3-11) est le premier type de
+ * cette liste à être traité.
  */
 export type MessageDispatcher = (context: ConnectionContext, socket: WebSocket, raw: string) => Promise<void>;
 
@@ -88,6 +90,11 @@ export function createMessageDispatcher(
       case 'proposal.reject':
         if (context.role !== 'driver' || !context.driverId) return;
         await proposals.reject(context.driverId, message.payload.rideId, message.payload.reason);
+        return;
+      case 'session.resync':
+        // Émetteur : client ou chauffeur (C-02) -- pas de garde-fou de rôle ici, les deux ont le
+        // droit de resynchroniser leur propre session.
+        await handleSessionResync(config, context, socket, message.payload);
         return;
       default:
         return;
