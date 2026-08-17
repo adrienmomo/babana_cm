@@ -1,9 +1,11 @@
-# Bascule en ligne / hors ligne (L3-04, D7, C-01 driver.ts). Odoo est la source de vérité de
-# l'éligibilité (dossier approuvé, moto affectée, assurance valide, permis valide, plafond
-# d'encaisse non atteint) -- ce contrôleur ne fait qu'appliquer les motifs de refus distincts
-# renvoyés par babana_driver.py (invariant 3 : aucune règle métier ici, seulement leur
-# traduction en réponse HTTP). Le service temps réel reçoit l'autorisation et applique
-# l'insertion/le retrait dans le géo-index -- il ne décide de rien (L3-04, spécification).
+# Bascule en ligne / hors ligne (L3-04, D7, C-01 driver.ts) et lecture du compte courant (C-01
+# settlement.ts, GET /drivers/me/cash -- trou du découpage L5, comblé le 20 août,
+# amoa/questions/REPONSES-2026-08-20.md §4). Odoo est la source de vérité de l'éligibilité
+# (dossier approuvé, moto affectée, assurance valide, permis valide, plafond d'encaisse non
+# atteint) -- ce contrôleur ne fait qu'appliquer les motifs de refus distincts renvoyés par
+# babana_driver.py (invariant 3 : aucune règle métier ici, seulement leur traduction en réponse
+# HTTP). Le service temps réel reçoit l'autorisation et applique l'insertion/le retrait dans le
+# géo-index -- il ne décide de rien (L3-04, spécification).
 from __future__ import annotations
 
 import logging
@@ -16,11 +18,45 @@ _logger = logging.getLogger(__name__)
 
 # readonly=False explicite : auth='none' est en lecture seule par défaut depuis Odoo 18
 # (code/docs/odoo-pitfalls.md) -- cet endpoint écrit (is_online).
-_ROUTE = {"type": "http", "auth": "none", "methods": ["POST"], "csrf": False, "readonly": False}
+_POST_ROUTE = {"type": "http", "auth": "none", "methods": ["POST"], "csrf": False, "readonly": False}
+
+# GET /drivers/me/cash ne modifie rien -- readonly par défaut convient, pas d'override.
+_GET_ROUTE = {"type": "http", "auth": "none", "methods": ["GET"], "csrf": False}
 
 
 class DriverController(http.Controller):
-    @http.route("/api/v1/drivers/me/availability", **_ROUTE)
+    @http.route("/api/v1/drivers/me/cash", **_GET_ROUTE)
+    def get_cash(self, **_kwargs):
+        try:
+            payload, status = self._get_cash()
+            return _common.json_response(payload, status)
+        except _common.AuthenticationFailed as exc:
+            return _common.error_response(exc.code, "authentification requise", exc.status)
+        except Exception:
+            _logger.exception("erreur interne dans GET /api/v1/drivers/me/cash")
+            return _common.error_response("INTERNAL_ERROR", "erreur interne", 500)
+
+    def _get_cash(self):
+        _env, user = _common.authenticated_user()
+        driver = user._babana_driver()
+        if not driver:
+            return _common.error_payload("UNAUTHORIZED", "compte non rattaché à un chauffeur"), 401
+        if driver.state != "approved":
+            return _common.error_payload(
+                "DRIVER_NOT_APPROVED", "le dossier chauffeur n'est pas approuvé"
+            ), 403
+
+        driver = driver.sudo()
+        return (
+            {
+                "balance": round(driver.cash_balance),
+                "limit": round(driver.cash_limit),
+                "collectedToday": round(driver._babana_cash_collected_today()),
+            },
+            200,
+        )
+
+    @http.route("/api/v1/drivers/me/availability", **_POST_ROUTE)
     def set_availability(self, **_kwargs):
         try:
             payload, status = self._set_availability()

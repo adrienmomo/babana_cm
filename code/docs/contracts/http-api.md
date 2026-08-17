@@ -172,9 +172,6 @@ test (`test/http.test.ts`) valide chaque exemple contre son schéma à chaque ex
 
 ## Caisse — `settlement.ts`
 
-**Non implémenté (L4-03, cette nuit).** Dépend du compte courant chauffeur (D8, L5-01), absent
-avant le lot L5. Détail dans `amoa/questions/L4-03.md`.
-
 ### `POST /rides/{id}/settle`
 
 Transition `completed → settled`. Espèces uniquement (D9).

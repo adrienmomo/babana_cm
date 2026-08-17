@@ -65,3 +65,41 @@ dernière section).
 **Le plan comptable.** Rien à faire ici — l'arbitrage (comptes provisoires conservés, validation
 par un comptable entrée dans les prérequis) a déjà été déposé la nuit dernière dans
 `01-architecture.md` §7 et `05-prerequis-et-simulation.md` §5, avant le début de cette session.
+
+---
+
+## `GET /drivers/me/cash` — le trou signalé la nuit dernière
+
+Le contrat C-01 (`settlement.ts`) prévoit l'endpoint depuis le début, mais aucune tâche du
+découpage ne le demandait explicitement — signalé comme tel dans le rapport de J11
+(`REPONSES-2026-08-20.md` §4). Pas de tâche dédiée dans `amoa/specs/` : décision d'implémentation
+non spécifiée (nommage, emplacement), tranchée et avancée plutôt que bloquée, comme le permet
+`CLAUDE.md`.
+
+**Placé dans `controllers/driver.py`** (`DriverController`), à côté de `/drivers/me/availability`
+plutôt que dans un fichier calqué sur le nom du contrat (`settlement.ts` porte aussi
+`POST /rides/{id}/settle`, déjà dans `RideController`) — les deux routes `/drivers/me/*`
+partagent l'authentification et le même contrôleur logique côté chauffeur. Route `GET`, pas de
+`readonly=False` : cet endpoint ne modifie rien, le défaut d'Odoo 18 convient déjà.
+
+**`balance` et `limit`** : lecture directe de `driver.cash_balance` / `driver.cash_limit`, déjà
+calculés (L5-01, L5-02) — aucune règle nouvelle. **`collectedToday`** : nouvelle méthode
+`babana_driver.py::_babana_cash_collected_today`, somme des mouvements `collection` du jour
+(le seul type qui correspond à « courses réglées du jour », L5-07). `fields.Date.context_today`,
+pas `fields.Date.today()` — cas explicitement réservé par `code/docs/odoo-pitfalls.md` : un
+chauffeur qui regarde son écran dans son propre fuseau horaire, pas un cron ni une valeur par
+défaut sans utilisateur connecté.
+
+**Tests** (`test_driver_cash_controller.py`, nouveau, même patron que
+`TestRemittanceController` — jeton réel via `_issue_access_token`, pas le parcours Google mock
+complet) : solde/plafond/encaissé corrects sur plusieurs encaissements, une déclaration de remise
+seule ne modifie pas l'encaissé du jour (seule la validation touche le compte courant, L5-04),
+chauffeur non approuvé rejeté (`DRIVER_NOT_APPROVED`), jeton absent rejeté (`UNAUTHORIZED`),
+forme de la réponse limitée aux trois champs du contrat. Module enregistré dans
+`tests/__init__.py` (oublié une fois, corrigé en vérifiant que la suite ciblée trouvait bien les
+tests — 0 test chargé silencieusement la première fois, jusqu'à l'ajout).
+
+`make test` ciblé (`TestDriverCashController`) : 5 tests, 0 échec. `code/docs/contracts/
+http-api.md` mis à jour : la mention « Non implémenté (L4-03) » en tête de la section Caisse
+était stale depuis L4-05/L5-05 (le règlement de course est implémenté depuis longtemps) —
+retirée.

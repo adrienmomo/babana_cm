@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
@@ -168,6 +168,31 @@ class BabanaDriver(models.Model):
         qu'elle valide n'est pas encore visible d'un browse() mis en cache)."""
         self.ensure_one()
         movements = self.env["babana.cash.movement"].sudo().search([("driver_id", "=", self.id)])
+        return sum(movements.mapped("amount"))
+
+    def _babana_cash_collected_today(self) -> float:
+        """Recette encaissée aujourd'hui (GET /drivers/me/cash, C-01) -- somme des mouvements
+        `collection` du jour, pas des courses `settled` du jour : un mouvement `collection` n'est
+        créé qu'à l'encaissement (L4-05), donc les deux ensembles coïncident déjà, mais interroger
+        le journal du compte courant reste la source unique du solde (L5-01) plutôt que
+        d'introduire une seconde façon de compter.
+
+        `fields.Date.context_today(self)`, pas `fields.Date.today()` : ce calcul répond à un
+        chauffeur qui regarde effectivement son écran dans son propre fuseau horaire -- exactement
+        le cas réservé à `context_today()` par code/docs/odoo-pitfalls.md, à l'inverse d'un cron ou
+        d'une valeur par défaut sans utilisateur réel connecté."""
+        self.ensure_one()
+        today = fields.Date.context_today(self)
+        start = fields.Datetime.to_datetime(datetime.combine(today, time.min))
+        end = start + timedelta(days=1)
+        movements = self.env["babana.cash.movement"].sudo().search(
+            [
+                ("driver_id", "=", self.id),
+                ("movement_type", "=", "collection"),
+                ("create_date", ">=", start),
+                ("create_date", "<", end),
+            ]
+        )
         return sum(movements.mapped("amount"))
 
     @api.model

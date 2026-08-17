@@ -31,3 +31,4 @@ from . import test_remittance_model
 from . import test_remittance_validation
 from . import test_remittance_accounting
 from . import test_discrepancy
+from . import test_driver_cash_controller
