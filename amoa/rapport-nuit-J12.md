@@ -103,3 +103,85 @@ tests — 0 test chargé silencieusement la première fois, jusqu'à l'ajout).
 http-api.md` mis à jour : la mention « Non implémenté (L4-03) » en tête de la section Caisse
 était stale depuis L4-05/L5-05 (le règlement de course est implémenté depuis longtemps) —
 retirée.
+
+---
+
+## L6-01 — Abstraction carte et navigation
+
+**La frontière est le but de la tâche, pas un effet de bord.** `packages/maps/src/index.ts`
+(placeholder de L0-03, `NotYetImplementedMapProvider` qui levait volontairement à chaque appel)
+est remplacé par une vraie implémentation, structurée en fournisseurs derrière une interface
+`MapProvider` unique : `MapView` (composant), `openNavigation`, `searchPlace`, `reverseGeocode`.
+
+**Deux fournisseurs, un seul branché.** `providers/google/` (réel, v1) implémente les quatre
+capacités avec `react-native-maps` (nouvelle dépendance, cf. ci-dessous) pour la carte, un lien
+profond `Linking.openURL` vers Google Maps pour la navigation (D12), et les API REST Google
+Places/Geocoding pour la recherche et le géocodage inverse. `providers/empty/` implémente le même
+contrat sans importer quoi que ce soit du SDK — c'est le critère d'acceptation 5, « le vrai test » :
+si cette seconde implémentation ne compilait pas, l'abstraction serait un habillage autour d'une
+seule implémentation, pas une vraie frontière. `activeProvider.ts` est le seul fichier qui choisit
+le fournisseur actif (`googleMapProvider` aujourd'hui) — c'est aussi le seul fichier que L6-18
+touchera pour brancher un fournisseur web (critère d'acceptation 6), jamais un écran.
+
+**`openNavigation`, signature indépendante de l'implémentation (critère 3).** V1 ouvre un lien
+profond et approxime la fin du guidage par le retour de l'app au premier plan après l'avoir
+quittée pour Google Maps (`AppState`, aucun rapport d'arrivée réel n'existe derrière un lien
+profond) — un aller-retour complet est exigé (quitter puis revenir), pas seulement un événement
+`active` isolé, pour ne pas déclencher `onComplete` sur un signal parasite. V2 (SDK embarqué)
+remplacera uniquement `providers/google/navigation.ts`, avec la même signature
+`openNavigation(destination, { onComplete })`.
+
+**Aucun type du SDK dans l'interface publique (critère 1) — vérifié par le lint, pas seulement par
+revue (critère 2, et la phrase de spécification qui va plus loin : interdit aussi hors de
+`providers/`).** Nouvel override dans `.eslintrc.cjs` : `packages/maps/src/**` (hors
+`src/providers/`) ne peut importer aucun des quatre paquets déjà blacklistés pour `apps/*`
+(`react-native-maps`, `react-native-google-maps`, `expo-maps`, `@react-native-mapbox-gl/maps`).
+Vérifié en écrivant un fichier sonde (`import 'react-native-maps'` à la racine de `src/`) : erreur
+de lint immédiate, supprimé aussitôt après. Pour que cette règle s'exécute réellement (elle ne
+l'aurait jamais fait : aucun script `lint` n'existait sur ce paquet, contrairement à `apps/client`
+et `apps/driver`), `packages/maps` reçoit sa propre config ESLint locale (`.eslintrc.js`, même
+patron que les apps — `root: true` retiré pour se combiner avec la config racine) et son script
+`lint`.
+
+**`react-native-maps` (^1.29.0), nouvelle dépendance — signalée, pas ajoutée en silence
+(`CLAUDE.md`, « dépendance nouvelle »).** C'est la bibliothèque que le lint de L0-03 anticipait
+déjà nommément (première de la liste blacklistée pour `apps/*`), et le SDK que le comparatif
+`02-comparatif-cartographie.md` désigne pour le rendu de carte natif Android/iOS. Compatible React
+19.2.3 / React Native 0.86.2 (peer dependencies vérifiées avant l'ajout). Le rendu natif réel
+(clé API dans `AndroidManifest.xml`/`Info.plist`) n'est pas câblé cette nuit : aucun écran
+cartographique n'existe encore pour l'exercer, et la clé Google Maps est un prérequis déjà suivi
+(`05-prerequis-et-simulation.md` §5, « avant L6-06 ») — câblage natif à faire au moment de L6-06,
+pas avant.
+
+**La clé pour les appels REST (Places, Geocoding) est injectée, jamais lue depuis
+`process.env` par le paquet lui-même.** `apps/*/config.ts` inline les variables d'environnement
+au moment du bundle Babel (`babel-plugin-transform-inline-environment-variables`, L0-03) — mais
+`@babana/maps` est prébuilt en `dist/` par `tsc`, sans passe Babel, donc `process.env` n'y est
+jamais substitué. `configureMapsProvider({ apiKey })`, exporté par le paquet, doit être appelé une
+fois au démarrage de l'app (pas fait ce soir, aucun point d'entrée d'écran n'existe encore pour
+l'appeler légitimement) ; tant qu'il ne l'est pas, `searchPlace`/`reverseGeocode` lèvent une erreur
+explicite plutôt que d'échouer silencieusement sur une clé vide.
+
+**Testable sans SDK réel (critère 4).** `navigation.ts` (Linking/AppState mockés) et `places.ts`
+(`fetch` mocké) ne chargent jamais `react-native-maps`. Un seul fichier de test le charge
+réellement — `MapView.test.tsx`, contre un double (`__mocks__/react-native-maps.tsx`, activé
+explicitement par `jest.mock`), pour un test de rendu fumée. `packages/maps` recevait son propre
+`jest.config.js`/`babel.config.js` pour la première fois (même patron RN que `apps/client`) — la
+spécification demandait un dossier `test/`, il n'existait aucune infrastructure pour l'exécuter.
+
+**Tests** (`packages/maps/test/`, 4 fichiers, 14 cas) : lien profond vers la bonne destination,
+`onComplete` jamais déclenché sur un événement `AppState` parasite, `onComplete` déclenché sur un
+aller-retour réel, échec silencieux côté utilisateur si aucune app Maps n'est disponible ;
+recherche de lieu traduite en résultats propres au paquet, `ZERO_RESULTS` sans erreur, statut
+Google en erreur explicite, géocodage inverse et son cas `null` ; fournisseur vide qui échoue
+explicitement sur chacune des quatre capacités (et compile contre `MapProvider`, la vraie
+preuve) ; rendu de `<GoogleMapView>` sans lever d'erreur.
+
+`npm run typecheck`, `npm run lint`, `npm test` (`-w @babana/maps`) : propres, 14 tests. Suite
+élargie (`npm run typecheck --workspaces`, `npm run lint --workspaces`) : propre sur les neuf
+paquets/apps, aucune régression des placeholders `@babana/maps` déjà en place ailleurs (aucune app
+ne l'importait encore réellement, seulement en commentaire de `App.tsx` — vérifié par recherche
+plutôt que supposé).
+
+**Ce qu'un écran importera** — la question posée pour calibrer le reste du lot, voir la dernière
+section de ce rapport.
