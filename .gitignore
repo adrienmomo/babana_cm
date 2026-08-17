@@ -1,6 +1,7 @@
 # Dépendances et artefacts de build — reconstruits par `make` / `npm run build`, jamais commités.
 node_modules/
 dist/
+dist-web/
 build/
 *.tsbuildinfo
 __pycache__/

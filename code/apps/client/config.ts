@@ -19,3 +19,13 @@ export const REALTIME_WS_URL = process.env.BABANA_REALTIME_WS_URL || 'wss://api.
  */
 export const GOOGLE_WEB_CLIENT_ID = process.env.BABANA_GOOGLE_WEB_CLIENT_ID || '';
 export const GOOGLE_IOS_CLIENT_ID = process.env.BABANA_GOOGLE_IOS_CLIENT_ID || undefined;
+
+/**
+ * Clé Google Maps pour les appels REST du paquet @babana/maps (Places, Geocoding, L6-01) --
+ * distincte du réglage de build natif qui affiche la carte elle-même (AndroidManifest.xml /
+ * Info.plist, hors de ce fichier). Injectée ici (L6-00, critère d'acceptation 7 :
+ * `configureMapsProvider` appelé une fois au démarrage, à un endroit unique et nommé --
+ * `src/bootstrap.ts`) plutôt que lue directement dans `@babana/maps`, qui est prébuilt et ne
+ * passe pas par ce mécanisme d'inlining (voir `providers/google/config.ts`).
+ */
+export const GOOGLE_MAPS_API_KEY = process.env.BABANA_GOOGLE_MAPS_API_KEY || '';

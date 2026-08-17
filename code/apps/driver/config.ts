@@ -19,3 +19,10 @@ export const REALTIME_WS_URL = process.env.BABANA_REALTIME_WS_URL || 'wss://api.
  */
 export const GOOGLE_WEB_CLIENT_ID = process.env.BABANA_GOOGLE_WEB_CLIENT_ID || '';
 export const GOOGLE_IOS_CLIENT_ID = process.env.BABANA_GOOGLE_IOS_CLIENT_ID || undefined;
+
+/**
+ * Clé Google Maps pour les appels REST du paquet @babana/maps (Places, Geocoding, L6-01) --
+ * même rôle que côté Client, voir apps/client/config.ts. Injectée par `src/bootstrap.ts`
+ * (L6-00, critère d'acceptation 7).
+ */
+export const GOOGLE_MAPS_API_KEY = process.env.BABANA_GOOGLE_MAPS_API_KEY || '';
