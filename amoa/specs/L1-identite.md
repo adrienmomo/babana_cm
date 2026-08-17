@@ -91,13 +91,20 @@ Jeton de renouvellement, longue durée, **stocké côté serveur** pour être r�
 
 Rotation à chaque renouvellement : le jeton de renouvellement utilisé est invalidé et remplacé. La réutilisation d'un jeton de renouvellement déjà consommé révoque **toute la famille** de jetons — c'est le signe d'un vol.
 
+**Avec une fenêtre de grâce (D36, 22 août).** La règle ci-dessus suppose un réseau qui livre ou qui échoue franchement. Celui de Douala ne fait ni l'un ni l'autre : une coupure entre l'envoi du jeton et la réception de son remplaçant laisse l'ancien consommé côté serveur et aucun nouveau côté téléphone. L'application présente alors le seul jeton qu'elle possède, et se fait révoquer toute sa famille — un chauffeur déconnecté en pleine journée, sans comprendre pourquoi, et un événement qui ressemble à un vol dans les journaux.
+
+Un jeton consommé depuis moins d'une fenêtre configurable **renvoie donc le même couple qu'à son premier usage**, sans rien révoquer et sans créer de nouveau jeton. C'est l'idempotence des écritures appliquée à l'authentification : rejouer une opération dont on n'a pas reçu la réponse doit redonner la réponse, pas punir. Au-delà de la fenêtre, la réutilisation redevient ce qu'elle est censée signaler.
+
+Le couple rejoué est celui déjà émis, jamais un nouveau : sinon deux appareils repartiraient avec deux familles vivantes issues du même jeton, ce qui est précisément ce que la rotation cherche à rendre impossible.
+
 Le service temps réel valide le jeton d'accès localement avec le secret partagé, sans appel à Odoo : un appel sortant par connexion WebSocket ne passerait pas à l'échelle.
 
 ### Critères d'acceptation
 
 1. Un jeton expiré est refusé avec `TOKEN_EXPIRED`.
 2. Le renouvellement produit un nouveau couple et invalide l'ancien jeton de renouvellement.
-3. La réutilisation d'un jeton de renouvellement consommé révoque toute la famille.
+3. La réutilisation d'un jeton de renouvellement consommé **au-delà de la fenêtre de grâce** révoque toute la famille.
+3 bis. **Dans la fenêtre, la réutilisation renvoie le même couple qu'au premier usage** — ni révocation, ni troisième jeton émis. Testé aux deux bornes : juste avant, juste après.
 4. La suspension d'un chauffeur invalide ses jetons de renouvellement ; il perd l'accès au plus tard à l'expiration de son jeton d'accès courant.
 5. Le service temps réel valide un jeton sans appeler Odoo.
 6. **Un jeton réellement émis par `/auth/google` valide contre `AccessTokenClaimsSchema`** — le test lit le jeton produit, il ne vérifie pas la forme qu'il aurait voulu produire.

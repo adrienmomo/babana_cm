@@ -39,6 +39,8 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D32 | **Un appel sortant vers le service temps réel se déclenche au commit de la transaction Odoo, jamais pendant** | Appel direct dans le contrôleur, synchrone ou en fil de fond | Une transaction rejouée ou annulée aurait déjà modifié Redis pour une décision qui n'a pas eu lieu. Voir §2 ter |
 | D33 | **Un appel au commit ne s'enregistre jamais depuis l'intérieur d'un savepoint** : l'intention est retenue, puis enregistrée à la sortie réussie du bloc | Enregistrement au point où l'effet se produit | Le point d'accroche au commit ignore les savepoints. Or ce dépôt annule des savepoints dans des transactions qui commitent ensuite pour renvoyer leur erreur. Voir §2 ter |
 | D34 | **La créance sur le chauffeur n'est soldée qu'à hauteur du montant réellement reçu.** Le compte d'écart n'intervient qu'au moment où une décision humaine éteint la dette | Reclasser l'écart hors de la créance dès la remise | Deux systèmes prétendaient dire ce que le chauffeur doit, et disaient le contraire. Voir §7 |
+| D35 | **Toutes les lectures mobiles passent par des contrôleurs explicites sous `/api/v1`.** Le JSON-RPC natif est abandonné pour les apps | JSON-RPC natif pour les lectures secondaires | Il n'accepte pas notre jeton applicatif. L'économie promise se paierait par un pont d'authentification maison. Voir §5 |
+| D36 | **La rotation du jeton de renouvellement a une fenêtre de grâce** : un jeton consommé depuis peu renvoie le même couple qu'à son premier usage, au lieu de révoquer la famille | Révocation stricte à toute réutilisation | Sur un réseau intermittent, une coupure entre l'envoi et la réception du nouveau jeton déconnectait l'utilisateur de tout. Voir §5 |
 
 ---
 
@@ -175,13 +177,27 @@ Google Sign-In seul (D4) impose deux points techniques non négociables.
 
 **Un contrôleur Odoo custom est inévitable.** Le endpoint natif `/web/session/authenticate` attend `db / login / password`. Aucun mécanisme Odoo standard n'accepte un ID token Google. Il faut donc un contrôleur qui vérifie la signature du token auprès des certificats Google, contrôle `aud` et `iss`, puis ouvre la session ou émet un jeton applicatif.
 
-**Conséquence de portée :** dès lors qu'un module custom avec contrôleurs existe, l'argument du « JSON-RPC natif pour tout » perd son intérêt. Recommandation : **JSON-RPC natif pour les lectures secondaires** (historique, factures, profil), **contrôleurs explicites pour les chemins critiques** — authentification, cycle de vie de la course, encaissement, remise de caisse. Ces chemins doivent avoir un contrat d'API stable et testable, indépendant du modèle de données Odoo.
+**Conséquence de portée :** dès lors qu'un module custom avec contrôleurs existe, l'argument du « JSON-RPC natif pour tout » perd son intérêt.
+
+**Correction du 22 août (D35) : le JSON-RPC natif est abandonné pour les applications mobiles.** La rédaction précédente réservait les lectures secondaires — historique, factures, profil — au JSON-RPC natif, et les chemins critiques aux contrôleurs explicites. Le partage tenait sur une hypothèse jamais vérifiée : que le JSON-RPC natif accepte notre jeton applicatif. Il ne l'accepte pas. Odoo y authentifie par session de cookie ou par `(db, uid, password)` explicites ; ni l'un ni l'autre ne comprend un porteur Bearer.
+
+L'économie que cette décision promettait — ne pas écrire de contrôleur pour chaque lecture — se paierait donc par un pont d'authentification maison, c'est-à-dire par du code d'authentification réécrit à côté de celui qui existe. C'est cher, et c'est le genre de code où une erreur ne se voit pas.
+
+**Toutes les lectures mobiles passent désormais par des contrôleurs explicites sous `/api/v1`**, comme les écritures. Un seul mécanisme d'authentification, un seul contrat (C-01), un seul format de fil. Quelques contrôleurs de plus, et plus aucun pont.
+
+Cette décision a une conséquence immédiate qu'il faut nommer : **le profil de l'utilisateur courant n'avait aucun endpoint**, précisément parce qu'il figurait dans la liste des « lectures secondaires ». Son absence a poussé le code applicatif à appeler `/auth/refresh` à chaque démarrage pour récupérer le statut du chauffeur — un détournement, et un détournement coûteux (voir D36). `GET /me` comble le manque.
 
 **Le jeton d'accès est un format de fil, pas un détail d'implémentation (D23).** Odoo l'émet en Python ; le service temps réel le vérifie en TypeScript, localement, sans jamais appeler Odoo — c'est ce qui lui permet de tenir une connexion par chauffeur. Les deux côtés ne se parlent donc jamais au sujet du jeton : ils n'ont que leur accord sur sa forme. Le 15 août, cet accord n'existait pas. Odoo émettait `uid`, le service temps réel exigeait `sub` et refusait tout jeton qui n'en portait pas. Aucune suite de tests ne l'a vu, parce que chaque côté fabriquait ses propres jetons pour se tester. En production, aucune connexion temps réel n'aurait jamais été acceptée.
 
 La leçon dépasse le cas : **la règle de source unique de D17 ne s'arrête pas aux requêtes et aux messages.** Toute valeur lue par deux implémentations indépendantes est un contrat, y compris quand elle voyage dans un en-tête ou dans une signature. Et un test qui ne traverse qu'un seul service ne peut pas prouver un accord entre deux — d'où le critère 5 de C-01, qui prend un jeton réellement émis et ouvre une connexion réelle avec.
 
 Corollaire pratique : le jeton d'un chauffeur porte `driverId` (`babana.driver.public_id`), distinct de `sub` (`res.users.babana_public_id`). Sans lui, le service temps réel ne peut pas savoir quel chauffeur est au bout d'une connexion sans appeler Odoo — ce qui lui est interdit.
+
+**La rotation du jeton de renouvellement a une fenêtre de grâce (D36, 22 août).** La règle d'origine était juste dans son intention : un jeton de renouvellement déjà consommé qui réapparaît est le signe d'un vol, et révoquer toute la famille est la bonne réaction. Elle supposait un réseau qui livre ou qui échoue franchement.
+
+Le réseau de Douala ne fait ni l'un ni l'autre. Une coupure entre l'envoi du jeton et la réception de son remplaçant laisse l'ancien consommé côté serveur et aucun nouveau côté téléphone. Au redémarrage suivant, l'application présente le seul jeton qu'elle possède — consommé — et se fait révoquer toute sa famille. Le chauffeur est déconnecté en pleine journée, sans comprendre pourquoi, et l'événement ressemble exactement à un vol dans les journaux.
+
+**Un jeton consommé depuis moins de quelques dizaines de secondes renvoie donc le même couple qu'à son premier usage**, au lieu de déclencher la révocation — le même principe que l'idempotence des écritures, appliqué à l'authentification : rejouer une opération dont on n'a pas reçu la réponse doit redonner la réponse, pas punir. Au-delà de la fenêtre, la réutilisation redevient ce qu'elle est censée signaler.
 
 **Vérification du numéro de téléphone.** Google Sign-In ne fournit pas de numéro vérifié. Le numéro reste indispensable : le chauffeur doit pouvoir appeler le client, et le Mobile Money de la phase 2 en dépendra. Un numéro saisi au clavier et jamais vérifié est un risque à assumer explicitement. Mitigation recommandée, à coût quasi nul : **un seul OTP dans la vie du compte**, au moment du rattachement du numéro — pas à chaque connexion.
 

@@ -80,7 +80,7 @@ Spécifier les endpoints REST critiques, sous forme de types TypeScript et de sc
 
 ### Contexte
 
-`01-architecture.md` §5 : les chemins critiques passent par des contrôleurs explicites ; les lectures secondaires (historique, factures, profil) passent en JSON-RPC natif et **ne sont pas dans ce contrat**.
+`01-architecture.md` §5 : **toutes** les lectures mobiles passent par des contrôleurs explicites (D35, 22 août). La rédaction précédente réservait les lectures secondaires — historique, factures, profil — au JSON-RPC natif, qui n'accepte pas notre jeton applicatif : Odoo y authentifie par session de cookie ou par identifiants explicites. Elles entrent donc dans ce contrat comme le reste.
 
 D17 : le contrat est du code, pas un document que quelqu'un oublie de mettre à jour.
 
@@ -109,6 +109,10 @@ Préfixe commun `/api/v1`. Authentification par jeton applicatif en en-tête `Au
 **Pourquoi cette exception** (relevée en implémentant L1-02) : `/auth/refresh` existe précisément pour le cas où le jeton d'accès a expiré. Exiger un jeton d'accès valide pour le renouveler rend le mécanisme inutilisable au moment exact où il sert. Le jeton de renouvellement transmis dans le corps est déjà la preuve de possession suffisante ; sa vérification se fait contre le hachage stocké côté serveur.
 
 **Corps de `/auth/google`** : `{ idToken, role }` où `role` vaut `client` ou `driver`. Le rôle est **obligatoire** — rien d'autre dans la requête ne permet de savoir s'il faut créer un chauffeur ou un client au premier appel, et l'email ne peut pas servir d'indice puisqu'il n'est jamais l'identifiant (L1-01).
+
+**`GET /me` existe parce que son absence a produit un détournement** (D35). Rien ne renvoyait le profil de l'utilisateur courant : seuls `/auth/google` et `/auth/refresh` le portaient, parce que le profil figurait dans la liste des « lectures secondaires » abandonnées au JSON-RPC. Le code applicatif s'est donc mis à appeler `/auth/refresh` à chaque démarrage pour récupérer le statut du chauffeur — un renouvellement de jeton déclenché non pas parce que le jeton avait expiré, mais parce qu'il n'y avait pas d'autre façon de lire un profil. Avec la rotation de L1-02, cela multipliait par le nombre de démarrages les occasions de perdre une famille de jetons.
+
+La réponse de `/me` porte le même objet utilisateur que celui d'une session — même schéma, une seule définition.
 
 **Réponse d'une session** : elle porte, quand `role` vaut `driver`, le statut de validation du chauffeur (`pending`, `approved`, `rejected`, `suspended`). L'authentification ne rejette jamais un chauffeur non approuvé — elle lui renvoie un jeton et un statut explicite, et ce sont les endpoints métier qui refusent ses actions. `DRIVER_NOT_APPROVED` n'est donc **jamais** émis par `/auth/google`.
 
@@ -143,6 +147,7 @@ Endpoints à spécifier :
 | POST | `/auth/google` | Échange d'un ID token Google contre un jeton applicatif |
 | POST | `/auth/refresh` | Renouvellement |
 | POST | `/auth/logout` | Révocation |
+| GET | `/me` | Profil de l'utilisateur courant, statut chauffeur compris |
 | POST | `/quote` | Estimation : départ, arrivée, promo éventuelle → montant, distance, ETA |
 | POST | `/rides` | Création d'une demande à partir d'une estimation |
 | POST | `/rides/{id}/select-driver` | Sélection d'un chauffeur parmi les 5 proposés |
