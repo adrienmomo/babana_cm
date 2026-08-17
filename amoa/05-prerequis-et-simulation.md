@@ -70,6 +70,14 @@ Aucune maquette ne sera produite avant le pilote. Les applications utilisent un 
 
 Une refonte visuelle après le pilote sera d'autant plus simple que ces trois points auront été tenus — et d'autant plus coûteuse qu'ils auront été négligés.
 
+**Reconfirmé le 21 août, une fois le premier écran écrit.** D20 avait été décidée quand le produit était encore abstrait ; elle méritait d'être réexaminée au moment où un écran existe vraiment. Elle est maintenue, pour deux raisons que le projet a rendues plus claires qu'elles ne l'étaient en début de parcours.
+
+À Douala, ce qui décidera de l'adoption est que la course aboutisse sur un réseau intermittent et que la batterie tienne la journée — pas l'apparence. Un chauffeur dont l'application est belle et vide la batterie en trois heures la désinstalle.
+
+Et une maquette produite avant d'avoir regardé un chauffeur utiliser l'application serait refaite. Les trois exigences ci-dessus tiennent précisément parce qu'elles ne dépendent d'aucun parti pris esthétique : elles se vérifient en observant quelqu'un s'en servir.
+
+À rouvrir après le pilote, avec les observations de terrain — pas avant.
+
 ---
 
 ## 3 bis. D22 — Version web de l'application Client uniquement
@@ -203,6 +211,12 @@ Reste que rien de tout cela ne bloque aujourd'hui. **Un APK est testable dès qu
 **Le plan comptable livré est provisoire, et c'est le seul prérequis qui produise de vraies conséquences légales.** La base de développement installe le plan générique d'Odoo, pas le SYSCOHADA en usage au Cameroun. Le module pose donc trois comptes et un journal qui lui sont propres, numérotés dans la famille classe 4 à titre indicatif — des valeurs par défaut plausibles au sens de D21, pas une prétention d'exactitude.
 
 Les quatre références sont des paramètres : un comptable qui installe un vrai plan OHADA les repointe sans qu'une ligne de code change. Mais tant que personne ne l'a fait, **les écritures produites sont plausibles et fausses** — et c'est le genre d'erreur qui se découvre au premier audit, pas en test. À faire valider avant le pilote, au même titre que la grille tarifaire.
+
+**Trois questions à poser au comptable**, plutôt qu'à trancher entre nous :
+
+1. Les numéros des trois comptes et du journal, dans le plan réellement en usage.
+2. **Une retenue sur salaire et un abandon de créance doivent-ils atteindre le même compte ?** Aujourd'hui, oui — les deux décisions de L5-06 soldent le reliquat vers le compte d'écart. Une retenue est pourtant un transfert de la dette vers la paie, récupérable ; un abandon est une charge. Un auditeur ne devrait pas avoir à les distinguer par le libellé. Relevé le 21 août, délibérément non tranché : c'est une question de plan comptable, pas de code.
+3. Le traitement de la TVA sur les courses, absent du modèle actuel et jamais évoqué au cahier des charges.
 
 **L'empreinte de signature Android** mérite une mention : l'identifiant client OAuth Android est lié à l'empreinte du certificat de signature. Il en faut une pour le certificat de développement et une pour celui de publication. Oublier la seconde produit une connexion Google qui fonctionne en développement et échoue en production — un classique, et découvert tard.
 

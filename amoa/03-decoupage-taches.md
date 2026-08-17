@@ -199,17 +199,18 @@ Les états `brouillon → demandée → proposée → affectée → en_cours →
 
 | ID | Tâche | Taille | Dépend de |
 |---|---|---|---|
+| L6-00 | **Navigation et arborescence des écrans** : conteneur, routes typées, garde d'authentification, compatibilité web (D22). Fondation dont L6-06 et suivantes dépendaient implicitement — ajoutée le 21 août | M | L6-02 |
 | L6-01 | **Abstraction carte et navigation** (C3) : interface interne afficher une carte, tracer un tracé, ouvrir un guidage, chercher un lieu. Implémentation Google Maps. Aucun écran n'importe le SDK | M | L0-03 |
 | L6-02 | Connexion Google Sign-In dans les deux apps, stockage sûr du jeton, rafraîchissement transparent | M | L0-03, L1-02 |
 | L6-03 | Client API partagé : appels REST, JSON-RPC, gestion d'erreurs, réessais | M | L0-03, C-01 |
 | L6-04 | Client WebSocket partagé : connexion, reconnexion, file d'attente locale, rattrapage d'état | M | L0-03, C-02 |
 | L6-05 | Capture GPS côté chauffeur : fréquence adaptative selon la vitesse, agrégation avant envoi, fonctionnement en arrière-plan | L | L6-04 |
-| L6-06 | App Client — écran d'accueil carte : position, 5 chauffeurs proches, désignation du départ et de l'arrivée sur la carte et par recherche de lieu | L | L6-01, L6-03, L3-05 |
+| L6-06 | App Client — écran d'accueil carte : position, 5 chauffeurs proches, désignation du départ et de l'arrivée sur la carte et par recherche de lieu | L | L6-00, L6-01, L6-03, L3-05 |
 | L6-07 | App Client — estimation et validation : montant, distance, ETA corrigé, choix du chauffeur parmi les 5 | M | L6-06, L2-04 |
 | L6-08 | App Client — attente, refus et nouvelle sélection, sans attribution automatique (D11) | M | L6-07, L3-07 |
 | L6-09 | App Client — suivi de course en direct, puis résumé de fin | M | L6-08, L3-09 |
 | L6-10 | App Client — historique, factures, téléchargement et envoi par email | M | L4-08 |
-| L6-11 | App Chauffeur — bascule en ligne / hors ligne, état visible en permanence | S | L6-04, L3-04 |
+| L6-11 | App Chauffeur — bascule en ligne / hors ligne, état visible en permanence | S | L6-00, L6-04, L3-04 |
 | L6-12 | App Chauffeur — réception de proposition : départ, arrivée, montant, distance, compte à rebours, accepter ou refuser | M | L6-11, L3-07 |
 | L6-13 | App Chauffeur — course en cours, lien profond vers Google Maps (D12), démarrage et fin de course | M | L6-12, L6-01 |
 | L6-14 | App Chauffeur — confirmation d'encaissement espèces | S | L6-13, L4-05 |

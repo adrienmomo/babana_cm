@@ -6,6 +6,56 @@ Décisions : D1 (deux apps, monorepo), D10 et D14 (le client choisit parmi 5), D
 
 ---
 
+## L6-00 — Navigation et arborescence des écrans
+
+### Objectif
+
+Poser la structure dans laquelle tous les écrans des deux applications vivront.
+
+### Contexte
+
+**Créée le 21 août, après le rapport de J12 — c'est un trou de mon découpage, pas un manque d'exécution.** L6-06 et L6-08 s'enchaînent l'un l'autre sans qu'aucune tâche ne construise l'enchaînement. Le premier écran écrit (`SignInScreen`) reçoit un simple rappel faute d'un conteneur de navigation, choix volontairement minimal qui ne survivra pas au deuxième écran.
+
+Cette fondation ne s'absorbe pas dans L6-06 : cette tâche est déjà de taille L, et la structure de navigation des deux applications serait alors décidée en passant, dans une tâche dont ce n'est pas le sujet.
+
+### Fichiers
+
+```
+packages/navigation/src/           # types de routes partagés
+apps/client/src/navigation/
+apps/driver/src/navigation/
+```
+
+### Spécification
+
+Une bibliothèque de navigation standard plutôt qu'un routeur maison — la question n'est pas la difficulté d'écrire un routeur, c'est le lien profond, le bouton retour Android, la restauration d'état et l'accessibilité, qu'un routeur maison réimplémentera mal pendant deux ans.
+
+**Contrainte non négociable : l'export web du Client (D22).** La bibliothèque retenue doit fonctionner sous React Native Web. À vérifier avant de l'adopter, pas après.
+
+**Les routes sont typées**, et leurs paramètres avec elles. Un écran qui reçoit un identifiant de course doit le recevoir typé, sinon la première refonte d'écran cassera silencieusement une navigation.
+
+**Une garde d'authentification, au niveau de l'arborescence, jamais dans les écrans.** Un utilisateur sans session valide ne peut atteindre aucun écran métier. La perte de session en cours d'usage — jeton de renouvellement révoqué, `onSessionLost` de L6-02 — ramène à l'écran de connexion sans que chaque écran ait à s'en occuper.
+
+**Les deux applications n'ont pas la même forme**, et l'arborescence doit le refléter plutôt que forcer une symétrie : le Client parcourt une séquence (accueil → estimation → attente → suivi → résumé), le Chauffeur vit sur un écran permanent que des événements interrompent (proposition reçue, course en cours). Ce qui se partage, ce sont les types de routes et la garde d'authentification, pas l'arborescence elle-même.
+
+**Le chauffeur `pending` est routé vers son écran d'attente de dossier** (L6-15) — la donnée existe déjà dans la session (`driverStatus`, L6-02), rien ne la consomme encore.
+
+### Critères d'acceptation
+
+1. Les deux applications démarrent sur leur arborescence, et `SignInScreen` y est câblé plutôt que branché sur un rappel.
+2. Un paramètre de route mal typé casse la compilation.
+3. Sans session, aucun écran métier n'est atteignable — testé en tentant d'y naviguer directement.
+4. La perte de session en cours d'usage ramène à la connexion, depuis n'importe quel écran.
+5. Un chauffeur `pending` n'atteint pas les écrans de course.
+6. **L'application Client se construit pour le web** (D22) — vérifié par une compilation web réussie, pas par la seule confiance dans la bibliothèque.
+7. `configureMapsProvider` et `configureGoogleSignIn` sont appelés une fois au démarrage, à un endroit unique et nommé.
+
+### Piège
+
+Le bouton retour d'Android est le piège classique : un retour depuis l'écran de suivi de course ne doit pas ramener à l'écran d'estimation d'une course déjà commandée. L'arborescence doit distinguer ce qui s'empile de ce qui remplace.
+
+---
+
 ## L6-01 — Abstraction carte et navigation
 
 ### Objectif
