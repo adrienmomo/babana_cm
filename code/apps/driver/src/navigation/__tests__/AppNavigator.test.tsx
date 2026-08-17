@@ -6,7 +6,10 @@ jest.mock('../../bootstrap', () => ({ bootstrap: jest.fn() }));
 
 let sessionLostListener: (() => void) | null = null;
 jest.mock('../../auth', () => ({
-  authClient: { restore: jest.fn(), refresh: jest.fn() },
+  authClient: { restore: jest.fn(), refreshUser: jest.fn() },
+  // Jamais réellement exercé -- authClient.refreshUser est mocké au-dessus, l'objet n'a besoin
+  // que d'exister pour l'argument que `useSession` (index.tsx) lui passe (D35).
+  apiClient: {},
   onSessionLost: (listener: () => void) => {
     sessionLostListener = listener;
     return () => {
@@ -41,7 +44,7 @@ import { authClient } from '../../auth';
 import { AppNavigator, navigationRef } from '../index';
 
 const mockRestore = authClient.restore as jest.Mock;
-const mockRefresh = authClient.refresh as jest.Mock;
+const mockRefreshUser = authClient.refreshUser as jest.Mock;
 
 function driverUser(driverStatus: 'pending' | 'approved' | 'rejected' | 'suspended' | undefined) {
   return { id: 'd1', role: 'driver' as const, displayName: 'Paul', photoUrl: null, phoneVerified: true, driverStatus };
@@ -84,7 +87,7 @@ describe('AppNavigator Chauffeur (L6-00)', () => {
 
   it("un chauffeur pending n'atteint pas les écrans de course -- il est routé vers l'attente de dossier (critère 5)", async () => {
     mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
-    mockRefresh.mockResolvedValue({ user: driverUser('pending') });
+    mockRefreshUser.mockResolvedValue({ user: driverUser('pending') });
     const root = await renderApp();
 
     const texts = root.root.findAllByType(Text).map((n) => JSON.stringify(n.props.children));
@@ -96,7 +99,7 @@ describe('AppNavigator Chauffeur (L6-00)', () => {
     'un chauffeur %s (défaut-refus) est aussi routé vers l\'attente de dossier',
     async (status) => {
       mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
-      mockRefresh.mockResolvedValue({ user: driverUser(status) });
+      mockRefreshUser.mockResolvedValue({ user: driverUser(status) });
       const root = await renderApp();
 
       const texts = root.root.findAllByType(Text).map((n) => JSON.stringify(n.props.children));
@@ -106,7 +109,7 @@ describe('AppNavigator Chauffeur (L6-00)', () => {
 
   it('un chauffeur approved atteint les écrans de course', async () => {
     mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
-    mockRefresh.mockResolvedValue({ user: driverUser('approved') });
+    mockRefreshUser.mockResolvedValue({ user: driverUser('approved') });
     const root = await renderApp();
 
     const texts = root.root.findAllByType(Text).map((n) => JSON.stringify(n.props.children));
@@ -115,7 +118,7 @@ describe('AppNavigator Chauffeur (L6-00)', () => {
 
   it("la perte de session en cours d'usage ramène à la connexion depuis les écrans de course (critère 4)", async () => {
     mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
-    mockRefresh.mockResolvedValue({ user: driverUser('approved') });
+    mockRefreshUser.mockResolvedValue({ user: driverUser('approved') });
     const root = await renderApp();
     expect(root.root.findAllByType(Text).map((n) => JSON.stringify(n.props.children)).join(' ')).toContain(
       'Accueil chauffeur'

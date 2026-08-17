@@ -55,6 +55,28 @@ describe('AuthClient.exchangeGoogleIdToken', () => {
   });
 });
 
+describe('AuthClient.refreshUser (D35)', () => {
+  it("appelle 'me' et remplace l'utilisateur, sans toucher aux jetons", async () => {
+    const client = new AuthClient({ httpClient: { request: jest.fn().mockResolvedValue(SESSION_RESPONSE) }, storage: fakeStorage() });
+    await client.exchangeGoogleIdToken('id-token', 'driver');
+    const meRequest = jest.fn().mockResolvedValue({ ...SESSION_RESPONSE.user, driverStatus: 'approved' as const });
+
+    const state = await client.refreshUser({ request: meRequest });
+
+    expect(meRequest).toHaveBeenCalledWith('me');
+    expect(state.user.driverStatus).toBe('approved');
+    // Jetons inchangés -- seul `user` a bougé.
+    expect(state.accessToken).toBe('access-1');
+    expect(state.refreshToken).toBe('refresh-1');
+  });
+
+  it('lève sans session préalable', async () => {
+    const client = new AuthClient({ httpClient: { request: jest.fn() }, storage: fakeStorage() });
+
+    await expect(client.refreshUser({ request: jest.fn() })).rejects.toThrow();
+  });
+});
+
 describe('AuthClient.refresh / logout', () => {
   it('refresh() remplace la session par la nouvelle', async () => {
     const request = jest

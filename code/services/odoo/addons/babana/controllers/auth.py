@@ -14,6 +14,7 @@ import jwt
 from odoo import SUPERUSER_ID, http
 from odoo.http import request
 
+from . import _common
 from ..models.babana_driver import DriverCandidacyRateLimited
 from ..models.babana_token import TokenExpired, TokenNotFound, TokenReused
 from ..services.google_identity import InvalidGoogleToken, verify_google_id_token
@@ -151,6 +152,20 @@ class AuthController(http.Controller):
         _superuser_env()["babana.token"]._revoke(refresh_token)
         return _json_response({"revoked": True}, 200)
 
+    # GET /me (D35, 22 août) : seule route de ce contrôleur authentifiée par en-tête Bearer
+    # plutôt que par un jeton transmis dans le corps -- même mécanisme que tout autre endpoint
+    # métier (_common.authenticated_user), pas les trois routes ci-dessus.
+    @http.route("/api/v1/me", type="http", auth="none", methods=["GET"], csrf=False)
+    def me(self, **_kwargs):
+        try:
+            _env, user = _common.authenticated_user()
+            return _common.json_response(_build_user_payload(user), 200)
+        except _common.AuthenticationFailed as exc:
+            return _common.error_response(exc.code, "authentification requise", exc.status)
+        except Exception:
+            _logger.exception("erreur interne dans GET /api/v1/me")
+            return _common.error_response("INTERNAL_ERROR", "erreur interne", 500)
+
 
 def _parse_json_body():
     try:
@@ -183,11 +198,13 @@ def _issue_access_token(user) -> tuple[str, int]:
     return jwt.encode(claims, jwt_secret, algorithm="HS256"), ACCESS_TOKEN_TTL_SECONDS
 
 
-def _build_session(user, refresh_token: str, *, picture=None) -> dict:
-    access_token, expires_in = _issue_access_token(user)
+def _build_user_payload(user, *, picture=None) -> dict:
+    # Même objet que AuthenticatedUserSchema (packages/contracts/src/http/auth.ts, D35) --
+    # une seule définition côté fil, et désormais un seul point de construction côté serveur :
+    # _build_session (ci-dessous) et GET /me (plus haut) appellent tous deux cette fonction,
+    # aucun des deux ne recompose le payload à la main.
     role = user._babana_role()
-
-    user_payload = {
+    payload = {
         "id": user.babana_public_id,
         "role": role,
         "displayName": user.name,
@@ -198,15 +215,19 @@ def _build_session(user, refresh_token: str, *, picture=None) -> dict:
         # L1-04 : le vrai champ existe côté partenaire. Toujours faux tant que L1-09 (OTP,
         # hors de ce lot) ne l'écrit jamais -- mais ce n'est plus un champ-pont, c'est la valeur
         # réelle d'un champ qui n'a simplement jamais été mis à vrai.
-        user_payload["phoneVerified"] = user.partner_id.babana_phone_verified
+        payload["phoneVerified"] = user.partner_id.babana_phone_verified
     if role == "driver":
         # babana.driver (L1-03) est désormais créé dès le premier sign-in chauffeur (L1-03R) :
         # la recherche trouve toujours une fiche.
-        user_payload["driverStatus"] = user._babana_driver().state
+        payload["driverStatus"] = user._babana_driver().state
+    return payload
 
+
+def _build_session(user, refresh_token: str, *, picture=None) -> dict:
+    access_token, expires_in = _issue_access_token(user)
     return {
         "accessToken": access_token,
         "refreshToken": refresh_token,
         "expiresIn": expires_in,
-        "user": user_payload,
+        "user": _build_user_payload(user, picture=picture),
     }

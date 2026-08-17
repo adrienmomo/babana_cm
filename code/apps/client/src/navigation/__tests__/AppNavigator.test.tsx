@@ -6,7 +6,10 @@ jest.mock('../../bootstrap', () => ({ bootstrap: jest.fn() }));
 
 let sessionLostListener: (() => void) | null = null;
 jest.mock('../../auth', () => ({
-  authClient: { restore: jest.fn(), refresh: jest.fn() },
+  authClient: { restore: jest.fn(), refreshUser: jest.fn() },
+  // Jamais réellement exercé -- authClient.refreshUser est mocké au-dessus, l'objet n'a besoin
+  // que d'exister pour l'argument que `useSession` (index.tsx) lui passe (D35).
+  apiClient: {},
   onSessionLost: (listener: () => void) => {
     sessionLostListener = listener;
     return () => {
@@ -41,7 +44,7 @@ import { authClient } from '../../auth';
 import { AppNavigator, navigationRef } from '../index';
 
 const mockRestore = authClient.restore as jest.Mock;
-const mockRefresh = authClient.refresh as jest.Mock;
+const mockRefreshUser = authClient.refreshUser as jest.Mock;
 
 async function renderApp(): Promise<ReactTestRenderer> {
   let root!: ReactTestRenderer;
@@ -83,7 +86,7 @@ describe('AppNavigator Client (L6-00)', () => {
 
   it('une session déjà valide au démarrage monte directement les écrans métier', async () => {
     mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
-    mockRefresh.mockResolvedValue({
+    mockRefreshUser.mockResolvedValue({
       user: { id: 'u1', role: 'client', displayName: 'Amina', photoUrl: null, phoneVerified: true },
     });
     const root = await renderApp();
@@ -106,7 +109,7 @@ describe('AppNavigator Client (L6-00)', () => {
 
   it("la perte de session en cours d'usage ramène à la connexion, depuis n'importe quel écran (critère 4)", async () => {
     mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
-    mockRefresh.mockResolvedValue({
+    mockRefreshUser.mockResolvedValue({
       user: { id: 'u1', role: 'client', displayName: 'Amina', photoUrl: null, phoneVerified: true },
     });
     const root = await renderApp();

@@ -86,6 +86,19 @@ rupture ; le rendre obligatoire l'est.
 - Réponse : `{ revoked: true }`
 - Erreurs : `UNAUTHORIZED`
 
+### `GET /me`
+
+Profil de l'utilisateur courant (D35, 22 août). N'existait pas avant D35 : le profil figurait
+dans la liste des « lectures secondaires » réservées au JSON-RPC natif d'Odoo (§5 de
+`01-architecture.md`), qui n'accepte pas le jeton applicatif — Odoo y authentifie par session de
+cookie ou par identifiants explicites. Toutes les lectures mobiles passent désormais par des
+contrôleurs `/api/v1` explicites, celle-ci comprise.
+
+- Requête : aucune
+- Réponse : `{ id, role, displayName, photoUrl, phoneVerified, driverStatus? }` — le même objet
+  que le champ `user` d'une session (`AuthenticatedUserSchema`, une seule définition)
+- Erreurs : aucune au-delà des erreurs implicites (`UNAUTHORIZED`, `TOKEN_EXPIRED`)
+
 ---
 
 ## Numéro de téléphone — `phone.ts`

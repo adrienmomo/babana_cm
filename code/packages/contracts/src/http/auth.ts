@@ -17,25 +17,34 @@ export const GoogleAuthRequestSchema = z.object({
 });
 export type GoogleAuthRequest = z.infer<typeof GoogleAuthRequestSchema>;
 
+/**
+ * Objet utilisateur porté par une session ET par la réponse de `GET /me` (D35, 22 août) --
+ * même schéma, une seule définition. Avant D35, ce schéma n'existait qu'inline dans
+ * `AuthSessionSchema.user` ; l'absence d'un endpoit dédié au profil a produit le détournement
+ * que D35 corrige (voir plus bas, `MeResponseSchema`).
+ */
+export const AuthenticatedUserSchema = z.object({
+  id: UserIdSchema,
+  role: z.enum(['client', 'driver']),
+  displayName: z.string(),
+  photoUrl: z.string().url().nullable(),
+  phoneVerified: z.boolean(),
+  /**
+   * Statut de validation du dossier, présent seulement quand role vaut 'driver' (L1-01,
+   * spécification : "pour un chauffeur, son statut de validation"). Absent du schéma
+   * d'origine — champ manquant relevé en implémentant L1-01, voir amoa/questions/L1-01.md.
+   * Un chauffeur non approuvé reçoit tout de même un jeton (critère d'acceptation 8) ; c'est
+   * ce champ qui porte l'information, pas un rejet de l'authentification.
+   */
+  driverStatus: z.enum(['pending', 'approved', 'rejected', 'suspended']).optional(),
+});
+export type AuthenticatedUser = z.infer<typeof AuthenticatedUserSchema>;
+
 export const AuthSessionSchema = z.object({
   accessToken: z.string(),
   refreshToken: z.string(),
   expiresIn: z.number().int().positive().describe('secondes avant expiration de accessToken'),
-  user: z.object({
-    id: UserIdSchema,
-    role: z.enum(['client', 'driver']),
-    displayName: z.string(),
-    photoUrl: z.string().url().nullable(),
-    phoneVerified: z.boolean(),
-    /**
-     * Statut de validation du dossier, présent seulement quand role vaut 'driver' (L1-01,
-     * spécification : "pour un chauffeur, son statut de validation"). Absent du schéma
-     * d'origine — champ manquant relevé en implémentant L1-01, voir amoa/questions/L1-01.md.
-     * Un chauffeur non approuvé reçoit tout de même un jeton (critère d'acceptation 8) ; c'est
-     * ce champ qui porte l'information, pas un rejet de l'authentification.
-     */
-    driverStatus: z.enum(['pending', 'approved', 'rejected', 'suspended']).optional(),
-  }),
+  user: AuthenticatedUserSchema,
 });
 export type AuthSession = z.infer<typeof AuthSessionSchema>;
 
@@ -111,3 +120,20 @@ export const logoutRequestExample: LogoutRequest = {
 export const logoutResponseExample: LogoutResponse = {
   revoked: true,
 };
+
+/**
+ * GET /me
+ * Profil de l'utilisateur courant (D35, 22 août). N'existait pas avant D35 : le profil figurait
+ * dans la liste des « lectures secondaires » réservées au JSON-RPC natif d'Odoo, qui n'accepte
+ * pas notre jeton applicatif -- l'app appelait `/auth/refresh` au démarrage faute d'alternative,
+ * ce qui multipliait les occasions de perdre une famille de jetons (D36). Même schéma que
+ * `AuthSessionSchema.user`, une seule définition (`AuthenticatedUserSchema` ci-dessus).
+ */
+export const MeResponseSchema = AuthenticatedUserSchema;
+export type MeResponse = z.infer<typeof MeResponseSchema>;
+
+// Rien au-delà des erreurs implicites (UNAUTHORIZED, TOKEN_EXPIRED) : une lecture de profil ne
+// refuse jamais un chauffeur non approuvé, même raison que /auth/google (critère 8, L1-01).
+export const MeErrors = [] as const;
+
+export const meResponseExample: MeResponse = googleAuthResponseExample.user;

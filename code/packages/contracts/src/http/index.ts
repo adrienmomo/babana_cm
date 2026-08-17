@@ -80,6 +80,16 @@ export const HTTP_ENDPOINTS = {
     requestExample: auth.logoutRequestExample,
     responseExample: auth.logoutResponseExample,
   },
+  me: {
+    method: 'GET',
+    path: '/api/v1/me',
+    requiresAuth: true,
+    requestSchema: null,
+    responseSchema: auth.MeResponseSchema,
+    errors: auth.MeErrors,
+    requestExample: null,
+    responseExample: auth.meResponseExample,
+  },
   phoneVerifyStart: {
     method: 'POST',
     path: '/api/v1/phone/verify/start',

@@ -78,6 +78,24 @@ export class AuthClient {
     return this.applySession(response);
   }
 
+  /**
+   * Rafraîchit `user` depuis `GET /me` (D35), sans toucher aux jetons -- appelé au démarrage
+   * après `restore()`, à la place de l'ancien `refresh()` proactif détourné faute d'endpoint de
+   * profil (voir `navigation/index.tsx` dans chacune des deux apps). `httpClient` doit être le
+   * client enrobé de renouvellement transparent (`withTransparentRefresh`, pas
+   * `this.config.httpClient` -- construit à partir de cette même instance à l'extérieur, donc
+   * pas connu ici) : c'est lui qui fait du renouvellement une réaction à une expiration plutôt
+   * qu'un appel systématique.
+   */
+  async refreshUser(httpClient: Pick<HttpClient, 'request'>): Promise<AuthState> {
+    if (!this.state) {
+      throw new Error('@babana/api-client: aucune session à rafraîchir (refreshUser() sans restore() préalable).');
+    }
+    const user = (await httpClient.request('me')) as http.MeResponse;
+    this.state = { ...this.state, user };
+    return this.state;
+  }
+
   async refresh(): Promise<AuthState> {
     if (!this.state) {
       throw new Error('@babana/api-client: aucune session à renouveler (refresh() sans restore() préalable).');

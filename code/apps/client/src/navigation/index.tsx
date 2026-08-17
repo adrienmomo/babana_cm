@@ -3,7 +3,7 @@ import { createNavigationContainerRef, NavigationContainer } from '@react-naviga
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AuthGate, PlaceholderScreen, type SessionState } from '@babana/navigation';
 import { ApiError, type AuthState, type AuthUser } from '@babana/api-client';
-import { authClient, onSessionLost } from '../auth';
+import { apiClient, authClient, onSessionLost } from '../auth';
 import { bootstrap } from '../bootstrap';
 import { SignInScreen } from '../screens/SignInScreen';
 import type { AuthParamList, ClientParamList } from './types';
@@ -24,18 +24,20 @@ export const navigationRef = createNavigationContainerRef<ClientParamList>();
  * carte) et la relecture de la session sont faits une fois ici, avant que quoi que ce soit ne se
  * monte -- ni les écrans métier ni même l'écran de connexion n'ont à s'en soucier.
  *
- * **Pourquoi un `refresh()` proactif après `restore()`.** `AuthClient.restore()` (L6-02) relit
- * les jetons du trousseau mais n'y a jamais persisté `user` (ce n'est pas un secret, voir
- * `session.ts`) -- après un redémarrage, `state.user` est vide, sans `driverStatus`. Ce paquet
- * n'a pas besoin de `driverStatus` (app Client), mais le même bootstrap sera copié par
- * `apps/driver`, où un chauffeur `pending` doit être routé correctement dès l'ouverture de
- * l'app, pas seulement après le premier appel authentifié qui échouerait. `POST /auth/refresh`
- * renvoie déjà l'utilisateur complet (`AuthSessionSchema`) -- l'appeler une fois au démarrage,
- * plutôt que d'attendre un `TOKEN_EXPIRED` réactif, donne un profil à jour sans endpoint
- * supplémentaire. Hors ligne (l'exception n'est pas une `ApiError`, `fetch` a levé avant
- * d'atteindre le serveur), on continue avec la session restaurée plutôt que de bloquer le
- * démarrage -- le réseau intermittent est le cas courant (CLAUDE.md), et le serveur reste de
- * toute façon l'arbitre final de ce que l'utilisateur peut faire (invariant 3).
+ * **`GET /me` après `restore()`, plus de renouvellement proactif (D35).** `AuthClient.restore()`
+ * (L6-02) relit les jetons du trousseau mais n'y a jamais persisté `user` -- après un
+ * redémarrage, `state.user` est vide, sans `driverStatus`. Avant D35, aucun endpoint ne renvoyait
+ * le profil : ce fichier appelait `authClient.refresh()` au démarrage, uniquement pour ce
+ * profil -- un renouvellement de jeton déclenché sans qu'aucun jeton n'ait expiré, qui
+ * multipliait par le nombre de démarrages les occasions de perdre une famille de jetons
+ * (rotation, L1-02). `GET /me` porte le même objet utilisateur sans toucher aux jetons ;
+ * `authClient.refreshUser(apiClient)` l'appelle via le client enrobé de renouvellement
+ * transparent, pour que ce renouvellement redevienne ce qu'il doit être : une réaction à une
+ * expiration (`TOKEN_EXPIRED`), pas un appel systématique. Hors ligne (l'exception n'est pas une
+ * `ApiError`, `fetch` a levé avant d'atteindre le serveur), on continue avec la session restaurée
+ * plutôt que de bloquer le démarrage -- le réseau intermittent est le cas courant (CLAUDE.md), et
+ * le serveur reste de toute façon l'arbitre final de ce que l'utilisateur peut faire
+ * (invariant 3).
  */
 function useSession() {
   const [session, setSession] = useState<SessionState<AuthUser>>({ status: 'loading' });
@@ -52,14 +54,15 @@ function useSession() {
         return;
       }
       try {
-        const fresh = await authClient.refresh();
+        const fresh = await authClient.refreshUser(apiClient);
         if (!cancelled) setSession({ status: 'authenticated', user: fresh.user });
       } catch (error) {
         if (cancelled) return;
         if (error instanceof ApiError) {
-          // Jeton de renouvellement révoqué/expiré -- authClient.refresh() a déjà déclenché
-          // handleRefreshFailure() (session.ts), qui efface le trousseau et appelle
-          // onSessionLost(). L'abonnement ci-dessous fera passer session à 'unauthenticated'.
+          // Jeton de renouvellement révoqué/expiré -- le renouvellement transparent (apiClient)
+          // a déjà déclenché handleRefreshFailure() (session.ts), qui efface le trousseau et
+          // appelle onSessionLost(). L'abonnement ci-dessous fera passer session à
+          // 'unauthenticated'.
           return;
         }
         // Hors ligne : on continue avec l'état restauré plutôt que de bloquer le démarrage.

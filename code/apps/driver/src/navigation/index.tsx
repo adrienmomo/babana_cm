@@ -3,7 +3,7 @@ import { createNavigationContainerRef, NavigationContainer } from '@react-naviga
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AuthGate, PlaceholderScreen, type SessionState } from '@babana/navigation';
 import { ApiError, type AuthState, type AuthUser } from '@babana/api-client';
-import { authClient, onSessionLost } from '../auth';
+import { apiClient, authClient, onSessionLost } from '../auth';
 import { bootstrap } from '../bootstrap';
 import { SignInScreen } from '../screens/SignInScreen';
 import type { AuthParamList, DriverParamList, DriverPendingParamList } from './types';
@@ -21,9 +21,9 @@ export const navigationRef = createNavigationContainerRef<DriverParamList>();
 
 /**
  * Racine de navigation de l'app Chauffeur (L6-00) -- même bootstrap de session que
- * apps/client/src/navigation/index.tsx (voir ce fichier pour le détail du raisonnement sur le
- * `refresh()` proactif). Ici, ce rafraîchissement compte particulièrement : c'est lui qui donne
- * un `driverStatus` à jour dès l'ouverture de l'app, avant même le premier écran.
+ * apps/client/src/navigation/index.tsx (voir ce fichier pour le détail du raisonnement sur
+ * `GET /me`, D35). Ici, ce rafraîchissement compte particulièrement : c'est lui qui donne un
+ * `driverStatus` à jour dès l'ouverture de l'app, avant même le premier écran.
  */
 function useSession() {
   const [session, setSession] = useState<SessionState<AuthUser>>({ status: 'loading' });
@@ -40,13 +40,15 @@ function useSession() {
         return;
       }
       try {
-        const fresh = await authClient.refresh();
+        const fresh = await authClient.refreshUser(apiClient);
         if (!cancelled) setSession({ status: 'authenticated', user: fresh.user });
       } catch (error) {
         if (cancelled) return;
         if (error instanceof ApiError) {
-          // handleRefreshFailure() (session.ts) a déjà effacé le trousseau et appelé
-          // onSessionLost() -- l'abonnement ci-dessous fera passer session à 'unauthenticated'.
+          // Jeton de renouvellement révoqué/expiré -- le renouvellement transparent (apiClient)
+          // a déjà déclenché handleRefreshFailure() (session.ts), qui efface le trousseau et
+          // appelle onSessionLost() -- l'abonnement ci-dessous fera passer session à
+          // 'unauthenticated'.
           return;
         }
         // Hors ligne : on continue avec le statut restauré (potentiellement périmé) plutôt que
