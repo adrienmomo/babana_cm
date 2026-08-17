@@ -340,3 +340,70 @@ routeur maison. **Aucune tâche du découpage L6 ne pose cette fondation explici
 (écran d'accueil Client) et L6-08 (attente/refus) la supposent implicitement en s'enchaînant. À
 trancher avant d'ouvrir L6-06 : soit une tâche dédiée (une « L6-00 » de navigation), soit
 l'absorber dans L6-06 elle-même, au prix d'un lot plus lourd que les autres de ce découpage.
+
+---
+
+## Vérification finale, sur base fraîche
+
+`make reset` puis `make up`, puis chaque suite lancée séparément (la combinaison des deux dans un
+seul `make test` dépasse le budget d'une seule invocation outillée cette nuit — pas un problème du
+dépôt, un problème de la fenêtre d'exécution disponible ici ; scindée en deux lancements
+consécutifs sur la même base, sans recréer l'infrastructure entre les deux) :
+
+- Suite Odoo, module réinstallé sur base vierge : **2185 tests, 0 échec** — dont **464 tests
+  propres au module `babana`**.
+- `@babana/api-client` : **14 tests, 0 échec** (`auth/` : trousseau, Google Sign-In, session et
+  renouvellement transparent).
+- `@babana/contracts` : **63 tests, 0 échec**.
+- `@babana/maps` : **14 tests, 0 échec**.
+- `@babana/realtime` : **112 tests, 0 échec** — y compris `DisconnectGraceTimers`, signalé comme
+  un flake isolé sous charge lors d'un lancement combiné plus tôt cette nuit (le test échouait
+  seul, `false !== true` sur un minuteur de grâce, symptôme d'un test sensible au vrai temps
+  écoulé plutôt qu'à un temps simulé) : reconfirmé vert ici, sans réserve, une fois la suite Odoo
+  et la suite JS séparées plutôt que lancées en même temps que d'autres processus lourds — même
+  diagnostic que celui déjà posé le 19 août (rapport de J11).
+- `@babana/client`, `@babana/driver` : **4 tests chacun**, 0 échec (le squelette L0-03 plus
+  `SignInScreen`, nouveau ce soir).
+- `@babana/concurrency-tests` : **6 tests, 0 échec** — les trois scénarios de L4-11
+  (accept/cancel/encaissement concurrents, 20 itérations chacun) et le critère 3 de L3-17 (rejeu
+  sur conflit de sérialisation PostgreSQL). Sans rapport avec les changements de cette nuit
+  (aucun des quatre lots ne touche `services/realtime` ni la réservation atomique) — vérifié
+  plutôt que supposé : toujours vert.
+- `docs/contracts/verify-ride-state-machine.js` : `OK` (9 états, 13 transitions, 7 événements
+  métier).
+- `npm run typecheck --workspaces` : propre sur les neuf paquets/apps.
+- `npm run lint --workspaces` (`@babana/maps`, nouveau ce soir, `@babana/client`,
+  `@babana/driver`) : propre.
+- `tools/secret-scan/scan.sh` : `OK`, aucun secret détecté — les deux nouvelles variables
+  d'environnement (`BABANA_GOOGLE_WEB_CLIENT_ID`, `BABANA_GOOGLE_IOS_CLIENT_ID`) n'introduisent
+  aucune valeur réelle dans `infra/env/.env.example` (D19, valeurs de développement factices).
+
+Aucun raccourci sur cette vérification : la même base fraîche qui a servi de révélateur au 12 août
+(`CLAUDE.md`) a servi ici de dernier filet avant de déclarer la nuit finie, pour les quatre tâches
+à la fois — les deux corrections comme les deux fondations de L6.
+
+---
+
+## Ce qui reste ouvert pour la prochaine session
+
+1. **Navigation, aucune fondation posée.** Signalé en détail ci-dessus : à trancher avant L6-06,
+   soit comme tâche dédiée, soit absorbée dans elle.
+2. **`packages/api-client/src/metrics.ts` est un point d'accroche, pas un collecteur.** À
+   remplacer par un vrai mécanisme de télémétrie au moment de L6-17 (mesure batterie et données) —
+   c'est cette tâche qui posera la première vraie destination pour une métrique.
+3. **Le rendu natif de la carte n'est pas câblé** (clé Google Maps dans `AndroidManifest.xml`/
+   `Info.plist`, `webGoogleSignIn.ts` pour l'export web). Les deux dépendent de comptes externes
+   encore indisponibles (D19) — déjà dans les prérequis, avant L6-06 pour la carte, avec L6-18
+   pour le web.
+4. **`configureMapsProvider`/`configureGoogleSignIn` ne sont appelés dans aucun `App.tsx`.** Sans
+   navigation ni écran suivant pour consommer leur résultat, les câbler ce soir aurait été
+   prématuré — mais le premier écran qui affichera une carte ou qui enchaînera après
+   `SignInScreen` devra le faire.
+5. **L3-12** — file persistante avec rejeu côté service temps réel. Inchangé depuis J10.
+6. **La vérification développeur Android** — inchangé.
+
+Les deux corrections (D34, `GET /drivers/me/cash`) ferment la dette signalée par le rapport de la
+nuit dernière. L6-01 et L6-02 posent, comme prévu, les deux fondations sur lesquelles tous les
+écrans s'appuieront — sans en construire aucun. La prochaine session ouvrant un écran métier
+trouvera un patron déjà éprouvé (`SignInScreen.tsx`, 73 lignes) et une seule vraie question à
+trancher avant d'avancer : la navigation.
