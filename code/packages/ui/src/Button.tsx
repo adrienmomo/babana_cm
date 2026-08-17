@@ -11,11 +11,13 @@ export interface ButtonProps {
   onPress: () => void;
   disabled?: boolean;
   variant?: 'primary' | 'secondary';
+  testID?: string;
 }
 
-export function Button({ label, onPress, disabled = false, variant = 'primary' }: ButtonProps) {
+export function Button({ label, onPress, disabled = false, variant = 'primary', testID }: ButtonProps) {
   return (
     <Pressable
+      testID={testID}
       accessibilityRole="button"
       accessibilityState={{ disabled }}
       disabled={disabled}

@@ -7,9 +7,8 @@ import { View } from 'react-native';
  * là-bas : `@babana/maps` réexporte `MapView` (donc le fournisseur Google, donc le SDK réel)
  * depuis son point d'entrée unique (`index.ts`), si bien qu'importer ne serait-ce que
  * `configureMapsProvider` depuis `src/bootstrap.ts` (L6-00) charge transitivement le SDK. Cette
- * app ne rend jamais de carte réelle dans ses tests (aucun écran métier ce soir) -- adjacent à
- * `node_modules` (racine du paquet `@babana/client`), Jest l'applique automatiquement, sans
- * `jest.mock()` explicite.
+ * app ne rend jamais de carte réelle dans ses tests -- adjacent à `node_modules` (racine du
+ * paquet `@babana/client`), Jest l'applique automatiquement, sans `jest.mock()` explicite.
  */
 function MockMapView({ children, testID }: { children?: React.ReactNode; testID?: string }) {
   return <View testID={testID ?? 'mock-map-view'}>{children}</View>;

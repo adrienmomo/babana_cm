@@ -6,6 +6,7 @@ import { ApiError, type AuthState, type AuthUser } from '@babana/api-client';
 import { apiClient, authClient, onSessionLost } from '../auth';
 import { bootstrap } from '../bootstrap';
 import { SignInScreen } from '../screens/SignInScreen';
+import { HomeScreen } from '../screens/HomeScreen';
 import type { AuthParamList, ClientParamList } from './types';
 
 const AuthStack = createNativeStackNavigator<AuthParamList>();
@@ -106,9 +107,7 @@ function SignInStack({ onSignedIn }: { onSignedIn: (session: AuthState) => void 
 function ClientNavigator() {
   return (
     <ClientStack.Navigator initialRouteName="Home">
-      <ClientStack.Screen name="Home">
-        {() => <PlaceholderScreen title="Accueil" task="L6-06" />}
-      </ClientStack.Screen>
+      <ClientStack.Screen name="Home" component={HomeScreen} />
       <ClientStack.Screen name="Quote">
         {() => <PlaceholderScreen title="Estimation" task="L6-07" />}
       </ClientStack.Screen>

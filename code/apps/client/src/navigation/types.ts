@@ -1,3 +1,4 @@
+import type { LatLng } from '@babana/maps';
 import type { RideId } from '@babana/navigation';
 
 /**
@@ -10,9 +11,20 @@ import type { RideId } from '@babana/navigation';
  * Écrans métier réels écrits par L6-06 à L6-10 -- ici, seuls les noms de route et leurs
  * paramètres existent, portés par `PlaceholderScreen` (@babana/navigation) en attendant.
  */
+
+/**
+ * Point désigné par le client (départ ou arrivée, L6-06) -- une position et le libellé qui l'a
+ * produite (géocodage inverse ou résultat de recherche), pour que QuoteScreen (L6-07) puisse
+ * afficher « prise en charge : <label> » sans reformuler des coordonnées brutes.
+ */
+export interface RidePoint {
+  position: LatLng;
+  label: string;
+}
+
 export type ClientParamList = {
   Home: undefined;
-  Quote: undefined;
+  Quote: { origin: RidePoint; destination: RidePoint };
   Waiting: { rideId: RideId };
   DriverRejected: { rideId: RideId };
   Tracking: { rideId: RideId };

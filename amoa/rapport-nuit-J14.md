@@ -234,6 +234,160 @@ Vérifié : `test/resync.test.ts` (6 tests), suite Odoo ciblée
 
 ---
 
-## L6-06
+## L6-06 — App Client, écran d'accueil
 
-À suivre dans ce même rapport.
+Lu avant d'écrire : L6-07 (ce que l'écran doit lui transmettre) et L3-05 (les garde-fous déjà
+posés côté serveur pour `nearby.drivers`, notamment l'arrondi des positions et la dégradation
+D30 sur un profil manquant).
+
+**Le réticule avant la recherche, comme demandé.** `PlacePicker` (recherche textuelle) est un
+composant autonome, complément et non préalable : la désignation principale se fait en glissant
+la carte sous un réticule fixe (`@babana/maps`, `MapViewProps.onRegionChange`) -- déjà branché sur
+`onRegionChangeComplete` côté fournisseur Google (`packages/maps/src/providers/google/MapView.tsx`,
+posé par L6-01), donc le géocodage inverse ne se déclenche déjà qu'au relâchement du geste, jamais
+par frame : rien à changer là, juste à le consommer correctement. Testé explicitement (`critère
+2`) : le parcours complet (départ, bascule vers l'arrivée, désignation, activation de « Suivant »,
+navigation vers `Quote`) passe sans que `searchPlace` soit appelé une seule fois.
+
+**Position du client, capture ponctuelle -- premier écran du dépôt à en avoir besoin.** Aucun
+précédent (L6-05, capture continue côté chauffeur, n'existe pas encore). `location.ts` /
+`location.web.ts`, séparés par l'extension de plateforme que Metro et webpack résolvent tous deux
+nativement (même mécanisme que `index.web.tsx`, D22) -- zéro `Platform.OS` dans l'écran. Vérifié
+que le bundle web n'embarque jamais `@react-native-community/geolocation` (`grep` sur
+`dist-web/bundle.js` : 0 occurrence, `navigator.geolocation` présent une fois). `location.web.ts`
+exclu de `tsconfig.json` (comme `index.web.tsx` déjà, `lib` sans DOM) -- vérifié uniquement par
+`build:web`, jamais par `tsc`. Permissions natives posées : `ACCESS_FINE_LOCATION`
+(AndroidManifest.xml) et `NSLocationWhenInUseUsageDescription` (Info.plist, déjà présent vide --
+scaffold anticipé, seul le texte manquait). Un refus ne bloque jamais l'écran (testé) : la carte
+reste sur Douala, le départ reste à désigner à la main.
+
+**Chauffeurs proches, mis à jour en direct, recentrés sur le départ.** `nearby.subscribe` porte la
+position du départ une fois connu (GPS ou désignation manuelle), pas la position brute de la
+carte -- `region` bouge à chaque glissement pour l'arrivée aussi, ce qui ne doit jamais rouvrir un
+abonnement (`useEffect` indexé sur `departure.position` seule, exhaustive-deps désactivé
+explicitement pour cette raison précise, écrite dans le commentaire plutôt que suffixée en
+silence). Premier consommateur réel de `createRealtimeClient` (L6-04) : `apps/client/src/
+realtime.ts`, un singleton au niveau de l'app (comme `authClient`/`apiClient`), pas de l'écran --
+la connexion doit survivre à la navigation vers les écrans suivants.
+
+**Trouvé en écrivant cet écran, pas dans le rapport J13 : la reconnexion ne réémettait aucun
+abonnement.** `nearby.subscribe` n'est pas une action de la file persistante (positions et
+abonnements en sont délibérément exclus, L6-04) -- une coupure réseau puis un retour rouvre un
+socket sans mémoire de l'abonnement précédent, et rien ne le réémettait. Sur un réseau qui coupe
+couramment (CLAUDE.md), la liste de chauffeurs se serait figée silencieusement à la première
+coupure de la session, sans le moindre signal d'erreur. Corrigé avant de considérer la tâche finie
+plutôt que simplement noté : `onRealtimeConnectionStateChange` diffuse désormais les transitions
+de `createRealtimeClient` (`onConnectionStateChange`, déjà dans le contrat de L6-04, jamais câblé
+jusqu'ici) ; HomeScreen réémet son abonnement à chaque passage à `'connected'`, initial ou non.
+Testé explicitement.
+
+**Aucun chauffeur : message clair et une action, jamais une erreur technique (critère 4).** Testé.
+`DriverMarker` (D30) : prénom, note (ou « Nouveau » si absente ou insuffisante, jamais une note à
+zéro), gamme, distance -- jamais au mètre près sous 1 km (palier de 50 m, arrondi cohérent avec la
+précision déjà appliquée par le serveur, L3-05), au dixième de km au-delà. Avatar générique si le
+profil manque.
+
+**Ce qui n'existe nulle part encore et n'était pas dans le périmètre ce soir** : `Quote`
+(`ClientParamList`) porte désormais `{ origin: RidePoint, destination: RidePoint }` (`position` +
+`label`) -- choix d'implémentation pour que L6-07 affiche « prise en charge : <label> » sans
+reformuler des coordonnées brutes, pas une spécification de L6-07 anticipée au-delà de son
+interface d'entrée.
+
+**Une dépendance nouvelle, signalée** : `@react-native-community/geolocation` (^3.4.0),
+`apps/client` seulement (jamais `apps/driver`, qui n'a pas encore son propre besoin, L6-05). Aucun
+équivalent RN natif encore présent dans le dépôt.
+
+**Un ajout à `@babana/ui`** : `Button` accepte désormais `testID` (prop optionnelle, transmise au
+`Pressable` sous-jacent) -- rien d'autre n'existait pour cibler un bouton précis dans un arbre qui
+en contient plusieurs, un besoin qui n'existait pas avant le premier écran à plusieurs boutons.
+
+### Tests
+
+`HomeScreen.test.tsx` (8 cas, `@babana/maps` et `../realtime` mockés à leur frontière -- même
+discipline que le mock de `../auth` dans `AppNavigator.test.tsx`) : les cinq critères
+d'acceptation, plus la réémission d'abonnement à la reconnexion, le pré-remplissage GPS, le refus
+de permission non bloquant. `PlacePicker.test.tsx` (4 cas) : seuil minimal avant recherche,
+temporisation avant l'appel réseau, sélection qui vide et referme, une réponse tardive d'une
+recherche abandonnée qui n'écrase pas la plus récente. `DriverMarker.test.tsx` (5 cas) : D30,
+mention « nouveau », les deux paliers d'arrondi de distance. `location.test.ts` (4 cas) : iOS et
+Android, succès et refus, jamais d'exception propagée. `AppNavigator.test.tsx` (Client) : `Home`
+mocké (même raison que `SignInScreen` déjà mocké) -- un écran métier réel y ouvrirait une connexion
+temps réel et demanderait la position, hors du périmètre de ce fichier.
+
+**Un avertissement de test resté sans confirmation.** `npm test -w @babana/client` se termine avec
+"a worker process has failed to exit gracefully" -- un minuteur de `VirtualizedList` (interne à
+`FlatList`, utilisé par `PlacePicker` et la liste de chauffeurs) se déclenche après la fin d'un
+test, sans effet sur le résultat (31 puis 32 tests, 0 échec, code de sortie 0) mais assez bruyant
+pour mériter d'être noté plutôt que tu. Pas creusé ce soir -- probablement un `act()` manquant
+autour d'un minuteur interne à `@react-native/virtualized-lists`, pas un défaut de cet écran.
+
+Vérifié : `npm run typecheck --workspaces` propre, `npm run lint --workspaces` propre (deux
+avertissements `no-void` dans `realtime.ts` corrigés en cours de route -- remplacés par une
+gestion explicite de l'échec plutôt qu'un `void` qui aurait aussi laissé filer une rejection non
+gérée sur `authClient.refresh()`), `npm run build:web` (`apps/client`) : succès, bundle inchangé
+en taille notable, aucune trace du module natif de géolocalisation.
+
+### Vérification finale de la nuit, sur base réellement fraîche
+
+`make reset` puis `make up` (dû : D35 et D36 touchent Odoo). Suite Odoo complète -- sans
+`--test-tags` cette fois, donc les modules de base réinstallés à partir de rien, pas seulement
+`babana` sur une base déjà chargée : **2197 tests, 0 échec, 0 erreur** (~13 minutes, une base
+vraiment neuve coûte largement plus que les réinstallations `-i babana` de la nuit). `npm test`
+(racine, y compris `test/concurrency` et `test/auth`) relancé proprement ensuite (une première
+tentative interrompue par mon propre `make reset` lancé trop tôt, en parallèle -- deux échecs de
+scénarios de concurrence causés par l'infrastructure disparue sous leurs pieds, pas par le code ;
+non retenus) : **vert intégralement, code de sortie 0**, y compris la vérification structurelle de
+la machine à états (C-03, 9 états, 13 transitions, 7 événements métier). C'est la première fois en
+quatre nuits que la nuit se termine sur une base fraîche vérifiée du premier coup à la bonne
+étape -- le protocole du 12 août (« la base de développement est jetable ») tenu jusqu'au bout.
+
+### Ce qui me laisse un doute, pour un chauffeur ou un client réel
+
+**Le géocodage inverse n'a aucun moyen de dire qu'il s'est trompé.** Dans les quartiers non
+cartographiés de Douala -- la majorité de la ville, en dehors des grands axes -- l'API renvoie
+souvent le nom du repère connu le plus proche plutôt qu'une absence : un libellé plausible mais
+qui peut correspondre à un point à plusieurs centaines de mètres du réticule réel. L'écran affiche
+ce libellé avec la même confiance qu'une adresse exacte, sans aucun signal de proximité ou de
+confiance. Un client qui fait confiance au texte plutôt qu'à la position réelle du réticule
+pourrait se tromper de repère sans qu'aucun élément de l'écran ne l'alerte -- je n'ai pas de bonne
+réponse à ça cette nuit au-delà de rappeler, dans l'interface, que c'est la carte qui fait foi.
+
+**L'échec de la géolocalisation n'est jamais expliqué.** Refus de permission, GPS indisponible,
+délai de 10 secondes dépassé : les trois aboutissent au même état silencieux (« Glissez la carte
+ou recherchez »). Un chauffeur pressé qui voit l'écran attendre dix secondes sans rien afficher
+avant de retomber sur ce message générique n'a aucun moyen de savoir s'il doit réessayer, aller
+dans les réglages du téléphone, ou simplement designer son point à la main -- les trois causes
+demandent une réaction différente, et l'écran n'en distingue aucune.
+
+**Le bouton « Réessayer » peut heurter la limitation de débit sans le savoir.** `nearby.subscribe`
+est limité par utilisateur côté serveur (L3-05, critère 6) ; un abonnement au-delà de la limite est
+silencieusement ignoré -- ni erreur, ni confirmation. Un client qui tape plusieurs fois sur
+Réessayer, croyant relancer une recherche qui n'a rien donné, pourrait finir par ne plus recevoir
+aucune réponse à ses tentatives, sans que rien ne le lui indique. Le contrat C-02 ne prévoit
+aujourd'hui aucun accusé de réception distinct pour `nearby.subscribe` -- corriger cela dépasse le
+périmètre de cet écran, mais l'écran hérite du silence.
+
+---
+
+## Ce qui reste ouvert pour la prochaine session
+
+Le lot du soir (D35, D36, L3-11, L6-06) ferme les deux ponts manquants signalés le 22 août et ouvre
+le premier écran métier du lot L6 -- la nuit prochaine peut enchaîner L6-07 (estimation et choix du
+chauffeur, qui reçoit déjà `{ origin, destination }` de `Quote`) sans pont ouvert derrière elle,
+pour la première fois depuis le début du lot L6.
+
+1. **Les trois doutes de L6-06** (ci-dessus) -- aucun n'est un défaut à corriger dans le périmètre
+   de cet écran, mais tous les trois se reposeront dès L6-07/L6-08 : un montant basé sur un point
+   mal géocodé, un chauffeur qui ne sait pas pourquoi sa position ne se met pas à jour, un client
+   qui martèle un bouton sans réponse.
+2. **`L3-12`** -- file persistante avec rejeu côté service temps réel. Inchangé depuis J10.
+3. **`L4-06`** -- la facture. Inchangé.
+4. **La validation du plan comptable** -- trois questions à poser au comptable, inchangé.
+5. **La vérification développeur Android** -- inchangé.
+6. **Le flake sous charge combinée** (`@babana/realtime`, trois fichiers désormais :
+   `DisconnectGraceTimers`, `ProposalLifecycle` critère 1, `reserveDriver/releaseDriver` critère
+   5) -- à arbitrer : marge plus généreuse sur ces minuteurs, ou `--test-concurrency=1` figé pour
+   ce paquet en CI.
+7. **L'avertissement `VirtualizedList` non wrappé dans `act()`** (`@babana/client`, tests utilisant
+   `FlatList`) -- sans effet sur le résultat, jamais creusé.
+

@@ -18,6 +18,15 @@ jest.mock('../../auth', () => ({
   },
 }));
 
+// HomeScreen (L6-06) a ses propres tests (HomeScreen.test.tsx) -- ici, seul l'aiguillage de
+// navigation compte, même raison que le mock de SignInScreen ci-dessous : un écran métier réel
+// ouvrirait une connexion temps réel et demanderait la position GPS, hors du périmètre de ce
+// fichier.
+jest.mock('../../screens/HomeScreen', () => {
+  const { Text: RNText } = jest.requireActual('react-native');
+  return { HomeScreen: () => <RNText>Accueil</RNText> };
+});
+
 jest.mock('../../screens/SignInScreen', () => {
   const { Text: RNText, Pressable } = jest.requireActual('react-native');
   return {
