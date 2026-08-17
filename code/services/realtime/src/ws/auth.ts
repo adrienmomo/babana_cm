@@ -8,18 +8,17 @@
 // l'identité de son émetteur (critère d'acceptation 3).
 import type { IncomingMessage } from 'node:http';
 import type { WebSocket } from 'ws';
+import { realtime } from '@babana/contracts';
 import type { Config } from '../config';
 import { verifyApplicationTokenWithReason } from './token';
 
 /**
- * Codes de fermeture WebSocket documentés (plage 4000-4999 réservée à l'usage applicatif, RFC
- * 6455 §7.4.2). Deux codes distincts pour deux situations que l'app doit traiter différemment :
- * un jeton manquant ou invalide n'a rien à renouveler (ré-authentification complète nécessaire),
- * un jeton expiré si (renouvellement via /auth/refresh puis reconnexion, sans ré-authentifier
- * l'utilisateur). 4401 fait écho à HTTP 401, 4402 à l'idée d'expiration (TOKEN_EXPIRED, C-01).
+ * Codes de fermeture WebSocket -- déplacés dans `@babana/contracts` (L6-04) dès qu'un
+ * consommateur côté client en a eu besoin pour distinguer renouvellement et
+ * ré-authentification complète (D17, une seule définition). Ré-exportés d'ici pour que
+ * `connection.ts` et les tests de ce service n'aient pas à changer leur import.
  */
-export const WS_CLOSE_UNAUTHENTICATED = 4401;
-export const WS_CLOSE_TOKEN_EXPIRED = 4402;
+export const { WS_CLOSE_UNAUTHENTICATED, WS_CLOSE_TOKEN_EXPIRED } = realtime;
 
 /**
  * Contexte de connexion (critère d'acceptation 3) : posé une seule fois à l'authentification,

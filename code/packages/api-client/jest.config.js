@@ -4,8 +4,9 @@ module.exports = {
   // @react-native-google-signin publie uniquement un build ESM (`exports.default` pointe sur
   // `lib/module/`, pas de condition `require`) -- sans cette extension, `import`/`export` au sein
   // du paquet fait échouer le require() CommonJS de Jest ("Unexpected token 'export'").
+  // @react-native-async-storage/async-storage (L6-04) est dans le même cas : ESM seulement.
   transformIgnorePatterns: [
-    'node_modules/(?!((jest-)?react-native|@react-native(-community)?|@react-native-google-signin)/)',
+    'node_modules/(?!((jest-)?react-native|@react-native(-community)?|@react-native-google-signin|@react-native-async-storage)/)',
   ],
   // Mock officiel du module natif, fourni par la bibliothèque elle-même -- la logique JS réelle
   // de GoogleSignin.signIn()/hasPlayServices() s'exécute par-dessus (test/googleSignIn.test.ts,

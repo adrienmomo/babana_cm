@@ -8,6 +8,7 @@
   "files": ["dist"],
   "dependencies": {
     "@babana/contracts": "*",
+    "@react-native-async-storage/async-storage": "^3.1.1",
     "@react-native-google-signin/google-signin": "^16.1.4",
     "react-native-keychain": "^10.0.0"
   },

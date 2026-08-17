@@ -280,3 +280,210 @@ propre), les suites des deux apps (26 tests, 0 échec) et `npm run build:web` (`
 succès) après coup plutôt que supposé sans risque.
 
 ---
+
+## L6-04 — Client WebSocket partagé
+
+**`packages/api-client/src/realtime.ts` (un seul fichier, L0-03) devient `src/realtime/`** :
+`connection.ts` (le client lui-même), `queue.ts` (file d'actions persistante), `reconnect.ts`
+(politique de délai et gigue), `handlers.ts` (validation défensive, état de connexion). Même
+mouvement que L6-03 pour `http/`, même raison : l'export minimal de L0-03 devient ce que la
+spécification demande réellement.
+
+**Gigue aléatoire, pas seulement une temporisation croissante (critère 1, L3-11).** La
+spécification le dit texto : sans elle, mille chauffeurs se reconnectent en même temps après une
+coupure d'antenne et achèvent le service. `computeReconnectDelayMs` plafonne l'exponentielle
+*avant* d'appliquer la gigue (±30 % par défaut) — plafonner après aurait laissé le pire cas
+dépasser le plafond voulu. Testé sur les bornes (délai croissant à gigue nulle, plafond respecté,
+gigue non nulle et jamais négative), pas seulement sur l'appel de la fonction.
+
+**Le jeton WebSocket ferme la connexion avec un code distinct selon qu'il est invalide ou expiré
+(critère 1, L3-01) — vérifié dans le dépôt, pas supposé.** `WS_CLOSE_UNAUTHENTICATED` (4401) et
+`WS_CLOSE_TOKEN_EXPIRED` (4402) existaient déjà, mais **codés en dur dans
+`services/realtime/src/ws/auth.ts`**, sans consommateur côté client pour les avoir jamais rendus
+partageables. Les recopier ici aurait reproduit exactement l'incident du 15 août que
+`01-architecture.md` §5 raconte : deux services d'accord sur rien, aucune suite ne l'aurait vu
+parce que chacun fabrique sa propre valeur pour se tester. **Déplacés dans `@babana/contracts`**
+(`packages/contracts/src/realtime/close-codes.ts`, D17), `auth.ts` les ré-exportant pour que
+`connection.ts` (service) et ses tests n'aient rien à changer. `services/realtime` en dépendait déjà
+(`realtime.ServerToClientMessageSchema`, `auth.AccessTokenClaimsSchema`) — aucune nouvelle
+dépendance, seulement une valeur qui a enfin son unique définition. Suite du service relancée après
+coup (112 tests, 1 échec) : le même flake déjà documenté au rapport de J12
+(`DisconnectGraceTimers`, sensible au temps réel écoulé sous charge combinée) — reconfirmé isolé
+(3 tests, 0 échec) et sans rapport avec ce déplacement.
+
+Côté client : `TOKEN_EXPIRED` prévient l'appelant (`onTokenExpired`, pour qu'il renouvelle via
+`AuthClient.refresh()`, L6-02) puis une reconnexion automatique suit — elle relira un jeton frais
+via `getAccessToken()`, sans que `connection.ts` ait besoin de savoir comment ce jeton se
+renouvelle. `UNAUTHENTICATED` prévient l'appelant (`onUnauthenticated`, retour à la connexion, même
+mécanisme qu'`onSessionLost`) et **n'entraîne aucune reconnexion automatique** : rejouer le même
+jeton invalide ne peut pas réussir.
+
+**File d'actions persistante, un mutex minimal découvert nécessaire en écrivant le test qui
+compte (critères 2 et 3).** `AsyncStorage` (`@react-native-async-storage/async-storage`, nouvelle
+dépendance -- voir plus bas), pas le trousseau sécurisé de L6-02 : ces actions ne sont pas des
+secrets, et le trousseau est pensé pour une valeur unique, pas une liste qui grandit et rétrécit.
+**Un vrai défaut trouvé par le premier test qui enchaînait deux `send()` sans `await` entre les
+deux** (exactement le cas réel : un chauffeur qui tape accepter puis démarrer avant que le premier
+ait fini de s'écrire) : `enqueue()` fait un `load()` puis un `save()` non atomiques, et le second
+appel lisait l'état d'avant le premier `save()` -- la seconde action écrasait la première plutôt
+que de s'y ajouter. Corrigé par un mutex minimal (une chaîne de promesses, `ActionQueue.tail`) qui
+sérialise `enqueue`/`remove`/`list` -- pas une dépendance nouvelle pour ça, CLAUDE.md aurait raison
+de le demander sinon.
+
+**Les positions ne sont jamais mises en file, seule la dernière compte (critère 4).**
+`connection.ts` les traite entièrement à part : `send('position.update', ...)` écrase
+`latestPosition` en mémoire hors connexion, l'envoie dès l'ouverture suivante, ne les fait jamais
+transiter par la file persistante -- ce module n'a même pas besoin de savoir qu'une position
+"expire" pour respecter le critère, il ne les file simplement jamais.
+
+**`session.resync` avant le rejeu de la file, pas après (spécification C-02, "avant de rejouer la
+file d'actions locale" -- déjà écrit dans `client-to-server.ts`).** À l'ouverture : `session.resync`
+d'abord (avec `lastKnownRideId`), la dernière position ensuite si elle existe, puis la file rejouée
+dans l'ordre, une action retirée de la file après chaque envoi réussi -- une reconnexion coupée en
+plein rejeu ne perd que ce qui a déjà été envoyé, pas le reste (`remove()` par action, jamais un
+`clear()` global).
+
+**Ce que ce lot ne peut pas encore prouver de bout en bout, honnêtement signalé plutôt que tu.**
+`services/realtime/src/ws/resync.ts` (L3-11, moitié serveur de cette même tâche) n'existe pas
+encore -- `session.resync`/`session.synced` sont des types de message valides (C-02, déjà posés),
+mais aucun code ne les traite aujourd'hui. Les tests de ce soir vérifient le client seul, contre un
+`WebSocketLike` simulé (`FakeSocket`) -- la preuve d'un aller-retour réel contre un service qui
+répond attend L3-11 côté serveur. Même situation que le pont JSON-RPC de L6-03 cette nuit : posé,
+pas raccordé, à signaler de nouveau si L3-11 ou le premier écran qui consomme ce client (L6-06, les
+chauffeurs à jour en direct) l'ouvre sans que ce pont existe.
+
+**Une nouvelle dépendance, signalée : `@react-native-async-storage/async-storage` (^3.1.1).**
+Peer dependencies permissives (`react: '*'`, `react-native: '*'`), aucun conflit. **Neuvième
+dépendance nouvelle cette nuit** (trois hier, huit ce soir avant celle-ci) -- la discipline de
+CLAUDE.md demande de le dire, pas de s'arrêter : c'est la seule brique qui manquait pour un
+stockage clé-valeur non secret sur les deux plateformes, rien d'équivalent n'existait déjà dans le
+dépôt (le trousseau de L6-02 est sémantiquement le mauvais outil pour une liste, pas seulement une
+question de nommage).
+
+**Tests** (`packages/api-client/test/realtime/`, nouveaux, 20 cas) : `reconnect.test.ts` (4 --
+croissance, plafond, gigue non déterministe, bornes) ; `queue.test.ts` (3 -- ordre conservé,
+retrait précis, persistance à travers une nouvelle instance) ; `handlers.test.ts` (3 -- message
+conforme accepté, JSON malformé ignoré sans exception, forme inconnue du contrat ignorée) ;
+`connection.test.ts` (10 -- resync avant rejeu, jeton en paramètre de requête, état de connexion
+exposé, message entrant transmis, file rejouée dans l'ordre avec l'identifiant d'origine, positions
+jamais mises en file, reconnexion sur coupure ordinaire, jeton expiré vs invalide traités
+différemment, `disconnect()` sans reconnexion).
+
+`npm run typecheck`, `npm run lint --workspaces`, `npm test` (`-w @babana/api-client`) : propres,
+47 tests (27 déjà existants + 20 nouveaux), 0 échec. `npm run build` relancé (`dist/` à jour) ;
+`npm run typecheck --workspaces` (onze paquets/apps), les suites des deux apps (26 tests) et
+`npm run build:web` relancés après coup, propres.
+
+---
+
+## Ce que L6-06 devra encore écrire
+
+Question posée en tête de nuit : une fois navigation, client API et carte posés, que reste-t-il à
+faire pour l'écran d'accueil Client ?
+
+**Ce qu'il n'aura pas à écrire, parce que c'est déjà fait :**
+- Se soucier de la session — il vit sous `AuthGate`, jamais atteint sans elle.
+- Construire un client HTTP ou WebSocket, ses réessais, ses messages d'erreur ou sa reconnexion —
+  `../auth.ts` (`apiClient`) et `@babana/api-client` (`createRealtimeClient`) portent tout cela
+  depuis ce soir (L6-03, L6-04).
+- Choisir une bibliothèque de carte, gérer le SDK — `@babana/maps` expose `MapView`,
+  `searchPlace`, `reverseGeocode` en trois imports.
+- Décider où le bouton de connexion mène — déjà câblé, l'écran d'accueil n'existe que parce que la
+  session existe.
+
+**Ce qu'il devra écrire, et qui n'existe nulle part encore :**
+1. **La position du client** — aucune capture de géolocalisation ponctuelle n'existe dans le dépôt
+   (L6-05 capture la position du *chauffeur* en continu, un besoin différent : ici, une position
+   unique au chargement de l'écran, pour centrer la carte et pré-remplir le départ). Permission
+   `ACCESS_FINE_LOCATION`, refus géré sans bloquer l'écran.
+2. **`GET /drivers/nearby` et `nearby.subscribe`, jamais appelés** — les deux contrats existent
+   (C-01, C-02), aucun code client ne les invoque encore. `createRealtimeClient` porte déjà l'état
+   de connexion et la validation des messages entrants ; ce sera sa première consommation réelle,
+   mais le pont serveur (`session.resync`/`session.synced`, L3-11) n'existe pas encore côté
+   `services/realtime` — L6-06 en aura besoin pour la resynchronisation, pas seulement pour le
+   flux initial de chauffeurs proches.
+3. **`PlacePicker` et le réticule** — le premier des deux moyens de désignation (déplacement de la
+   carte sous un réticule fixe, prioritaire sur la recherche textuelle) n'a aucun précédent dans le
+   dépôt : ni geste de carte suivi en continu, ni géocodage inverse déclenché au relâchement plutôt
+   qu'à chaque frame (un géocodage par frame de déplacement de carte enverrait des centaines
+   d'appels REST pour un seul geste).
+4. **`DriverMarker`** — aucun composant de présentation n'existe encore dans les apps (seulement
+   `Button`, `@babana/ui`). Prénom, note, gamme, mention « nouveau » (D30, champs nullables déjà
+   posés côté contrat) : une carte visuelle, pas une donnée à transformer.
+5. **L'état d'écran lui-même** — sélection en cours (départ/arrivée), résultats de recherche
+   affichés, chauffeurs reçus par le canal temps réel : le premier écran du dépôt avec plus d'un ou
+   deux champs de `useState`, sans précédent de state local plus riche à suivre.
+
+Rien de tout cela n'est bloqué par ce que ce soir ferme (L6-03, L6-04) : la première vraie carte
+tarifera la profondeur de ce state local et le pont serveur manquant de L3-11, pas l'intégration
+réseau elle-même.
+
+---
+
+## Vérification finale
+
+**Pas sur base fraîche : `make up` n'a pas été démarré cette nuit.** Les trois tâches du lot
+(L6-00, L6-03, L6-04) ne touchent ni Odoo ni le service temps réel en tant que processus vivant —
+`services/realtime/src/ws/auth.ts` a changé (déplacement des codes de fermeture), mais sa propre
+suite (`tsx --test`) ne suppose pas d'infrastructure démarrée. Dit plutôt que passé sous silence
+(CLAUDE.md) : `make reset` n'était pas dû, mais la suite Odoo (464 tests propres au module) et la
+vérification d'infrastructure (`make verify`) n'ont donc pas été relancées cette nuit — rien dans
+les trois tâches ne les touchait, mais ce n'est pas la même chose que de les avoir vues vertes ce
+soir.
+
+Chaque paquet touché testé isolément, plus l'ensemble du monorepo JS/TS :
+
+- `@babana/navigation` : 4 tests, 0 échec.
+- `@babana/api-client` : 47 tests, 0 échec (14 déjà existants + 13 de L6-03 + 20 de L6-04).
+- `@babana/contracts` : 63 tests, 0 échec (inchangé, sauf l'ajout de `close-codes.ts` -- aucun
+  test dédié : deux constantes numériques, déjà exercées indirectement par les tests de
+  `services/realtime` qui vérifient les codes de fermeture réels).
+- `@babana/realtime` (service, pas le paquet client) : 112 tests, 1 échec -- `DisconnectGraceTimers`,
+  le même flake temporel déjà documenté au rapport de J12, reconfirmé isolé et sans rapport avec
+  le déplacement des codes de fermeture (3 tests, 0 échec en isolation).
+- `@babana/client`, `@babana/driver` : 11 et 15 tests, 0 échec.
+- `@babana/concurrency-tests` : non relancé (suppose Odoo et Redis vivants -- `npm test` racine
+  interrompu après un délai d'attente, aucune des trois tâches ne touchant à la concurrence ou à
+  la réservation atomique).
+- `npm run typecheck --workspaces` : propre sur les onze paquets/apps.
+- `npm run lint --workspaces` : propre.
+- `npm run build:web` (`apps/client`) : succès, relancé après chaque tâche qui touchait une
+  dépendance du bundle (L6-00, L6-03).
+- `tools/secret-scan/scan.sh` : `OK`, relancé après chaque tâche.
+
+**Ce que cette vérification ne couvre pas, et qui reste à faire dès qu'une base sera relancée** :
+la suite Odoo complète, `make verify`, et surtout le test de concurrence L4-11 -- sans rapport avec
+les changements de cette nuit, mais jamais confirmé vert *ce soir*, contrairement aux nuits
+précédentes qui le relançaient systématiquement. À faire en tête de la prochaine session avant
+toute nouvelle tâche, pour ne pas laisser deux sessions sans cette confirmation.
+
+---
+
+## Ce qui reste ouvert pour la prochaine session
+
+1. **Le pont serveur de L3-11 n'existe pas** (`services/realtime/src/ws/resync.ts`) — le client de
+   L6-04 sait envoyer `session.resync` et rejouer sa file, mais aucun serveur ne répond encore par
+   `session.synced`. À ouvrir avant ou avec L6-06 (premier écran qui aura besoin d'un
+   aller-retour réel, pas seulement simulé).
+2. **Le pont JSON-RPC authentifié par jeton Bearer n'existe pas côté Odoo** (L6-03) -- le client
+   (`createJsonRpcClient`) est posé et testé contre un point de terminaison simulé, mais le
+   JSON-RPC natif d'Odoo n'authentifie que par session de cookie ou par `(db, uid, password)`. À
+   vérifier avant que L6-10 (historique, factures) ne suppose ce pont acquis.
+3. **Douze nouvelles dépendances en deux nuits** (trois L6-01/L6-02 hier, neuf ce soir --
+   `@react-navigation/*`/`react-native-screens` et l'outillage web de L6-00, puis
+   `@react-native-async-storage/async-storage` pour L6-04). Aucun signe de coût réel constaté
+   jusqu'ici (`native-stack` et l'AsyncStorage natif, pas de pile JS lourde ajoutée ; l'outillage
+   web ne fait partie d'aucun bundle natif) -- à surveiller si le rythme se maintient au lot
+   suivant, la mesure réelle restant L6-17.
+4. **L3-12** — file persistante avec rejeu côté service temps réel. Inchangé depuis J10 -- à ne
+   pas confondre avec la file de `packages/api-client/src/realtime/queue.ts` posée ce soir, qui
+   est côté client, pas côté service.
+5. **L4-06** — la facture. Inchangé.
+6. **La validation du plan comptable** — trois questions à poser au comptable, inchangé.
+7. **La vérification développeur Android** — inchangé.
+
+Le lot L6 ferme ses quatre fondations partagées en deux nuits (L6-01/L6-02 hier, L6-00/L6-03/L6-04
+ce soir). La prochaine session qui ouvre L6-06 trouve une arborescence, un client API traduit en
+français, une carte, et un client temps réel avec sa politique de reconnexion -- mais aussi deux
+ponts serveur qui restent à construire (L3-11, JSON-RPC authentifié) avant que les écrans qui en
+dépendent ne puissent être vérifiés de bout en bout plutôt que contre un double.
