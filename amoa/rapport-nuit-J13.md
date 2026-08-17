@@ -187,43 +187,96 @@ demande de le dire, pas de le limiter arbitrairement.
 
 ---
 
-## Ce que L6-06 devra encore écrire
+## L6-03 — Client API partagé
 
-Question posée en tête de nuit : une fois navigation, client API et carte posés, que reste-t-il à
-faire pour l'écran d'accueil Client ?
+**`packages/api-client/src/http.ts` (un seul fichier, L0-03) devient `src/http/`** : `client.ts`
+(le client lui-même), `errors.ts` (`ApiError`, catalogue de messages français, traduction),
+`idempotency.ts` (génération de la clé), `rpc.ts` (JSON-RPC). `src/index.ts` n'a pas changé —
+`export * from './http'` résout maintenant vers `http/index.ts`, aucun consommateur (`auth/
+session.ts`, les deux apps) n'a eu à changer son import.
 
-**Ce qu'il n'aura pas à écrire, parce que c'est déjà fait :**
-- Se soucier de la session — il vit sous `AuthGate`, jamais atteint sans elle.
-- Construire un client HTTP ou WebSocket — `../auth.ts` (`apiClient`) est déjà là ; L6-03 ce soir lui
-  donne ses réessais et ses messages d'erreur.
-- Choisir une bibliothèque de carte, gérer le SDK — `@babana/maps` expose `MapView`,
-  `searchPlace`, `reverseGeocode` en trois imports.
-- Décider où le bouton de connexion mène — déjà câblé, l'écran d'accueil n'existe que parce que la
-  session existe.
+**Réessais avec temporisation croissante, jamais sur une erreur métier (critères 1 et 2).**
+`isRetryableStatus` ne retient que le réseau (fetch qui lève avant toute réponse) et le serveur
+(HTTP ≥ 500, `ROUTE_UNAVAILABLE` y compris) — jamais une erreur métier bien formée
+(`DRIVER_ALREADY_TAKEN`, `NO_DRIVER_AVAILABLE`...), qui ne réussira jamais en la rejouant et
+masquerait le vrai message à l'appelant (spécification, presque mot pour mot). `RATE_LIMITED`
+(429) n'est délibérément pas retenu non plus : un réessai aveugle aggraverait la limitation plutôt
+que de la respecter — absent des critères, tranché en écrivant le code, à mentionner ici plutôt que
+deviné silencieusement. Délai doublé à chaque tentative (300 ms, 600 ms, 1200 ms par défaut, 3
+réessais), `wait` injectable pour les tests — aucun test de ce paquet n'attend une vraie
+temporisation.
 
-**Ce qu'il devra écrire, et qui n'existe nulle part encore :**
-1. **La position du client** — aucune capture de géolocalisation ponctuelle n'existe dans le dépôt
-   (L6-05 capture la position du *chauffeur* en continu, un besoin différent : ici, une position
-   unique au chargement de l'écran, pour centrer la carte et pré-remplir le départ). Permission
-   `ACCESS_FINE_LOCATION`, refus géré sans bloquer l'écran.
-2. **`GET /drivers/nearby`, jamais appelé** — le contrat existe (C-01), aucun code client ne
-   l'invoque. Et sa mise à jour « en direct » (critère 3 de L6-06) passe par le canal temps réel
-   (`nearby.drivers`, C-02) — c'est le client WebSocket (L6-04, ce soir) qui portera l'abonnement,
-   mais aucun écran ne le consomme encore : ce sera la première consommation réelle du client
-   WebSocket construit cette nuit.
-3. **`PlacePicker` et le réticule** — le premier des deux moyens de désignation (déplacement de la
-   carte sous un réticule fixe, prioritaire sur la recherche textuelle) n'a aucun précédent dans le
-   dépôt : ni geste de carte suivi en continu, ni géocodage inverse déclenché au relâchement plutôt
-   qu'à chaque frame (un géocodage par frame de déplacement de carte enverrait des centaines
-   d'appels REST pour un seul geste).
-4. **`DriverMarker`** — aucun composant de présentation n'existe encore dans les apps (seulement
-   `Button`, `@babana/ui`). Prénom, note, gamme, mention « nouveau » (D30, champs nullables déjà
-   posés côté contrat) : une carte visuelle, pas une donnée à transformer.
-5. **L'état d'écran lui-même** — sélection en cours (départ/arrivée), résultats de recherche
-   affichés, chauffeurs reçus par le canal temps réel : le premier écran du dépôt avec plus d'un ou
-   deux champs de `useState`, sans précédent de state local plus riche à suivre.
+**Une écriture porte toujours le même identifiant d'idempotence sur ses réessais internes, un
+nouveau à chaque appel externe (critère 3).** Générée une fois par appel à `client.request(...)`,
+avant la boucle de réessai — réutilisée pour les tentatives réseau/serveur de *cette même* boucle
+(le doute porte sur ce que le serveur a reçu), mais un appel externe distinct
+(`withTransparentRefresh`, L6-02, qui rejoue après un `TOKEN_EXPIRED`) en génère une nouvelle :
+`TOKEN_EXPIRED` échoue à l'authentification, avant tout appel de méthode de transition — aucune
+transition n'a donc pu être appliquée par la tentative précédente, réutiliser sa clé n'aurait rien
+protégé. Seul un POST en porte une (`isWriteMethod`) — un GET est par nature rejouable, lui en
+donner une n'aurait aucun effet, seulement du bruit dans `babana.idempotency.record`.
 
-Rien de tout cela n'est bloqué par ce qui manque encore côté L6-03/L6-04 (qui ferment ce soir) : la
-première vraie carte tarifera la profondeur de ce state local, pas l'intégration réseau.
+**Un défaut latent de L0-03, révélé en écrivant le premier test qui exerçait vraiment un GET avec
+paramètres.** `nearbyDrivers` est le seul endpoint `GET` du catalogue avec un `requestSchema` non
+nul (les coordonnées de recherche) ; l'implémentation d'origine validait `options.body` pour
+*tout* endpoint pourvu d'un `requestSchema`, sans distinguer la méthode — un GET n'a jamais de
+corps, ses paramètres vivent dans la requête (`options.query`, déjà posée sur l'URL par
+`buildUrl`). Personne ne l'avait remarqué parce qu'aucun appelant n'existait encore pour
+`nearbyDrivers` (le premier, `apps/client/src/screens/HomeScreen.tsx`, est L6-06 -- pas encore
+écrit). Le test qui l'a révélé (`client.test.ts`, "une lecture ne porte pas d'identifiant
+d'idempotence") est resté, corrigé pour refléter le bon comportement plutôt que supprimé
+(CLAUDE.md, "ne jamais adapter un test au code" -- ici c'est le code qui s'est aligné sur ce que le
+test attendait à juste titre). Corrigé : un GET valide ses paramètres de requête contre
+`requestSchema` sans jamais les sérialiser dans un corps.
+
+**Chaque code du catalogue C-01 a sa phrase en français, écrite une seule fois (critère 4, D20).**
+`USER_MESSAGES` (`errors.ts`), `satisfies Record<http.ErrorCode, string>` — si le catalogue gagne
+un code, ce fichier ne compile plus tant qu'il n'a pas sa phrase, même discipline que les suites
+générées depuis des données (CLAUDE.md). Distinct d'`ERROR_DESCRIPTION` (`@babana/contracts`, déjà
+existant) : celui-là documente le contrat pour un développeur (« Le compte chauffeur n'est pas
+encore validé par le back-office »), celui-ci s'adresse à l'utilisateur final, sans jargon ni
+code — testé explicitement (aucune phrase ne contient « back-office », « idempotence », « HTTP »,
+« API » ou « JSON »). Un code inconnu du client (**critère 5**, un serveur plus récent que
+l'app) produit le message générique et une remontée technique (`reportMetric`), jamais le code
+brut affiché.
+
+**JSON-RPC pour les lectures secondaires (spécification, hors des cinq critères d'acceptation) —
+posé, pas prouvé de bout en bout.** `01-architecture.md` §5 réserve JSON-RPC natif aux lectures
+secondaires (historique, factures, profil), les chemins critiques restant sur des contrôleurs
+explicites. `createJsonRpcClient` (`rpc.ts`) enveloppe l'appel dans la forme JSON-RPC 2.0 standard
+avec le jeton applicatif en en-tête `Authorization: Bearer` — testé contre un point de terminaison
+simulé. **Ce qu'il ne peut pas encore prouver, et qui n'est pas un défaut de cette tâche :**
+le JSON-RPC natif d'Odoo authentifie par session de cookie ou par `(db, uid, password)` explicites
+dans les arguments (`/jsonrpc`, `service: 'object'` — la forme qu'utilise déjà
+`test/concurrency/helpers/odoo-session.ts` pour préparer des fixtures, avec des identifiants de
+service, pas ceux d'un utilisateur mobile) ; ni l'un ni l'autre ne comprend le jeton Bearer que ce
+client construit. **Aucun contrôleur Odoo n'expose aujourd'hui de pont JSON-RPC authentifié par ce
+jeton.** Pas un écart à arbitrer maintenant — rien ne consomme encore ce client (L6-10, historique
+et factures, n'est pas ouvert) — mais à vérifier avant que L6-10 ne suppose ce pont acquis : à
+signaler ce soir-là s'il manque toujours.
+
+**`endpoints/` du plan de fichiers, non créé — choix d'implémentation non spécifié, décidé.** Le
+détail des requêtes/réponses vit déjà dans `@babana/contracts` (D17, jamais redéclaré) ; un dossier
+`endpoints/` n'aurait pu contenir que des fonctions d'enrobage par ressource
+(`createRide(client, params)` plutôt que `client.request('createRide', {...})`) dont aucun écran ne
+profite encore ce soir (le lot L6 n'ouvre aucun écran métier) — les écrire par anticipation aurait
+été de l'abstraction sans consommateur (CLAUDE.md, « pas d'abstraction prématurée »). Le premier
+écran qui en aurait vraiment besoin (probablement L6-07, l'estimation, avec son enchaînement
+`/quote` → `/rides` → `/rides/{id}/select-driver`) le posera à ce moment, avec un vrai appelant pour
+juger la forme utile.
+
+**Tests** (`packages/api-client/test/http/`, nouveaux) : `client.test.ts` (7 cas — réessai
+serveur avec délais croissants vérifiés valeur par valeur, réessai réseau, arrêt à `maxRetries`,
+aucun réessai sur erreur métier, identifiant d'idempotence présent sur une écriture/absent sur une
+lecture, même identifiant réutilisé sur un réessai interne) ; `errors.test.ts` (le catalogue est
+complet et sans jargon, traduction d'un code connu, message générique sur un code inconnu) ;
+`rpc.test.ts` (forme de l'enveloppe, en-tête Bearer, erreur JSON-RPC distincte d'un résultat vide).
+
+`npm run typecheck`, `npm run lint --workspaces`, `npm test` (`-w @babana/api-client`) : propres,
+27 tests (14 déjà existants + 13 nouveaux), 0 échec. `npm run build` (`@babana/api-client`)
+relancé pour que `dist/` (consommé par les deux apps et par le bundle web de `apps/client`) reflète
+le nouveau `http/` — vérifié en relançant `npm run typecheck --workspaces` (onze paquets/apps,
+propre), les suites des deux apps (26 tests, 0 échec) et `npm run build:web` (`apps/client`,
+succès) après coup plutôt que supposé sans risque.
 
 ---
