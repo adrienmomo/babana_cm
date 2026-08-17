@@ -37,17 +37,36 @@ class TestBabanaToken(TransactionCase):
         self.assertNotEqual(first, second)
         # L'ancien jeton ne peut plus être utilisé : ce n'est pas un simple non-effet, c'est
         # exactement le scénario de réutilisation testé ci-dessous.
-        old_record = self.env["babana.token"].sudo().search([("token_hash", "!=", False)], order="id asc", limit=1)
+        # Recherche par le hachage de `first`, jamais par "le plus ancien id de la table" :
+        # d'autres tests (test_auth.py, HttpCase, requêtes HTTP réelles donc commitées, pas
+        # rollback comme TransactionCase) laissent des enregistrements babana.token antérieurs
+        # dans la même base -- un tri par id global attrapait le mauvais enregistrement et ce
+        # test échouait selon l'ordre d'exécution des suites. Défaut pré-existant, découvert en
+        # vérifiant la suite sur base fraîche avant la session J14 (CLAUDE.md, "la base de
+        # développement est jetable").
+        old_record = self.env["babana.token"].sudo().search(
+            [("token_hash", "=", self.env["babana.token"]._hash(first))]
+        )
         self.assertEqual(old_record.state, "rotated")
 
     def test_reusing_a_rotated_token_revokes_the_whole_family(self):
         first = self.env["babana.token"]._issue_family(self.user)
         _, second = self.env["babana.token"]._rotate(first)
 
-        # Réutilisation du jeton déjà consommé -- signe de vol (L1-02, spécification). try/except
-        # plutôt que self.assertRaises : la version Odoo de assertRaises (TransactionCase) ouvre
-        # un savepoint qu'elle annule à la sortie, ce qui annulerait la révocation de famille que
-        # l'assertion suivante veut précisément observer.
+        # Réutilisation au-delà de la fenêtre de grâce (D36) -- une réutilisation immédiate, dans
+        # la fenêtre, est désormais un rejeu légitime (voir les tests D36 plus bas), pas un vol.
+        # flush_recordset() avant la relecture par _rotate() : un write() n'est pas garanti
+        # poussé en base avant la requête SQL suivante dans la même transaction
+        # (code/docs/odoo-pitfalls.md).
+        rotated_record = self.env["babana.token"].sudo().search(
+            [("token_hash", "=", self.env["babana.token"]._hash(first))]
+        )
+        rotated_record.write({"rotated_at": Datetime.now() - timedelta(hours=1)})
+        rotated_record.flush_recordset(["rotated_at"])
+
+        # try/except plutôt que self.assertRaises : la version Odoo de assertRaises
+        # (TransactionCase) ouvre un savepoint qu'elle annule à la sortie, ce qui annulerait la
+        # révocation de famille que l'assertion suivante veut précisément observer.
         try:
             self.env["babana.token"]._rotate(first)
             self.fail("TokenReused attendu")
@@ -58,6 +77,77 @@ class TestBabanaToken(TransactionCase):
         # de mal : c'est le prix du modèle de détection de vol par rotation.
         with self.assertRaises(TokenReused):
             self.env["babana.token"]._rotate(second)
+
+    # --- D36 : fenêtre de grâce sur la réutilisation -------------------------------------------
+
+    def _set_grace_seconds(self, seconds: int) -> None:
+        self.env["ir.config_parameter"].sudo().set_param(
+            "babana.token_reuse_grace_seconds", str(seconds)
+        )
+
+    def test_reuse_within_the_grace_window_replays_the_same_pair(self):
+        # Critère 3 bis, juste avant la borne : la fenêtre vaut 10 s, le jeton a été remplacé
+        # voici 9 s -- toujours dans la fenêtre.
+        self._set_grace_seconds(10)
+        first = self.env["babana.token"]._issue_family(self.user)
+        _, second = self.env["babana.token"]._rotate(first)
+        rotated_record = self.env["babana.token"].sudo().search(
+            [("token_hash", "=", self.env["babana.token"]._hash(first))]
+        )
+        rotated_record.write({"rotated_at": Datetime.now() - timedelta(seconds=9)})
+        # flush_recordset() : un write() n'est pas garanti poussé en base avant la requête SQL
+        # que _rotate() émet juste après (code/docs/odoo-pitfalls.md).
+        rotated_record.flush_recordset(["rotated_at"])
+
+        user, replayed = self.env["babana.token"]._rotate(first)
+
+        self.assertEqual(user, self.user)
+        # Le couple rejoué est celui déjà émis -- jamais un troisième jeton.
+        self.assertEqual(replayed, second)
+        self.assertEqual(rotated_record.state, "rotated")
+        # "second" reste utilisable : aucune révocation ne s'est produite dans la fenêtre.
+        self.env["babana.token"]._rotate(second)
+
+    def test_reuse_past_the_grace_window_still_revokes_the_family(self):
+        # Critère 3 bis, juste après la borne : la fenêtre vaut 10 s, le jeton a été remplacé
+        # voici 11 s -- la fenêtre est dépassée, le comportement d'avant D36 reprend.
+        self._set_grace_seconds(10)
+        first = self.env["babana.token"]._issue_family(self.user)
+        _, second = self.env["babana.token"]._rotate(first)
+        rotated_record = self.env["babana.token"].sudo().search(
+            [("token_hash", "=", self.env["babana.token"]._hash(first))]
+        )
+        rotated_record.write({"rotated_at": Datetime.now() - timedelta(seconds=11)})
+        rotated_record.flush_recordset(["rotated_at"])
+
+        # try/except plutôt que self.assertRaises : la version Odoo de assertRaises
+        # (TransactionCase) ouvre un savepoint qu'elle annule à la sortie -- ça annulerait la
+        # révocation de famille et l'effacement de next_raw_token que les assertions suivantes
+        # veulent précisément observer (même piège que
+        # test_reusing_a_rotated_token_revokes_the_whole_family).
+        try:
+            self.env["babana.token"]._rotate(first)
+            self.fail("TokenReused attendu")
+        except TokenReused:
+            pass
+
+        # La famille entière est révoquée, "second" y compris -- même effet qu'une réutilisation
+        # sans fenêtre de grâce (test_reusing_a_rotated_token_revokes_the_whole_family).
+        with self.assertRaises(TokenReused):
+            self.env["babana.token"]._rotate(second)
+        # Le couple rejouable ne doit plus traîner en base une fois la fenêtre reconnue dépassée.
+        self.assertFalse(rotated_record.next_raw_token)
+
+    def test_reusing_an_explicitly_revoked_token_ignores_the_grace_window(self):
+        # Un jeton "revoked" (vol déjà détecté, suspension, déconnexion explicite) ne bénéficie
+        # jamais de la fenêtre de grâce, même présenté immédiatement -- ce n'est pas le même
+        # scénario qu'une rotation naturelle interrompue par le réseau.
+        self._set_grace_seconds(3600)
+        first = self.env["babana.token"]._issue_family(self.user)
+        self.env["babana.token"]._revoke(first)
+
+        with self.assertRaises(TokenReused):
+            self.env["babana.token"]._rotate(first)
 
     def test_unknown_token_raises_not_found(self):
         with self.assertRaises(TokenNotFound):

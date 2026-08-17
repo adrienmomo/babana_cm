@@ -13,6 +13,17 @@ from odoo import api, fields, models
 REFRESH_TOKEN_TTL_DAYS_PARAM = "babana.refresh_token_ttl_days"
 DEFAULT_REFRESH_TOKEN_TTL_DAYS = 30
 
+# Fenêtre de grâce sur la rotation (D36, 22 août -- amoa/questions/REPONSES-2026-08-22.md §2).
+# Le réseau de Douala coupe entre l'envoi du jeton et la réception de son remplaçant : l'ancien
+# jeton est alors consommé côté serveur, aucun nouveau côté téléphone. Sans fenêtre, la
+# réutilisation au démarrage suivant révoquerait toute la famille -- un chauffeur déconnecté en
+# pleine journée, pour un événement qui ressemble à un vol dans les journaux mais n'en est pas
+# un. Valeur par défaut choisie pour couvrir une coupure ponctuelle (le temps d'un aller-retour
+# réseau manqué et d'un redémarrage d'app), pas une session entière -- un choix d'implémentation
+# non spécifié par D36, donc consigné ici plutôt que deviné en silence.
+TOKEN_REUSE_GRACE_SECONDS_PARAM = "babana.token_reuse_grace_seconds"
+DEFAULT_TOKEN_REUSE_GRACE_SECONDS = 30
+
 
 class TokenNotFound(Exception):
     """Aucun jeton ne correspond au hachage fourni — jeton inconnu ou jamais émis."""
@@ -49,6 +60,18 @@ class BabanaToken(models.Model):
     )
     expires_at = fields.Datetime(required=True)
     created_at = fields.Datetime(default=lambda self: fields.Datetime.now(), required=True)
+    rotated_at = fields.Datetime(
+        help="Horodatage de la rotation qui a fait passer ce jeton à 'rotated' -- borne de la "
+        "fenêtre de grâce (D36). Non posé sur un jeton 'active' ou 'revoked' directement.",
+    )
+    next_raw_token = fields.Char(
+        help="Jeton de renouvellement en clair déjà émis en remplacement de celui-ci, gardé le "
+        "temps de la fenêtre de grâce (D36) pour pouvoir renvoyer exactement le même couple à "
+        "une réutilisation qui n'est qu'un réessai réseau, pas un vol. Seule dérogation du "
+        "modèle à 'seul le haché est stocké' (C-01) -- justifiée par le fait que ce champ ne "
+        "sert plus à rien passé la fenêtre, et est explicitement effacé à ce moment-là "
+        "(_rotate). Signalé en écart : amoa/questions/L1-02.md.",
+    )
 
     _sql_constraints = [
         ("babana_token_hash_unique", "unique(token_hash)", "Collision de jeton -- ne devrait jamais se produire."),
@@ -84,7 +107,7 @@ class BabanaToken(models.Model):
 
     @api.model
     def _rotate(self, raw_token: str):
-        """Renouvelle un jeton de renouvellement (L1-02, critères 1 à 3).
+        """Renouvelle un jeton de renouvellement (L1-02, critères 1 à 3, 3 bis).
 
         Renvoie (user, nouveau_jeton_en_clair). Lève TokenNotFound, TokenExpired ou TokenReused
         -- au contrôleur de les traduire en UNAUTHORIZED, TOKEN_EXPIRED, TOKEN_REVOKED
@@ -94,7 +117,33 @@ class BabanaToken(models.Model):
         if not record:
             raise TokenNotFound()
 
-        if record.state != "active":
+        if record.state == "rotated":
+            # Critère 3 bis (D36) : seul un jeton naturellement remplacé par la rotation --
+            # jamais un jeton 'revoked' par une action explicite (vol détecté, suspension,
+            # déconnexion) -- bénéficie de la fenêtre de grâce. Dans la fenêtre, on rejoue le
+            # couple déjà émis : ni révocation, ni troisième jeton (sinon deux appareils
+            # repartiraient avec deux familles vivantes issues du même jeton, exactement ce que
+            # la rotation rend impossible).
+            grace_seconds = int(
+                self.env["ir.config_parameter"]
+                .sudo()
+                .get_param(TOKEN_REUSE_GRACE_SECONDS_PARAM, DEFAULT_TOKEN_REUSE_GRACE_SECONDS)
+            )
+            within_grace = (
+                record.rotated_at
+                and record.next_raw_token
+                and fields.Datetime.now() - record.rotated_at <= timedelta(seconds=grace_seconds)
+            )
+            if within_grace:
+                return record.user_id, record.next_raw_token
+            # Fenêtre dépassée : la réutilisation redevient ce qu'elle est censée signaler.
+            # On efface aussi le couple rejouable -- il ne sert plus à rien passé ce point, et
+            # ne doit pas rester en clair en base indéfiniment (voir le help du champ).
+            record.write({"next_raw_token": False})
+            self._revoke_family(record.family_id)
+            raise TokenReused()
+
+        if record.state == "revoked":
             self._revoke_family(record.family_id)
             raise TokenReused()
 
@@ -102,8 +151,8 @@ class BabanaToken(models.Model):
             record.write({"state": "revoked"})
             raise TokenExpired()
 
-        record.write({"state": "rotated"})
         new_raw = self._issue(record.user_id, family_id=record.family_id)
+        record.write({"state": "rotated", "rotated_at": fields.Datetime.now(), "next_raw_token": new_raw})
         return record.user_id, new_raw
 
     @api.model

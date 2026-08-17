@@ -83,6 +83,90 @@ puis complète (390 tests sur base fraîche, 0 échec), `@babana/client` (11 tes
 
 ---
 
-## D36, L3-11, L6-06
+## D36 — fenêtre de grâce sur la rotation du jeton de renouvellement
+
+**Le problème que la relecture a trouvé, pas le rapport J13.** La rotation (L1-02) révoque toute
+la famille à la réutilisation d'un jeton consommé — bonne règle contre le vol, mauvaise hypothèse
+sur le réseau : une coupure entre l'envoi du jeton et la réception de son remplaçant laisse
+l'ancien consommé côté serveur et rien de nouveau côté téléphone. Sans fenêtre, l'app suivante
+présente ce seul jeton et perd toute sa famille.
+
+**Modèle (`models/babana_token.py`).** Deux champs nouveaux sur `babana.token`, uniquement posés
+à la rotation : `rotated_at` (horodatage de la rotation, borne de la fenêtre) et `next_raw_token`
+(le jeton de renouvellement en clair déjà émis en remplacement). `_rotate` distingue désormais
+trois cas à la présentation d'un jeton non actif :
+
+- `state == 'rotated'` **et** dans la fenêtre (`ir.config_parameter`,
+  `babana.token_reuse_grace_seconds`, défaut 30 s) : renvoie `record.next_raw_token` tel quel — le
+  couple déjà émis, ni révocation, ni troisième jeton.
+- `state == 'rotated'` et hors fenêtre : efface `next_raw_token` (il ne sert plus à rien, ne doit
+  pas traîner en clair indéfiniment), révoque la famille, comportement d'avant D36.
+- `state == 'revoked'` (vol déjà détecté, suspension, déconnexion explicite) : révoque
+  immédiatement, **jamais** de fenêtre de grâce — ce n'est pas le même scénario qu'une rotation
+  naturelle interrompue par le réseau.
+
+**L'écart signalé — `amoa/questions/L1-02.md`.** Renvoyer le même jeton en clair à une seconde
+présentation suppose de l'avoir gardé sous une forme récupérable, alors que C-01 décrit le jeton
+de renouvellement comme une valeur dont « seul le haché est stocké ». Les deux principes se
+contredisent littéralement dès que D36 exige un rejeu bit-à-bit. Retenu : conserver le jeton
+remplaçant en clair sur l'enregistrement qui vient d'être remplacé, le temps de la fenêtre
+seulement, effacé au premier accès qui la constate dépassée — une dérogation bornée et documentée
+dans le `help` du champ, pas silencieuse. L'`accessToken`, lui, n'a pas besoin d'être rejoué à
+l'identique (JWT sans état côté serveur) : une réémission fraîche à chaque rejeu ne casse rien et
+donne au client une validité pleine. Deux options écartées et pourquoi : détaillées dans le
+fichier d'écart. Réserve consignée : aucun nettoyage périodique n'efface `next_raw_token` pour un
+jeton jamais représenté après rotation — inerte au-delà de la fenêtre, mais présent en base tant
+que personne ne retente ce jeton précis.
+
+**Test pré-existant devenu faux par construction, corrigé plutôt qu'ignoré**
+(`test_auth.py::test_refresh_rotates_and_old_refresh_token_becomes_unusable`) : il vérifiait
+qu'une réutilisation *immédiate* révoque toujours la famille — exactement le cas que D36 rend
+légitime. Réécrit pour vieillir explicitement l'horodatage de rotation d'une heure avant de
+rejouer (`rotated_record.write(...)`, `flush_recordset(["rotated_at"])`), donc vérifier le
+comportement **au-delà** de la fenêtre plutôt que de dépendre d'un délai de grâce à zéro — une
+fenêtre à zéro n'est pas fiable sur deux requêtes HTTP consécutives dans le même worker de test,
+`fields.Datetime.now()` étant tronqué à la seconde (précision de stockage) : deux appels dans la
+même seconde d'horloge auraient un écart nul, donc « dans » n'importe quelle fenêtre y compris
+zéro. Nouveau test complémentaire pour le rejeu dans la fenêtre
+(`test_replaying_a_just_rotated_token_within_the_grace_window_replays_the_same_pair`), bout en
+bout par vraies requêtes HTTP.
+
+**Critère 3 bis testé aux deux bornes, au niveau modèle** (`test_token.py`, `TransactionCase`,
+horodatage manipulé directement plutôt que dépendre du temps réel écoulé) :
+`test_reuse_within_the_grace_window_replays_the_same_pair` (9 s sur une fenêtre de 10 s — dans la
+fenêtre, couple identique renvoyé, rien révoqué) et
+`test_reuse_past_the_grace_window_still_revokes_the_family` (11 s sur une fenêtre de 10 s — hors
+fenêtre, famille révoquée, `next_raw_token` effacé). Plus
+`test_reusing_an_explicitly_revoked_token_ignores_the_grace_window` (un jeton `revoked` n'a jamais
+droit à la fenêtre, même présenté immédiatement).
+
+**Deux pièges trouvés en écrivant ces tests, tous deux déjà documentés ailleurs dans le dépôt mais
+retrouvés à la dure plutôt que consultés d'abord — à noter pour la prochaine fois.**
+
+1. **`flush_recordset()` manquant après une écriture manuelle d'horodatage.** Écrire
+   `rotated_at` sur un enregistrement puis appeler aussitôt `_rotate()` (qui relit par
+   `search()`, une requête SQL) peut lire une valeur non poussée en base dans la même
+   transaction — exactement le piège déjà consigné dans `code/docs/odoo-pitfalls.md`
+   (« tout code qui s'appuie sur une contrainte au niveau base doit provoquer le vidage avant de
+   la déclencher », généralisé ici à toute relecture SQL directe après un `write()`). Corrigé par
+   `flush_recordset(["rotated_at"])`, comme `test_routing.py` le fait déjà pour un besoin
+   identique.
+2. **`self.assertRaises` (TransactionCase) ouvre un savepoint qu'il annule à la sortie.** Un test
+   qui observe un *effet secondaire persistant* de l'exception (ici : la révocation de la famille,
+   l'effacement de `next_raw_token`) doit utiliser `try`/`except` explicite, pas
+   `self.assertRaises` — sans quoi l'assertion suivante voit un état annulé, pas l'état réel.
+   **Ce piège était déjà écrit en commentaire** dans ce même fichier, sur
+   `test_reusing_a_rotated_token_revokes_the_whole_family`, à quelques lignes du nouveau test qui
+   vient de le reproduire à l'identique. Trouvé par un échec confus (« TokenReused not raised »
+   sur un appel dont le fait même de tracer pas à pas montrait la bonne exception levée un peu
+   plus haut dans la même fonction) plutôt que par la lecture du commentaire voisin — la leçon
+   était déjà là, elle n'a pas été relue avant d'écrire le test qui l'a redécouverte.
+
+Vérifié : suite Odoo ciblée (`TestBabanaToken`, `TestAuthRefreshAndLogout`, `TestMeController`,
+`TestGoogleAuth`, 28 tests, 0 échec) puis suite complète sur la même base (390 tests, 0 échec).
+
+---
+
+## L3-11 et L6-06
 
 À suivre dans ce même rapport, entrées séparées, dans l'ordre indiqué par la nuit.

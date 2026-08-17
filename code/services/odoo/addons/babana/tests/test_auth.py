@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import timedelta
 
 import requests
 
@@ -228,6 +229,13 @@ class TestAuthRefreshAndLogout(HttpCase):
         )
 
     def test_refresh_rotates_and_old_refresh_token_becomes_unusable(self):
+        # Ce test vérifie le comportement AU-DELÀ de la fenêtre de grâce (D36) -- le cas "vol",
+        # pas le cas "réessai réseau" -- voir
+        # test_replaying_a_just_rotated_token_within_the_grace_window_replays_the_same_pair
+        # ci-dessous pour le cas inverse. On vieillit directement l'horodatage de rotation plutôt
+        # que de mettre la fenêtre à zéro : deux appels HTTP consécutifs sur le même worker de
+        # test peuvent tomber dans la même seconde d'horloge -- fields.Datetime.now() est tronqué
+        # à la seconde (précision de stockage), une fenêtre à zéro ne serait alors pas fiable.
         session = self._login("sub-refresh-flow")
         first_refresh = session["refreshToken"]
 
@@ -237,7 +245,14 @@ class TestAuthRefreshAndLogout(HttpCase):
         self.assertNotEqual(new_session["refreshToken"], first_refresh)
         self.assertTrue(new_session["accessToken"])
 
-        # Critère 3 : réutiliser l'ancien jeton (déjà consommé) révoque toute la famille.
+        rotated_record = self.env["babana.token"].sudo().search(
+            [("token_hash", "=", self.env["babana.token"]._hash(first_refresh))]
+        )
+        rotated_record.write({"rotated_at": rotated_record.rotated_at - timedelta(hours=1)})
+        rotated_record.flush_recordset(["rotated_at"])
+
+        # Critère 3 : réutiliser l'ancien jeton (déjà consommé), hors fenêtre de grâce, révoque
+        # toute la famille.
         replay = self._post("/api/v1/auth/refresh", {"refreshToken": first_refresh})
         self.assertEqual(replay.status_code, 401)
         self.assertEqual(replay.json()["error"]["code"], "TOKEN_REVOKED")
@@ -249,6 +264,32 @@ class TestAuthRefreshAndLogout(HttpCase):
         )
         self.assertEqual(second_attempt.status_code, 401)
         self.assertEqual(second_attempt.json()["error"]["code"], "TOKEN_REVOKED")
+
+    def test_replaying_a_just_rotated_token_within_the_grace_window_replays_the_same_pair(self):
+        # Critère 3 bis (D36), bout en bout : une coupure réseau juste après l'envoi du jeton --
+        # le téléphone retente avec le même jeton, déjà consommé côté serveur. Dans la fenêtre de
+        # grâce, il doit récupérer exactement le couple déjà émis, pas une erreur.
+        self.env["ir.config_parameter"].sudo().set_param(
+            "babana.token_reuse_grace_seconds", "60"
+        )
+        session = self._login("sub-refresh-grace-flow")
+        first_refresh = session["refreshToken"]
+
+        first_response = self._post("/api/v1/auth/refresh", {"refreshToken": first_refresh})
+        self.assertEqual(first_response.status_code, 200)
+        first_result = first_response.json()
+
+        replay = self._post("/api/v1/auth/refresh", {"refreshToken": first_refresh})
+        self.assertEqual(replay.status_code, 200)
+        replayed_result = replay.json()
+        self.assertEqual(replayed_result["refreshToken"], first_result["refreshToken"])
+
+        # Le jeton rejoué reste utilisable pour une rotation normale ensuite -- rien n'a été
+        # révoqué par le rejeu.
+        next_rotation = self._post(
+            "/api/v1/auth/refresh", {"refreshToken": replayed_result["refreshToken"]}
+        )
+        self.assertEqual(next_rotation.status_code, 200)
 
     def test_refresh_with_unknown_token_is_unauthorized(self):
         response = self._post("/api/v1/auth/refresh", {"refreshToken": "jamais-emis"})
