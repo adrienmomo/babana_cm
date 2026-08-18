@@ -177,7 +177,7 @@ export function HomeScreen({ navigation }: Props) {
 
   function handleNext() {
     if (!departure || !arrival) return;
-    navigation.navigate('Quote', { origin: departure, destination: arrival });
+    navigation.navigate('Quote', { origin: departure, destination: arrival, nearbyDrivers });
   }
 
   function retrySubscription() {

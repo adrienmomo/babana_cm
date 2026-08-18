@@ -1,5 +1,6 @@
 import type { LatLng } from '@babana/maps';
 import type { RideId } from '@babana/navigation';
+import type { http } from '@babana/contracts';
 
 /**
  * Arborescence de l'app Client (L6-00) : une séquence -- accueil, estimation, attente, suivi,
@@ -24,7 +25,16 @@ export interface RidePoint {
 
 export type ClientParamList = {
   Home: undefined;
-  Quote: { origin: RidePoint; destination: RidePoint };
+  Quote: {
+    origin: RidePoint;
+    destination: RidePoint;
+    /** Cliché des chauffeurs proches connus au moment de "Suivant" sur HomeScreen (L3-05) --
+     * choix d'implémentation non spécifié : QuoteScreen n'ouvre pas un second abonnement
+     * `nearby.subscribe` pour la même position, il réutilise celui déjà tenu par HomeScreen.
+     * Un chauffeur qui se désengage entre-temps n'est écarté qu'au moment de la sélection
+     * (le serveur refuse alors avec `DRIVER_ALREADY_TAKEN`, jamais l'app). */
+    nearbyDrivers: readonly http.NearbyDriver[];
+  };
   Waiting: { rideId: RideId };
   DriverRejected: { rideId: RideId };
   Tracking: { rideId: RideId };

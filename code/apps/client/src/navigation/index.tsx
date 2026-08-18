@@ -7,6 +7,7 @@ import { apiClient, authClient, onSessionLost } from '../auth';
 import { bootstrap } from '../bootstrap';
 import { SignInScreen } from '../screens/SignInScreen';
 import { HomeScreen } from '../screens/HomeScreen';
+import { QuoteScreen } from '../screens/QuoteScreen';
 import type { AuthParamList, ClientParamList } from './types';
 
 const AuthStack = createNativeStackNavigator<AuthParamList>();
@@ -108,9 +109,7 @@ function ClientNavigator() {
   return (
     <ClientStack.Navigator initialRouteName="Home">
       <ClientStack.Screen name="Home" component={HomeScreen} />
-      <ClientStack.Screen name="Quote">
-        {() => <PlaceholderScreen title="Estimation" task="L6-07" />}
-      </ClientStack.Screen>
+      <ClientStack.Screen name="Quote" component={QuoteScreen} />
       <ClientStack.Screen name="Waiting">
         {() => <PlaceholderScreen title="Attente" task="L6-08" />}
       </ClientStack.Screen>

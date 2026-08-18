@@ -121,3 +121,62 @@ service temps réel (`npm test`, `services/realtime`) : le flake déjà document
 (`DisconnectGraceTimers`, J14 rapport §4, minuteurs sous charge combinée) réapparaît de façon
 intermittente, reconfirmé isolé (3/3 tests verts) -- sans rapport avec cette nuit, non traité
 comme convenu (« à traiter quand il gênera »).
+
+---
+
+## L6-07 — estimation, détail décomposé, choix du chauffeur
+
+`QuoteScreen.tsx` : appel à `/quote` au montage et à chaque changement de gamme (toggle
+Standard/Confort, toujours proposé -- rien ne dit aujourd'hui côté serveur qu'une gamme serait
+indisponible dans une zone, donc pas de condition à vérifier avant de l'afficher). Montant en
+gros, détail décomposé juste dessous **sans dépliant** (D20, critère 1) : prise en charge,
+distance toujours affichées ; majoration, remise, ajustement plancher, arrondi seulement quand
+non nulles -- une ligne à zéro ne change rien à la somme, l'identité « les composantes affichées
+somment exactement le total » (L2-03, critère 4) tient donc qu'elle soit montrée ou non. Distance
+et ETA corrigé (`≈ N min`, É8/L10-03 -- le facteur vaut 1.0 aujourd'hui, non calibré, donc pas de
+fausse précision à la minute ni à la seconde). Compte à rebours de validité ; à expiration,
+`USER_MESSAGES.QUOTE_EXPIRED` et un bouton « Réactualiser », jamais un échec sec.
+
+**Aucun calcul de tarif dans l'app** (critère 5) : `quote.amount` et `quote.breakdown` sont
+affichés tels que reçus. La seule arithmétique côté client est `Math.abs()` pour l'affichage du
+signe de la remise -- pas une règle métier, une mise en forme.
+
+**Les 5 chauffeurs viennent d'un cliché, pas d'un second abonnement.** `HomeScreen` passe sa
+liste `nearbyDrivers` (déjà tenue à jour en direct par L3-05) dans les paramètres de navigation
+plutôt que de faire ouvrir à `QuoteScreen` un second `nearby.subscribe` pour la même position --
+choix d'implémentation non spécifié, documenté dans `navigation/types.ts`. Conséquence acceptée :
+la liste ne bouge plus une fois sur `QuoteScreen`, jusqu'à la sélection. Le serveur reste
+l'arbitre final (`DRIVER_ALREADY_TAKEN` si un chauffeur affiché a été pris entre-temps, invariant
+4) -- l'app n'affiche jamais une disponibilité qu'elle n'a pas vérifiée elle-même, elle affiche ce
+que L3-05 lui a donné, et laisse le serveur trancher à la sélection.
+
+`DriverCard.tsx` (nouveau) : toute la carte est la zone de sélection, pas un bouton à viser à
+part -- terminal d'entrée de gamme, geste le plus direct possible. Mise en forme (distance par
+paliers, « Nouveau » plutôt qu'une note à zéro, gamme) extraite de `DriverMarker.tsx` vers
+`driverFormatting.ts` : les deux composants affichent le même `NearbyDriver` sous deux formes,
+la règle d'affichage ne doit être écrite qu'une fois.
+
+**Fichiers.** `apps/client/src/screens/QuoteScreen.tsx` (nouveau), `components/DriverCard.tsx`
+(nouveau), `components/driverFormatting.ts` (nouveau, extrait de `DriverMarker.tsx`),
+`navigation/types.ts` (`Quote` gagne `nearbyDrivers`), `navigation/index.tsx` (branché,
+remplace le `PlaceholderScreen`), `screens/HomeScreen.tsx` (`handleNext` transmet la liste).
+
+**Vérification.** `@babana/client` : 51 tests (8 nouveaux pour `QuoteScreen`, 2 pour
+`DriverCard`, `DriverMarker` inchangé après extraction). `tsc --noEmit` et `eslint` propres.
+Un piège de test noté pour la suite : `toLocaleString('fr-FR')` sépare les milliers par une
+espace fine insécable (U+202F), invisible dans un éditeur -- comparer contre la même fonction,
+jamais contre une chaîne de test tapée à la main avec une espace ordinaire (le premier jet de ces
+tests échouait pour cette seule raison). Deuxième piège : un `setInterval` réel (le compte à
+rebours) qui survit à la fin d'un test tant que le rendu n'est pas démonté explicitement --
+`react-test-renderer` ne démonte rien tout seul entre les tests d'un même fichier, contrairement
+à ce qu'on pourrait supposer. Consigné dans `code/docs/odoo-pitfalls.md` ? Non -- ce n'est pas un
+piège Odoo, c'est un piège Jest/RN ; à documenter si un deuxième écran avec compte à rebours le
+reproduit.
+
+**Ce qui me laisse un doute pour un client réel.** Le cliché de chauffeurs ne se corrige jamais
+pendant que le client compare et hésite sur `QuoteScreen` -- si l'estimation prend son temps à
+lire, un des cinq peut avoir disparu du pool sans que rien ne le signale avant le tap. Le
+`DRIVER_ALREADY_TAKEN` renvoyé à la sélection est correct et sûr, mais l'expérience est mauvaise :
+un message d'erreur générique plutôt qu'un rafraîchissement discret de la carte concernée. Ce
+n'est pas un défaut de cette tâche au sens des critères d'acceptation, mais c'est le genre
+d'aspérité qu'un utilisateur réel remarque à la deuxième course.
