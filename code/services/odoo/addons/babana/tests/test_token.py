@@ -122,7 +122,7 @@ class TestBabanaToken(TransactionCase):
 
         # try/except plutôt que self.assertRaises : la version Odoo de assertRaises
         # (TransactionCase) ouvre un savepoint qu'elle annule à la sortie -- ça annulerait la
-        # révocation de famille et l'effacement de next_raw_token que les assertions suivantes
+        # révocation de famille et l'effacement de next_token_ciphertext que les assertions suivantes
         # veulent précisément observer (même piège que
         # test_reusing_a_rotated_token_revokes_the_whole_family).
         try:
@@ -136,7 +136,53 @@ class TestBabanaToken(TransactionCase):
         with self.assertRaises(TokenReused):
             self.env["babana.token"]._rotate(second)
         # Le couple rejouable ne doit plus traîner en base une fois la fenêtre reconnue dépassée.
-        self.assertFalse(rotated_record.next_raw_token)
+        self.assertFalse(rotated_record.next_token_ciphertext)
+
+    # --- D37 : le remplaçant rejouable ne survit jamais en clair -------------------------------
+
+    def test_next_token_is_never_stored_in_clear(self):
+        # Critère 3 ter : lit la table, pas le champ par son nom -- sinon on ne prouve que
+        # "le champ qu'on a choisi de lire est absent", pas que la valeur en clair n'existe
+        # nulle part sur la ligne. C'est le test qui aurait échoué contre l'implémentation
+        # d'avant D37 (amoa/questions/REPONSES-2026-08-23.md §1).
+        first = self.env["babana.token"]._issue_family(self.user)
+        _, second = self.env["babana.token"]._rotate(first)
+
+        # flush_recordset() : un write() n'est pas garanti poussé en base avant la requête SQL
+        # brute qui suit dans la même transaction (code/docs/odoo-pitfalls.md).
+        rotated_record = self.env["babana.token"].sudo().search(
+            [("token_hash", "=", self.env["babana.token"]._hash(first))]
+        )
+        rotated_record.flush_recordset(["token_hash", "next_token_ciphertext"])
+
+        self.env.cr.execute(
+            "SELECT token_hash, next_token_ciphertext FROM babana_token WHERE token_hash = %s",
+            (self.env["babana.token"]._hash(first),),
+        )
+        token_hash, ciphertext = self.env.cr.fetchone()
+        self.assertNotEqual(token_hash, second)
+        self.assertIsNotNone(ciphertext)
+        self.assertNotIn(second, ciphertext)
+
+    def test_cron_purges_ciphertext_past_grace_window_even_if_nobody_returns(self):
+        # Critère 3 quater, le cas normal : un client qui renouvelle et ne repasse jamais avec
+        # l'ancien jeton -- personne ne déclenche jamais l'effacement en présentant `first` à
+        # nouveau, seule la tâche périodique peut donc le faire.
+        self._set_grace_seconds(10)
+        first = self.env["babana.token"]._issue_family(self.user)
+        self.env["babana.token"]._rotate(first)
+
+        rotated_record = self.env["babana.token"].sudo().search(
+            [("token_hash", "=", self.env["babana.token"]._hash(first))]
+        )
+        self.assertTrue(rotated_record.next_token_ciphertext)  # encore dans la fenêtre
+
+        rotated_record.write({"rotated_at": Datetime.now() - timedelta(seconds=11)})
+        rotated_record.flush_recordset(["rotated_at"])
+
+        self.env["babana.token"]._cron_purge_expired_replay_ciphertext()
+
+        self.assertFalse(rotated_record.next_token_ciphertext)
 
     def test_reusing_an_explicitly_revoked_token_ignores_the_grace_window(self):
         # Un jeton "revoked" (vol déjà détecté, suspension, déconnexion explicite) ne bénéficie

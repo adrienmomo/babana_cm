@@ -8,6 +8,9 @@ USER root
 #   L0-08), Google en production. Choix retenu plutôt que la bibliothèque officielle
 #   google-auth, dont l'API haut niveau ne permet pas de pointer vers une URL JWKS de test —
 #   ce qui aurait exigé une branche conditionnelle, interdite par le principe directeur de D19.
+#   L'extra [crypto] installe `cryptography`, dont babana_token.py importe directement AESGCM
+#   depuis L1-02R (D37, 23 août) : pas de dépendance nouvelle, seulement un usage direct d'une
+#   bibliothèque déjà tirée transitivement -- à signaler si elle cessait de l'être.
 # - boto3 : client S3, compatible MinIO (L1-05).
 # - requests : client HTTP sortant vers le service temps réel (REALTIME_INTERNAL_URL).
 # --break-system-packages : la base Debian de l'image odoo:18 applique PEP 668
