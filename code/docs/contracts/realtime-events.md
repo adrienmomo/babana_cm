@@ -78,7 +78,7 @@ côté service temps réel (invariant 5).
 | `nearby.subscribe.ack` | Client | `{ accepted: true }` ou `{ accepted: false, retryAfterMs }` | Accusé de réception de `nearby.subscribe` |
 | `ride.proposed` | Client | `{ rideId, driverId, proposalExpiresAt }` | Le chauffeur choisi a été réservé |
 | `ride.assigned` | Client | `{ rideId, driverId }` | Le chauffeur a accepté |
-| `ride.rejected` | Client | `{ rideId }` | Le chauffeur a refusé ou le délai a expiré |
+| `ride.rejected` | Client | `{ rideId, driverId, reason }` | Le chauffeur a refusé ou le délai a expiré |
 | `driver.position` | Client | `{ rideId, position }` | Suivi pendant une course affectée ou en cours |
 | `ride.started` | Client | `{ rideId }` | Transition `→ in_progress` |
 | `ride.completed` | Client | `{ rideId, distanceMeters, durationSeconds, amount }` | Transition `→ completed` |
@@ -88,6 +88,13 @@ côté service temps réel (invariant 5).
 concerné par la course — le critère d'acceptation 1 de C-02 porte sur l'émetteur, pas sur le
 nombre de destinataires ; il n'exige pas deux noms de message distincts pour un même événement
 poussé à deux connexions différentes.
+
+`ride.rejected` porte `driverId` et `reason` (`'driver_rejected' | 'driver_timeout'`) depuis le
+23 août (L6-08, `amoa/questions/L3-07.md`) — absents de la première rédaction, alors que L3-07
+(critère 2) promettait déjà au client « un motif distinct de l'expiration » sans le lui donner.
+`driverId` permet à L6-08 d'écarter précisément ce chauffeur de la liste réaffichée ; `reason`
+permet de ne pas confondre un chauffeur qui refuse explicitement d'un chauffeur qui ne répond
+pas, deux situations que le client ne vit pas de la même façon.
 
 `nearby.drivers` réutilise exactement le schéma `NearbyDriver` de C-01 (`GET /drivers/nearby`,
 `packages/contracts/src/http/driver.ts`) : même `.strict()`, mêmes champs, une seule définition

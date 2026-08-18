@@ -193,7 +193,12 @@ describe('exemples valides — serveur vers client', () => {
       RideAssignedMessageSchema.parse({ type: 'ride.assigned', id: randomUUID(), emittedAt: now, payload: { rideId, driverId } })
     );
     assert.doesNotThrow(() =>
-      RideRejectedMessageSchema.parse({ type: 'ride.rejected', id: randomUUID(), emittedAt: now, payload: { rideId } })
+      RideRejectedMessageSchema.parse({
+        type: 'ride.rejected',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: { rideId, driverId, reason: 'driver_rejected' },
+      })
     );
     assert.doesNotThrow(() =>
       DriverPositionMessageSchema.parse({

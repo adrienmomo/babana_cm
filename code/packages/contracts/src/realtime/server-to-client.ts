@@ -97,9 +97,17 @@ export const RideAssignedPayloadSchema = z.object({
 export const RideAssignedMessageSchema = envelopeSchema('ride.assigned', RideAssignedPayloadSchema);
 export type RideAssignedMessage = z.infer<typeof RideAssignedMessageSchema>;
 
-/** Destinataire : client. Le chauffeur a refusé, ou le délai a expiré (transition -> rejected). */
+/**
+ * Destinataire : client. Le chauffeur a refusé, ou le délai a expiré (transition -> rejected).
+ * `driverId` et `reason` ajoutés le 23 août (L6-08, amoa/questions/L3-07.md) : la première
+ * rédaction ne portait que `rideId`, alors que L3-07 (critère 2) promet déjà au client "un motif
+ * distinct de l'expiration" et que L6-08 doit écarter précisément ce chauffeur de la liste
+ * réaffichée -- deux informations que le client ne pouvait pas obtenir de ce message.
+ */
 export const RideRejectedPayloadSchema = z.object({
   rideId: RideIdSchema,
+  driverId: DriverIdSchema,
+  reason: z.enum(['driver_rejected', 'driver_timeout']),
 });
 export const RideRejectedMessageSchema = envelopeSchema('ride.rejected', RideRejectedPayloadSchema);
 export type RideRejectedMessage = z.infer<typeof RideRejectedMessageSchema>;

@@ -159,6 +159,10 @@ describe('ProposalLifecycle (L3-07)', () => {
 
     const clientMessageTypes = clientSocket.messages.map((m) => m.type);
     assert.deepEqual(clientMessageTypes, ['ride.rejected']);
+    // L6-08 a besoin de savoir QUEL chauffeur a refusé (pour l'écarter de la liste actualisée)
+    // et POURQUOI (refus explicite vs expiration -- ce ne sont pas la même chose pour le client,
+    // spécification L6-08) : les deux champs manquaient à la charge utile avant cette nuit.
+    assert.deepEqual(clientSocket.messages[0]!.payload, { rideId, driverId, reason: 'driver_rejected' });
 
     const driverMessageTypes = driverSocket.messages.map((m) => m.type);
     assert.deepEqual(driverMessageTypes, ['proposal.new'], 'aucun proposal.expired sur un refus explicite -- motif distinct de l\'expiration');
@@ -189,6 +193,7 @@ describe('ProposalLifecycle (L3-07)', () => {
 
     const clientMessageTypes = clientSocket.messages.map((m) => m.type);
     assert.deepEqual(clientMessageTypes, ['ride.rejected']);
+    assert.deepEqual(clientSocket.messages[0]!.payload, { rideId, driverId, reason: 'driver_timeout' });
 
     const driverMessageTypes = driverSocket.messages.map((m) => m.type);
     assert.deepEqual(driverMessageTypes, ['proposal.new', 'proposal.expired']);

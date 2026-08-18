@@ -178,7 +178,7 @@ export class ProposalLifecycle {
         type: 'ride.rejected',
         id: randomUUID(),
         emittedAt: new Date().toISOString(),
-        payload: { rideId: record.rideId },
+        payload: { rideId: record.rideId, driverId, reason: 'driver_rejected' },
       });
     }
     return true;
@@ -200,7 +200,7 @@ export class ProposalLifecycle {
         type: 'ride.rejected',
         id: randomUUID(),
         emittedAt: new Date().toISOString(),
-        payload: { rideId: record.rideId },
+        payload: { rideId: record.rideId, driverId, reason: 'driver_timeout' },
       });
       this.sendToDriver(driverId, {
         type: 'proposal.expired',
