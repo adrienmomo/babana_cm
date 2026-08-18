@@ -177,7 +177,13 @@ export function HomeScreen({ navigation }: Props) {
 
   function handleNext() {
     if (!departure || !arrival) return;
-    navigation.navigate('Quote', { origin: departure, destination: arrival, nearbyDrivers });
+    navigation.navigate('Quote', {
+      origin: departure,
+      destination: arrival,
+      nearbyDrivers,
+      excludedDriverIds: [],
+      rejectionStreak: 0,
+    });
   }
 
   function retrySubscription() {

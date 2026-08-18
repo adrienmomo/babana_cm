@@ -140,6 +140,8 @@ describe('HomeScreen (L6-06)', () => {
       origin: { position: DOUALA, label: 'vers Akwa, Douala' },
       destination: { position: ELSEWHERE, label: 'vers Bonapriso, Douala' },
       nearbyDrivers: [],
+      excludedDriverIds: [],
+      rejectionStreak: 0,
     });
   });
 

@@ -173,10 +173,85 @@ rebours) qui survit à la fin d'un test tant que le rendu n'est pas démonté ex
 piège Odoo, c'est un piège Jest/RN ; à documenter si un deuxième écran avec compte à rebours le
 reproduit.
 
-**Ce qui me laisse un doute pour un client réel.** Le cliché de chauffeurs ne se corrige jamais
-pendant que le client compare et hésite sur `QuoteScreen` -- si l'estimation prend son temps à
-lire, un des cinq peut avoir disparu du pool sans que rien ne le signale avant le tap. Le
+**Ce qui me laisse un doute pour un client réel (L6-07).** Le cliché de chauffeurs ne se corrige
+jamais pendant que le client compare et hésite sur `QuoteScreen` -- si l'estimation prend son
+temps à lire, un des cinq peut avoir disparu du pool sans que rien ne le signale avant le tap. Le
 `DRIVER_ALREADY_TAKEN` renvoyé à la sélection est correct et sûr, mais l'expérience est mauvaise :
 un message d'erreur générique plutôt qu'un rafraîchissement discret de la carte concernée. Ce
 n'est pas un défaut de cette tâche au sens des critères d'acceptation, mais c'est le genre
 d'aspérité qu'un utilisateur réel remarque à la deuxième course.
+
+---
+
+## L6-08 — attente, refus, nouvelle sélection (D11)
+
+**Trouvé en lisant L3-07 comme dépendance, avant d'écrire quoi que ce soit d'autre : `ride.rejected`
+ne portait ni `driverId` ni `reason`**, alors que L3-07 (critère 2) promet déjà « un motif distinct
+de l'expiration » et que L6-08 a besoin de savoir quel chauffeur a refusé pour l'écarter. Corrigé
+en premier, commit séparé (L3-07R), test d'abord vu rouge -- détail dans l'entrée L3-07R ci-dessus
+et `amoa/questions/L3-07.md` §3.
+
+**`WaitingScreen.tsx`** : compte à rebours affiché **indicatif** (le serveur reste seul juge de
+l'expiration, spécification L3-07 -- cet écran ne décide jamais lui-même qu'une proposition a
+expiré, il réagit à ce que `ride.assigned`/`ride.rejected` lui apprennent). « Annuler » appelle
+`POST /rides/{id}/cancel`, instrumente l'abandon (critère 5 : rang de refus déjà essuyés + délai
+depuis la sélection -- la donnée de L9-09) et revient à l'accueil.
+
+**`DriverRejectedScreen.tsx`** : le fichier que la spécification liste séparément de
+`WaitingScreen`, mais qui ne demande **aucune interaction** (« pas d'écran intermédiaire, pas de
+confirmation à cliquer ») -- résolu en un écran qui affiche le message honnête puis se referme
+tout seul après 1,8 s, juste le temps de le lire. Le message distingue refus explicite et
+expiration (deux registres de phrases), et varie après plusieurs refus consécutifs plutôt que de
+répéter la même phrase (critère 3) -- testé par l'absence d'identité entre les messages à streak
+0, 1 et 5, pas par une correspondance exacte de texte (peu importe laquelle des trois phrases,
+seulement qu'elles diffèrent).
+
+**Le retour à la sélection réutilise la même course, jamais une seconde.** `POST /rides/{id}/
+select-driver` accepte explicitement `rejected -> proposed` (C-01) : `QuoteScreen` porte
+maintenant `selection.rideId` (absent au premier passage, présent dès la première sélection) et
+saute `createRide` quand il est déjà là. Sans ce détail, chaque refus aurait créé une nouvelle
+`babana.ride`, laissant les précédentes `rejected` orphelines en base -- pas une violation
+d'invariant à la lettre, mais un défaut de hygiène de données qu'il valait mieux éviter à
+l'écriture plutôt que découvrir plus tard.
+
+**Le piège du bouton retour Android est câblé** (`navigation/transitions.ts::replaceWithRideFlow`,
+posé par L6-00 et laissé pour L6-08 -- « appelé par L6-08 dès que POST /rides a répondu »,
+littéralement son propre commentaire). `QuoteScreen` l'utilise au lieu de `navigate()` : la pile
+Home/Quote est remplacée dès qu'une course existe côté serveur, jamais empilée sous Waiting.
+
+**L3-08 n'existe pas, donc l'élargissement de rayon ne peut pas être réel ce soir.** Écart complet
+dans `amoa/questions/L6-08.md` : ce qui a un vrai support serveur (refus nommé, exclusion,
+variation du message) est implémenté et testé sans rien de fictif ; ce qui en dépendait
+(élargissement par paliers, `NO_DRIVER_AVAILABLE` réel) est remplacé par un retour honnête à
+l'accueil quand les cinq chauffeurs connus sont tous épuisés -- jamais une fausse promesse de
+recherche en cours (spécification, critère 4 : « ne pas laisser croire qu'une recherche continue
+en arrière-plan »).
+
+**Fichiers.** `apps/client/src/screens/WaitingScreen.tsx` (nouveau),
+`screens/DriverRejectedScreen.tsx` (nouveau), `screens/QuoteScreen.tsx` (réutilisation de
+`rideId`, filtre `excludedDriverIds`, état `NO_DRIVER_AVAILABLE`, `replaceWithRideFlow`),
+`navigation/types.ts` (`RideSelectionContext` partagé entre `Quote`/`Waiting`/`DriverRejected`),
+`navigation/index.tsx` (branchés), `navigation/transitions.ts` + son test (params complets).
+Côté L3-07R : `packages/contracts/src/realtime/server-to-client.ts`,
+`services/realtime/src/proposal/lifecycle.ts`, leurs tests, `docs/contracts/realtime-events.md`.
+
+**Vérification.** `@babana/client` : 64 tests (6 `WaitingScreen`, 4 `DriverRejectedScreen`, 6
+`QuoteScreen` nouveaux pour la réutilisation de course/l'exclusion/`NO_DRIVER_AVAILABLE`, 1
+`transitions` mis à jour). `tsc --noEmit` et `eslint` propres. `services/realtime` :
+`test/proposal.test.ts` isolé, 7/7 -- en suite complète, un flake sous charge combinée y est
+apparu pour la première fois cette nuit (`critère 1`, acceptation), même famille que
+`DisconnectGraceTimers` (minuteurs, J14 rapport §4) : reconfirmé isolé avant d'écrire cette phrase,
+non traité, la décision du 22 août reste (« allonger les délais masquerait le vrai comportement »)
+-- un quatrième fichier touché par la même cause, à sérialiser plutôt que ralentir quand ça
+gênera vraiment.
+
+**Ce qui me laisse un doute pour un client réel (L6-08).** Le délai fixe de 1,8 s sur
+`DriverRejectedScreen` est une estimation de « temps de lecture d'une phrase courte », pas une
+mesure -- trop court pour quelqu'un qui lit lentement ou qui est distrait par la moto qui arrive,
+trop long pour quelqu'un qui veut enchaîner vite. Rien dans la spécification ne dit s'il doit être
+interruptible (toucher l'écran pour avancer plus tôt) ; je ne l'ai pas rendu interruptible, par
+cohérence avec « pas de confirmation à cliquer » -- mais un client pressé le vivra comme une
+attente imposée, aussi courte soit-elle. Et le doute le plus sérieux reste celui déjà écrit dans
+`amoa/questions/L6-08.md` : sans L3-08, un client dont les cinq chauffeurs proches refusent tous
+un par un se retrouve renvoyé à l'accueil après cinq allers-retours d'écran -- correct et honnête,
+mais laborieux comparé à ce qu'un élargissement automatique de rayon offrirait.

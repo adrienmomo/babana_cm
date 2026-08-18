@@ -2,11 +2,12 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '@babana/ui';
-import { asRideId } from '@babana/navigation';
+import { asDriverId, asRideId } from '@babana/navigation';
 import { ApiError, USER_MESSAGES, translateApiError } from '@babana/api-client';
 import type { http } from '@babana/contracts';
 import { apiClient } from '../auth';
 import { DriverCard } from '../components/DriverCard';
+import { replaceWithRideFlow } from '../navigation/transitions';
 import type { ClientParamList } from '../navigation/types';
 
 /**
@@ -62,7 +63,12 @@ function remainingSeconds(expiresAt: string): number {
 }
 
 export function QuoteScreen({ route, navigation }: Props) {
-  const { origin, destination, nearbyDrivers } = route.params;
+  const selection = route.params;
+  const { origin, destination, nearbyDrivers, excludedDriverIds, rejectionStreak } = selection;
+  // Chauffeurs déjà refusés sur cette course (L6-08, critère 2) -- jamais réaffichés. Filtré ici
+  // plutôt que dans le paramètre de navigation lui-même : `nearbyDrivers` reste le cliché brut,
+  // la règle d'exclusion est une seule fois écrite, à l'endroit qui l'applique.
+  const availableDrivers = nearbyDrivers.filter((driver) => !excludedDriverIds.includes(driver.driverId));
   const [vehicleClass, setVehicleClass] = useState<http.VehicleClass>('standard');
   const [quote, setQuote] = useState<http.QuoteResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -126,14 +132,30 @@ export function QuoteScreen({ route, navigation }: Props) {
     setSelecting(true);
     setSelectError(null);
     try {
-      const ride = (await apiClient.request('createRide', {
-        body: { quoteId: quote.quoteId },
-      })) as http.CreateRideResponse;
+      // Une course existe déjà dès le deuxième passage (un refus précédent) : le contrat (C-01)
+      // accepte `rejected -> proposed` sur la MÊME course précisément pour ce cas -- créer une
+      // seconde course pour la même demande serait une écriture superflue (invariant 1, en
+      // esprit) et laisserait la première `rejected` orpheline en base.
+      let rideId = selection.rideId;
+      if (!rideId) {
+        const ride = (await apiClient.request('createRide', { body: { quoteId: quote.quoteId } })) as http.CreateRideResponse;
+        rideId = asRideId(ride.id);
+      }
       const proposal = (await apiClient.request('selectDriver', {
-        pathParams: { id: ride.id },
+        pathParams: { id: rideId },
         body: { driverId },
       })) as http.SelectDriverResponse;
-      navigation.navigate('Waiting', { rideId: asRideId(proposal.id) });
+      // Le piège du bouton retour Android (L6-00, `navigation/transitions.ts`) : la pile
+      // Home/Quote est remplacée, pas empilée sous Waiting -- un retour depuis l'attente ne doit
+      // jamais ramener à une estimation d'une course qui existe désormais côté serveur.
+      replaceWithRideFlow(navigation, {
+        rideId: asRideId(proposal.id),
+        driverId: asDriverId(driverId),
+        proposalExpiresAt: proposal.proposalExpiresAt,
+        amount: proposal.amount,
+        selectedAt: Date.now(),
+        selection: { ...selection, rideId: asRideId(proposal.id) },
+      });
     } catch (cause) {
       setSelectError(cause instanceof ApiError ? translateApiError(cause) : 'La sélection a échoué. Réessayez.');
       setSelecting(false);
@@ -205,11 +227,32 @@ export function QuoteScreen({ route, navigation }: Props) {
 
       {selectError ? <Text style={styles.errorText}>{selectError}</Text> : null}
 
-      <View style={styles.driversList}>
-        {nearbyDrivers.map((driver) => (
-          <DriverCard key={driver.driverId} driver={driver} onSelect={handleSelectDriver} disabled={!quote || expired || selecting} />
-        ))}
-      </View>
+      {availableDrivers.length === 0 ? (
+        // Critère 4 (L6-08) : le contrat prévoit NO_DRIVER_AVAILABLE pour un élargissement de
+        // rayon (L3-08) qui n'existe pas encore côté serveur ce soir -- écart consigné dans
+        // amoa/questions/L6-08.md. Cet état, lui, est réel : les cinq chauffeurs connus ont tous
+        // été écartés. Même message que le catalogue C-01 pour rester cohérent avec le jour où
+        // L3-08 existera, même bouton -- retour à l'accueil pour une liste vraiment fraîche,
+        // jamais une fausse promesse de recherche en cours.
+        <View style={styles.errorBox} testID="no-driver-available">
+          <Text style={styles.errorText}>{USER_MESSAGES.NO_DRIVER_AVAILABLE}</Text>
+          <Button testID="back-to-home" label="Retour à l'accueil" variant="secondary" onPress={() => navigation.navigate('Home')} />
+        </View>
+      ) : (
+        <View style={styles.driversList}>
+          {availableDrivers.map((driver) => (
+            <DriverCard key={driver.driverId} driver={driver} onSelect={handleSelectDriver} disabled={!quote || expired || selecting} />
+          ))}
+        </View>
+      )}
+
+      {rejectionStreak > 0 && availableDrivers.length > 0 ? (
+        <Text style={styles.rejectionHint} testID="rejection-hint">
+          {rejectionStreak >= 3
+            ? 'Toujours personne de disponible parmi les chauffeurs proches -- essayez-en un autre, ou retournez à l’accueil pour élargir la recherche.'
+            : 'Choisissez un autre chauffeur.'}
+        </Text>
+      ) : null}
     </ScrollView>
   );
 }
@@ -272,5 +315,9 @@ const styles = StyleSheet.create({
   },
   driversList: {
     gap: 8,
+  },
+  rejectionHint: {
+    fontSize: 12,
+    color: '#6B7280',
   },
 });

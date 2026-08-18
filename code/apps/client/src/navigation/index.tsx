@@ -8,6 +8,8 @@ import { bootstrap } from '../bootstrap';
 import { SignInScreen } from '../screens/SignInScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { QuoteScreen } from '../screens/QuoteScreen';
+import { WaitingScreen } from '../screens/WaitingScreen';
+import { DriverRejectedScreen } from '../screens/DriverRejectedScreen';
 import type { AuthParamList, ClientParamList } from './types';
 
 const AuthStack = createNativeStackNavigator<AuthParamList>();
@@ -110,12 +112,8 @@ function ClientNavigator() {
     <ClientStack.Navigator initialRouteName="Home">
       <ClientStack.Screen name="Home" component={HomeScreen} />
       <ClientStack.Screen name="Quote" component={QuoteScreen} />
-      <ClientStack.Screen name="Waiting">
-        {() => <PlaceholderScreen title="Attente" task="L6-08" />}
-      </ClientStack.Screen>
-      <ClientStack.Screen name="DriverRejected">
-        {() => <PlaceholderScreen title="Chauffeur indisponible" task="L6-08" />}
-      </ClientStack.Screen>
+      <ClientStack.Screen name="Waiting" component={WaitingScreen} />
+      <ClientStack.Screen name="DriverRejected" component={DriverRejectedScreen} />
       <ClientStack.Screen name="Tracking">
         {() => <PlaceholderScreen title="Suivi de course" task="L6-09" />}
       </ClientStack.Screen>

@@ -1,5 +1,5 @@
 import type { LatLng } from '@babana/maps';
-import type { RideId } from '@babana/navigation';
+import type { DriverId, RideId } from '@babana/navigation';
 import type { http } from '@babana/contracts';
 
 /**
@@ -23,20 +23,46 @@ export interface RidePoint {
   label: string;
 }
 
+/**
+ * Paramètres transportés d'écran en écran tout au long d'une course qui n'a pas encore été
+ * affectée (L6-07, L6-08) : origine et destination désignées sur HomeScreen, le cliché des
+ * chauffeurs proches (L3-05), et l'état de la boucle de refus -- ceux déjà écartés et le rang du
+ * refus courant. `Quote` les reçoit tous en entrée, `Waiting` et `DriverRejected` les font
+ * simplement voyager jusqu'au prochain passage par `Quote` (voir D11, L6-08 : un refus ramène à
+ * la sélection, jamais à une attribution automatique).
+ */
+export interface RideSelectionContext {
+  origin: RidePoint;
+  destination: RidePoint;
+  nearbyDrivers: readonly http.NearbyDriver[];
+  excludedDriverIds: readonly string[];
+  rejectionStreak: number;
+  /** Absent au premier passage (aucune course encore créée). Présent dès qu'un chauffeur a été
+   * sélectionné une première fois : `POST /rides/{id}/select-driver` accepte la transition
+   * `rejected -> proposed` (C-01) précisément pour ce cas -- reproposer la même course à un
+   * autre chauffeur, jamais en créer une seconde pour la même demande. */
+  rideId?: RideId;
+}
+
 export type ClientParamList = {
   Home: undefined;
-  Quote: {
-    origin: RidePoint;
-    destination: RidePoint;
-    /** Cliché des chauffeurs proches connus au moment de "Suivant" sur HomeScreen (L3-05) --
-     * choix d'implémentation non spécifié : QuoteScreen n'ouvre pas un second abonnement
-     * `nearby.subscribe` pour la même position, il réutilise celui déjà tenu par HomeScreen.
-     * Un chauffeur qui se désengage entre-temps n'est écarté qu'au moment de la sélection
-     * (le serveur refuse alors avec `DRIVER_ALREADY_TAKEN`, jamais l'app). */
-    nearbyDrivers: readonly http.NearbyDriver[];
+  Quote: RideSelectionContext;
+  Waiting: {
+    rideId: RideId;
+    driverId: DriverId;
+    proposalExpiresAt: string;
+    amount: number;
+    /** Horodatage de la sélection (Date.now()) -- L6-08 critère 5 : instrumenter chaque abandon
+     * avec son délai suppose de savoir depuis quand le client attend. */
+    selectedAt: number;
+    selection: RideSelectionContext;
   };
-  Waiting: { rideId: RideId };
-  DriverRejected: { rideId: RideId };
+  DriverRejected: {
+    rideId: RideId;
+    driverId: DriverId;
+    reason: 'driver_rejected' | 'driver_timeout';
+    selection: RideSelectionContext;
+  };
   Tracking: { rideId: RideId };
   RideSummary: { rideId: RideId };
   History: undefined;

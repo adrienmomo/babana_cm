@@ -50,7 +50,7 @@ function quoteResponse(overrides: Partial<http.QuoteResponse> = {}): http.QuoteR
 }
 
 function fakeNavigation() {
-  return { navigate: jest.fn() };
+  return { navigate: jest.fn(), reset: jest.fn() };
 }
 
 // QuoteScreen tient un setInterval réel (compte à rebours de validité) -- sans démontage
@@ -66,7 +66,14 @@ afterEach(async () => {
 });
 
 async function renderQuote(
-  params: { origin?: typeof ORIGIN; destination?: typeof DESTINATION; nearbyDrivers?: http.NearbyDriver[] } = {},
+  params: {
+    origin?: typeof ORIGIN;
+    destination?: typeof DESTINATION;
+    nearbyDrivers?: http.NearbyDriver[];
+    excludedDriverIds?: string[];
+    rejectionStreak?: number;
+    rideId?: string;
+  } = {},
   navigation = fakeNavigation()
 ): Promise<{ root: ReactTestRenderer; navigation: ReturnType<typeof fakeNavigation> }> {
   const route = {
@@ -76,6 +83,9 @@ async function renderQuote(
       origin: params.origin ?? ORIGIN,
       destination: params.destination ?? DESTINATION,
       nearbyDrivers: params.nearbyDrivers ?? [driver()],
+      excludedDriverIds: params.excludedDriverIds ?? [],
+      rejectionStreak: params.rejectionStreak ?? 0,
+      rideId: params.rideId,
     },
   };
   let root!: ReactTestRenderer;
@@ -199,11 +209,12 @@ describe('QuoteScreen (L6-07)', () => {
     jest.useRealTimers();
   });
 
-  it("choisir un chauffeur crée la course puis l'affecte, et navigue vers l'attente", async () => {
+  it("choisir un chauffeur crée la course puis l'affecte, et remplace la pile par l'attente (L6-00)", async () => {
+    const proposalExpiresAt = new Date(Date.now() + 30_000).toISOString();
     mockRequest.mockImplementation(async (name: string) => {
       if (name === 'quote') return quoteResponse();
       if (name === 'createRide') return { id: 'ride-1', state: 'requested' };
-      if (name === 'selectDriver') return { id: 'ride-1', state: 'proposed', proposalExpiresAt: new Date().toISOString() };
+      if (name === 'selectDriver') return { id: 'ride-1', state: 'proposed', amount: 1200, currency: 'XAF', proposalExpiresAt };
       throw new Error(`unexpected call: ${name}`);
     });
     const { root, navigation } = await renderQuote({ nearbyDrivers: [driver({ driverId: 'chosen' })] });
@@ -217,7 +228,55 @@ describe('QuoteScreen (L6-07)', () => {
       'selectDriver',
       expect.objectContaining({ pathParams: { id: 'ride-1' }, body: { driverId: 'chosen' } })
     );
-    expect(navigation.navigate).toHaveBeenCalledWith('Waiting', { rideId: 'ride-1' });
+    // navigation.reset() (replaceWithRideFlow, navigation/transitions.ts), jamais navigate() --
+    // un retour depuis l'attente ne doit pas ramener à cette estimation (piège du bouton retour
+    // Android, L6-00).
+    expect(navigation.reset).toHaveBeenCalledWith(
+      expect.objectContaining({
+        index: 0,
+        routes: [expect.objectContaining({ name: 'Waiting', params: expect.objectContaining({ rideId: 'ride-1', driverId: 'chosen' }) })],
+      })
+    );
+    expect(navigation.navigate).not.toHaveBeenCalledWith('Waiting', expect.anything());
+  });
+
+  it('une course déjà créée (retour après un refus) réutilise le même rideId, sans nouveau createRide', async () => {
+    mockRequest.mockImplementation(async (name: string) => {
+      if (name === 'quote') return quoteResponse();
+      if (name === 'selectDriver') return { id: 'ride-1', state: 'proposed', amount: 1200, currency: 'XAF', proposalExpiresAt: new Date().toISOString() };
+      throw new Error(`unexpected call: ${name}`);
+    });
+    const { root } = await renderQuote({ nearbyDrivers: [driver({ driverId: 'second-choice' })], rideId: 'ride-1' });
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'driver-card-second-choice' }).props.onPress();
+    });
+
+    expect(mockRequest).not.toHaveBeenCalledWith('createRide', expect.anything());
+    expect(mockRequest).toHaveBeenCalledWith(
+      'selectDriver',
+      expect.objectContaining({ pathParams: { id: 'ride-1' }, body: { driverId: 'second-choice' } })
+    );
+  });
+
+  it('critère 2 (L6-08) : un chauffeur déjà refusé sur cette course ne réapparaît plus', async () => {
+    const drivers = [driver({ driverId: 'refused' }), driver({ driverId: 'still-here', firstName: 'Aminata' })];
+    const { root } = await renderQuote({ nearbyDrivers: drivers, excludedDriverIds: ['refused'] });
+
+    expect(root.root.findAllByProps({ testID: 'driver-card-refused' })).toHaveLength(0);
+    expect(root.root.findByProps({ testID: 'driver-card-still-here' })).toBeTruthy();
+  });
+
+  it('critère 4 (L6-08) : plus aucun chauffeur disponible après exclusion -- message clair, pas de fausse attente', async () => {
+    const { root } = await renderQuote({ nearbyDrivers: [driver({ driverId: 'refused' })], excludedDriverIds: ['refused'] });
+
+    expect(root.root.findByProps({ testID: 'no-driver-available' })).toBeTruthy();
+    expect(root.root.findAllByProps({ testID: 'driver-card-refused' })).toHaveLength(0);
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'back-to-home' }).props.onPress();
+    });
+    expect(root.root.findAllByProps({ testID: 'driver-card-refused' })).toHaveLength(0);
   });
 
   it('une estimation en échec (ROUTE_UNAVAILABLE) affiche un message et un bouton de réessai', async () => {
