@@ -196,6 +196,10 @@ Ce qui compte au-delà de ce cas : **un défaut de cache ne doit jamais retirer 
 
 **Cinq résultats, vraiment cinq** (ajouté le 16 août). L3-03 filtre les chauffeurs dont la position a expiré au moment de la requête, en sur-échantillonnant d'un facteur fixe pour absorber ce filtrage. Cela suppose qu'au plus une fraction du pool soit périmée — vrai en régime normal, faux après une coupure réseau généralisée, qui est le cas courant à Douala. Cette tâche doit donc **compléter jusqu'à cinq**, par élargissement ou par nouvelle requête, plutôt que de renvoyer deux chauffeurs parce que le sur-échantillonnage n'a pas suffi. Un client qui voit deux chauffeurs au lieu de cinq croit que la ville est vide.
 
+**Un abonnement refusé le dit (ajouté le 23 août).** La limitation de débit ignore aujourd'hui l'abonnement en trop, sans rien renvoyer. Côté application, rien ne distingue alors « il n'y a aucun chauffeur près de vous » de « votre demande n'a pas été prise en compte » — et un client qui insiste sur un bouton « Réessayer » peut cesser d'être servi sans qu'aucun élément de l'écran ne le lui indique. Un silence est le pire retour possible pour une limitation de débit : il pousse exactement au comportement qui l'aggrave.
+
+C-02 gagne donc un accusé de réception pour `nearby.subscribe` — accepté, ou refusé avec un délai avant nouvelle tentative.
+
 ### Critères d'acceptation
 
 1. Un rayon demandé supérieur au plafond est ramené au plafond, sans erreur.

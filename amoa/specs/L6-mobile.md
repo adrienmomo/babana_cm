@@ -312,6 +312,14 @@ Aucun chauffeur disponible : message clair proposant de réessayer, sans écran 
 
 Les positions affichées sont arrondies (L3-05) : ne pas afficher de distance au mètre près, ce serait une précision mensongère.
 
+**Trois précisions ajoutées le 23 août**, toutes issues des doutes que l'implémentation a soulevés d'elle-même. Aucune n'est un défaut de l'écran ; toutes les trois portent sur ce qu'un client réel comprendra.
+
+**Le libellé rendu par le géocodage inverse est une indication, jamais un fait.** Dans les quartiers non cartographiés — la majeure partie de Douala hors des grands axes — l'API ne répond pas « je ne sais pas » : elle rend le repère connu le plus proche, qui peut être à plusieurs centaines de mètres du réticule. Un libellé affiché comme une adresse exacte est donc régulièrement faux, et rien ne l'indique. Il se présente sous une forme qui dit son approximation — « vers <lieu> » plutôt que le nom seul — et l'interface rappelle que **c'est le point sur la carte qui fait foi**. C'est une correction de formulation, pas un appel de plus.
+
+**Les trois causes d'échec de la géolocalisation ne se ressemblent pas et ne doivent pas produire le même écran.** Un refus de permission se règle dans les réglages du téléphone ; un GPS indisponible se règle en sortant d'un bâtiment ; un délai dépassé se règle en réessayant. Les confondre dans un unique message générique laisse l'utilisateur sans la seule information qui lui servirait — quoi faire. Le départ reste désignable à la main dans les trois cas.
+
+**Un abonnement refusé pour limitation de débit doit se voir.** Le serveur ignore silencieusement un abonnement au-delà de la limite (L3-05) : un client qui tape plusieurs fois « Réessayer » peut donc cesser d'être servi sans qu'aucun élément ne le lui dise. C-02 gagne un accusé de réception pour `nearby.subscribe`, et l'écran distingue « aucun chauffeur à proximité » de « votre demande n'a pas été prise en compte, patientez » — deux situations que rien ne distingue aujourd'hui, et qui appellent des réactions opposées.
+
 ### Critères d'acceptation
 
 1. Les deux moyens de désignation fonctionnent.

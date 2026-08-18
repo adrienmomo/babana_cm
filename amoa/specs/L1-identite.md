@@ -97,6 +97,14 @@ Un jeton consommé depuis moins d'une fenêtre configurable **renvoie donc le m�
 
 Le couple rejoué est celui déjà émis, jamais un nouveau : sinon deux appareils repartiraient avec deux familles vivantes issues du même jeton, ce qui est précisément ce que la rotation cherche à rendre impossible.
 
+**Le remplaçant est conservé chiffré, avec une clé dérivée du jeton présenté (D37, 23 août).** Rejouer un jeton à l'identique suppose de l'avoir gardé sous une forme récupérable, ce qu'un haché ne permet pas — la première rédaction de D36 exigeait donc quelque chose que le principe « seul le haché est stocké » interdit, sans le dire. La première implémentation a résolu la contradiction en gardant le remplaçant **en clair**, et comme il n'est effacé qu'à une représentation tardive de l'ancien jeton — qui n'arrive jamais dans le cas normal —, chaque renouvellement laissait en base, définitivement, le jeton de renouvellement **actuellement valide** de l'utilisateur. Le hachage ne protégeait plus rien.
+
+La sortie tient en une observation : **le client qui a le droit de rejouer est exactement celui qui possède l'ancien jeton.** Le remplaçant est donc chiffré avec une clé dérivée de cet ancien jeton, dont la base ne garde que le haché. Un vidage de base ne donne rien de déchiffrable ; un client qui présente l'ancien jeton fournit du même geste la clé qui déchiffre son remplaçant.
+
+Le jeton d'accès, lui, n'a pas à être rejoué à l'identique : c'est un porteur sans état côté serveur, une réémission fraîche ne casse aucune propriété et donne au client une validité pleine plutôt qu'entamée.
+
+**Rien de récupérable ne survit à la fenêtre.** Passé le délai, le chiffré est effacé — et pas seulement quand quelqu'un vient le redemander : une tâche périodique s'en charge, sans quoi le cas normal, où personne ne repasse jamais, le laisserait en base pour toujours.
+
 Le service temps réel valide le jeton d'accès localement avec le secret partagé, sans appel à Odoo : un appel sortant par connexion WebSocket ne passerait pas à l'échelle.
 
 ### Critères d'acceptation
@@ -104,7 +112,9 @@ Le service temps réel valide le jeton d'accès localement avec le secret partag
 1. Un jeton expiré est refusé avec `TOKEN_EXPIRED`.
 2. Le renouvellement produit un nouveau couple et invalide l'ancien jeton de renouvellement.
 3. La réutilisation d'un jeton de renouvellement consommé **au-delà de la fenêtre de grâce** révoque toute la famille.
-3 bis. **Dans la fenêtre, la réutilisation renvoie le même couple qu'au premier usage** — ni révocation, ni troisième jeton émis. Testé aux deux bornes : juste avant, juste après.
+3 bis. **Dans la fenêtre, la réutilisation renvoie le même jeton de renouvellement qu'au premier usage** — ni révocation, ni troisième jeton émis. Testé aux deux bornes : juste avant, juste après.
+3 ter. **Aucun jeton de renouvellement n'est stockable en clair, à aucun moment.** Un vidage de la base ne doit donner aucun jeton utilisable — vérifié par un test qui lit la table et cherche la valeur en clair d'un jeton réellement émis, plutôt que par relecture.
+3 quater. **Rien ne survit à la fenêtre de grâce, même si personne ne revient.** Testé sur le cas normal — un client qui renouvelle et ne repasse jamais : au-delà du délai, la base ne porte plus rien de déchiffrable.
 4. La suspension d'un chauffeur invalide ses jetons de renouvellement ; il perd l'accès au plus tard à l'expiration de son jeton d'accès courant.
 5. Le service temps réel valide un jeton sans appeler Odoo.
 6. **Un jeton réellement émis par `/auth/google` valide contre `AccessTokenClaimsSchema`** — le test lit le jeton produit, il ne vérifie pas la forme qu'il aurait voulu produire.
