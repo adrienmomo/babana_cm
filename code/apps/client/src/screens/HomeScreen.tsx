@@ -6,7 +6,7 @@ import { Button } from '@babana/ui';
 import type { http, realtime } from '@babana/contracts';
 import { PlacePicker } from '../components/PlacePicker';
 import { DriverMarker } from '../components/DriverMarker';
-import { getCurrentPosition } from '../location';
+import { getCurrentPosition, type LocationFailureReason } from '../location';
 import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import type { ClientParamList, RidePoint } from '../navigation/types';
 
@@ -34,12 +34,33 @@ function isNearbyDriversMessage(message: realtime.ServerToClientMessage): messag
   return message.type === 'nearby.drivers';
 }
 
+function isNearbySubscribeAckMessage(
+  message: realtime.ServerToClientMessage
+): message is realtime.NearbySubscribeAckMessage {
+  return message.type === 'nearby.subscribe.ack';
+}
+
+// Doute L6-06 §1 (amoa/questions/REPONSES-2026-08-23.md §2) : hors des grands axes, le géocodage
+// inverse ne répond jamais "je ne sais pas" -- il rend le repère connu le plus proche, qui peut
+// être à plusieurs centaines de mètres du réticule. Le libellé se présente donc sous une forme
+// qui dit son approximation plutôt que le nom seul ; l'interface rappelle par ailleurs (JSX
+// ci-dessous) que c'est le point sur la carte qui fait foi, pas le texte.
 async function labelFor(position: LatLng): Promise<string> {
   // L'échec du géocodage inverse (Odoo/Google indisponible) ne doit jamais empêcher de désigner
   // un point -- les coordonnées elles-mêmes restent la vérité, seul le libellé se dégrade.
   const label = await reverseGeocode(position).catch(() => null);
-  return label ?? `${position.latitude.toFixed(4)}, ${position.longitude.toFixed(4)}`;
+  return label ? `vers ${label}` : `${position.latitude.toFixed(4)}, ${position.longitude.toFixed(4)}`;
 }
+
+// Doute L6-06 §2 : les trois causes ne se règlent pas de la même façon, le message ne doit plus
+// les confondre. Le départ reste désignable à la main dans les trois cas (spécification).
+const LOCATION_ERROR_MESSAGES: Record<LocationFailureReason, string> = {
+  'permission-denied':
+    'Localisation refusée. Autorisez-la dans les réglages du téléphone, ou désignez votre départ sur la carte.',
+  'position-unavailable':
+    'Position indisponible pour le moment. Vérifiez que le GPS est activé, ou désignez votre départ sur la carte.',
+  timeout: 'La localisation prend du temps. Réessayez, ou désignez votre départ sur la carte.',
+};
 
 export function HomeScreen({ navigation }: Props) {
   const [region, setRegion] = useState<LatLng>(DOUALA_DEFAULT_CENTER);
@@ -47,31 +68,43 @@ export function HomeScreen({ navigation }: Props) {
   const [departure, setDeparture] = useState<RidePoint | null>(null);
   const [arrival, setArrival] = useState<RidePoint | null>(null);
   const [locating, setLocating] = useState(true);
+  const [locationError, setLocationError] = useState<LocationFailureReason | null>(null);
   const [geocoding, setGeocoding] = useState(false);
   const [nearbyDrivers, setNearbyDrivers] = useState<readonly http.NearbyDriver[]>([]);
+  // Accusé de réception d'un abonnement refusé pour limitation de débit (doute L6-06 §3) --
+  // distinct de "aucun chauffeur à proximité" (nearbyDrivers vide), qui reste un état légitime.
+  const [subscribeRefusal, setSubscribeRefusal] = useState<{ retryAfterMs: number } | null>(null);
   // Un abonnement en vol par point de départ (critère 3, mis à jour en direct) -- un identifiant
   // croissant écarte la réponse d'un abonnement déjà remplacé, même raison que PlacePicker pour
   // une recherche texte abandonnée.
   const subscriptionRequest = useRef(0);
 
   // --- Position du client au chargement (D22 : aucune capture ponctuelle n'existait avant ce
-  // soir) -- refus géré sans bloquer l'écran (spécification) : la carte reste sur Douala, le
-  // départ reste à désigner à la main.
+  // soir) -- échec géré sans bloquer l'écran (spécification) : la carte reste sur Douala, le
+  // départ reste à désigner à la main. Factorisée pour être rejouable depuis le bouton
+  // "Réessayer" de la bannière d'échec (doute L6-06 §2).
+  async function loadCurrentPosition(onCancelled: () => boolean) {
+    setLocating(true);
+    const result = await getCurrentPosition();
+    if (onCancelled()) return;
+    setLocating(false);
+    if (result.status === 'error') {
+      setLocationError(result.reason);
+      return;
+    }
+    setLocationError(null);
+    setRegion(result.position);
+    setGeocoding(true);
+    const label = await labelFor(result.position);
+    if (onCancelled()) return;
+    setGeocoding(false);
+    setDeparture({ position: result.position, label });
+    setActiveSlot('arrival');
+  }
+
   useEffect(() => {
     let cancelled = false;
-    (async () => {
-      const position = await getCurrentPosition();
-      if (cancelled) return;
-      setLocating(false);
-      if (!position) return;
-      setRegion(position);
-      setGeocoding(true);
-      const label = await labelFor(position);
-      if (cancelled) return;
-      setGeocoding(false);
-      setDeparture({ position, label });
-      setActiveSlot('arrival');
-    })();
+    loadCurrentPosition(() => cancelled);
     return () => {
       cancelled = true;
     };
@@ -93,7 +126,12 @@ export function HomeScreen({ navigation }: Props) {
 
     const unsubscribeMessages = onRealtimeMessage((message) => {
       if (subscriptionRequest.current !== thisRequest) return;
-      if (isNearbyDriversMessage(message)) setNearbyDrivers(message.payload.drivers);
+      if (isNearbyDriversMessage(message)) {
+        setNearbyDrivers(message.payload.drivers);
+        setSubscribeRefusal(null);
+      } else if (isNearbySubscribeAckMessage(message)) {
+        setSubscribeRefusal(message.payload.accepted ? null : { retryAfterMs: message.payload.retryAfterMs });
+      }
     });
     // Une reconnexion (coupure réseau, le cas courant) rouvre le socket sans mémoire de cet
     // abonnement -- le réémettre à chaque connexion établie, pas seulement à la première, sans
@@ -149,6 +187,10 @@ export function HomeScreen({ navigation }: Props) {
     realtimeClient.send('nearby.subscribe', { position: center, radiusMeters: NEARBY_SUBSCRIBE_RADIUS_METERS });
   }
 
+  function retryLocation() {
+    loadCurrentPosition(() => false);
+  }
+
   const markers: MapMarker[] = [
     ...(departure ? [{ id: 'pickup', kind: 'pickup' as const, position: departure.position, label: 'Départ' }] : []),
     ...(arrival ? [{ id: 'dropoff', kind: 'dropoff' as const, position: arrival.position, label: 'Arrivée' }] : []),
@@ -179,6 +221,13 @@ export function HomeScreen({ navigation }: Props) {
         />
       </View>
 
+      {locationError ? (
+        <View style={styles.locationErrorBanner} testID="location-error">
+          <Text style={styles.locationErrorText}>{LOCATION_ERROR_MESSAGES[locationError]}</Text>
+          <Button testID="retry-location" label="Réessayer" variant="secondary" onPress={retryLocation} />
+        </View>
+      ) : null}
+
       <PlacePicker
         key={activeSlot}
         placeholder={activeSlot === 'departure' ? 'Rechercher le point de départ' : 'Rechercher la destination'}
@@ -192,9 +241,19 @@ export function HomeScreen({ navigation }: Props) {
         </View>
         {geocoding ? <ActivityIndicator style={styles.geocoding} size="small" /> : null}
       </View>
+      {/* Doute L6-06 §1 : le libellé du géocodage inverse est une approximation, jamais un fait
+          -- ce rappel reste visible en permanence, pas seulement pendant le géocodage. */}
+      <Text style={styles.mapTruthHint}>📍 C’est le point sur la carte qui fait foi, le libellé n’est qu’une indication.</Text>
 
       <View style={styles.driversSection}>
-        {nearbyDrivers.length === 0 ? (
+        {subscribeRefusal ? (
+          <View style={styles.noDrivers} testID="subscribe-refused">
+            <Text style={styles.noDriversText}>
+              {`Votre demande n’a pas été prise en compte, patientez ${Math.ceil(subscribeRefusal.retryAfterMs / 1000)} s avant de réessayer.`}
+            </Text>
+            <Button testID="retry-nearby" label="Réessayer" variant="secondary" onPress={retrySubscription} />
+          </View>
+        ) : nearbyDrivers.length === 0 ? (
           <View style={styles.noDrivers}>
             <Text style={styles.noDriversText}>Aucun chauffeur disponible pour l’instant.</Text>
             <Button testID="retry-nearby" label="Réessayer" variant="secondary" onPress={retrySubscription} />
@@ -265,6 +324,23 @@ const styles = StyleSheet.create({
   pointButtonActive: {
     borderColor: '#0A7D3D',
     backgroundColor: '#ECFDF5',
+  },
+  locationErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    backgroundColor: '#FEF3C7',
+    borderRadius: 8,
+    padding: 8,
+  },
+  locationErrorText: {
+    flex: 1,
+    color: '#92400E',
+  },
+  mapTruthHint: {
+    fontSize: 12,
+    color: '#6B7280',
   },
   pointTitle: {
     fontSize: 12,

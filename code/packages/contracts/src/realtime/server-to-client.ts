@@ -65,6 +65,21 @@ export const NearbyDriversPayloadSchema = z.object({
 export const NearbyDriversMessageSchema = envelopeSchema('nearby.drivers', NearbyDriversPayloadSchema);
 export type NearbyDriversMessage = z.infer<typeof NearbyDriversMessageSchema>;
 
+/**
+ * Destinataire : client. Accusé de réception de `nearby.subscribe` -- accepté, ou refusé pour
+ * limitation de débit avec un délai avant nouvelle tentative (L3-05 / L6-06, 23 août --
+ * amoa/questions/REPONSES-2026-08-23.md §2). Avant cet accusé, un abonnement refusé ne
+ * produisait rien : un client qui insiste sur « Réessayer » pouvait cesser d'être servi sans
+ * qu'aucun élément ne le lui dise -- un silence est le pire retour possible pour une limitation
+ * de débit, il pousse exactement au comportement qui l'aggrave.
+ */
+export const NearbySubscribeAckPayloadSchema = z.discriminatedUnion('accepted', [
+  z.object({ accepted: z.literal(true) }),
+  z.object({ accepted: z.literal(false), retryAfterMs: z.number().int().positive() }),
+]);
+export const NearbySubscribeAckMessageSchema = envelopeSchema('nearby.subscribe.ack', NearbySubscribeAckPayloadSchema);
+export type NearbySubscribeAckMessage = z.infer<typeof NearbySubscribeAckMessageSchema>;
+
 /** Destinataire : client. Le chauffeur sélectionné a été réservé (transition -> proposed). */
 export const RideProposedPayloadSchema = z.object({
   rideId: RideIdSchema,
@@ -134,6 +149,7 @@ export const ServerToClientMessageSchema = z.discriminatedUnion('type', [
   RideCancelledMessageSchema,
   CashLimitWarningMessageSchema,
   NearbyDriversMessageSchema,
+  NearbySubscribeAckMessageSchema,
   RideProposedMessageSchema,
   RideAssignedMessageSchema,
   RideRejectedMessageSchema,

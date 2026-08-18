@@ -1,6 +1,8 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import Geolocation from '@react-native-community/geolocation';
-import type { LatLng } from '@babana/maps';
+import { mapGeolocationErrorCode, type LocationResult } from './location.types';
+
+export type { LocationResult, LocationFailureReason } from './location.types';
 
 /**
  * Position ponctuelle du client au chargement de HomeScreen (L6-06) -- native (iOS/Android).
@@ -8,8 +10,9 @@ import type { LatLng } from '@babana/maps';
  * Metro, même mécanisme que le reste du monorepo pour D22 -- aucun `Platform.OS === 'web'` dans
  * un écran).
  *
- * Le refus de permission ne rejette jamais : `null` -- HomeScreen ouvre alors sur Douala par
- * défaut, le client désigne son départ à la main (spécification L6-06).
+ * Un échec ne rejette jamais : `{ status: 'error', reason }` -- HomeScreen ouvre alors sur
+ * Douala par défaut, le client désigne son départ à la main (spécification L6-06). `reason`
+ * distingue les trois causes (doute §2, 23 août) : l'écran ne doit plus les confondre.
  */
 
 async function ensurePermission(): Promise<boolean> {
@@ -30,14 +33,18 @@ async function ensurePermission(): Promise<boolean> {
   return granted === PermissionsAndroid.RESULTS.GRANTED;
 }
 
-export async function getCurrentPosition(): Promise<LatLng | null> {
+export async function getCurrentPosition(): Promise<LocationResult> {
   const allowed = await ensurePermission();
-  if (!allowed) return null;
+  if (!allowed) return { status: 'error', reason: 'permission-denied' };
 
   return new Promise((resolve) => {
     Geolocation.getCurrentPosition(
-      (position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
-      () => resolve(null), // refus, position indisponible, ou délai dépassé -- même dégradation
+      (position) =>
+        resolve({
+          status: 'success',
+          position: { latitude: position.coords.latitude, longitude: position.coords.longitude },
+        }),
+      (error) => resolve({ status: 'error', reason: mapGeolocationErrorCode(error?.code) }),
       { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 }
     );
   });

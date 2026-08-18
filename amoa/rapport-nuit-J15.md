@@ -65,3 +65,59 @@ fausse isolément. Ici la garantie perdue était une propriété de sécurité, 
 elle vivait dans une phrase de contrat (« seul le haché est stocké »), pas dans une assertion.
 Les critères 3 ter et 3 quater la rendent désormais mécanique : un test qui lit la table, pas un
 test qui relit l'intention.
+
+---
+
+## Les trois doutes de L6-06
+
+Les trois arbitrages du débrief J14 §2, implémentés ensemble puisqu'ils touchent le même écran et
+partagent un même fil : ce qu'un client réel comprend d'un signal qu'on lui montre.
+
+**§1 — « vers <lieu> », pas un fait.** `labelFor` (`HomeScreen.tsx`) préfixe désormais tout
+libellé issu du géocodage inverse par `vers `, et un rappel permanent sous la carte (`📍 C'est le
+point sur la carte qui fait foi, le libellé n'est qu'une indication.`) — visible en toute
+circonstance, pas seulement pendant le géocodage. Le résultat d'une recherche textuelle
+délibérée (`PlacePicker` → `handlePlaceSelected`) ne passe jamais par `labelFor` et garde son
+libellé exact : ce n'est pas une approximation du même genre, c'est un choix explicite du client.
+
+**§2 — trois échecs, trois messages.** `getCurrentPosition` ne renvoie plus `LatLng | null` mais
+`LocationResult` (`apps/client/src/location.types.ts`, nouveau fichier neutre importé par
+`location.ts` ET `location.web.ts` — une seule table de correspondance des codes d'erreur
+`GeolocationPositionError` du standard W3C, partagée entre natif et web plutôt que dupliquée).
+Trois `reason` distincts (`permission-denied`, `position-unavailable`, `timeout`), trois messages
+et un bouton « Réessayer » qui relance la capture (`retryLocation`, factorisée depuis l'effet de
+montage pour être rejouable). Le départ reste désignable à la main dans les trois cas, sans
+changement de ce côté.
+
+**§3 — un silence est le pire retour possible pour une limitation de débit.** Nouveau message
+`nearby.subscribe.ack` (C-02, `NearbySubscribeAckPayloadSchema`, discriminé sur `accepted` :
+`{accepted: true}` ou `{accepted: false, retryAfterMs}`) — répond désormais à **chaque**
+`nearby.subscribe`, jamais seulement aux acceptés. `NearbyManager.allowSubscribe`
+(`services/realtime/src/nearby/handler.ts`) renvoie maintenant `{allowed, retryAfterMs?}` plutôt
+qu'un booléen : le délai est calculé depuis la plus ancienne tentative retenue dans la fenêtre de
+débit, pas une constante. Côté écran, un état `subscribeRefusal` distinct de `nearbyDrivers`
+vide : « Votre demande n'a pas été prise en compte, patientez N s avant de réessayer » plutôt que
+la confusion avec « Aucun chauffeur disponible ». Effacé dès qu'une liste de chauffeurs arrive à
+nouveau.
+
+**Effet de bord assumé sur les tests existants.** `NearbyManager` répond désormais toujours (au
+lieu de rien, sur refus) : les trois tests de `nearby.test.ts` qui comptaient les messages ont dû
+être réécrits pour filtrer par type (`driverListMessages`, `ackMessages`) plutôt que de supposer
+que "tout message reçu est une liste de chauffeurs" — c'était vrai avant cette nuit, plus
+maintenant. Même chose côté contrat : `packages/contracts` rebuild (`npm run build -w
+packages/contracts`) nécessaire avant que les autres paquets voient le nouveau type dans
+`dist/` — noté ici parce que ce n'est pas automatique dans ce monorepo (pas de `pretest` qui
+reconstruit les dépendances de workspace).
+
+**Fichiers.** `packages/contracts/src/realtime/server-to-client.ts` (+test),
+`docs/contracts/realtime-events.md`, `services/realtime/src/nearby/handler.ts` (+test),
+`apps/client/src/location.types.ts` (nouveau), `apps/client/src/location.ts`,
+`apps/client/src/location.web.ts` (+test), `apps/client/src/screens/HomeScreen.tsx` (+test).
+
+**Vérification.** `packages/contracts` (66 tests), `services/realtime` (test/nearby.test.ts, 8
+tests, contre Redis réel) et `@babana/client` (41 tests, jest) tous verts. `tsc --noEmit` sur les
+quatre paquets touchés (contracts, realtime, api-client, client) sans erreur. Suite complète du
+service temps réel (`npm test`, `services/realtime`) : le flake déjà documenté
+(`DisconnectGraceTimers`, J14 rapport §4, minuteurs sous charge combinée) réapparaît de façon
+intermittente, reconfirmé isolé (3/3 tests verts) -- sans rapport avec cette nuit, non traité
+comme convenu (« à traiter quand il gênera »).

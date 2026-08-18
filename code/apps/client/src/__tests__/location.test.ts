@@ -36,13 +36,33 @@ describe('getCurrentPosition (L6-06)', () => {
     const result = await getCurrentPosition();
 
     expect(mockRequestAuthorization).toHaveBeenCalled();
-    expect(result).toEqual({ latitude: 4.05, longitude: 9.7 });
+    expect(result).toEqual({ status: 'success', position: { latitude: 4.05, longitude: 9.7 } });
   });
 
-  it("l'échec de géolocalisation (refus, indisponible, délai dépassé) renvoie null, jamais une exception", async () => {
-    mockGetCurrentPosition.mockImplementation((_success, error) => error(new Error('refusé')));
+  // Doute L6-06 §2 (amoa/questions/REPONSES-2026-08-23.md §2) : les trois causes d'échec
+  // appellent des réactions opposées et ne doivent plus produire le même résultat générique.
+  it('refus de permission (code 1) -- reason "permission-denied"', async () => {
+    mockGetCurrentPosition.mockImplementation((_success, error) => error({ code: 1 }));
 
-    await expect(getCurrentPosition()).resolves.toBeNull();
+    await expect(getCurrentPosition()).resolves.toEqual({ status: 'error', reason: 'permission-denied' });
+  });
+
+  it('position indisponible (code 2) -- reason "position-unavailable"', async () => {
+    mockGetCurrentPosition.mockImplementation((_success, error) => error({ code: 2 }));
+
+    await expect(getCurrentPosition()).resolves.toEqual({ status: 'error', reason: 'position-unavailable' });
+  });
+
+  it('délai dépassé (code 3) -- reason "timeout"', async () => {
+    mockGetCurrentPosition.mockImplementation((_success, error) => error({ code: 3 }));
+
+    await expect(getCurrentPosition()).resolves.toEqual({ status: 'error', reason: 'timeout' });
+  });
+
+  it('un code non reconnu dégrade vers "position-unavailable", jamais une exception', async () => {
+    mockGetCurrentPosition.mockImplementation((_success, error) => error({ code: 99 }));
+
+    await expect(getCurrentPosition()).resolves.toEqual({ status: 'error', reason: 'position-unavailable' });
   });
 
   it('Android : demande la permission runtime avant tout appel de géolocalisation', async () => {
@@ -56,16 +76,16 @@ describe('getCurrentPosition (L6-06)', () => {
       'android.permission.ACCESS_FINE_LOCATION',
       expect.anything()
     );
-    expect(result).toEqual({ latitude: 4.06, longitude: 9.71 });
+    expect(result).toEqual({ status: 'success', position: { latitude: 4.06, longitude: 9.71 } });
   });
 
-  it('Android : une permission refusée renvoie null sans jamais appeler la géolocalisation (spécification L6-06)', async () => {
+  it('Android : une permission refusée renvoie "permission-denied" sans jamais appeler la géolocalisation (spécification L6-06)', async () => {
     mockPlatformOS = 'android';
     mockPermissionRequest.mockResolvedValue('denied');
 
     const result = await getCurrentPosition();
 
-    expect(result).toBeNull();
+    expect(result).toEqual({ status: 'error', reason: 'permission-denied' });
     expect(mockGetCurrentPosition).not.toHaveBeenCalled();
   });
 });

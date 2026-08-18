@@ -84,16 +84,31 @@ function clientContext(label: string): ConnectionContext {
   return Object.freeze({ userId: id(label), role: 'client', driverId: null });
 }
 
+type FakeMessage =
+  | { type: 'nearby.subscribe.ack'; payload: { accepted: true } | { accepted: false; retryAfterMs: number } }
+  | { type: 'nearby.drivers'; payload: { drivers: { driverId: string }[] } };
+
 /** Faux WebSocket : NearbyManager ne lit que `readyState`/`OPEN` et écrit via `send`, aucune
  * connexion réseau réelle n'est nécessaire pour ces tests. */
 function fakeSocket() {
-  const messages: { payload: { drivers: { driverId: string }[] } }[] = [];
+  const messages: FakeMessage[] = [];
   const socket = {
     readyState: 1,
     OPEN: 1,
     send: (data: string) => messages.push(JSON.parse(data)),
   };
   return { socket: socket as unknown as WebSocket, messages };
+}
+
+// Chaque abonnement produit désormais un accusé de réception (23 août, doute L6-06 §3) avant, le
+// cas échéant, la liste de chauffeurs elle-même -- ce filtre isole les seconds pour les tests
+// écrits avant ce changement, qui ne portaient que sur le contenu des listes.
+function driverListMessages(messages: FakeMessage[]) {
+  return messages.filter((m): m is Extract<FakeMessage, { type: 'nearby.drivers' }> => m.type === 'nearby.drivers');
+}
+
+function ackMessages(messages: FakeMessage[]) {
+  return messages.filter((m): m is Extract<FakeMessage, { type: 'nearby.subscribe.ack' }> => m.type === 'nearby.subscribe.ack');
 }
 
 function configWith(overrides: Partial<Record<string, string>> = {}): Config {
@@ -201,9 +216,11 @@ describe('NearbyManager (L3-05, D14)', () => {
     await assert.doesNotReject(() => manager.subscribe(context, socket, { position: origin, radiusMeters: 40_000 }));
     manager.unsubscribe(context);
 
-    assert.equal(messages.length, 1);
+    assert.equal(messages.length, 2, 'accusé de réception puis liste de chauffeurs');
+    assert.equal(messages[0]!.type, 'nearby.subscribe.ack');
+    const [driversMessage] = driverListMessages(messages);
     assert.equal(
-      messages[0]!.payload.drivers.some((d) => d.driverId === farDriverId),
+      driversMessage!.payload.drivers.some((d) => d.driverId === farDriverId),
       false,
       'exclu malgré le rayon demandé : au-delà du plafond configuré côté service'
     );
@@ -228,15 +245,17 @@ describe('NearbyManager (L3-05, D14)', () => {
     await new Promise((resolve) => setTimeout(resolve, 120));
     manager.unsubscribe(context);
 
-    assert.ok(messages.length >= 2, 'au moins la réponse immédiate de chaque abonnement');
-    for (const message of messages.slice(1)) {
+    const driverMessages = driverListMessages(messages);
+    assert.ok(driverMessages.length >= 2, 'au moins la réponse immédiate de chaque abonnement');
+    assert.ok(driverMessages[0]!.payload.drivers.some((d) => d.driverId === driverNearOrigin));
+    for (const message of driverMessages.slice(1)) {
       assert.equal(
         message.payload.drivers.some((d) => d.driverId === driverNearOrigin),
         false,
         'plus aucun message ne doit porter le résultat du premier abonnement, remplacé par le second'
       );
     }
-    assert.ok(messages.at(-1)!.payload.drivers.some((d) => d.driverId === driverNearOther));
+    assert.ok(driverMessages.at(-1)!.payload.drivers.some((d) => d.driverId === driverNearOther));
   });
 
   test('critère 6 -- la limitation de débit est appliquée', async () => {
@@ -245,7 +264,7 @@ describe('NearbyManager (L3-05, D14)', () => {
     const manager = new NearbyManager(config, redis);
     const context = clientContext('c6-client');
 
-    const attempts: { messages: unknown[] }[] = [];
+    const attempts: { messages: FakeMessage[] }[] = [];
     for (let i = 0; i < 4; i += 1) {
       const { socket, messages } = fakeSocket();
       // eslint-disable-next-line no-await-in-loop -- les abonnements doivent être séquentiels
@@ -255,7 +274,33 @@ describe('NearbyManager (L3-05, D14)', () => {
     }
     manager.unsubscribe(context);
 
-    const responded = attempts.filter((a) => a.messages.length > 0);
-    assert.equal(responded.length, 2, `seuls les 2 premiers abonnements (limite) doivent produire une réponse, obtenu ${responded.length}`);
+    const accepted = attempts.filter((a) => ackMessages(a.messages)[0]!.payload.accepted);
+    assert.equal(accepted.length, 2, `seuls les 2 premiers abonnements (limite) doivent être acceptés, obtenu ${accepted.length}`);
+    for (const attempt of accepted) {
+      assert.equal(attempt.messages.length, 2, 'accepté : accusé de réception puis liste de chauffeurs');
+      assert.equal(attempt.messages[1]!.type, 'nearby.drivers');
+    }
+  });
+
+  test('critère 6 (23 août) -- un abonnement refusé produit un accusé de réception explicite, jamais un silence', async () => {
+    // Doute L6-06 §3 (amoa/questions/REPONSES-2026-08-23.md §2) : avant ce test, un abonnement
+    // au-delà de la limite ne produisait rien -- un client qui insistait sur "Réessayer" pouvait
+    // cesser d'être servi sans qu'aucun élément ne le lui dise.
+    const origin = { latitude: 4.02, longitude: 9.82 };
+    const config = configWith({ NEARBY_RATE_LIMIT_MAX_SUBSCRIPTIONS: '1', NEARBY_RATE_LIMIT_WINDOW_SECONDS: '60' });
+    const manager = new NearbyManager(config, redis);
+    const context = clientContext('c6b-client');
+
+    const first = fakeSocket();
+    await manager.subscribe(context, first.socket, { position: origin, radiusMeters: 3_000 });
+    const second = fakeSocket();
+    await manager.subscribe(context, second.socket, { position: origin, radiusMeters: 3_000 });
+    manager.unsubscribe(context);
+
+    assert.equal(second.messages.length, 1, 'refusé : un accusé de réception seul, aucune liste de chauffeurs');
+    const [ack] = ackMessages(second.messages);
+    assert.ok(ack);
+    assert.equal(ack.payload.accepted, false);
+    assert.ok(!ack.payload.accepted && ack.payload.retryAfterMs > 0);
   });
 });

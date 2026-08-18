@@ -75,6 +75,7 @@ côté service temps réel (invariant 5).
 | `ride.cancelled` | Chauffeur et/ou client | `{ rideId, reason? }` | La course a été annulée |
 | `cash.limit.warning` | Chauffeur | `{ balance, limit }` | Avertissement avant `CASH_LIMIT_REACHED` |
 | `nearby.drivers` | Client | `{ drivers: NearbyDriver[] }` (max 5) | Réponse à `nearby.subscribe`, puis mises à jour |
+| `nearby.subscribe.ack` | Client | `{ accepted: true }` ou `{ accepted: false, retryAfterMs }` | Accusé de réception de `nearby.subscribe` |
 | `ride.proposed` | Client | `{ rideId, driverId, proposalExpiresAt }` | Le chauffeur choisi a été réservé |
 | `ride.assigned` | Client | `{ rideId, driverId }` | Le chauffeur a accepté |
 | `ride.rejected` | Client | `{ rideId }` | Le chauffeur a refusé ou le délai a expiré |
@@ -94,6 +95,12 @@ pour la règle « aucune donnée personnelle au-delà du prénom, de la photo, d
 gamme de moto » (critère d'acceptation 3). Position arrondie à 4 décimales (~11 m à l'équateur),
 constante partagée `NEARBY_POSITION_PRECISION_DECIMALS` dans `packages/contracts/src/http/common.ts`
 — utilisée par le REST et le WebSocket, une seule source pour C2b.
+
+`nearby.subscribe.ack` (23 août — amoa/questions/REPONSES-2026-08-23.md §2) répond à **chaque**
+`nearby.subscribe`, accepté ou refusé pour limitation de débit. Avant ce message, un abonnement
+refusé ne produisait rien : un client qui insistait sur « Réessayer » pouvait cesser d'être servi
+sans qu'aucun élément ne le lui dise. Un refus porte toujours `retryAfterMs` — un refus sans délai
+serait inexploitable côté client.
 
 ---
 

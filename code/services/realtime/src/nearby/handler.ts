@@ -39,7 +39,15 @@ export class NearbyManager {
     socket: WebSocket,
     payload: realtime.NearbySubscribeMessage['payload']
   ): Promise<void> {
-    if (!this.allowSubscribe(context.userId)) return;
+    const allowance = this.allowSubscribe(context.userId);
+    if (!allowance.allowed) {
+      // Accusé de réception explicite (23 août, doute L6-06 §3 --
+      // amoa/questions/REPONSES-2026-08-23.md §2) : un silence est le pire retour possible pour
+      // une limitation de débit, il pousse exactement au comportement qui l'aggrave.
+      socket.send(JSON.stringify(buildNearbySubscribeAckMessage({ accepted: false, retryAfterMs: allowance.retryAfterMs })));
+      return;
+    }
+    socket.send(JSON.stringify(buildNearbySubscribeAckMessage({ accepted: true })));
 
     this.clearSubscription(context.userId);
 
@@ -87,17 +95,23 @@ export class NearbyManager {
     }
   }
 
-  private allowSubscribe(userId: string, nowMs: number = Date.now()): boolean {
+  private allowSubscribe(
+    userId: string,
+    nowMs: number = Date.now()
+  ): { allowed: true } | { allowed: false; retryAfterMs: number } {
     const windowMs = this.config.NEARBY_RATE_LIMIT_WINDOW_SECONDS * 1000;
     const cutoff = nowMs - windowMs;
     const recent = (this.rateLimitHits.get(userId) ?? []).filter((hitMs) => hitMs > cutoff);
     if (recent.length >= this.config.NEARBY_RATE_LIMIT_MAX_SUBSCRIPTIONS) {
       this.rateLimitHits.set(userId, recent);
-      return false;
+      // Sort du délai de la plus ancienne tentative retenue dans la fenêtre : c'est elle qui,
+      // en en sortant, libère la première place.
+      const oldest = Math.min(...recent);
+      return { allowed: false, retryAfterMs: Math.max(1, windowMs - (nowMs - oldest)) };
     }
     recent.push(nowMs);
     this.rateLimitHits.set(userId, recent);
-    return true;
+    return { allowed: true };
   }
 }
 
@@ -109,5 +123,16 @@ function buildNearbyDriversMessage(
     id: randomUUID(),
     emittedAt: new Date().toISOString(),
     payload: { drivers },
+  };
+}
+
+function buildNearbySubscribeAckMessage(
+  payload: realtime.NearbySubscribeAckMessage['payload']
+): realtime.NearbySubscribeAckMessage {
+  return {
+    type: 'nearby.subscribe.ack',
+    id: randomUUID(),
+    emittedAt: new Date().toISOString(),
+    payload,
   };
 }

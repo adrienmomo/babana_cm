@@ -3,6 +3,7 @@ import { Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import type { LatLng, PlaceResult } from '@babana/maps';
 import type { http } from '@babana/contracts';
+import type { LocationResult } from '../../location.types';
 
 let capturedOnRegionChange: ((point: LatLng) => void) | null = null;
 const mockReverseGeocode = jest.fn<Promise<string | null>, [LatLng]>();
@@ -20,7 +21,7 @@ jest.mock('@babana/maps', () => {
   };
 });
 
-const mockGetCurrentPosition = jest.fn<Promise<LatLng | null>, []>();
+const mockGetCurrentPosition = jest.fn<Promise<LocationResult>, []>();
 jest.mock('../../location', () => ({
   getCurrentPosition: () => mockGetCurrentPosition(),
 }));
@@ -69,6 +70,10 @@ function emitNearbyDrivers(drivers: http.NearbyDriver[]) {
   realtimeListener?.({ type: 'nearby.drivers', id: 'm1', emittedAt: new Date().toISOString(), payload: { drivers } });
 }
 
+function emitSubscribeAck(payload: { accepted: true } | { accepted: false; retryAfterMs: number }) {
+  realtimeListener?.({ type: 'nearby.subscribe.ack', id: 'ack-1', emittedAt: new Date().toISOString(), payload });
+}
+
 function fakeNavigation() {
   return { navigate: jest.fn() };
 }
@@ -104,7 +109,7 @@ beforeEach(() => {
   capturedOnRegionChange = null;
   realtimeListener = null;
   connectionStateListener = null;
-  mockGetCurrentPosition.mockResolvedValue(null);
+  mockGetCurrentPosition.mockResolvedValue({ status: 'error', reason: 'position-unavailable' });
   mockReverseGeocode.mockResolvedValue(null);
   mockSearchPlace.mockResolvedValue([]);
 });
@@ -118,8 +123,11 @@ describe('HomeScreen (L6-06)', () => {
     await designate(root, 'departure-slot', DOUALA);
     await designate(root, 'arrival-slot', ELSEWHERE);
 
-    expect(texts(root)).toContain('Akwa, Douala');
-    expect(texts(root)).toContain('Bonapriso, Douala');
+    // "vers " préfixe le libellé du géocodage inverse (doute L6-06 §1) : une approximation, pas
+    // un fait -- jamais appliqué au résultat d'une recherche textuelle délibérée (ligne 166 plus
+    // bas, `handlePlaceSelected`, qui ne passe jamais par `labelFor`).
+    expect(texts(root)).toContain('vers Akwa, Douala');
+    expect(texts(root)).toContain('vers Bonapriso, Douala');
     expect(mockSearchPlace).not.toHaveBeenCalled();
 
     const next = root.root.findByProps({ testID: 'next-button' });
@@ -129,8 +137,8 @@ describe('HomeScreen (L6-06)', () => {
       root.root.findByProps({ testID: 'next-button' }).props.onPress();
     });
     expect(navigation.navigate).toHaveBeenCalledWith('Quote', {
-      origin: { position: DOUALA, label: 'Akwa, Douala' },
-      destination: { position: ELSEWHERE, label: 'Bonapriso, Douala' },
+      origin: { position: DOUALA, label: 'vers Akwa, Douala' },
+      destination: { position: ELSEWHERE, label: 'vers Bonapriso, Douala' },
     });
   });
 
@@ -206,7 +214,7 @@ describe('HomeScreen (L6-06)', () => {
   });
 
   it('le départ est pré-rempli avec la position courante quand la permission est accordée', async () => {
-    mockGetCurrentPosition.mockResolvedValue(CLIENT_GPS);
+    mockGetCurrentPosition.mockResolvedValue({ status: 'success', position: CLIENT_GPS });
     mockReverseGeocode.mockResolvedValue('Bonamoussadi, Douala');
 
     const root = await renderHome();
@@ -216,18 +224,83 @@ describe('HomeScreen (L6-06)', () => {
       await Promise.resolve();
     });
 
-    expect(texts(root)).toContain('Bonamoussadi, Douala');
+    expect(texts(root)).toContain('vers Bonamoussadi, Douala');
   });
 
-  it("un refus de permission n'empêche pas l'écran de s'afficher -- le départ reste à désigner à la main (D22)", async () => {
-    mockGetCurrentPosition.mockResolvedValue(null);
+  // Doute L6-06 §2 (amoa/questions/REPONSES-2026-08-23.md §2) : les trois causes d'échec de
+  // localisation ne produisent plus le même message générique, et le départ reste désignable à
+  // la main dans les trois cas (D22, comportement déjà couvert ci-dessous).
+  describe.each([
+    ['permission-denied', 'Localisation refusée.'],
+    ['position-unavailable', 'Position indisponible pour le moment.'],
+    ['timeout', 'La localisation prend du temps.'],
+  ] as const)('échec de localisation -- %s', (reason, expectedFragment) => {
+    it(`affiche un message distinct ("${expectedFragment}") et laisse le départ désignable à la main`, async () => {
+      mockGetCurrentPosition.mockResolvedValue({ status: 'error', reason });
 
+      const root = await renderHome();
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(texts(root)).toContain(expectedFragment);
+      expect(texts(root)).toContain('Glissez la carte ou recherchez');
+      expect(root.root.findByProps({ testID: 'mock-map' })).toBeTruthy();
+    });
+  });
+
+  it('« Réessayer » sur l’échec de localisation relance getCurrentPosition et efface le message en cas de succès', async () => {
+    mockGetCurrentPosition.mockResolvedValueOnce({ status: 'error', reason: 'timeout' });
     const root = await renderHome();
     await act(async () => {
       await Promise.resolve();
     });
+    expect(root.root.findByProps({ testID: 'location-error' })).toBeTruthy();
 
-    expect(texts(root)).toContain('Glissez la carte ou recherchez');
-    expect(root.root.findByProps({ testID: 'mock-map' })).toBeTruthy();
+    mockGetCurrentPosition.mockResolvedValueOnce({ status: 'success', position: CLIENT_GPS });
+    mockReverseGeocode.mockResolvedValueOnce('Bonamoussadi, Douala');
+    await act(async () => {
+      root.root.findByProps({ testID: 'retry-location' }).props.onPress();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(root.root.findAllByProps({ testID: 'location-error' })).toHaveLength(0);
+    expect(texts(root)).toContain('vers Bonamoussadi, Douala');
+  });
+
+  it('le rappel "le point sur la carte fait foi" est toujours visible (doute L6-06 §1)', async () => {
+    const root = await renderHome();
+
+    expect(texts(root)).toContain('C’est le point sur la carte qui fait foi, le libellé n’est qu’une indication.');
+  });
+
+  it("un accusé de réception refusé (limitation de débit) affiche un message distinct de « aucun chauffeur à proximité » (doute L6-06 §3)", async () => {
+    const root = await renderHome();
+
+    await act(async () => {
+      emitSubscribeAck({ accepted: false, retryAfterMs: 4000 });
+    });
+
+    expect(texts(root)).toContain('Votre demande n’a pas été prise en compte, patientez 4 s avant de réessayer.');
+    expect(texts(root)).not.toContain('Aucun chauffeur disponible pour l’instant.');
+    expect(root.root.findByProps({ testID: 'subscribe-refused' })).toBeTruthy();
+  });
+
+  it('une liste de chauffeurs reçue après un refus efface le message de refus', async () => {
+    const root = await renderHome();
+
+    await act(async () => {
+      emitSubscribeAck({ accepted: false, retryAfterMs: 4000 });
+    });
+    expect(root.root.findByProps({ testID: 'subscribe-refused' })).toBeTruthy();
+
+    await act(async () => {
+      emitNearbyDrivers([driver({ driverId: 'a', firstName: 'Paul' })]);
+    });
+
+    expect(root.root.findAllByProps({ testID: 'subscribe-refused' })).toHaveLength(0);
+    expect(texts(root)).toContain('Paul');
   });
 });

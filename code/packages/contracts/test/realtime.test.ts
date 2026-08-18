@@ -20,6 +20,7 @@ import {
   RideCancelledMessageSchema,
   CashLimitWarningMessageSchema,
   NearbyDriversMessageSchema,
+  NearbySubscribeAckMessageSchema,
   RideProposedMessageSchema,
   RideAssignedMessageSchema,
   RideRejectedMessageSchema,
@@ -222,6 +223,34 @@ describe('exemples valides — serveur vers client', () => {
         id: randomUUID(),
         emittedAt: now,
         payload: { activeRideId: rideId, activeRideState: 'in_progress', serverTime: now },
+      })
+    );
+  });
+
+  test('nearby.subscribe.ack -- accepté, ou refusé avec un délai avant nouvelle tentative', () => {
+    assert.doesNotThrow(() =>
+      NearbySubscribeAckMessageSchema.parse({
+        type: 'nearby.subscribe.ack',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: { accepted: true },
+      })
+    );
+    assert.doesNotThrow(() =>
+      NearbySubscribeAckMessageSchema.parse({
+        type: 'nearby.subscribe.ack',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: { accepted: false, retryAfterMs: 5000 },
+      })
+    );
+    // Un refus sans délai serait inexploitable côté client (spécification L6-06).
+    assert.throws(() =>
+      NearbySubscribeAckMessageSchema.parse({
+        type: 'nearby.subscribe.ack',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: { accepted: false },
       })
     );
   });
