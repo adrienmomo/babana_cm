@@ -357,3 +357,15 @@ soigneuse soit-elle, ne remplace pas une passe finale sur l'ensemble.
 `services/odoo/addons/babana/tests/_realtime_ws.py` -- 1 fichier, pas de nouveau test (c'est déjà
 la fixture d'un test existant qui l'a révélé). Suite `TestRideController` isolée : 0 échec, 24
 tests, après correctif.
+
+**Un second `make test` complet, après ce correctif, a buté sur le flake déjà documenté**
+(`DisconnectGraceTimers`, minuteurs sous charge combinée, J14 rapport §4 -- réapparu cette nuit
+dans `test/proposal.test.ts` également, voir l'entrée L6-08) -- sans lien avec cette nuit,
+reconfirmé isolé une fois de plus (`services/realtime` seul : **119 tests, 0 échec**). Puisque
+`npm run test --workspaces` s'arrête au premier échec, les paquets restants n'avaient alors pas
+eu l'occasion de tourner : relancés séparément (`npm run test --workspaces`, sans le paquet déjà
+reconfirmé), **tout est vert** -- `@babana/client` (64 tests), `@babana/driver`, `packages/*`,
+`test/concurrency` (les quatre scénarios longs, dont le test de concurrence L4-11 et le rejeu de
+sérialisation PostgreSQL L3-17). La suite Odoo complète (2200 tests, dont les 478 de `babana`)
+est verte depuis le correctif ci-dessus. **Le seul rouge de la nuit, au global, était le flake
+déjà connu -- rien d'autre.**
