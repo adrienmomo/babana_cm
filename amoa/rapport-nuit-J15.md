@@ -255,3 +255,65 @@ attente imposée, aussi courte soit-elle. Et le doute le plus sérieux reste cel
 `amoa/questions/L6-08.md` : sans L3-08, un client dont les cinq chauffeurs proches refusent tous
 un par un se retrouve renvoyé à l'accueil après cinq allers-retours d'écran -- correct et honnête,
 mais laborieux comparé à ce qu'un élargissement automatique de rayon offrirait.
+
+---
+
+## L6-00R -- le bundle web se construisait, mais ne s'exécutait pas
+
+**Trouvé en faisant ce que le rapport J14 promettait de vérifier ce soir : ouvrir le parcours
+dans un vrai navigateur.** `npm run build:web` réussit depuis L6-00 (21 août), et son critère
+d'acceptation 6 ne demande rien de plus -- mais personne n'avait ouvert le résultat dans un
+navigateur avant cette nuit. Trois défauts se sont révélés dans cet ordre, chacun masquant le
+suivant :
+
+1. **`public/index.html` ne charge jamais `bundle.js`.** Aucune balise `<script>`. La page est
+   blanche, silencieusement -- aucune erreur, puisqu'aucun code applicatif ne s'exécute.
+2. **`ReferenceError: exports is not defined`**, dans `@react-navigation/native`. Ces paquets
+   livrent une syntaxe `export`/`import` sans jamais déclarer `"type": "module"` dans leur
+   `package.json` ; webpack les traite donc comme de l'ESM strict, alors que babel-loader les
+   transforme quand même en CommonJS (`@react-native/babel-preset` ne désactive cette
+   transformation que pour Metro, pas pour un `caller` webpack) -- du code `exports.x = ...`
+   exécuté dans un wrapper qui ne fournit jamais `exports`. `type: 'javascript/auto'` sur la
+   règle babel-loader fait correspondre le type de module à ce que babel produit réellement.
+3. **Les icônes de `@react-navigation/elements`** (flèche retour, loupe, croix) sont des imports
+   `.png` -- sans règle d'asset, webpack refuse de les charger et le bundle ne se termine pas.
+   Une règle `asset/resource` suffit.
+
+**Un quatrième, non corrigé dans le code, contourné pour vérifier.** `react-native-keychain`
+(stockage sécurisé de session, L6-02) n'a pas d'équivalent web, exactement comme
+`react-native-maps` -- sans un alias du même genre, `AuthClient.restore()` lève au montage et
+l'app ne dépasse jamais l'écran de chargement. Un stub `localStorage` (`webpack-stubs/
+react-native-keychain.web.js`, même patron que le stub carte) débloque le bundle -- **mais il ne
+chiffre rien** : légitime pour vérifier ce soir, pas pour L6-18, qui devra trouver une vraie
+réponse à « une session web n'a pas de trousseau système à qui déléguer ».
+
+**Vérifié, dans un vrai navigateur, contre la vraie pile (`make up`), avec un vrai chauffeur en
+ligne (jeton réel via mock-google-identity, WebSocket réel, position réelle dans Redis) :**
+- Restauration de session, écran d'accueil, carte (stub L6-18, hors de ce soir).
+- **Le rappel « c'est le point sur la carte qui fait foi » (doute L6-06 §1) -- visible, exact.**
+- **Le message de géolocalisation distinct par cause (doute L6-06 §2) -- « la localisation prend
+  du temps » affiché quand le GPS de l'environnement de vérification n'a pas répondu vite.**
+- **Le chauffeur réel apparaît en direct dans la liste (L3-05 -- D30 "Nouveau" correctement affiché
+  pour un profil non seedé), après désignation par recherche texte (second moyen, L6-06).**
+- Navigation vers `QuoteScreen` (bascule de route confirmée par le titre de l'onglet).
+
+**Ce qui reste bloqué, et pourquoi ce n'est pas un défaut de cette nuit.** `POST /api/v1/quote`
+échoue : le serveur Odoo (`localhost:8069`) n'envoie aucun en-tête CORS, et cette vérification
+sert le bundle depuis un port différent (`localhost:5173`, un serveur statique de fortune -- rien
+de tel n'existe encore dans ce dépôt). Le préflight `OPTIONS` échoue avant que la vraie requête
+ne parte. **Ce n'est pas représentatif du déploiement réel** : une app native n'a pas de notion de
+CORS, et l'export web réel (L6-18) est censé être servi par Caddy sous un domaine qui partage
+l'origine de l'API (D18) -- exactement ce qui évite ce problème. Signalé pour L6-18, pas contourné
+par un en-tête CORS ajouté à la hâte à un contrôleur Odoo à cette heure-ci.
+
+**Fichiers.** `apps/client/public/index.html`, `apps/client/webpack.config.js`,
+`apps/client/webpack-stubs/react-native-keychain.web.js` (nouveau). Aucun test automatisé --
+`webpack.config.js` n'en a pas, et l'écran qu'il sert est déjà couvert par les suites Jest de
+L6-06/L6-07/L6-08. La preuve, ici, est le navigateur lui-même.
+
+**Pourquoi cette entrée touche un fichier de L6-00 alors que ce n'était pas au périmètre de ce
+soir.** Trois raisons : (1) c'est un défaut, pas un choix -- un bundle qui compile mais
+n'affiche jamais rien ne satisfait pas l'esprit du critère 6, seulement sa lettre ; (2) il
+bloquait entièrement la vérification explicitement demandée pour cette nuit ; (3) le correctif
+est petit, réversible, sans rapport avec la logique métier des quatre tâches du soir. Une session
+future qui ouvrirait ce bundle dans un navigateur aurait buté sur exactement la même chose.

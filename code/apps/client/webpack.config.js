@@ -30,6 +30,14 @@ module.exports = {
       // `packages/maps` ; à retirer quand `activeProvider.ts` route lui-même vers un fournisseur
       // web réel.
       'react-native-maps$': path.resolve(__dirname, 'webpack-stubs/react-native-maps.web.js'),
+      // Même raisonnement, même sort (L6-18) : le trousseau iOS / Keystore Android
+      // (`packages/api-client/src/auth/tokenStorage.ts`, L6-02) n'a pas d'équivalent web non
+      // plus. Sans cet alias, la restauration de session (`AuthClient.restore()`, appelée dès le
+      // montage de `AppNavigator`) lève au premier chargement -- le bundle se construit (critère
+      // 6) mais l'app ne dépasse jamais l'écran de chargement. Le stub chiffre... rien : il pose
+      // en clair dans `localStorage`, ce que L6-18 devra remplacer par quelque chose de réellement
+      // sûr (une session web n'a pas de trousseau système à qui déléguer) avant tout déploiement.
+      'react-native-keychain$': path.resolve(__dirname, 'webpack-stubs/react-native-keychain.web.js'),
     },
   },
   module: {
@@ -38,9 +46,24 @@ module.exports = {
       // Google Sign-In : leurs builds ESM (lib/module/) importent des fichiers voisins sans
       // extension, ce que webpack 5 refuse par défaut pour de l'ESM strict.
       { test: /\.m?js$/, resolve: { fullySpecified: false } },
+      // @react-navigation/elements embarque ses icônes (flèche retour, loupe, croix) comme
+      // imports `.png` -- sans règle d'asset, webpack 5 refuse de les charger ("no loaders are
+      // configured to process this file"), et le bundle ne se termine même pas.
+      { test: /\.(png|jpe?g|gif|svg)$/, type: 'asset/resource' },
       {
         test: /\.[jt]sx?$/,
         exclude: /node_modules\/(?!(react-native-web|@react-navigation|react-native-screens|react-native-safe-area-context|@react-native-google-signin)\/)/,
+        // Sans ce `type` explicite, webpack déduit `javascript/esm` pour les paquets ci-dessus
+        // (leurs fichiers `lib/module/*.js` contiennent de la syntaxe `export`/`import`, et
+        // aucun n'a `"type": "module"` dans son `package.json` pour le dire clairement) --
+        // mais babel-loader les transforme quand même en CommonJS (`@react-native/babel-preset`
+        // ne désactive pas cette transformation pour un `caller` non-Metro). Le résultat : du
+        // code `exports.x = ...` exécuté dans un wrapper de module ESM qui ne fournit jamais
+        // `exports` comme variable libre -- `ReferenceError: exports is not defined` au premier
+        // `import` de `@react-navigation/native`, avant même que `AppNavigator` ne s'affiche.
+        // `javascript/auto` fait correspondre le type de module à ce que babel produit
+        // réellement, pas à ce que le fichier source donnait à deviner.
+        type: 'javascript/auto',
         use: {
           loader: 'babel-loader',
           options: {
