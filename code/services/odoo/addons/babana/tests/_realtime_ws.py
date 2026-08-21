@@ -156,11 +156,20 @@ def make_driver_visible_to_client(
                 "nearby.subscribe",
                 {"position": position, "radiusMeters": radius_meters},
             )
-            message = _read_message(sock, timeout=retry_delay)
-            if message and message.get("type") == "nearby.drivers":
-                drivers = message.get("payload", {}).get("drivers", [])
-                if any(d.get("driverId") == driver_public_id for d in drivers):
-                    return
+            # `nearby.subscribe.ack` (23 août, doute L6-06 §3) précède désormais toujours
+            # `nearby.drivers` -- lire jusqu'à ce message précis dans la fenêtre de cette
+            # tentative, pas seulement le premier reçu, sans quoi l'accusé de réception serait
+            # pris pour une absence de chauffeur.
+            deadline = time.monotonic() + retry_delay
+            while time.monotonic() < deadline:
+                message = _read_message(sock, timeout=max(0.05, deadline - time.monotonic()))
+                if message is None:
+                    break
+                if message.get("type") == "nearby.drivers":
+                    drivers = message.get("payload", {}).get("drivers", [])
+                    if any(d.get("driverId") == driver_public_id for d in drivers):
+                        return
+                    break
         finally:
             sock.close()
         if attempt < attempts - 1:

@@ -317,3 +317,43 @@ n'affiche jamais rien ne satisfait pas l'esprit du critère 6, seulement sa lett
 bloquait entièrement la vérification explicitement demandée pour cette nuit ; (3) le correctif
 est petit, réversible, sans rapport avec la logique métier des quatre tâches du soir. Une session
 future qui ouvrirait ce bundle dans un navigateur aurait buté sur exactement la même chose.
+
+---
+
+## Vérification finale, sur base fraîche -- une vraie régression trouvée et corrigée
+
+`make reset && make up && make test`, comme la définition de fini l'exige. Première fois cette
+nuit que la suite Odoo complète tournait avec `next_token_ciphertext` (D37) ET
+`nearby.subscribe.ack` (doute L6-06 §3) en même temps -- chacune vérifiée isolément plus tôt,
+jamais ensemble sur une base qui vient de zéro.
+
+**13 échecs dans `test_ride_controller.py` (`TestRideController`), tous avec le même message :**
+`chauffeur ... jamais apparu dans nearby.drivers après 8 tentatives`. Une régression réelle,
+introduite par le correctif du doute L6-06 §3 -- trouvée seulement maintenant parce que je
+n'avais fait tourner, après ce correctif, que la suite TypeScript de `services/realtime` et les
+tests Jest du client. `services/odoo/addons/babana/tests/_realtime_ws.py`
+(`make_driver_visible_to_client`) est un troisième consommateur du protocole WebSocket que je
+n'avais pas identifié en implémentant l'accusé de réception : un client Python minimal, écrit
+pour L3-17, qui lit **une seule trame** après `nearby.subscribe` et suppose que c'est
+`nearby.drivers`. Avec l'accusé de réception, c'est désormais `nearby.subscribe.ack` qui arrive
+en premier -- pris pour une absence de chauffeur, à chacune des 8 tentatives, systématiquement.
+
+**Corrigé dans le seul fichier concerné** : la fonction lit maintenant les trames en boucle
+jusqu'à `nearby.drivers` (ou l'épuisement de la fenêtre de la tentative), plutôt que de s'arrêter
+à la première reçue -- même principe que `waitForDriverVisible` côté TypeScript
+(`test/concurrency/helpers/realtime.ts`), qui filtrait déjà par type et n'avait donc jamais été
+affecté. Vérifié qu'aucun autre appelant Python ou TypeScript ne lit une trame unique après
+`nearby.subscribe` (recherche exhaustive sur `nearby.subscribe`/`nearby.drivers` dans
+`services/odoo/addons/babana/tests/` et `test/`) -- un seul endroit avait cette hypothèse.
+
+**Ce que je retiens.** Exactement la leçon que la nuit répète depuis plusieurs sessions (D26,
+D33, D37 cette nuit même) : un changement qui a l'air localisé à un message WebSocket peut avoir
+des consommateurs qu'aucune des suites déjà vertes ne couvre. La suite Odoo complète n'avait
+tourné, ce soir, qu'une seule fois avant le doute L6-06 §3 (pour D37) -- jamais après. Le point 3
+de la définition de fini (« `make test` passe en entier ») n'est pas négociable précisément pour
+cette raison, et cette régression en est la preuve : une vérification tâche par tâche, aussi
+soigneuse soit-elle, ne remplace pas une passe finale sur l'ensemble.
+
+`services/odoo/addons/babana/tests/_realtime_ws.py` -- 1 fichier, pas de nouveau test (c'est déjà
+la fixture d'un test existant qui l'a révélé). Suite `TestRideController` isolée : 0 échec, 24
+tests, après correctif.
