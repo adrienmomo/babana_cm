@@ -44,6 +44,18 @@ const ConfigSchema = z.object({
   /** Rayon maximal d'une requête de chauffeurs proches, quel que soit le rayon demandé (L3-03). */
   NEARBY_MAX_RADIUS_METERS: z.coerce.number().positive().default(5_000),
 
+  /** Élargissement du rayon (L3-08), quand aucun chauffeur ne reste après exclusion des
+   * refusants sur cette course -- ou qu'aucun n'était disponible dans le rayon initial. Palier
+   * ajouté à chaque tentative, jusqu'au plafond ci-dessous. */
+  NEARBY_EXPAND_RADIUS_STEP_METERS: z.coerce.number().positive().default(2_000),
+  /** Plafond de l'élargissement (L3-08) -- au-delà, plus personne : `nearby.drivers` renvoie une
+   * liste vide, que L6-08 traduit en `NO_DRIVER_AVAILABLE`. Distinct de
+   * `NEARBY_MAX_RADIUS_METERS` : celui-ci borne une demande normale (C2b, anti-balayage), celui-là
+   * ne s'applique qu'une fois les candidats les plus proches épuisés. Vérifié au niveau du schéma
+   * ci-dessous (`.refine`) : l'élargissement doit avoir un rayon de départ strictement inférieur
+   * à son propre plafond, sinon il n'élargit jamais rien. */
+  NEARBY_EXPAND_MAX_RADIUS_METERS: z.coerce.number().positive().default(15_000),
+
   /** Période de grâce avant sortie du pool sur déconnexion réseau (L3-04). */
   AVAILABILITY_DISCONNECT_GRACE_SECONDS: z.coerce.number().int().positive().default(45),
 
@@ -101,6 +113,13 @@ const ConfigSchema = z.object({
   message:
     'RESERVATION_TTL_SECONDS doit être strictement supérieur à PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS (marge de sécurité, L3-07)',
   path: ['RESERVATION_TTL_SECONDS'],
+}).refine((config) => config.NEARBY_EXPAND_MAX_RADIUS_METERS > config.NEARBY_MAX_RADIUS_METERS, {
+  // Sans cette marge, l'élargissement (L3-08) partirait déjà à son propre plafond et ne
+  // produirait jamais un second palier -- un client dont les 5 chauffeurs refusent reviendrait
+  // toujours sur NO_DRIVER_AVAILABLE sans qu'aucun rayon plus large n'ait été essayé.
+  message:
+    'NEARBY_EXPAND_MAX_RADIUS_METERS doit être strictement supérieur à NEARBY_MAX_RADIUS_METERS (L3-08, sinon l’élargissement n’élargit rien)',
+  path: ['NEARBY_EXPAND_MAX_RADIUS_METERS'],
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

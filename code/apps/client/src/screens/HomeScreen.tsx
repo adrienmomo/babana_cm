@@ -120,8 +120,11 @@ export function HomeScreen({ navigation }: Props) {
     const center = departure?.position ?? region;
     ensureRealtimeConnected();
     const thisRequest = ++subscriptionRequest.current;
+    // `excludeDriverIds` toujours vide ici (L3-08, 24 août) : cet écran ne porte aucune course,
+    // donc aucun refusant -- une liste vide est aussi le signal qui garde cette découverte libre
+    // strictement bornée par NEARBY_MAX_RADIUS_METERS côté service, jamais élargie (C2b).
     const subscribe = () =>
-      realtimeClient.send('nearby.subscribe', { position: center, radiusMeters: NEARBY_SUBSCRIBE_RADIUS_METERS });
+      realtimeClient.send('nearby.subscribe', { position: center, radiusMeters: NEARBY_SUBSCRIBE_RADIUS_METERS, excludeDriverIds: [] });
     subscribe();
 
     const unsubscribeMessages = onRealtimeMessage((message) => {
@@ -190,7 +193,7 @@ export function HomeScreen({ navigation }: Props) {
     // Renvoie le même abonnement, sans changer `subscriptionRequest.current` -- la réponse reste
     // acceptée par le filtre de l'effet ci-dessus, aucun nouvel abonnement à ouvrir pour ça.
     const center = departure?.position ?? region;
-    realtimeClient.send('nearby.subscribe', { position: center, radiusMeters: NEARBY_SUBSCRIBE_RADIUS_METERS });
+    realtimeClient.send('nearby.subscribe', { position: center, radiusMeters: NEARBY_SUBSCRIBE_RADIUS_METERS, excludeDriverIds: [] });
   }
 
   function retryLocation() {

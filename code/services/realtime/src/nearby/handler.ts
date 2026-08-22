@@ -4,7 +4,7 @@ import type { WebSocket } from 'ws';
 import { realtime } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ConnectionContext } from '../ws/auth';
-import { projectNearbyDrivers } from './projection';
+import { findNearbyWithExpansion } from './expand';
 import { recordLastSent } from './last-sent';
 
 // D14, non négociable par le client (critère 2) -- déjà la borne du schéma `NearbyDriversPayloadSchema`
@@ -56,16 +56,26 @@ export class NearbyManager {
     // la valeur métier réelle, configurable côté service (invariant 5).
     const radiusMeters = Math.min(payload.radiusMeters, this.config.NEARBY_MAX_RADIUS_METERS);
     const origin = payload.position;
+    // Refusants de cette course (L3-08, 24 août) : le client les rappelle depuis les
+    // ride.rejected déjà reçus (L6-08) -- vide sur un abonnement de simple découverte.
+    const excludeDriverIds = payload.excludeDriverIds;
 
     const push = async (): Promise<void> => {
       if (socket.readyState !== socket.OPEN) {
         this.clearSubscription(context.userId);
         return;
       }
-      const drivers = await projectNearbyDrivers(this.config, this.redis, origin, radiusMeters, NEARBY_RESULT_LIMIT);
+      // Élargit le rayon par paliers (L3-08) si plus aucun candidat ne reste une fois les
+      // refusants exclus. Une découverte libre (excludeDriverIds vide, HomeScreen) n'élargit
+      // jamais -- voir nearby/expand.ts pour le raisonnement complet (C2b).
+      const result = await findNearbyWithExpansion(this.config, this.redis, origin, radiusMeters, excludeDriverIds, NEARBY_RESULT_LIMIT);
+      const drivers = 'drivers' in result ? result.drivers : [];
       // Précondition C-03 (L3-17) : mémorise cette liste comme "la dernière montrée à ce client",
       // pour que /internal/reservations puisse refuser un chauffeur jamais affiché.
       await recordLastSent(this.redis, context.userId, drivers.map((d) => d.driverId), this.config.NEARBY_LAST_SENT_TTL_SECONDS);
+      // Une liste vide après épuisement de l'élargissement EST le NO_DRIVER_AVAILABLE de la
+      // spécification (catalogue C-01) : L6-08 traite déjà ce cas côté app, aucun message
+      // distinct n'est nécessaire (voir nearby/expand.ts).
       socket.send(JSON.stringify(buildNearbyDriversMessage(drivers)));
     };
 
@@ -115,9 +125,7 @@ export class NearbyManager {
   }
 }
 
-function buildNearbyDriversMessage(
-  drivers: Awaited<ReturnType<typeof projectNearbyDrivers>>
-): realtime.NearbyDriversMessage {
+function buildNearbyDriversMessage(drivers: realtime.NearbyDriversMessage['payload']['drivers']): realtime.NearbyDriversMessage {
   return {
     type: 'nearby.drivers',
     id: randomUUID(),

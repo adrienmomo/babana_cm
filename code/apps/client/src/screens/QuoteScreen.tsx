@@ -132,8 +132,16 @@ export function QuoteScreen({ route, navigation }: Props) {
   // pour rester au même patron que HomeScreen.
   useEffect(() => {
     ensureRealtimeConnected();
+    // excludedDriverIds (L3-08, 24 août) : les chauffeurs déjà refusés sur cette course -- le
+    // serveur les exclut et élargit le rayon si besoin (nearby/expand.ts) plutôt que de renvoyer
+    // une liste qui les recontiendrait. Pas une décision prise ici : cet écran rappelle
+    // seulement un fait déjà appris par un `ride.rejected` précédent (L6-08).
     const subscribe = () =>
-      realtimeClient.send('nearby.subscribe', { position: origin.position, radiusMeters: NEARBY_SUBSCRIBE_RADIUS_METERS });
+      realtimeClient.send('nearby.subscribe', {
+        position: origin.position,
+        radiusMeters: NEARBY_SUBSCRIBE_RADIUS_METERS,
+        excludeDriverIds: [...excludedDriverIds],
+      });
     subscribe();
 
     const unsubscribeMessages = onRealtimeMessage((message) => {

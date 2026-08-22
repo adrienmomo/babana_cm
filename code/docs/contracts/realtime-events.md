@@ -57,7 +57,7 @@ réel en commentaire au-dessus de son schéma.
 | `proposal.reject` | Chauffeur | `{ rideId, reason? }` | Transition `proposed → rejected` |
 | `ride.start` | Chauffeur | `{ rideId }` | Transition `assigned → in_progress` |
 | `ride.complete` | Chauffeur | `{ rideId, distanceMeters, durationSeconds, polyline }` | Transition `in_progress → completed` |
-| `nearby.subscribe` | Client | `{ position, radiusMeters }` | S'abonne à `nearby.drivers` |
+| `nearby.subscribe` | Client | `{ position, radiusMeters, excludeDriverIds }` | S'abonne à `nearby.drivers` |
 | `nearby.unsubscribe` | Client | `{}` | Se désabonne |
 | `ride.track` | Client | `{ rideId }` | S'abonne au suivi d'une course affectée ou en cours |
 | `session.resync` | Client ou chauffeur | `{ lastKnownRideId }` | Voir « Politique de reconnexion » |
@@ -65,6 +65,13 @@ réel en commentaire au-dessus de son schéma.
 `radiusMeters` de `nearby.subscribe` est borné à 50 km dans le schéma — un garde-fou anti-abus
 au niveau du contrat, pas la valeur métier du rayon de recherche réel, qui reste configurable
 côté service temps réel (invariant 5).
+
+`excludeDriverIds` (défaut `[]`, L3-08, 24 août) porte les chauffeurs déjà refusés sur la course
+en cours, au sens où le client les a déjà vus refuser via un `ride.rejected` précédent — pas une
+décision de l'app, seulement le rappel d'un fait que le serveur lui a lui-même appris. Le serveur
+les exclut de `nearby.drivers` et, si plus aucun candidat ne reste dans le rayon demandé, élargit
+le rayon par paliers (`nearby/expand.ts`) jusqu'à un plafond configurable avant de renvoyer une
+liste vide — que L6-08 traduit en `NO_DRIVER_AVAILABLE`.
 
 ## Messages émis par le serveur (`server-to-client.ts`)
 

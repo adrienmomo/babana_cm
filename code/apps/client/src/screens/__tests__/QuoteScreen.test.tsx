@@ -304,7 +304,19 @@ describe('QuoteScreen (L6-07)', () => {
     await renderQuote();
 
     expect(mockEnsureConnected).toHaveBeenCalled();
-    expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', { position: ORIGIN.position, radiusMeters: 5000 });
+    expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', { position: ORIGIN.position, radiusMeters: 5000, excludeDriverIds: [] });
+  });
+
+  // L3-08 (24 août) : le serveur exclut ces identifiants et élargit le rayon si besoin
+  // (nearby/expand.ts) -- l'écran ne fait que les rappeler, jamais de décision ici.
+  it('transmet les chauffeurs déjà refusés au serveur, pour élargissement (L3-08)', async () => {
+    await renderQuote({ nearbyDrivers: [driver({ driverId: 'still-here' })], excludedDriverIds: ['refused-1', 'refused-2'] });
+
+    expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', {
+      position: ORIGIN.position,
+      radiusMeters: 5000,
+      excludeDriverIds: ['refused-1', 'refused-2'],
+    });
   });
 
   it('un chauffeur qui devient indisponible pendant la comparaison disparaît de la liste, avant toute sélection', async () => {
@@ -331,7 +343,7 @@ describe('QuoteScreen (L6-07)', () => {
       connectionStateListener?.('connected');
     });
 
-    expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', { position: ORIGIN.position, radiusMeters: 5000 });
+    expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', { position: ORIGIN.position, radiusMeters: 5000, excludeDriverIds: [] });
   });
 
   it('se désabonne à la sortie de l’écran (sélection d’un chauffeur, ou retour à l’accueil)', async () => {

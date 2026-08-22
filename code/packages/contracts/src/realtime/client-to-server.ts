@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { envelopeSchema } from './envelope';
-import { LatLngSchema, RideIdSchema } from '../http/common';
+import { DriverIdSchema, LatLngSchema, RideIdSchema } from '../http/common';
 
 /**
  * Tous les messages émis VERS le serveur, qu'ils viennent de l'application Chauffeur ou de
@@ -70,10 +70,18 @@ export type RideCompleteMessage = z.infer<typeof RideCompleteMessageSchema>;
  * Émetteur : client. S'abonne aux mises à jour de la liste des chauffeurs proches.
  * `radiusMeters` est borné ici par un plafond de garde-fou anti-abus, pas par la valeur métier
  * du rayon de recherche réel — celle-ci reste configurable côté service temps réel (invariant 5).
+ *
+ * `excludeDriverIds` (L3-08, 24 août) : les chauffeurs qui ont déjà refusé CETTE course, portés
+ * par le client depuis les `ride.rejected` déjà reçus (L6-08) -- pas une règle métier côté app,
+ * seulement le report d'un fait que le serveur lui a lui-même appris. Le serveur décide seul de
+ * la suite (exclusion, élargissement du rayon, seuil d'abandon) ; le client ne fait que rappeler
+ * qui il a déjà vu refuser. Vide par défaut : une navigation initiale (accueil, première
+ * estimation) n'exclut personne.
  */
 export const NearbySubscribePayloadSchema = z.object({
   position: LatLngSchema,
   radiusMeters: z.number().positive().max(50_000),
+  excludeDriverIds: z.array(DriverIdSchema).max(50).default([]),
 });
 export const NearbySubscribeMessageSchema = envelopeSchema('nearby.subscribe', NearbySubscribePayloadSchema);
 export type NearbySubscribeMessage = z.infer<typeof NearbySubscribeMessageSchema>;

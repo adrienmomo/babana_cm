@@ -213,7 +213,7 @@ describe('NearbyManager (L3-05, D14)', () => {
     // ~1.1 km du centre : au-delà du plafond de 500 m, mais dans le rayon demandé (40 km).
     const farDriverId = await freshDriver('c1-far', { latitude: origin.latitude, longitude: origin.longitude + 0.01 });
 
-    await assert.doesNotReject(() => manager.subscribe(context, socket, { position: origin, radiusMeters: 40_000 }));
+    await assert.doesNotReject(() => manager.subscribe(context, socket, { position: origin, radiusMeters: 40_000, excludeDriverIds: [] }));
     manager.unsubscribe(context);
 
     assert.equal(messages.length, 2, 'accusé de réception puis liste de chauffeurs');
@@ -237,8 +237,8 @@ describe('NearbyManager (L3-05, D14)', () => {
     const driverNearOrigin = await freshDriver('c5-driver-origin', origin);
     const driverNearOther = await freshDriver('c5-driver-other', otherOrigin);
 
-    await manager.subscribe(context, socket, { position: origin, radiusMeters: 3_000 });
-    await manager.subscribe(context, socket, { position: otherOrigin, radiusMeters: 3_000 });
+    await manager.subscribe(context, socket, { position: origin, radiusMeters: 3_000, excludeDriverIds: [] });
+    await manager.subscribe(context, socket, { position: otherOrigin, radiusMeters: 3_000, excludeDriverIds: [] });
 
     // Laisse un intervalle de diffusion s'écouler : si le premier abonnement n'avait pas été
     // annulé, deux minuteurs tourneraient et produiraient des messages pour les deux origines.
@@ -269,7 +269,7 @@ describe('NearbyManager (L3-05, D14)', () => {
       const { socket, messages } = fakeSocket();
       // eslint-disable-next-line no-await-in-loop -- les abonnements doivent être séquentiels
       // pour que le compteur de débit les voie un par un, comme des appels WebSocket réels.
-      await manager.subscribe(context, socket, { position: origin, radiusMeters: 3_000 });
+      await manager.subscribe(context, socket, { position: origin, radiusMeters: 3_000, excludeDriverIds: [] });
       attempts.push({ messages });
     }
     manager.unsubscribe(context);
@@ -292,9 +292,9 @@ describe('NearbyManager (L3-05, D14)', () => {
     const context = clientContext('c6b-client');
 
     const first = fakeSocket();
-    await manager.subscribe(context, first.socket, { position: origin, radiusMeters: 3_000 });
+    await manager.subscribe(context, first.socket, { position: origin, radiusMeters: 3_000, excludeDriverIds: [] });
     const second = fakeSocket();
-    await manager.subscribe(context, second.socket, { position: origin, radiusMeters: 3_000 });
+    await manager.subscribe(context, second.socket, { position: origin, radiusMeters: 3_000, excludeDriverIds: [] });
     manager.unsubscribe(context);
 
     assert.equal(second.messages.length, 1, 'refusé : un accusé de réception seul, aucune liste de chauffeurs');
@@ -302,5 +302,47 @@ describe('NearbyManager (L3-05, D14)', () => {
     assert.ok(ack);
     assert.equal(ack.payload.accepted, false);
     assert.ok(!ack.payload.accepted && ack.payload.retryAfterMs > 0);
+  });
+
+  // L3-08 (24 août) : l'abonnement passe désormais par l'élargissement (nearby/expand.ts) dès
+  // qu'un `excludeDriverIds` non vide accompagne la demande -- ce test vérifie le câblage bout en
+  // bout depuis NearbyManager, pas la logique d'élargissement elle-même (déjà couverte par
+  // test/expand.test.ts).
+  test("critère 1/2 (L3-08) -- un abonnement avec des refusants élargit le rayon jusqu'à trouver un candidat", async () => {
+    const origin = { latitude: 4.14, longitude: 9.84 };
+    const config = configWith({
+      NEARBY_MAX_RADIUS_METERS: '500',
+      NEARBY_EXPAND_RADIUS_STEP_METERS: '1000',
+      NEARBY_EXPAND_MAX_RADIUS_METERS: '3000',
+    });
+    const manager = new NearbyManager(config, redis);
+    const context = clientContext('l308-client');
+
+    // ~2 000 m du centre : hors du plafond normal (500 m, même après le rayon demandé de 3 000
+    // m ci-dessous, capé à 500), atteint seulement par l'élargissement (500 -> 1500 -> 2500).
+    const farDriverId = await freshDriver('l308-far', { latitude: origin.latitude + 2_000 / 111_320, longitude: origin.longitude });
+
+    const refused = fakeSocket();
+    await manager.subscribe(context, refused.socket, { position: origin, radiusMeters: 3_000, excludeDriverIds: ['someone-else-entirely'] });
+    manager.unsubscribe(context);
+
+    const [driversMessage] = driverListMessages(refused.messages);
+    assert.ok(
+      driversMessage!.payload.drivers.some((d) => d.driverId === farDriverId),
+      "le chauffeur élargi doit apparaître -- l'exclusion d'un tiers ne doit pas empêcher l'élargissement"
+    );
+
+    // Découverte libre (sans refusant) à la même origine : le plafond normal (500 m) doit tenir,
+    // le même chauffeur élargi ne doit jamais apparaître (C2b, critère 1 de L3-05, non régressé
+    // par L3-08 -- voir aussi test/expand.test.ts).
+    const discovery = fakeSocket();
+    await manager.subscribe(context, discovery.socket, { position: origin, radiusMeters: 3_000, excludeDriverIds: [] });
+    manager.unsubscribe(context);
+    const [discoveryMessage] = driverListMessages(discovery.messages);
+    assert.equal(
+      discoveryMessage!.payload.drivers.some((d) => d.driverId === farDriverId),
+      false,
+      'une découverte libre ne doit jamais dépasser le plafond configuré'
+    );
   });
 });
