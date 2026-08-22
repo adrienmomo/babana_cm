@@ -47,7 +47,7 @@ Une bibliothèque de navigation standard plutôt qu'un routeur maison — la que
 3. Sans session, aucun écran métier n'est atteignable — testé en tentant d'y naviguer directement.
 4. La perte de session en cours d'usage ramène à la connexion, depuis n'importe quel écran.
 5. Un chauffeur `pending` n'atteint pas les écrans de course.
-6. **L'application Client se construit pour le web** (D22) — vérifié par une compilation web réussie, pas par la seule confiance dans la bibliothèque.
+6. **L'application Client s'ouvre dans un navigateur** (D22, D38 — critère réécrit le 24 août). La rédaction précédente demandait une compilation réussie. Le bundle a compilé pendant quatre nuits en affichant une page blanche : le fichier HTML ne chargeait jamais le script, et trois autres défauts attendaient derrière celui-là. Une compilation prouve qu'un assemblage est possible, pas qu'il fonctionne. Le critère est donc qu'on ait **ouvert la page et vu l'écran de connexion**, puis parcouru au moins un enchaînement d'écrans.
 7. `configureMapsProvider` et `configureGoogleSignIn` sont appelés une fois au démarrage, à un endroit unique et nommé.
 
 ### Piège
@@ -356,6 +356,10 @@ Choix de la gamme si plusieurs sont disponibles, avec relance de l'estimation.
 Compte à rebours de validité de l'estimation. À l'expiration, proposer de réactualiser plutôt que d'échouer.
 
 **Aucun calcul de tarif dans l'app.** Le montant vient du serveur, il n'est ni recalculé ni ajusté localement.
+
+**La liste des chauffeurs continue de vivre pendant que le client compare** (ajouté le 24 août). La première implémentation transmettait un cliché depuis l'écran d'accueil et coupait l'abonnement en changeant d'écran. C'est correct et sûr — le serveur reste l'arbitre, et un chauffeur pris entre-temps produit `DRIVER_ALREADY_TAKEN` —, mais l'erreur arrive au pire moment : celui où le client vient de choisir. Or c'est précisément l'écran où il prend son temps, puisqu'il compare.
+
+L'abonnement reste donc actif : un chauffeur qui n'est plus disponible disparaît ou se grise **avant** qu'on le touche. Le mécanisme existe déjà (L3-05), il s'agit de ne pas l'interrompre.
 
 ### Critères d'acceptation
 
@@ -762,6 +766,12 @@ Export web de `apps/client` via React Native Web, déployé en site statique.
 **Dégradations signalées, jamais masquées.** Trois fonctions sont absentes ou dégradées sur le web : notifications push, capture de position en arrière-plan, lien profond de navigation. L'application doit l'indiquer explicitement à l'utilisateur plutôt que de faire semblant. Un bandeau discret précisant que la version web est une démonstration suffit.
 
 **Aucune branche conditionnelle dans les écrans.** Les différences de plateforme vivent dans les paquets partagés — `@babana/maps`, `@babana/api-client` — jamais dans `apps/client/src/screens`. Un écran truffé de `if (Platform.OS === 'web')` annonce quinze écrans dans le même état six mois plus tard.
+
+**Aucune session n'est persistée sur le web (D39, 24 août).** Le stockage sécurisé du natif s'appuie sur le trousseau du système ; un navigateur n'a rien d'équivalent, et tout ce qu'on range dans son stockage local est lisible par n'importe quelle injection de script. Un jeton de renouvellement y serait une session entière offerte, survivant à l'expiration du jeton d'accès.
+
+L'implémentation web du stockage de jetons garde donc la session **en mémoire seulement** : fermer l'onglet déconnecte, rouvrir demande une reconnexion Google — deux clics, la session Google du navigateur étant déjà ouverte. C'est une dégradation, et elle rejoint les trois autres du paragraphe précédent : elle **se signale**, elle ne se masque pas.
+
+Le contournement posé le 24 août pour vérifier le bundle — un stockage local qui ne chiffre rien — est explicitement provisoire et disparaît avec cette tâche.
 
 Déploiement sur Vercel, en prévisualisation par branche. La version web pointe sur `staging.babana.cm` par défaut, jamais sur la production — une démonstration ne doit pas créer de vraies courses.
 

@@ -42,6 +42,8 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D35 | **Toutes les lectures mobiles passent par des contrôleurs explicites sous `/api/v1`.** Le JSON-RPC natif est abandonné pour les apps | JSON-RPC natif pour les lectures secondaires | Il n'accepte pas notre jeton applicatif. L'économie promise se paierait par un pont d'authentification maison. Voir §5 |
 | D36 | **La rotation du jeton de renouvellement a une fenêtre de grâce** : un jeton consommé depuis peu renvoie le même couple qu'à son premier usage, au lieu de révoquer la famille | Révocation stricte à toute réutilisation | Sur un réseau intermittent, une coupure entre l'envoi et la réception du nouveau jeton déconnectait l'utilisateur de tout. Voir §5 |
 | D37 | **Le jeton rejouable est conservé chiffré, avec une clé dérivée du jeton présenté** — et effacé à la fin de la fenêtre, par une tâche périodique, pas seulement à la prochaine présentation | Le conserver en clair | Sans cela, chaque renouvellement laissait en base, définitivement, le jeton valide de l'utilisateur en clair. Voir §5 |
+| D38 | **Un artefact qui se construit n'est pas un artefact qui fonctionne.** Tout livrable destiné à être ouvert par quelqu'un a pour critère qu'il ait été ouvert | Compilation réussie comme preuve | Le bundle web compilait depuis quatre nuits et affichait une page blanche. Voir §9 |
+| D39 | **L'export web ne persiste aucune session** : rien dans le stockage du navigateur, reconnexion à la réouverture | Trousseau simulé par `localStorage` | Un navigateur n'a pas de trousseau système ; un jeton de renouvellement dans `localStorage` est lisible par toute faille d'injection. Voir §9 |
 
 ---
 
@@ -306,6 +308,19 @@ Exigences du CDC §VII.2 et §VII.3, à traiter comme des tâches et non comme d
 - **Sauvegardes** : sauvegarde automatique quotidienne de PostgreSQL et du stockage, avec **restauration testée** — une sauvegarde jamais restaurée n'est pas une sauvegarde. Redis n'est pas sauvegardé, par construction (règle de partition, §2).
 - **Rôles** : le mobile n'accède jamais à un modèle Odoo hors de ce que les règles d'enregistrement autorisent pour son utilisateur. Un chauffeur ne lit pas la course d'un autre chauffeur ; un client ne lit pas les documents d'un chauffeur. À vérifier par des tests, pas par relecture.
 - **Journalisation** : toute transition de course et toute opération sur le compte courant chauffeur sont journalisées de manière non modifiable. C'est ce qui permettra de trancher un litige.
+- **L'export web ne persiste aucune session (D39, 24 août).** Un navigateur n'a pas de trousseau système à qui déléguer : tout ce qu'on y range est lisible par n'importe quelle injection de script. Le jeton de renouvellement, qui vaut une session entière et survit à l'expiration du jeton d'accès, n'y a donc pas sa place. La session web vit en mémoire ; fermer l'onglet déconnecte, rouvrir demande une reconnexion Google — deux clics, puisque la session Google du navigateur est déjà ouverte. C'est le coût réel de D22, et il est acceptable précisément parce que l'export web est un complément de démonstration, pas le canal principal. Un cookie inaccessible au script serait la bonne réponse pour une vraie application web ; il exigerait un second mécanisme d'authentification à côté du porteur, ce que D35 vient d'écarter.
+
+---
+
+## 9 bis. Ce qui compte comme une vérification (D38)
+
+Le bundle web se construisait sans erreur depuis quatre nuits. Il affichait une page blanche : le fichier HTML ne chargeait jamais le script. Derrière ce premier défaut s'en cachaient trois autres, chacun masqué par le précédent, dont un qui empêchait l'application de dépasser l'écran de chargement.
+
+Mon critère d'acceptation disait « vérifié par une compilation web réussie, pas par la seule confiance dans la bibliothèque ». Je me méfiais de la bonne chose et j'ai vérifié la mauvaise : **une compilation prouve qu'un assemblage est possible, pas qu'il fonctionne.** Entre les deux, il y a tout ce qui ne s'exécute qu'au chargement.
+
+La règle qui en découle vaut pour tout ce que quelqu'un finira par ouvrir — une application, une page, un document produit, un export : **le critère est que quelqu'un l'ait ouvert**, pas que la chaîne de production se soit terminée sans erreur. Pour le reste — une bibliothèque, un service sans interface — le test automatisé reste la preuve, et il l'est mieux qu'un humain.
+
+C'est la troisième fois qu'un de mes critères vérifie quelque chose d'adjacent à ce qui compte : l'écriture comptable équilibrée plutôt que la créance juste, l'exclusion mutuelle de deux transitions qui ne s'excluent pas, et maintenant la compilation plutôt que l'exécution. À chaque fois le test était vert et la propriété fausse.
 
 ---
 

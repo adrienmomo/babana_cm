@@ -235,6 +235,10 @@ docs/contracts/realtime-events.md
 - Les actions émises hors connexion sont mises en file locale et rejouées à la reconnexion, dans l'ordre, avec leur identifiant d'origine pour que le serveur puisse les dédupliquer.
 - Une position vieille de plus de N secondes est ignorée par le serveur, pas rejouée : rejouer une position obsolète est pire que la perdre.
 
+**Un lecteur ne suppose jamais que la trame suivante est celle qu'il attend** (règle ajoutée le 24 août, après un défaut réel). L'ajout d'un accusé de réception à `nearby.subscribe` a cassé treize tests d'un coup : une fixture Python lisait **une seule trame** après l'abonnement et tenait pour acquis que c'était la liste de chauffeurs. Le nouvel accusé arrivait en premier, et l'absence de chauffeurs était constatée à chaque fois.
+
+Le défaut n'était pas dans l'accusé, il était dans la lecture. Un flux de messages typés se lit **en filtrant par type**, jamais en prenant la trame suivante : sinon tout message ajouté au flux, un jour, casse silencieusement des lecteurs écrits ailleurs. La règle vaut pour le code applicatif comme pour les fixtures de test — c'est une fixture qui a fauté ici, et elle a coûté une passe de vérification complète pour être trouvée.
+
 **Précision des positions diffusées aux clients** — les positions envoyées dans `nearby.drivers` sont arrondies. Spécifier la précision retenue : assez fine pour que l'affichage soit crédible, assez grossière pour que la flotte ne soit pas cartographiable (C2b).
 
 ### Critères d'acceptation
