@@ -314,3 +314,43 @@ prochaine session, avant L6-09 et avant tout le reste.**
 
 ---
 
+### Ce qui me laisse un doute, pour un client réel
+
+**Le doute de ce soir n'en est pas vraiment un, c'est une certitude inconfortable.** `amoa/
+questions/C-01.md` ci-dessus n'est pas une zone grise à trancher : sur la vraie pile, ce soir,
+commander une course a échoué au premier essai, pour tout le monde, depuis que `POST /rides`
+existe. Aucun test ne l'avait vu parce qu'aucun test ne parle en même temps au vrai Odoo et au
+vrai client HTTP partagé — deux vérités locales, cohérentes chacune de son côté, exactement le
+schéma qui a déjà coûté cher trois fois cette année (le jeton du 15 août, l'exclusion mutuelle
+d'un autre soir, la compilation du 24 août). Ce n'est plus une coïncidence, c'est un angle mort
+récurrent : un chemin qui traverse deux services n'est prouvé par aucune suite tant que personne
+n'écrit explicitement le test qui les fait parler ensemble. Je n'ai pas de meilleure réponse ce
+soir que de le nommer une quatrième fois.
+
+**Un doute plus petit, sur L3-08.** Le gating sur `excludeDriverIds` non vide (voir `amoa/
+questions/L3-08.md`) est défendable et testé, mais il repose sur une hypothèse jamais vérifiée en
+conditions réelles : qu'un client n'atteint jamais `QuoteScreen` la toute première fois dans une
+zone sans aucun chauffeur. C'est vrai par construction tant que la liste initiale vient d'un
+`nearby.subscribe` non vide — mais si un jour un chemin permet d'arriver sur `QuoteScreen` sans
+être passé par cette vérification (un lien profond, par exemple), l'élargissement resterait
+silencieusement inactif exactement là où la spécification l'attend.
+
+---
+
+## Ce qui reste ouvert
+
+- **`amoa/questions/C-01.md`** — priorité absolue : la commande d'une course échoue au premier
+  geste sur la vraie pile. Quatre options posées, aucune tranchée.
+- **L6-09** — non commencée : L3-09 (diffusion du suivi) n'existe pas, et deux extensions de
+  contrat sont nécessaires avant de l'attaquer (immatriculation/gamme sur affectation, détail
+  décomposé sur complétion) — voir l'entrée L6-09 ci-dessus.
+- **L8-03/L8-04** — partage de trajet et bouton d'urgence, prérequis silencieux de L6-09 critère 2,
+  jamais commencés.
+- **L3-12** — file persistante avec rejeu côté service. Inchangé depuis J10.
+- **L4-06** — la facture. Inchangé.
+- **La validation du plan comptable** — trois questions à poser au comptable, inchangé.
+- **La vérification développeur Android** — inchangée.
+- Le stub `localStorage` de session web (L6-00R, condamné par L6-18/D39) — toujours provisoire,
+  non touché ce soir.
+
+
