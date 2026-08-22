@@ -156,3 +156,161 @@ via `.default([])`), `docs/contracts/realtime-events.md`, `services/realtime/src
 (+test). `amoa/questions/L3-08.md` (doute sur le déclenchement, ci-dessus).
 
 ---
+
+## L6-09 — non commencée cette nuit, le lot s'arrête à L3-08
+
+Prévenu en tête de nuit : « si le lot ne passe pas en entier, arrête-toi après L3-08 et dis-le. »
+Je m'arrête ici, et voici précisément ce qui manque pour que L6-09 se fasse sans hypothèse posée
+à côté d'une vérité qui n'existe pas encore.
+
+**L3-09 (diffusion du suivi) n'existe pas du tout ce soir.** Vérifié par lecture de
+`services/realtime/src/ws/dispatch.ts` : `ride.start`, `ride.complete` et `ride.track` sont dans
+la liste des types encore ignorés silencieusement (commentaire de tête du fichier, jamais mis à
+jour depuis). Aucun `tracking/broadcast.ts` n'existe, aucun message `driver.position` n'est jamais
+émis en dehors de son schéma. Ce n'est pas un détail manquant à côté de L6-09 : c'est tout ce que
+`TrackingScreen` afficherait qui n'a nulle part où le lire.
+
+**Deux lacunes de contrat, trouvées en lisant avant d'écrire, qui dépassent le périmètre d'un
+seul écran :**
+
+1. **L'immatriculation et la gamme de la moto** (critère 1 de L6-09) ne sont nulle part
+   accessibles au client une fois un chauffeur affecté. `ride.assigned` (C-02) ne porte que
+   `{ rideId, driverId }`. La gamme existe déjà dans `DriverProfile` (L3-16) mais **la liste
+   blanche de champs de l'endpoint interne exclut explicitement l'immatriculation** — c'est un
+   champ qui n'a jamais été jugé sûr à exposer avant l'affectation (C2b, la flotte est
+   publiquement observable avant qu'un client n'ait choisi). Une fois affecté, la règle change :
+   le client A choisi ce chauffeur, l'immatriculation cesse d'être une donnée à protéger contre le
+   balayage. Il faut donc soit enrichir `ride.assigned`, soit un nouvel endpoint/message dédié à
+   l'affectation — une décision de contrat, pas un choix d'écran.
+2. **Le détail décomposé et la notation** (critères 4 et 5) ne sont pas dans `ride.completed`
+   (`{ rideId, distanceMeters, durationSeconds, amount }`, sans `breakdown`). Le résumé de fin
+   « doit correspondre exactement à ce qui est écrit côté serveur » (consigne de ce soir) : cela
+   suppose une lecture de la course consolidée depuis Odoo (comme `GET /rides/{id}` ou l'ajout du
+   détail à `ride.completed`), pas encore spécifiée dans C-01/C-02.
+
+**Ce qui manque encore, hors contrat :** L8-03 (partage de trajet) et L8-04 (bouton d'urgence)
+n'existent pas non plus (`amoa/specs/L8-securite.md`) ; le critère 2 de L6-09 les suppose
+atteignables « en un geste ». Sans eux, l'écran de suivi ne peut honnêtement offrir qu'un bouton
+qui ne fait rien, ou son omission pure et simple — aucune des deux ne satisfait le critère tel
+qu'écrit.
+
+**Pourquoi je n'ai pas contourné avec une hypothèse.** Deviner la forme de `ride.assigned` enrichi,
+inventer un endpoint de détail de course, ou stubber le partage/urgence par des boutons inertes
+reproduirait exactement le défaut du 15 août (une forme inventée à côté d'une vérité qui aurait
+pu être écrite proprement une nuit plus tard) — sauf qu'ici il n'y a même pas de vérité existante
+à côté de laquelle se tromper, seulement une absence. Le protocole d'écart demande de signaler
+avant de contourner ; je signale plutôt que d'improviser un contrat pour tenir un délai.
+
+**Pour la prochaine session, avant même de reprendre l'ordre naturel : voir §« Vérification
+navigateur » et surtout §« Le défaut le plus important de la nuit » ci-dessous.** La vérification
+D38, faite ce soir sur ce qui existait déjà (L6-06/L6-07/L6-08), a trouvé quelque chose qui change
+la priorité de la nuit suivante.
+
+**Pour la prochaine session : l'ordre naturel.** (1) Décider et écrire l'extension de contrat
+(immatriculation/gamme sur affectation, détail décomposé sur complétion) — une tâche de
+spécification, courte, qui débloque le reste. (2) L3-09 : `ride.start`/`ride.complete` posent et
+lèvent l'abonnement de suivi, `ride.track` l'ouvre côté client, `driver.position` diffuse à
+fréquence découplée de l'ingestion, en précision réelle (pas l'arrondi de L3-05), avec l'ETA
+recalculé (facteur de correction non calibré, É8/L10-03 — pas de fausse précision). Vérifier à
+chaque diffusion, pas seulement à l'abonnement, qu'un client suit bien une course qui est la
+sienne (spécification, critère 2). (3) `TrackingScreen`/`RideSummaryScreen`, avec l'état de
+connexion explicite (horodatage de la dernière position connue) et le partage/urgence
+conditionnés à l'existence de L8-03/L8-04 -- ou honnêtement absents si ces tâches ne sont pas
+encore faites, jamais des boutons inertes.
+
+---
+
+## Vérification navigateur (D38) — sur ce qui existait déjà, home → estimation → sélection
+
+Demandée explicitement pour ce soir, sur le parcours complet. Faite contre la vraie pile
+(`make up`, base fraîche après la passe finale ci-dessous), avec un vrai chauffeur approuvé et mis
+en ligne par le chemin réel (WebSocket, `availability.set` puis `position.update`), un vrai jeton
+via `mock-google-identity` + `/auth/google`, et un petit serveur de vérification jetable (pas dans
+le dépôt) servant `dist-web` et relayant `/api`/`/auth`/`/rt/ws` vers Odoo et le service temps réel
+sur la même origine -- exactement le montage que Caddy fournira en vrai (L6-18), pour ne pas buter
+sur le mur CORS déjà rencontré et documenté la nuit dernière (rapport J15, L6-00R).
+
+**Deux défauts trouvés en ouvrant `QuoteScreen`, un troisième plus grave derrière.**
+
+### 1. `QuoteScreen` ne s'affichait pas, alors que tout son contenu existait dans le DOM
+
+**Corrigé, commité.** `public/index.html` ne donne aucune hauteur à `html`/`body`/`#root`. Sans
+effet visible sur `HomeScreen` (son contenu s'empile sans avoir besoin d'une hauteur d'ancêtre),
+mais `QuoteScreen` utilise un `ScrollView` -- react-native-web l'implémente par un conteneur
+`overflow-y: auto; flex: 1`, qui hérite 0% de hauteur en cascade jusqu'à `#root`. Résultat : le
+texte existait bel et bien dans le DOM (`get_page_text` le lisait, `getBoundingClientRect` donnait
+des tailles cohérentes plus bas dans l'arbre), **mais rien n'était peint à l'écran** -- une capture
+d'écran montrait une page blanche. Même famille de défaut que L6-00R (« un bundle qui compile mais
+n'affiche jamais rien »), ici circonscrit à un seul écran plutôt qu'à l'app entière, et découvert
+pour la même raison : personne n'avait ouvert *cet* écran précis dans un vrai navigateur avant ce
+soir, l'ancien correctif de L6-00R n'ayant vérifié que `HomeScreen`.
+
+Corrigé par une hauteur explicite (`100vh`, pas `100%` -- `100%` cascade depuis un ancêtre déjà à
+zéro, `100vh` ancre directement sur le viewport) et un chaînage flex explicite jusqu'au premier
+conteneur applicatif. Vérifié : `QuoteScreen` s'affiche intégralement (montant, détail décomposé,
+carte chauffeur) après correctif ; `HomeScreen` inchangé.
+
+**Fichier.** `apps/client/public/index.html`. Aucun test automatisé -- même raison que L6-00R,
+`webpack.config.js`/`public/index.html` n'en ont pas et l'écran est déjà couvert par les suites
+Jest de L6-07 pour son contenu ; la preuve ici est le navigateur lui-même.
+
+### 2. Le vrai défaut : le contrat de date rejette les dates qu'Odoo produit réellement
+
+**Non corrigé -- consigné, c'est le plus important à traiter demain.**
+`amoa/questions/C-01.md` documente la reproduction complète et l'analyse ; résumé ici.
+
+En sélectionnant le chauffeur (le vrai geste de commande), l'estimation avait bien réussi
+(`POST /quote`, 200) et la création de la course aussi (`POST /rides`, 201, une vraie
+`babana.ride` en base) -- **mais l'app affichait « Une erreur inattendue s'est produite »**,
+jamais l'écran d'attente. Un chauffeur reste alors bloqué hors du pool par une réservation qui
+n'aura jamais lieu que le client ne verra jamais confirmée.
+
+**Cause.** `IsoDateTimeSchema` (`packages/contracts/src/http/common.ts`) est
+`z.string().datetime({ offset: true })` -- exige un suffixe `Z` ou un décalage horaire. Odoo
+sérialise ses `fields.Datetime` en ISO **sans aucun fuseau** (`"2026-08-22T06:38:44.673009"`,
+vérifié avec le vrai `zod` du dépôt : `datetime({offset:true}).safeParse(...)` échoue sur cette
+chaîne précise). **Chaque réponse qui porte un champ date -- `createdAt` sur `POST /rides`, et
+par construction `expiresAt`/`proposalExpiresAt` ailleurs -- échoue donc sa propre validation de
+schéma côté client**, alors que l'appel HTTP a réussi et que l'écriture a eu lieu.
+
+**Pourquoi aucune suite existante ne l'a vu.** Vérifié par lecture, pas supposé : les tests Jest
+des écrans (`QuoteScreen.test.tsx`, etc.) simulent `apiClient.request` entièrement --
+`jest.mock('../../auth', ...)` -- et ne passent donc jamais par `createHttpClient` ni par
+`endpoint.responseSchema.parse`. Les scénarios de bout en bout (`test/concurrency/*`,
+`odoo-session.ts`) parlent en `fetch` brut, pas par `@babana/api-client`, et ne valident donc
+aucun schéma de réponse non plus. **Aucune suite du dépôt n'a jamais exercé le chemin réel --
+vrai Odoo, vrai `@babana/api-client`, vraie validation de schéma -- en même temps**, jusqu'à ce
+qu'un vrai navigateur, ce soir, le fasse. C'est exactement le défaut que le critère 5 de C-01
+existe pour attraper (« un test de bout en bout... aucune suite propre à un service ne peut le
+remplacer ») -- sauf que ce critère couvre l'authentification WebSocket, pas les écritures REST.
+
+**Un second défaut amplifie le premier, découvert en creusant la même trace.**
+`packages/api-client/src/http/client.ts::request()` classe comme réessayable **toute** erreur qui
+n'est pas une `ApiError` (`error instanceof ApiError ? isRetryableStatus(...) : true`) -- un choix
+correct pour une vraie erreur réseau (`fetch` qui lève avant toute réponse), mais une `ZodError`
+levée par `responseSchema.parse(payload)` **après un succès HTTP réel** tombe dans la même
+branche. Le client rejoue alors un `POST /rides` déjà réussi, avec la **même**
+`Idempotency-Key` (correct, l'intention y est) -- mais le rejeu échoue côté Odoo avec un 500
+plutôt que de renvoyer la réponse mise en cache : signe d'un défaut de rejeu par idempotence côté
+Odoo lui-même, jamais exercé jusqu'ici pour la même raison (aucune suite ne rejoue une écriture
+déjà réussie par ce chemin précis). Observé en direct : 1 création réussie (`201`), puis plusieurs
+rejeux identiques en échec (`500`), jusqu'à épuisement des tentatives -- le client final ne voit
+que l'échec.
+
+**Pourquoi je ne corrige pas cette nuit.** Trois défauts empilés, chacun dans un fichier différent
+(`packages/contracts`, `packages/api-client`, un contrôleur Odoo à identifier), touchant un
+mécanisme partagé par **tous** les endpoints d'écriture -- exactement le genre de correctif qui
+mérite une tête reposée et une revue, pas une réparation hâtive à l'heure qu'il est sur un chemin
+qui touche l'idempotence des écritures (liste de validation humaine, `CLAUDE.md`). Écrit dans
+`amoa/questions/C-01.md` avec la reproduction exacte, pour que la prochaine session commence par
+là plutôt que par L6-09.
+
+**Ce que ça change pour demain matin.** La commande décrite dans les attentes de ce soir
+(« commander, être refusé... ») **échoue aujourd'hui dès le premier geste de commande**, sur la
+vraie pile, pas seulement dans l'export web -- ce chemin (`POST /rides` avec un token réel) est le
+même pour l'app native. Je n'ai pas pu vérifier plus loin ce soir (refus, réaffichage, sélection
+suivante) : le blocage est en amont de tout ce que L3-08 ajoute. **Priorité absolue de la
+prochaine session, avant L6-09 et avant tout le reste.**
+
+---
+

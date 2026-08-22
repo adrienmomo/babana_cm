@@ -4,6 +4,20 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Babana</title>
+    <!--
+      Sans hauteur explicite ici, `html`/`body`/`#root` restent à hauteur 0 -- un `flex: 1`
+      react-native-web n'a alors aucune hauteur d'ancêtre à remplir. Sans effet visible sur un
+      écran dont le contenu s'empile sans ScrollView (HomeScreen), mais un `ScrollView` (RNW :
+      `overflow: auto; height: 100%`) hérite 100% de 0 et n'affiche jamais rien -- le texte existe
+      dans le DOM, rien n'est peint à l'écran. Trouvé le 24 août en ouvrant QuoteScreen dans un
+      vrai navigateur (D38) : même famille de défaut que L6-00R (« un bundle qui compile mais
+      n'affiche jamais rien »), ici sur un seul écran plutôt que sur l'app entière.
+    -->
+    <style>
+      html, body, #root { height: 100vh; margin: 0; }
+      #root { display: flex; flex-direction: column; }
+      #root > div:first-child { flex: 1; display: flex; flex-direction: column; }
+    </style>
   </head>
   <body>
     <div id="root"></div>
