@@ -36,3 +36,30 @@ par analogie (« à vérifier plusieurs fois, sinon ça ne prouve rien »).
 paquet la couvre entièrement, pas seulement les quatre fichiers historiquement touchés).
 
 ---
+
+## C-02 — vérification de la règle de lecture des trames
+
+Recherche exhaustive de tout lecteur qui prendrait « la trame suivante » plutôt que de filtrer par
+type, des deux côtés du protocole :
+
+- **TypeScript** (`services/realtime/test/*.test.ts`, `packages/api-client/src`, `apps/client/src`,
+  `apps/driver/src`) : tous les accès `messages[0]` restants sont précédés d'une assertion sur la
+  longueur ou le contenu exact du tableau (`assert.equal(messages.length, 1)`,
+  `assert.deepEqual(messageTypes, ['un-seul-type'])`) — ce n'est pas supposer que la position 0
+  contient tel type, c'est avoir déjà prouvé que c'est tout ce que le tableau contient. Les listes
+  de chauffeurs de `nearby.test.ts` passent par `driverListMessages`/`ackMessages`, qui filtrent
+  par type. `packages/api-client` lit par `onmessage` et distribue par type de message (pas de
+  lecture positionnelle). Rien à corriger.
+- **Python** (`services/odoo/addons/babana/tests/`) : `_realtime_ws.py` est le seul fichier du
+  dépôt qui parle WebSocket brut ; `make_driver_visible_to_client` a déjà été corrigé cette nuit-là
+  (commit `26e97b8`) pour boucler jusqu'à `nearby.drivers` plutôt que de s'arrêter à la première
+  trame. Aucun autre appelant Python de `nearby.subscribe`.
+- **`test/concurrency/helpers/realtime.ts`** (racine du monorepo, utilisé par L3-17/L4-11) :
+  `waitForDriverVisible` filtrait déjà par type avant cette nuit — jamais affecté, confirmé par
+  lecture.
+
+Aucune seconde occurrence trouvée. La règle C-02 (« un lecteur ne suppose jamais que la trame
+suivante est celle qu'il attend ») est respectée partout où le protocole est consommé. Aucun
+fichier de code modifié — entrée de vérification pure.
+
+---
