@@ -4,9 +4,10 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '@babana/ui';
 import { asDriverId, asRideId } from '@babana/navigation';
 import { ApiError, USER_MESSAGES, translateApiError } from '@babana/api-client';
-import type { http } from '@babana/contracts';
+import type { http, realtime } from '@babana/contracts';
 import { apiClient } from '../auth';
 import { DriverCard } from '../components/DriverCard';
+import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { replaceWithRideFlow } from '../navigation/transitions';
 import type { ClientParamList } from '../navigation/types';
 
@@ -20,6 +21,16 @@ import type { ClientParamList } from '../navigation/types';
  */
 
 type Props = NativeStackScreenProps<ClientParamList, 'Quote'>;
+
+// Même choix d'implémentation que HomeScreen (`NEARBY_SUBSCRIBE_RADIUS_METERS`, non spécifié par
+// le contrat, plafonné de toute façon côté serveur -- L3-05, critère 1) : cet écran ouvre son
+// propre abonnement plutôt que de dépendre de celui de HomeScreen, qui peut être coupé ou
+// remplacé sans qu'aucun des deux écrans ne le sache.
+const NEARBY_SUBSCRIBE_RADIUS_METERS = 5000;
+
+function isNearbyDriversMessage(message: realtime.ServerToClientMessage): message is realtime.NearbyDriversMessage {
+  return message.type === 'nearby.drivers';
+}
 
 const VEHICLE_CLASSES: readonly http.VehicleClass[] = ['standard', 'premium'];
 const VEHICLE_CLASS_LABELS: Record<http.VehicleClass, string> = {
@@ -64,10 +75,17 @@ function remainingSeconds(expiresAt: string): number {
 
 export function QuoteScreen({ route, navigation }: Props) {
   const selection = route.params;
-  const { origin, destination, nearbyDrivers, excludedDriverIds, rejectionStreak } = selection;
+  const { origin, destination, nearbyDrivers: initialNearbyDrivers, excludedDriverIds, rejectionStreak } = selection;
+  // Le cliché transmis par HomeScreen sert d'affichage immédiat (évite un écran vide le temps
+  // que le premier message arrive) ; la liste continue ensuite de vivre pendant que le client
+  // compare (doute L6-06/L6-07 du 24 août, amoa/questions/REPONSES-2026-08-24.md §4) -- un
+  // chauffeur qui n'est plus disponible doit disparaître ici, pas seulement produire
+  // `DRIVER_ALREADY_TAKEN` une fois touché. L'abonnement ci-dessous (même mécanisme que
+  // HomeScreen, L3-05) tient cette liste à jour tant que cet écran reste monté.
+  const [nearbyDrivers, setNearbyDrivers] = useState<readonly http.NearbyDriver[]>(initialNearbyDrivers);
   // Chauffeurs déjà refusés sur cette course (L6-08, critère 2) -- jamais réaffichés. Filtré ici
-  // plutôt que dans le paramètre de navigation lui-même : `nearbyDrivers` reste le cliché brut,
-  // la règle d'exclusion est une seule fois écrite, à l'endroit qui l'applique.
+  // plutôt que dans l'état lui-même : `nearbyDrivers` reste le reflet direct du flux serveur, la
+  // règle d'exclusion est une seule fois écrite, à l'endroit qui l'applique.
   const availableDrivers = nearbyDrivers.filter((driver) => !excludedDriverIds.includes(driver.driverId));
   const [vehicleClass, setVehicleClass] = useState<http.VehicleClass>('standard');
   const [quote, setQuote] = useState<http.QuoteResponse | null>(null);
@@ -107,6 +125,35 @@ export function QuoteScreen({ route, navigation }: Props) {
     fetchQuote(vehicleClass);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vehicleClass]);
+
+  // --- Chauffeurs proches, mis à jour en direct tant que cet écran reste ouvert (même mécanisme
+  // que HomeScreen, L3-05) -- c'est ce qui remplace le cliché figé de la première implémentation
+  // (doute du 24 août). Indexé sur le point de départ, qui ne change pas sur cet écran, seulement
+  // pour rester au même patron que HomeScreen.
+  useEffect(() => {
+    ensureRealtimeConnected();
+    const subscribe = () =>
+      realtimeClient.send('nearby.subscribe', { position: origin.position, radiusMeters: NEARBY_SUBSCRIBE_RADIUS_METERS });
+    subscribe();
+
+    const unsubscribeMessages = onRealtimeMessage((message) => {
+      if (isNearbyDriversMessage(message)) {
+        setNearbyDrivers(message.payload.drivers);
+      }
+    });
+    // Coupure puis reconnexion (le cas courant) : réémettre l'abonnement, sans quoi la liste se
+    // fige silencieusement après la moindre coupure réseau pendant que le client compare.
+    const unsubscribeConnectionState = onRealtimeConnectionStateChange((state) => {
+      if (state === 'connected') subscribe();
+    });
+
+    return () => {
+      unsubscribeMessages();
+      unsubscribeConnectionState();
+      realtimeClient.send('nearby.unsubscribe', {});
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origin.position.latitude, origin.position.longitude]);
 
   // Compte à rebours de validité (spécification) -- un tick par seconde suffit pour une fenêtre
   // de l'ordre de quelques minutes.

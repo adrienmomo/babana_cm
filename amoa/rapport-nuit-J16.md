@@ -63,3 +63,39 @@ suivante est celle qu'il attend ») est respectée partout où le protocole est 
 fichier de code modifié — entrée de vérification pure.
 
 ---
+
+## L6-07R — l'abonnement `nearby.drivers` reste actif sur l'écran d'estimation
+
+Arbitrage du 24 août (`amoa/questions/REPONSES-2026-08-24.md` §4) : `QuoteScreen` recevait un
+cliché figé de chauffeurs proches depuis `HomeScreen`, par paramètre de navigation. Correct et sûr
+— une sélection sur un chauffeur devenu indisponible produit `DRIVER_ALREADY_TAKEN`, le serveur
+reste l'arbitre —, mais l'écran ne dit rien avant que le client touche une carte, précisément
+l'écran où il prend son temps pour comparer.
+
+**Corrigé en donnant à `QuoteScreen` son propre abonnement `nearby.subscribe`**, même mécanisme
+que `HomeScreen` (L3-05) : `ensureRealtimeConnected()`, envoi de l'abonnement au montage sur le
+point de départ, réémission à chaque reconnexion (coupure réseau, le cas courant), et
+désabonnement au démontage. Le cliché transmis par `HomeScreen` sert uniquement de première
+peinture (`useState(initialNearbyDrivers)`), remplacé par le premier message `nearby.drivers` reçu
+et par chaque suivant. Un chauffeur retiré du pool (réservé par un autre client, passé hors ligne)
+disparaît donc de la liste avant que quiconque ne le touche — pas de dérivation locale, l'app
+affiche ce que le serveur diffuse (règle transverse du lot L6).
+
+**Pourquoi ne pas partager l'abonnement de `HomeScreen`** plutôt que d'en ouvrir un second : les
+deux écrans peuvent coexister montés (`native-stack` ne démonte pas l'écran précédent), et faire
+dépendre `QuoteScreen` de la durée de vie de l'effet de `HomeScreen` couplerait deux écrans qui ne
+se connaissent pas aujourd'hui. Les deux abonnements portent la même position (le départ choisi
+avant l'estimation) : le serveur n'en retient qu'un par client (L3-05, critère 5, « un second
+abonnement du même client remplace le premier »), sans changer le résultat reçu par l'un ou
+l'autre — la diffusion est reçue par tous les auditeurs de la connexion partagée
+(`onRealtimeMessage`), quel que soit celui qui a émis la dernière demande.
+
+**Vérification.** `@babana/client` : 4 tests nouveaux (abonnement au montage sur le point de
+départ, disparition d'un chauffeur pris pendant la comparaison avant toute sélection, réémission à
+la reconnexion, désabonnement à la sortie de l'écran) plus les 11 déjà verts, tous passent (15/15,
+`QuoteScreen.test.tsx`). Suite complète `@babana/client` : 68 tests, 0 échec. `tsc --noEmit` et
+`eslint` propres.
+
+**Fichiers.** `apps/client/src/screens/QuoteScreen.tsx`, son test.
+
+---

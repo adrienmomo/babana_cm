@@ -9,7 +9,35 @@ jest.mock('../../auth', () => ({
   apiClient: { request: (...args: unknown[]) => mockRequest(...args) },
 }));
 
+// Même mock que HomeScreen.test.tsx (`../realtime` porte le WebSocket partagé de l'app) --
+// QuoteScreen ouvre désormais son propre abonnement `nearby.subscribe` (doute du 24 août) plutôt
+// que de dépendre d'un cliché figé transmis par HomeScreen.
+let realtimeListener: ((message: unknown) => void) | null = null;
+let connectionStateListener: ((state: string) => void) | null = null;
+const mockSend = jest.fn();
+const mockEnsureConnected = jest.fn();
+jest.mock('../../realtime', () => ({
+  ensureRealtimeConnected: () => mockEnsureConnected(),
+  onRealtimeMessage: (listener: (message: unknown) => void) => {
+    realtimeListener = listener;
+    return () => {
+      realtimeListener = null;
+    };
+  },
+  onRealtimeConnectionStateChange: (listener: (state: string) => void) => {
+    connectionStateListener = listener;
+    return () => {
+      connectionStateListener = null;
+    };
+  },
+  realtimeClient: { send: (...args: unknown[]) => mockSend(...args) },
+}));
+
 import { QuoteScreen } from '../QuoteScreen';
+
+function emitNearbyDrivers(drivers: http.NearbyDriver[]) {
+  realtimeListener?.({ type: 'nearby.drivers', id: 'm1', emittedAt: new Date().toISOString(), payload: { drivers } });
+}
 
 const ORIGIN = { position: { latitude: 4.0511, longitude: 9.7679 }, label: 'vers Akwa, Douala' };
 const DESTINATION = { position: { latitude: 4.0611, longitude: 9.7861 }, label: 'vers Bonapriso, Douala' };
@@ -113,6 +141,8 @@ function texts(root: ReactTestRenderer): string {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  realtimeListener = null;
+  connectionStateListener = null;
   mockRequest.mockImplementation(async (name: string) => {
     if (name === 'quote') return quoteResponse();
     throw new Error(`unexpected call: ${name}`);
@@ -265,6 +295,54 @@ describe('QuoteScreen (L6-07)', () => {
 
     expect(root.root.findAllByProps({ testID: 'driver-card-refused' })).toHaveLength(0);
     expect(root.root.findByProps({ testID: 'driver-card-still-here' })).toBeTruthy();
+  });
+
+  // Doute du 24 août (amoa/questions/REPONSES-2026-08-24.md §4) : l'abonnement reste actif
+  // pendant que le client compare -- un chauffeur pris entre-temps doit disparaître ici, pas
+  // seulement produire DRIVER_ALREADY_TAKEN une fois touché.
+  it("s'abonne à nearby.subscribe au montage, sur le point de départ", async () => {
+    await renderQuote();
+
+    expect(mockEnsureConnected).toHaveBeenCalled();
+    expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', { position: ORIGIN.position, radiusMeters: 5000 });
+  });
+
+  it('un chauffeur qui devient indisponible pendant la comparaison disparaît de la liste, avant toute sélection', async () => {
+    const stillThere = driver({ driverId: 'still-there', firstName: 'Aminata' });
+    const { root } = await renderQuote({ nearbyDrivers: [driver({ driverId: 'taken' }), stillThere] });
+
+    expect(root.root.findByProps({ testID: 'driver-card-taken' })).toBeTruthy();
+
+    // Le serveur retire un chauffeur réservé de nearby.drivers (L3-06, critère 3) -- la
+    // diffusion suivante ne le porte plus.
+    await act(async () => {
+      emitNearbyDrivers([stillThere]);
+    });
+
+    expect(root.root.findAllByProps({ testID: 'driver-card-taken' })).toHaveLength(0);
+    expect(root.root.findByProps({ testID: 'driver-card-still-there' })).toBeTruthy();
+  });
+
+  it('une reconnexion réémet l’abonnement, la liste ne se fige jamais pendant la comparaison', async () => {
+    await renderQuote();
+    mockSend.mockClear();
+
+    await act(async () => {
+      connectionStateListener?.('connected');
+    });
+
+    expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', { position: ORIGIN.position, radiusMeters: 5000 });
+  });
+
+  it('se désabonne à la sortie de l’écran (sélection d’un chauffeur, ou retour à l’accueil)', async () => {
+    const { root } = await renderQuote();
+
+    await act(async () => {
+      root.unmount();
+    });
+    renderedRoots.length = 0; // déjà démonté ci-dessus, afterEach ne doit pas le redémonter
+
+    expect(mockSend).toHaveBeenCalledWith('nearby.unsubscribe', {});
   });
 
   it('critère 4 (L6-08) : plus aucun chauffeur disponible après exclusion -- message clair, pas de fausse attente', async () => {
