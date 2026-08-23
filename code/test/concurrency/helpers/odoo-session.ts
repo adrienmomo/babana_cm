@@ -118,7 +118,11 @@ export async function execute<T = unknown>(
   return jsonRpc<T>('object', 'execute_kw', [ODOO_DB, uid, ODOO_ADMIN_PASSWORD, model, method, args, kwargs]);
 }
 
-async function mintGoogleToken(sub: string, email: string): Promise<string> {
+/** Exporté pour test/http-contract (C-01, critère 6) : ce fichier a besoin d'un ID token Google
+ * réel pour appeler POST /auth/google lui-même à travers le vrai @babana/api-client -- signIn()
+ * ci-dessous fait le même sign-in par fetch brut, ce qui suffit aux fixtures de test/concurrency
+ * mais n'exerce pas la validation de schéma que ce module-ci construit. */
+export async function mintGoogleToken(sub: string, email: string): Promise<string> {
   const response = await fetch(`${MOCK_GOOGLE_URL}/token`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

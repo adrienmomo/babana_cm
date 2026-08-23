@@ -41,7 +41,7 @@ def _summary(ride) -> dict:
         # montre déjà amount=1200 sur une course à l'état 'requested').
         "amount": round(ride.final_amount or ride.estimated_amount or 0),
         "currency": "XAF",
-        "createdAt": ride.create_date.isoformat() if ride.create_date else None,
+        "createdAt": _common.iso_datetime(ride.create_date),
         "assignedDriverId": ride.driver_id.public_id if ride.driver_id else None,
     }
 
@@ -65,20 +65,11 @@ def _map_user_error(message: str) -> tuple[str, int]:
 class RideController(http.Controller):
     def _dispatch(self, endpoint: str, handler):
         try:
-            key = _common.idempotency_key()
-            if key:
-                cached = _common.lookup_idempotent_response(key, endpoint)
-                if cached is not None:
-                    payload, status = cached
-                    return _common.json_response(payload, status)
-
-            payload, status = handler()
-
-            if key and 200 <= status < 300:
-                # Seules les transitions réellement appliquées sont mises en cache (voir
-                # lookup_idempotent_response) -- un échec métier ici (RIDE_NOT_OWNED,
-                # VALIDATION_ERROR, ...) n'a rien appliqué, le rejouer est sans risque.
-                _common.store_idempotent_response(key, endpoint, payload, status)
+            # C-01R (amoa/questions/C-01.md) : réservation atomique de la clé d'idempotence
+            # AVANT tout appel à `handler`, pas une lecture de cache suivie d'une exécution
+            # conditionnelle -- voir _common.claim_idempotency_slot pour la fenêtre de
+            # concurrence que l'ancienne version laissait ouverte.
+            payload, status = _common.run_idempotent(endpoint, handler)
             return _common.json_response(payload, status)
         except _common.AuthenticationFailed as exc:
             return _common.error_response(exc.code, "authentification requise", exc.status)
@@ -226,9 +217,9 @@ class RideController(http.Controller):
             env["ir.config_parameter"].sudo().get_param("babana.proposal_window_seconds", 30)
         )
         payload = _summary(ride)
-        payload["proposalExpiresAt"] = (
+        payload["proposalExpiresAt"] = _common.iso_datetime(
             ride.proposed_at + timedelta(seconds=window_seconds)
-        ).isoformat()
+        )
         return payload, 200
 
     # --- POST /rides/{id}/start -----------------------------------------------------------------

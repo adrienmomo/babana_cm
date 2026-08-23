@@ -35,19 +35,11 @@ class RemittanceController(http.Controller):
     def _dispatch(self, endpoint: str, handler):
         # Même patron que RideController._dispatch (controllers/ride.py) : le réseau mobile est
         # intermittent (CLAUDE.md), une déclaration de remise doit pouvoir se rejouer sans en
-        # créer une seconde (L5-07, critère 5 -- Idempotency-Key, C-01).
+        # créer une seconde (L5-07, critère 5 -- Idempotency-Key, C-01). Réservation atomique de
+        # la clé (C-01R, _common.run_idempotent) -- pas de lecture de cache suivie d'une
+        # exécution conditionnelle.
         try:
-            key = _common.idempotency_key()
-            if key:
-                cached = _common.lookup_idempotent_response(key, endpoint)
-                if cached is not None:
-                    payload, status = cached
-                    return _common.json_response(payload, status)
-
-            payload, status = handler()
-
-            if key and 200 <= status < 300:
-                _common.store_idempotent_response(key, endpoint, payload, status)
+            payload, status = _common.run_idempotent(endpoint, handler)
             return _common.json_response(payload, status)
         except _common.AuthenticationFailed as exc:
             return _common.error_response(exc.code, "authentification requise", exc.status)

@@ -160,7 +160,7 @@ class QuoteController(http.Controller):
             "distanceMeters": route.distance_meters,
             "etaSeconds": eta_seconds,
             "promoApplied": promo_applied,
-            "expiresAt": expires_at.isoformat() + "Z",
+            "expiresAt": _common.iso_datetime(expires_at),
         }, 200
 
     def _validate(self, body):

@@ -1,3 +1,4 @@
+import { ZodError } from 'zod';
 import { createHttpClient } from '../../src/http/client';
 import { ApiError } from '../../src/http/errors';
 
@@ -75,6 +76,30 @@ describe('createHttpClient -- réessais (L6-03, critère 2)', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(wait).not.toHaveBeenCalled();
   });
+
+  it(
+    "ne réessaie jamais un défaut de validation de la réponse -- ce n'est pas une erreur " +
+      'réseau (C-01R, amoa/questions/C-01.md) : la requête HTTP a déjà pleinement réussi ' +
+      '(response.ok) quand responseSchema.parse échoue, et rejouer réapplique une écriture ' +
+      'déjà faite sans le moindre espoir de succès -- le même défaut de schéma se reproduit à ' +
+      "l'identique à chaque tentative.",
+    async () => {
+      // drivers doit être un tableau (NearbyDriversResponseSchema) -- réponse 200 malformée,
+      // exactement la forme du défaut réel : Odoo répond, la requête a réussi, c'est la lecture
+      // de la réponse qui échoue.
+      const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { drivers: 'not-an-array' }));
+      const wait = jest.fn();
+      const client = createHttpClient({ baseUrl: 'https://api.test', fetchImpl, wait });
+
+      const error = await client
+        .request('nearbyDrivers', { query: { latitude: 4, longitude: 9 } })
+        .catch((e) => e);
+
+      expect(error).toBeInstanceOf(ZodError);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(wait).not.toHaveBeenCalled();
+    }
+  );
 });
 
 describe('createHttpClient -- idempotence (L6-03, critère 3)', () => {

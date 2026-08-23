@@ -1,3 +1,4 @@
+import { ZodError } from 'zod';
 import { http } from '@babana/contracts';
 import { ApiError } from './errors';
 import { generateIdempotencyKey, isWriteMethod } from './idempotency';
@@ -124,7 +125,16 @@ export function createHttpClient(config: ApiClientConfig) {
       try {
         return await attemptOnce(name, options, idempotencyKey);
       } catch (error) {
-        const retryable = error instanceof ApiError ? isRetryableStatus(error.status) : true; // erreur réseau (fetch a levé avant toute réponse)
+        // C-01R (amoa/questions/C-01.md) : une ZodError -- schéma de requête OU de réponse --
+        // n'est PAS une erreur réseau. `attemptOnce` la lève après que `fetch` a déjà résolu
+        // (réponse reçue, `response.ok` vérifié) : la requête HTTP a pleinement réussi, c'est sa
+        // lecture qui échoue. La rejouer réapplique une écriture déjà faite, avec la même
+        // Idempotency-Key -- sans danger côté serveur (C-01R corrige aussi le cache
+        // d'idempotence Odoo), mais sans le moindre espoir de succès non plus : le même défaut
+        // de schéma échouera identiquement à chaque tentative jusqu'à épuisement des réessais.
+        // Seul un `fetch` qui a levé avant toute réponse, ou un `ApiError` de statut >= 500,
+        // justifie un réessai.
+        const retryable = error instanceof ZodError ? false : error instanceof ApiError ? isRetryableStatus(error.status) : true;
         if (!retryable || attempt >= maxRetries) throw error;
         await wait(retryBaseDelayMs * 2 ** attempt);
         attempt += 1;
