@@ -239,8 +239,9 @@ seul (ajouter `ride.untrack` est une extension de contrat, D17), à signaler pou
 ## Passe finale
 
 `make reset` puis `make up` sur une base neuve, comme dû. `make test` complet vert du premier coup
-(Odoo : 400 tests, 0 échec, 0 erreur ; le reste du monorepo : 349 tests répartis sur les huit
-suites npm, tous verts). `make lint` et `make typecheck` propres sur tout l'arbre. `make verify`
+(Odoo : 400 tests, 0 échec, 0 erreur ; le reste du monorepo : 393 tests répartis sur les huit
+suites npm -- api-client 50, contracts 63, maps 19, ui 4, navigation 133, client 84, driver 15,
+test/ 25 -- tous verts). `make lint` et `make typecheck` propres sur tout l'arbre. `make verify`
 vert. `make secrets-scan` échoue sur un faux positif préexistant, sans rapport avec ce soir --
 détaillé plus bas.
 
