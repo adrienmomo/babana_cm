@@ -19,7 +19,13 @@ const fixtures = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'fixtures
 let failureSimulated = false;
 
 function sendJson(res, status, body) {
-  res.writeHead(status, { 'Content-Type': 'application/json' });
+  // CORS ouvert (D19, trouvé en vérifiant la correction de searchPlace dans un vrai navigateur,
+  // J18) : GOOGLE_ROUTING_URL est appelé depuis Odoo (aucune notion de CORS, un serveur qui parle
+  // à un autre), mais BABANA_MAPS_SEARCH_URL est appelé depuis le JavaScript d'un navigateur --
+  // sans cet en-tête, la réponse arrive (curl la voit très bien) mais le navigateur refuse de la
+  // livrer au code appelant. Un simulateur qui refuse de démarrer en production (ligne 10-13
+  // ci-dessus) n'a aucune raison de restreindre son origine.
+  res.writeHead(status, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' });
   res.end(JSON.stringify(body));
 }
 

@@ -233,3 +233,102 @@ terminée). Sans conséquence fonctionnelle (plus personne n'écoute, `onRealtim
 désabonné au démontage), mais un gaspillage de bande passante sur un réseau mobile compté --
 n'existait pas avant ce soir puisque personne n'atteignait `Tracking`. Pas un défaut à corriger
 seul (ajouter `ride.untrack` est une extension de contrat, D17), à signaler pour L3-10/L3-11.
+
+---
+
+## Passe finale
+
+`make reset` puis `make up` sur une base neuve, comme dû. `make test` complet vert du premier coup
+(Odoo : 400 tests, 0 échec, 0 erreur ; le reste du monorepo : 349 tests répartis sur les huit
+suites npm, tous verts). `make lint` et `make typecheck` propres sur tout l'arbre. `make verify`
+vert. `make secrets-scan` échoue sur un faux positif préexistant, sans rapport avec ce soir --
+détaillé plus bas.
+
+### Vérification navigateur, jusqu'où elle a pu aller
+
+Demandée explicitement, jusqu'au résumé de fin, sans contournement manuel. Faite contre la pile
+réelle, montage jetable identique à celui de C-01R la veille (`http://verify.localhost`, Caddy
+proxyant `/rt/*` et `/api/*` vers les vrais services et tout le reste vers le bundle web statique ;
+jamais commité, retiré avant ce commit -- la vérification l'a confirmé : `git status` propre sur
+`infra/caddy/Caddyfile` après coup). Session client réelle injectée (même geste qu'un redémarrage
+d'app avec une session déjà persistée, pas un raccourci serveur). Six chauffeurs réels, mêmes
+mécanismes qu'un vrai chauffeur (`availability.set`, `position.update`, `proposal.accept`/
+`.reject` par WebSocket) -- un script jetable (`test/verify-driver-sim.ts`, jamais commité) tenait
+lieu des cinq mains qui auraient dû répondre.
+
+**Ce qui a été vu, en clair, jusqu'à `ride.assigned` inclus** : connexion restaurée, recherche
+« Akwa » puis « Bonapriso » via `PlacePicker` -- **la correction 1 de ce soir en train de
+fonctionner, dans un vrai navigateur, ce qui était précisément le but de la corriger** -- carte
+recentrée, cinq chauffeurs réels (`nearby.subscribe`), estimation réelle (550 FCFA, détail
+décomposé cohérent, 3,4 km, ≈ 8 min), sélection du chauffeur le plus proche, refus réel
+(`proposal.reject`) → `DriverRejectedScreen`, retour automatique à la sélection avec ce chauffeur
+exclu et **cinq autres chauffeurs affichés** (exactement l'énoncé de la consigne), seconde
+sélection, acceptation réelle (`proposal.accept`) → `TrackingScreen` : immatriculation
+(`LT-IP5C-VE`) et gamme (« Standard ») visibles (critère 1), ETA en direct (« ≈ 1 min »),
+« Position mise à jour il y a N s » qui avance seconde par seconde en te regardant, aucune trace
+du mot « urgence » ni « partager » nulle part sur l'écran (critère 2, vérifié par lecture du texte
+rendu, pas seulement par requête sur un `testID`).
+
+**Un défaut de CORS trouvé, et corrigé, avant même d'aller plus loin.** `searchPlace` échouait
+silencieusement dans le navigateur avec `TypeError: Failed to fetch`, alors que le même appel
+réussissait à la ligne de commande (`curl`) : `mock-maps` ne pose aucun en-tête
+`Access-Control-Allow-Origin`, invisible depuis Node (aucune notion de CORS côté serveur-à-serveur,
+c'est comme ça que `GOOGLE_ROUTING_URL` l'appelle depuis Odoo) et depuis les tests unitaires
+(`fetch` de Jest ne l'applique pas non plus) -- seul un vrai navigateur le fait respecter. Corrigé
+dans `services/mocks/maps/src/index.js` (`Access-Control-Allow-Origin: '*'`, un simulateur qui
+refuse de démarrer en production n'a aucune raison de restreindre son origine). **C'est exactement
+la classe de défaut que la vérification navigateur de ce soir existe pour attraper** -- ni `make
+test`, ni aucun test unitaire de `packages/maps` ne l'aurait jamais vu, parce qu'aucun des deux ne
+tourne dans un vrai moteur de rendu.
+
+**Ce qui n'a pas pu être vérifié en direct : la course et le résumé.** `ride.started` et
+`ride.completed` ne sont émis nulle part dans `services/realtime/src` -- constaté dans le code
+(`ws/dispatch.ts` le documente lui-même), pas supposé, et déjà noté hier
+(`amoa/rapport-nuit-J17.md`, §L3-09). Ni le message WebSocket `ride.start`/`ride.complete`
+(silencieusement ignorés), ni le vrai chemin HTTP (`POST /rides/{id}/start`/`.../complete`, qui
+transitionne bien `babana.ride` côté Odoo) ne déclenchent la moindre notification vers le service
+temps réel : aucun point d'accroche interne, contrairement à l'affectation (D31). `TrackingScreen`
+reste donc bloqué en phase d'approche pour toujours ce soir, et `RideSummaryScreen` est
+inatteignable par le parcours réel. Détaillé, avec ce qui reste à trancher :
+`amoa/questions/L6-09-ride-lifecycle-emitter.md`.
+
+**Décidé de ne pas contourner, conformément à la consigne de ce soir** (« sans un seul
+contournement manuel ») : construire l'émetteur manquant aurait été sortir du périmètre confié
+(aucune tâche ne le nomme, pas même dans les dépendances à lire) pour improviser, en fin de nuit,
+un point d'accroche au commit sur du code que ce dépôt traite avec le plus de précaution
+(D31/D32/D33) -- exactement le genre de raccourci que la consigne demandait d'éviter. La preuve de
+`RideSummaryScreen` et de la phase de course reste donc celle des tests automatisés
+(`TrackingScreen.test.tsx`, `RideSummaryScreen.test.tsx`), pas celle du navigateur, ce soir.
+
+**Fichiers.** `services/mocks/maps/src/index.js` (CORS, correctif réel, commité).
+`amoa/questions/L6-09-ride-lifecycle-emitter.md` (écart). `infra/caddy/Caddyfile`,
+`test/verify-driver-sim.ts`, `apps/client/dist-web/` : montage jetable, rien de tout cela n'est
+resté après vérification.
+
+**Vérifié.** `make test` complet rejoué après le correctif CORS (le seul changement de code de
+cette passe) : de nouveau vert du premier coup, mêmes chiffres qu'avant.
+
+### `make secrets-scan` — un faux positif préexistant, signalé pas corrigé
+
+`tools/secret-scan/scan.sh`, règle 4 (valeur à forte entropie sur un nom de variable contenant
+`_KEY`), signale `apps/client/webpack-stubs/react-native-keychain.web.js:6` :
+`STORAGE_KEY = 'babana-dev-keychain-stub'` -- une clé de `localStorage`, pas un secret. Fichier du
+21 août (L6-00R), jamais touché ce soir ; les exclusions de la règle couvrent `.ts`/`.md`, pas
+`.js`. Signalé, pas corrigé -- hors du périmètre de cette nuit, et modifier un outil partagé (scan
+de secrets) mérite sa propre attention plutôt qu'une correction de bord de route.
+
+## Ce qui reste ouvert
+
+- **L6-09-ride-lifecycle-emitter** (nouveau, ce soir) -- le plus urgent : sans lui, aucune course
+  ne peut se terminer aux yeux du client, quoi que fasse réellement le chauffeur.
+  `amoa/questions/L6-09-ride-lifecycle-emitter.md`.
+- **L6-09** — aucun moyen d'appeler le chauffeur (`amoa/questions/L6-09.md`), à trancher avant le
+  pilote.
+- **`make secrets-scan`** — faux positif sur `react-native-keychain.web.js` (ci-dessus), à
+  corriger (probablement : étendre l'exclusion de la règle 4 aux `.js`, ou renommer la constante).
+- **L3-18** — l'unification de l'état Redis (arbitrée le 26 août), avant L3-10 et L3-11.
+- **L8-03 / L8-04** — partage de trajet et bouton d'urgence, absents de `TrackingScreen`.
+- **L3-12** — file persistante avec rejeu côté service.
+- **L4-06** — la facture.
+- **La validation du plan comptable** — trois questions à poser.
+- **La vérification développeur Android.**
