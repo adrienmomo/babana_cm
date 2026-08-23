@@ -75,7 +75,7 @@ export function createMessageDispatcher(
       case 'proposal.accept':
         // Émetteur : chauffeur (C-02). L'identité vient du contexte de connexion (L3-01) --
         // `rideId` du message n'est jamais une identité, seulement la donnée que la résolution
-        // atomique fait correspondre à la proposition active de CE chauffeur (proposal/resolve.lua).
+        // atomique fait correspondre à la proposition active de CE chauffeur (ride/state.lua).
         if (context.role !== 'driver' || !context.driverId) return;
         // Point de blocage 2 (D8, D28, L5-02) : un chauffeur au plafond ne peut pas accepter,
         // même une proposition déjà en vol -- sans ce contrôle, une proposition émise juste avant

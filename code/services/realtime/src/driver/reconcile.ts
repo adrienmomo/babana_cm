@@ -4,7 +4,7 @@ import { fetchEngagedDriverIds } from '../odoo/rides';
 import { reintegrateIfEligible } from '../redis/pool-eligibility';
 import { setEngaged, clearEngaged } from './engagement';
 import { removeFromPool } from '../redis/geo-index';
-import { ENGAGEMENT_KEY_PREFIX } from './keys';
+import { scanEngagedDriverIds } from '../ride/state';
 
 /**
  * Réconciliation des marqueurs d'engagement contre Odoo (L3-17). Le marqueur n'expire jamais tout
@@ -30,20 +30,9 @@ export interface ReconcileResult {
   markersSet: string[];
 }
 
-async function scanEngagedDriverIds(redis: Redis): Promise<Set<string>> {
-  const ids = new Set<string>();
-  let cursor = '0';
-  do {
-    // eslint-disable-next-line no-await-in-loop -- SCAN est intrinsèquement itératif (curseur
-    // renvoyé par chaque appel), pas parallélisable sans risquer de doubler des clés.
-    const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', `${ENGAGEMENT_KEY_PREFIX}*`, 'COUNT', 200);
-    cursor = nextCursor;
-    for (const key of keys) ids.add(key.slice(ENGAGEMENT_KEY_PREFIX.length));
-  } while (cursor !== '0');
-  return ids;
-}
-
 export async function reconcileEngagement(config: Config, redis: Redis): Promise<ReconcileResult> {
+  // scanEngagedDriverIds : ride/state.ts (L3-18) -- balaie l'état unifié et filtre sur
+  // state === 'engaged', remplace l'ancien balayage direct de ENGAGEMENT_KEY_PREFIX.
   const [odooEngaged, redisEngaged] = await Promise.all([
     fetchEngagedDriverIds(config).then((ids) => new Set(ids)),
     scanEngagedDriverIds(redis),

@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type Redis from 'ioredis';
 import { AVAILABLE_DRIVERS_KEY } from './geo-index';
-import { onlineFlagKey, engagementKey, cashBlockedKey } from '../driver/keys';
-import { reservationKey } from '../reservation/keys';
+import { onlineFlagKey, cashBlockedKey } from '../driver/keys';
+import { rideStateKey } from '../ride/state';
 import { getPosition } from './positions';
 
 /**
@@ -29,11 +29,10 @@ export async function addEligibleToPool(
 ): Promise<boolean> {
   const result = await redis.eval(
     POOL_ELIGIBILITY_SCRIPT,
-    5,
+    4,
     AVAILABLE_DRIVERS_KEY,
     onlineFlagKey(driverId),
-    reservationKey(driverId),
-    engagementKey(driverId),
+    rideStateKey(driverId),
     cashBlockedKey(driverId),
     driverId,
     longitude,

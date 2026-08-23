@@ -40,13 +40,19 @@ def _redis_command(*parts: str) -> bytes:
     return out
 
 
-def _redis_set(key: str, value: str, timeout: float = 5.0) -> None:
+def _redis_hset(key: str, field: str, value: str, timeout: float = 5.0) -> None:
+    # L3-18 : l'état de course unifié (ride/state.ts) est une HASH, jamais une chaîne -- son seul
+    # écrivain (ride/state.lua) y appelle HGET/HSET/PERSIST, qui lèvent WRONGTYPE contre une clé
+    # peuplée par un simple SET (constaté en écrivant ce correctif : les deux tests "un vrai
+    # commit doit déclencher l'appel" échouaient en silence, l'appel HTTP échouant côté service
+    # temps réel sans que ce fichier -- best-effort par conception, RealtimeUnavailable est
+    # journalisée puis avalée -- ne le voie).
     host, port = _redis_host_port()
     with socket.create_connection((host, port), timeout=timeout) as sock:
-        sock.sendall(_redis_command("SET", key, value))
+        sock.sendall(_redis_command("HSET", key, field, value))
         reply = sock.recv(4096)
-        if not reply.startswith(b"+OK"):
-            raise RuntimeError(f"SET a échoué : {reply!r}")
+        if not reply.startswith(b":"):
+            raise RuntimeError(f"HSET a échoué : {reply!r}")
 
 
 def _redis_exists(key: str, timeout: float = 5.0) -> bool:
@@ -122,10 +128,13 @@ class TestRealtimeCommitHook(HttpCase):
         return super()._request_handler(s, r, **kw)
 
     def _engagement_key(self, driver_public_id: str) -> str:
-        return f"babana:driver:engaged:{driver_public_id}"
+        # L3-18 : réservation, engagement et session de suivi partagent désormais un seul
+        # enregistrement Redis par chauffeur (ride/state.ts) -- même clé que _reservation_key
+        # ci-dessous, délibérément.
+        return f"babana:driver:ride-state:{driver_public_id}"
 
     def _reservation_key(self, driver_public_id: str) -> str:
-        return f"babana:driver:reservation:{driver_public_id}"
+        return self._engagement_key(driver_public_id)
 
     def _really_engaged_driver_public_id(self) -> str:
         """Un `public_id` de chauffeur porté par une VRAIE course `assigned` -- pas un simple
@@ -159,7 +168,7 @@ class TestRealtimeCommitHook(HttpCase):
         driver_public_id = self._really_engaged_driver_public_id()
         key = self._engagement_key(driver_public_id)
         self.addCleanup(_redis_delete, key)
-        _redis_set(key, "1")
+        _redis_hset(key, "state", "engaged")
 
         env = _FakeEnv()
         realtime_client.clear_engagement(env, driver_public_id=driver_public_id)
@@ -179,7 +188,7 @@ class TestRealtimeCommitHook(HttpCase):
         driver_public_id = self._really_engaged_driver_public_id()
         key = self._engagement_key(driver_public_id)
         self.addCleanup(_redis_delete, key)
-        _redis_set(key, "1")
+        _redis_hset(key, "state", "engaged")
 
         env = _FakeEnv()
         realtime_client.clear_engagement(env, driver_public_id=driver_public_id)
@@ -199,6 +208,13 @@ class TestRealtimeCommitHook(HttpCase):
         )
 
     # --- notify_cancellation_async (relâche réservation ET engagement) ---------------------
+    #
+    # L3-18 : `engagement_key`/`reservation_key` désignent désormais la MÊME clé (l'état de
+    # course unifié) -- les deux appels que `notify_cancellation_async` déclenche
+    # (`/internal/reservations/release`, `/internal/engagement/clear`) effacent donc tous deux le
+    # même enregistrement. Redondant, jamais faux : chacun est idempotent (release()
+    # inconditionnel, ride/state.ts), c'est exactement le même comportement qu'avant
+    # l'unification, où les deux clés distinctes disparaissaient chacune à leur tour.
 
     def test_notify_cancellation_async_touches_no_redis_key_if_the_transaction_rolls_back(self):
         driver_public_id = self._really_engaged_driver_public_id()
@@ -206,8 +222,7 @@ class TestRealtimeCommitHook(HttpCase):
         reservation_key = self._reservation_key(driver_public_id)
         self.addCleanup(_redis_delete, engagement_key)
         self.addCleanup(_redis_delete, reservation_key)
-        _redis_set(engagement_key, "1")
-        _redis_set(reservation_key, "some-ride-id")
+        _redis_hset(engagement_key, "state", "engaged")
 
         env = _FakeEnv()
         realtime_client.notify_cancellation_async(env, driver_public_id)
@@ -225,8 +240,7 @@ class TestRealtimeCommitHook(HttpCase):
         reservation_key = self._reservation_key(driver_public_id)
         self.addCleanup(_redis_delete, engagement_key)
         self.addCleanup(_redis_delete, reservation_key)
-        _redis_set(engagement_key, "1")
-        _redis_set(reservation_key, "some-ride-id")
+        _redis_hset(engagement_key, "state", "engaged")
 
         env = _FakeEnv()
         realtime_client.notify_cancellation_async(env, driver_public_id)

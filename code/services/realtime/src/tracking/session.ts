@@ -1,18 +1,18 @@
 import type Redis from 'ioredis';
+import * as rideState from '../ride/state';
 
 /**
- * L'association course/client/chauffeur nécessaire au suivi (L3-09) -- rien de tout cela ne
- * survivait à l'acceptation avant ce soir : `proposal/lifecycle.ts` consommait déjà le
- * `clientUserId` de la proposition à l'acceptation (`consumeRecord`), et le point de départ
- * n'était conservé nulle part. Sans cette association, `ride.track` n'a ni de quoi vérifier
- * qu'un client suit une course qui est la sienne (spécification, critère 2, "vérifié à chaque
- * diffusion, pas seulement à l'abonnement"), ni de quoi savoir quel chauffeur suivre.
+ * Façade au-dessus de l'état de course unifié (`ride/state.ts`, L3-18) -- même signature
+ * publique qu'avant l'unification, pour que `proposal/lifecycle.ts` et `http/internal.ts`
+ * (`handleClearEngagement`) n'aient pas à changer leur appel.
  *
- * Posée par `proposal/lifecycle.ts::accept`, au même moment que le marqueur d'engagement (L3-07,
- * D26) -- même durée de vie que lui, effacée au même geste (`endRideSessionForDriver`, appelé
- * depuis `http/internal.ts::handleClearEngagement`, fin de course ou annulation). Pas de TTL :
- * une course n'a pas de durée prévisible, un embouteillage à Douala ne doit pas faire disparaître
- * le suivi en pleine approche (même raisonnement que l'engagement lui-même).
+ * L'association course/client/chauffeur nécessaire au suivi (L3-09). Posée par
+ * `proposal/lifecycle.ts::accept`, au même moment que le marqueur d'engagement (L3-07, D26) --
+ * elle vit désormais dans le MÊME enregistrement que lui, plutôt que dans une structure séparée
+ * synchronisée à la main : `startRideSession` n'est donc plus qu'un attachement de champs sur un
+ * enregistrement déjà passé à 'engaged' par `ride/state.ts::resolve`, jamais une seconde écriture
+ * d'état. Pas de TTL : une course n'a pas de durée prévisible (même raisonnement que
+ * l'engagement).
  *
  * Invariant 1 : Redis uniquement, jamais une écriture Odoo -- cette association est éphémère,
  * pas un événement métier.
@@ -20,39 +20,30 @@ import type Redis from 'ioredis';
 export interface RideSession {
   clientUserId: string;
   driverId: string;
-  /** Point de prise en charge (L3-09, ETA d'approche) -- gelé à l'acceptation, comme le montant
-   * et la distance de référence côté Odoo (L2-04) : le suivi mesure l'approche vers CE point,
-   * jamais recalculé depuis une destination qui aurait changé entre-temps. */
   origin: { latitude: number; longitude: number };
 }
 
-const RIDE_SESSION_KEY_PREFIX = 'babana:ride:session:';
-const DRIVER_ACTIVE_RIDE_KEY_PREFIX = 'babana:driver:active-ride:';
-
-function rideSessionKey(rideId: string): string {
-  return `${RIDE_SESSION_KEY_PREFIX}${rideId}`;
-}
-
-function driverActiveRideKey(driverId: string): string {
-  return `${DRIVER_ACTIVE_RIDE_KEY_PREFIX}${driverId}`;
-}
-
-export async function startRideSession(redis: Redis, rideId: string, session: RideSession): Promise<void> {
-  await redis.set(rideSessionKey(rideId), JSON.stringify(session));
-  await redis.set(driverActiveRideKey(session.driverId), rideId);
+export async function startRideSession(
+  redis: Redis,
+  rideId: string,
+  session: { clientUserId: string; driverId: string; origin: { latitude: number; longitude: number } }
+): Promise<void> {
+  await rideState.attachEngagedSession(redis, session.driverId, {
+    rideId,
+    clientUserId: session.clientUserId,
+    origin: session.origin,
+  });
 }
 
 export async function getRideSession(redis: Redis, rideId: string): Promise<RideSession | null> {
-  const raw = await redis.get(rideSessionKey(rideId));
-  if (!raw) return null;
-  return JSON.parse(raw) as RideSession;
+  const engaged = await rideState.getEngagedSession(redis, rideId);
+  if (!engaged) return null;
+  return { clientUserId: engaged.clientUserId, driverId: engaged.driverId, origin: engaged.origin };
 }
 
 /** Efface la session par chauffeur, pas par course : `handleClearEngagement` (fin de course ou
- * annulation, L3-17) ne connaît que `driverId`, jamais `rideId` -- même contrat que
- * `clearEngaged` qu'il appelle déjà, pas un second paramètre à faire porter à Odoo pour ça. */
+ * annulation, L3-17) ne connaît que `driverId`, jamais `rideId`. Même geste que l'effacement de
+ * l'engagement (`clearEngaged`) -- c'est littéralement le même enregistrement désormais. */
 export async function endRideSessionForDriver(redis: Redis, driverId: string): Promise<void> {
-  const rideId = await redis.get(driverActiveRideKey(driverId));
-  await redis.del(driverActiveRideKey(driverId));
-  if (rideId) await redis.del(rideSessionKey(rideId));
+  await rideState.release(redis, driverId);
 }

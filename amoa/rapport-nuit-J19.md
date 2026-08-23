@@ -204,3 +204,99 @@ proposition pour chacune).
 Le doute est ailleurs, et c'est la vraie réponse à la question posée en tête de nuit : la moitié du
 contrat n'a personne au bout, dans un sens ou dans l'autre, et je ne l'aurais pas su sans ce
 fichier. C'est la mesure que je n'avais pas hier.
+
+---
+
+## L3-18 — état de course unifié côté Redis
+
+### Arbitrage de périmètre, avant tout code
+
+Le script d'éligibilité lisait quatre clés (en ligne, réservation, engagement, plafond
+d'encaisse) ; le contexte de la spécification ne nomme que trois structures à unifier —
+réservation (L3-06), engagement (L3-07), session de suivi (L3-09). « En ligne » et « plafond
+d'encaisse » n'y figurent pas, et sont des états indépendants d'une course. Mais le critère 6 dit
+« le script ne lit plus qu'un état », ce qui pouvait aussi bien vouloir dire une fusion totale.
+Demandé avant d'écrire la moindre ligne, vu l'enjeu (réservation atomique) : **unifier seulement
+les trois structures de course** — le script passe de quatre clés lues à trois (en ligne, plafond,
+état unifié), pas à une seule lecture globale. `driver/availability.ts` et `driver/cash-guard.ts`
+n'ont pas bougé.
+
+### Ce qui a changé, et ce qui n'a délibérément pas bougé
+
+**Un seul enregistrement Redis par chauffeur** (`ride/state.ts`, `babana:driver:ride-state:<id>`,
+une HASH), remplaçant la réservation (`reservation/reserve.ts`), le marqueur d'engagement
+(`driver/engagement.ts`) et la session de suivi (`tracking/session.ts`, qui vivait elle-même dans
+deux clés distinctes -- `rideSessionKey(rideId)` et `driverActiveRideKey(driverId)`). Un seul
+script Lua (`ride/state.lua`), quatre actions dispatchées par un paramètre -- `reserve`
+(inchangée : même gate ZSCORE/ZREM sur le pool que l'ancien `reserve.lua`, c'est elle qui garantit
+l'exclusivité, L3-13), `resolve` (accepte ou libère, même gate que l'ancien `resolve.lua`, pose en
+plus l'index inverse `rideId -> driverId` sur acceptation), `release` (efface inconditionnellement,
+remplace `releaseDriver`/`clearEngaged`/`endRideSessionForDriver`), `force-engage` (réconciliation
+L3-17, inconditionnel comme l'ancien `setEngaged`).
+
+**Les trois anciens modules (`reservation/reserve.ts`, `driver/engagement.ts`,
+`tracking/session.ts`) restent en place, comme façades minces** au-dessus de `ride/state.ts` --
+même signature publique qu'avant, pour qu'aucun appelant (`proposal/lifecycle.ts`,
+`http/internal.ts`, `driver/reconcile.ts`) ni leurs tests n'aient à changer d'API. `reservation/
+keys.ts`, `reservation/reserve.lua`, `proposal/resolve.lua` supprimés (plus aucun appelant).
+
+**Les échéances restent distinctes**, le point que la spécification appelait « délicat » : une
+réservation porte un TTL (`EXPIRE`, action `reserve`) ; un engagement n'expire jamais tout seul
+(`PERSIST`, action `resolve` sur acceptation) -- testé aux deux bornes dans
+`test/ride-state.test.ts`, et par le veilleur d'expiration lui-même (`startStateExpiryWatcher`,
+mécanisme inchangé, seul le préfixe écouté change).
+
+### Piège trouvé en écrivant les tests, pas en écrivant le code
+
+`attachEngagedSession` (complète l'enregistrement engagé avec `clientUserId`/origine, appelée par
+la façade `startRideSession`) supposait d'abord qu'un `resolve(..., true)` avait déjà posé
+`state`/`rideId` juste avant -- exact pour l'appelant de production
+(`proposal/lifecycle.ts::accept`), faux pour `test/broadcast.test.ts`, qui appelle
+`startRideSession` comme fixture autonome, sans passer par `reserve`/`resolve`. Six tests de ce
+fichier échouaient en silence de timeout (`TrackingManager` ne trouvait jamais la session).
+Corrigé : `attachEngagedSession` établit désormais une session complète à elle seule (state, rideId,
+champs de suivi, index inverse), pas seulement un complément -- et je l'ai spécifiquement re-testé
+en autonome (`test/ride-state.test.ts`, "établit une session complète à lui seul") pour que ce
+comportement ne redevienne pas une supposition.
+
+### Vérifié
+
+Critère 3, spécifiquement : `test/concurrency/reservation.test.ts` (L3-13) **n'a pas été touché**
+(`git diff` vide sur ce fichier après coup) et passe -- 30×10 par défaut, puis 150×25 (3750
+tentatives) pour de bon, un succès exact à chaque itération. Vérifié aussi que le test détecte
+toujours une implémentation naïve : `reserve()` remplacée temporairement par un ZSCORE puis
+ZREM+HSET en deux temps, le test a échoué (10 succès au lieu d'1, comme attendu), version atomique
+restaurée aussitôt après, rien de la version naïve n'est resté.
+
+`services/realtime` : 153/153, `tsc --noEmit` propre. Suite Odoo complète : 408/408 sur deux
+passes consécutives sur base fraîche ; une troisième passe (au milieu de la vérification, pas sur
+l'état final commité) a vu échouer un test préexistant et sans lien
+(`test_notify_cancellation_async_touches_no_redis_key_if_the_transaction_rolls_back`, isolé il
+passe seul) -- le service temps réel réel tourne en continu pendant ces passes et sa réconciliation
+périodique (L3-17) peut courir contre les mêmes clés qu'un test qui les pose à la main sans passer
+par une vraie course ; rejoué deux fois de suite ensuite, vert les deux fois. Pas creusé plus loin
+faute de reproduction fiable -- même famille que le flake déjà connu et déjà mitigé
+(`services/realtime`, commit "flake: sérialise l'exécution des tests"), pas une régression de
+cette tâche à ma connaissance, mais je ne peux pas l'affirmer avec certitude sans l'avoir fait
+flancher une seconde fois.
+
+### Fichiers
+
+Nouveaux : `services/realtime/src/ride/state.ts`, `src/ride/state.lua`,
+`test/ride-state.test.ts`. Façades réécrites : `src/reservation/reserve.ts`,
+`src/driver/engagement.ts`, `src/tracking/session.ts`. Appelants mis à jour :
+`src/proposal/lifecycle.ts`, `src/driver/reconcile.ts`, `src/redis/pool-eligibility.ts`,
+`src/redis/pool-eligibility.lua`. Supprimés : `src/reservation/keys.ts`,
+`src/reservation/reserve.lua`, `src/proposal/resolve.lua`. Tests ajustés (façades inchangées,
+seule la clé de nettoyage change) : `test/reservation.test.ts`, `test/proposal.test.ts`,
+`test/cash-guard.test.ts`, `test/internal.test.ts`.
+
+### Doute pour un client réel
+
+**Un, et je le nomme précisément plutôt que de le lisser.** Le flake ci-dessus, vu une fois sur
+trois passes complètes, jamais reproduit isolément. Je crois qu'il est préexistant (même
+mécanisme, même famille qu'un flake déjà documenté), mais « je crois » n'est pas « j'ai vérifié » --
+je ne l'ai pas fait flancher une seconde fois pour le prouver, contrairement à ce que ce dépôt
+demande d'habitude avant d'écrire une conclusion. Le reste -- l'unification elle-même, l'atomicité
+de la réservation, la distinction des échéances -- est vérifié aussi solidement que L3-06 l'a été
+en son temps.

@@ -1,6 +1,6 @@
-// Contre un Redis réel, comme test/geo-index.test.ts : le script Lua de réservation
-// (reserve.lua) s'exécute réellement dans Redis, une imitation en mémoire ne prouverait rien de
-// l'indivisibilité qu'il apporte -- c'est précisément l'objet de test/concurrency/
+// Contre un Redis réel, comme test/geo-index.test.ts : le script Lua d'état de course unifié
+// (ride/state.lua, L3-18) s'exécute réellement dans Redis, une imitation en mémoire ne prouverait
+// rien de l'indivisibilité qu'il apporte -- c'est précisément l'objet de test/concurrency/
 // reservation.test.ts (L3-13), à part de ce fichier, qui couvre le comportement fonctionnel.
 //
 // Identifiants suffixés par un identifiant de run unique, même raison que geo-index.test.ts.
@@ -14,6 +14,7 @@ import { addEligibleToPool } from '../src/redis/pool-eligibility';
 import { storePosition } from '../src/redis/positions';
 import { setOnline, setOffline } from '../src/driver/availability';
 import { setEngaged, clearEngaged, isEngaged } from '../src/driver/engagement';
+import { rideStateKey } from '../src/ride/state';
 import { ingestPosition } from '../src/tracking/ingest';
 import type { PlausibilityConfig } from '../src/tracking/validation';
 import type { ConnectionContext } from '../src/ws/auth';
@@ -37,7 +38,7 @@ after(async () => {
       removeFromPool(redis, driverId),
       setOffline(redis, driverId),
       clearEngaged(redis, driverId),
-      redis.del(`babana:driver:reservation:${driverId}`),
+      redis.del(rideStateKey(driverId)),
       redis.del(`babana:driver:position:${driverId}`),
     ])
   );
@@ -192,8 +193,9 @@ describe('reserveDriver/releaseDriver (L3-06)', () => {
 
     // L'acceptation (L3-07) pose l'engagement en remplacement de la réservation -- simulé ici
     // directement, cette tâche ne couvrant que le pool et l'engagement, pas le cycle de
-    // proposition qui les relie (voir test/proposal.test.ts, L3-07).
-    await redis.del(`babana:driver:reservation:${driverId}`);
+    // proposition qui les relie (voir test/proposal.test.ts, L3-07). setEngaged (L3-18) force
+    // l'état 'engaged' sur le même enregistrement, quelle que soit sa valeur précédente -- plus
+    // besoin d'effacer la réservation d'abord, il n'y a plus deux clés à désynchroniser.
     await setEngaged(redis, driverId);
 
     const context = driverContext(driverId);
@@ -227,8 +229,9 @@ describe('reserveDriver/releaseDriver (L3-06)', () => {
         // Le second défaut du même sang (amoa/questions/REPONSES-2026-08-16-J7.md §2) : rien ne
         // supprimait la réservation à l'acceptation, si bien qu'elle expirait en pleine course et
         // le veilleur d'expiration remettait au pool un chauffeur qui transportait un passager.
-        // L'acceptation remplace donc la réservation par l'engagement -- simulé ici comme ci-dessus.
-        await redis.del(`babana:driver:reservation:${driverId}`);
+        // L'acceptation remplace donc la réservation par l'engagement -- simulé ici comme
+        // ci-dessus. setEngaged (L3-18) retire lui-même le TTL (PERSIST, action 'force-engage'
+        // de ride/state.lua) : plus besoin d'un effacement manuel préalable.
         await setEngaged(redis, driverId);
 
         // Largement au-delà du TTL de réservation (1 s) posé ci-dessus : si le veilleur touchait

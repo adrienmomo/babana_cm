@@ -1,28 +1,22 @@
 /**
- * Constructeurs des clés Redis pour les deux drapeaux d'état du chauffeur qui conditionnent son
- * appartenance au pool disponible (D26) : "en ligne" (L3-04) et "engagé sur une course" (L3-07).
+ * Constructeurs des clés Redis pour les deux drapeaux d'état du chauffeur indépendants d'une
+ * course, tous deux hors du périmètre de l'unification L3-18 (arbitré le 23 août -- ni "en
+ * ligne" ni "plafond d'encaisse" ne sont nommés parmi les trois structures à unifier) : "en
+ * ligne" (L3-04) et "plafond d'encaisse franchi" (L5-02). L'état de course lui-même (réservé,
+ * engagé, session de suivi) vit désormais dans `ride/state.ts`.
  *
  * Module sans dépendance, délibérément : `redis/pool-eligibility.ts` a besoin des deux pour
- * construire son script d'éligibilité, tout comme `driver/availability.ts` (en ligne) et
- * `driver/engagement.ts` (engagement) ont chacun besoin du sien -- si ces clés vivaient dans l'un
- * de ces modules, les deux autres l'importeraient et fermeraient un cycle (`availability.ts`
- * importe déjà `redis/geo-index.ts`, que `redis/pool-eligibility.ts` importe aussi). Une seule
- * définition ici, jamais une chaîne de préfixe dupliquée qui pourrait diverger.
+ * construire son script d'éligibilité, tout comme `driver/availability.ts` (en ligne) -- si ces
+ * clés vivaient dans l'un de ces modules, l'autre l'importerait et fermerait un cycle
+ * (`availability.ts` importe déjà `redis/geo-index.ts`, que `redis/pool-eligibility.ts` importe
+ * aussi). Une seule définition ici, jamais une chaîne de préfixe dupliquée qui pourrait diverger.
  */
 
 const ONLINE_FLAG_PREFIX = 'babana:driver:online:';
-// Exporté (pas seulement local) : driver/reconcile.ts (L3-17) en a besoin pour balayer
-// (SCAN MATCH) l'ensemble des marqueurs d'engagement posés, sans connaître à l'avance la liste
-// des chauffeurs -- même raison que RESERVATION_KEY_PREFIX (reservation/keys.ts).
-export const ENGAGEMENT_KEY_PREFIX = 'babana:driver:engaged:';
 const CASH_BLOCKED_KEY_PREFIX = 'babana:driver:cash-blocked:';
 
 export function onlineFlagKey(driverId: string): string {
   return `${ONLINE_FLAG_PREFIX}${driverId}`;
-}
-
-export function engagementKey(driverId: string): string {
-  return `${ENGAGEMENT_KEY_PREFIX}${driverId}`;
 }
 
 /**

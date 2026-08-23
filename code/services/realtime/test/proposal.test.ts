@@ -44,8 +44,7 @@ after(async () => {
     [...usedDriverIds].flatMap((driverId) => [
       removeFromPool(redis, driverId),
       setOffline(redis, driverId),
-      clearEngaged(redis, driverId),
-      redis.del(`babana:driver:reservation:${driverId}`),
+      clearEngaged(redis, driverId), // efface aussi l'état de course unifié (L3-18, ride/state.ts)
       redis.del(`babana:driver:proposal:rideId:${driverId}`),
       redis.del(`babana:driver:proposal:record:${driverId}`),
       redis.del(`babana:driver:position:${driverId}`),

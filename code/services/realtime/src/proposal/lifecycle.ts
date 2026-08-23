@@ -1,13 +1,11 @@
-import { readFileSync } from 'node:fs';
-import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type Redis from 'ioredis';
 import type { WebSocket } from 'ws';
 import { realtime } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ConnectionRegistry } from '../ws/auth';
-import { reserveDriver, releaseDriver, reservationKey } from '../reservation/reserve';
-import { engagementKey } from '../driver/keys';
+import { reserveDriver, releaseDriver } from '../reservation/reserve';
+import { resolve as resolveRideState } from '../ride/state';
 import { proposalRideIdKey, proposalRecordKey } from './keys';
 import { ProposalTimeoutTimers } from './timeout';
 import { reportDriverAccepted, reportDriverRejected } from '../odoo/rides';
@@ -27,8 +25,6 @@ import { startRideSession } from '../tracking/session';
  * (amoa/questions/L3-06.md, point 1). Cette classe est prête à être appelée par lui.
  */
 
-const RESOLVE_SCRIPT = readFileSync(path.join(__dirname, 'resolve.lua'), 'utf8');
-
 export interface ProposalDetails {
   rideId: string;
   clientUserId: string;
@@ -41,10 +37,10 @@ export interface ProposalDetails {
 export type ProposeOutcome = { proposed: true; expiresAt: string } | { proposed: false };
 
 /**
- * Décision et écriture dans le MÊME script Lua (même discipline que reserve.lua, L3-06) : aucune
- * condition en TypeScript entre la lecture de l'état d'une proposition et sa résolution. Un
- * driverId passe par ici trois fois au plus dans la vie d'une proposition -- acceptation, refus,
- * ou expiration -- et une seule de ces trois peut jamais réussir (critères 4 et 5).
+ * Décision et écriture dans le MÊME script Lua (`ride/state.lua`, action `resolve`, L3-18) :
+ * aucune condition en TypeScript entre la lecture de l'état d'une proposition et sa résolution.
+ * Un driverId passe par ici trois fois au plus dans la vie d'une proposition -- acceptation,
+ * refus, ou expiration -- et une seule de ces trois peut jamais réussir (critères 4 et 5).
  */
 async function resolveProposal(
   redis: Redis,
@@ -52,16 +48,7 @@ async function resolveProposal(
   expectedRideId: string | null,
   outcome: 'accepted' | 'released'
 ): Promise<boolean> {
-  const result = await redis.eval(
-    RESOLVE_SCRIPT,
-    3,
-    reservationKey(driverId),
-    proposalRideIdKey(driverId),
-    engagementKey(driverId),
-    expectedRideId ?? '',
-    outcome === 'accepted' ? '1' : '0'
-  );
-  return result === 1;
+  return resolveRideState(redis, driverId, expectedRideId, outcome === 'accepted');
 }
 
 export class ProposalLifecycle {

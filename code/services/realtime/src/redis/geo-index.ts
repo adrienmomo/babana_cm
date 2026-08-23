@@ -15,7 +15,7 @@ import { hasFreshPosition } from './positions';
  * sans autre état à synchroniser.
  */
 
-// Exportée pour L3-06 (reservation/reserve.lua) : le retrait atomique d'un chauffeur réservé est
+// Exportée pour L3-06 (ride/state.lua) : le retrait atomique d'un chauffeur réservé est
 // un simple ZREM sur cette même clé, exécuté depuis le script Lua -- une seule définition, pas
 // une chaîne dupliquée qui pourrait diverger.
 export const AVAILABLE_DRIVERS_KEY = 'babana:drivers:available';
