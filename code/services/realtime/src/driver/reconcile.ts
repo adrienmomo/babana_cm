@@ -1,6 +1,6 @@
 import type Redis from 'ioredis';
 import type { Config } from '../config';
-import { fetchEngagedDriverIds } from '../odoo/rides';
+import { fetchEngagedDrivers } from '../odoo/rides';
 import { reintegrateIfEligible } from '../redis/pool-eligibility';
 import { setEngaged, clearEngaged } from './engagement';
 import { removeFromPool } from '../redis/geo-index';
@@ -34,12 +34,15 @@ export async function reconcileEngagement(config: Config, redis: Redis): Promise
   // scanEngagedDriverIds : ride/state.ts (L3-18) -- balaie l'état unifié et filtre sur
   // state === 'engaged', remplace l'ancien balayage direct de ENGAGEMENT_KEY_PREFIX.
   const [odooEngaged, redisEngaged] = await Promise.all([
-    fetchEngagedDriverIds(config).then((ids) => new Set(ids)),
+    // Map driverId -> rideId, pas un Set (D44, amoa/questions/REPONSES-2026-08-28.md §3) : la
+    // réparation ci-dessous a besoin du rideId, pas seulement de savoir QUE le chauffeur est
+    // engagé.
+    fetchEngagedDrivers(config).then((entries) => new Map(entries.map((e) => [e.driverId, e.rideId]))),
     scanEngagedDriverIds(redis),
   ]);
 
   const orphans = [...redisEngaged].filter((driverId) => !odooEngaged.has(driverId));
-  const missing = [...odooEngaged].filter((driverId) => !redisEngaged.has(driverId));
+  const missing = [...odooEngaged.keys()].filter((driverId) => !redisEngaged.has(driverId));
 
   await Promise.all(
     orphans.map(async (driverId) => {
@@ -52,7 +55,8 @@ export async function reconcileEngagement(config: Config, redis: Redis): Promise
       // Retiré du pool D'ABORD : la fenêtre entre les deux appels ne doit jamais laisser un
       // chauffeur qu'Odoo dit engagé apparaître, même un instant, comme disponible.
       await removeFromPool(redis, driverId);
-      await setEngaged(redis, driverId);
+      // driverId vient de odooEngaged.keys() ci-dessus -- la clé existe donc forcément.
+      await setEngaged(redis, driverId, odooEngaged.get(driverId)!);
     })
   );
 

@@ -144,12 +144,24 @@ export async function attachEngagedSession(
 /**
  * Pose l'engagement directement, sans réservation préalable (L3-17, critère 7 -- réconciliation).
  * Inconditionnel, comme l'ancien `setEngaged` : Odoo est la source de vérité (D27), ce script ne
- * dispute rien, il applique. Ne pose ni `rideId` ni l'index inverse -- le suivi reste
- * indisponible pour ce chauffeur tant qu'une vraie acceptation ne les écrit pas (même limite que
- * l'ancien code, jamais aggravée par cette tâche).
+ * dispute rien, il applique.
+ *
+ * Pose aussi `rideId` et l'index inverse depuis D44 (amoa/questions/REPONSES-2026-08-28.md §3) :
+ * un engagement réparé sans eux produit, depuis l'unification (L3-18), un état qu'aucune
+ * transition normale ne peut produire -- engagé, sans suivi possible, et rien ne le signalait.
+ * Odoo connaît `rideId` (une seule course active par chauffeur) ; c'est `driver/reconcile.ts` qui
+ * le lui demande et le passe ici.
  */
-export async function forceEngaged(redis: Redis, driverId: string): Promise<void> {
-  await redis.eval(STATE_SCRIPT, 1, rideStateKey(driverId), 'force-engage');
+export async function forceEngaged(redis: Redis, driverId: string, rideId: string): Promise<void> {
+  await redis.eval(
+    STATE_SCRIPT,
+    2,
+    rideStateKey(driverId),
+    rideOwnerKey(rideId),
+    'force-engage',
+    rideId,
+    driverId
+  );
 }
 
 export async function getState(redis: Redis, driverId: string): Promise<DriverRideState | null> {

@@ -289,7 +289,7 @@ describe('POST /internal/engagement/clear (fin de course, critère 6)', () => {
   test('efface le marqueur d\'engagement et réintègre le chauffeur dans le pool', async () => {
     const driverId = await availableDriver('clear-engagement');
     await removeFromPool(redis, driverId); // simule le retrait par l'engagement (D26)
-    await setEngaged(redis, driverId);
+    await setEngaged(redis, driverId, randomUUID());
 
     const { status, body } = await post('/internal/engagement/clear', { driverId });
     assert.equal(status, 200);

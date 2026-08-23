@@ -18,9 +18,12 @@ import * as rideState from '../ride/state';
  * disputée). Passent par `ride/state.lua` (actions `force-engage`/`release`) : aucune écriture
  * brute sur la clé unifiée ne subsiste hors de ce script, dans tout le service (même règle,
  * même vérification que le critère 6 de L3-06 -- L3-18, critère 2).
+ *
+ * `setEngaged` exige `rideId` depuis D44 (amoa/questions/REPONSES-2026-08-28.md §3) : un état
+ * réparé doit être indiscernable d'un état produit normalement, jamais un engagement sans course.
  */
-export async function setEngaged(redis: Redis, driverId: string): Promise<void> {
-  await rideState.forceEngaged(redis, driverId);
+export async function setEngaged(redis: Redis, driverId: string, rideId: string): Promise<void> {
+  await rideState.forceEngaged(redis, driverId, rideId);
 }
 
 export async function clearEngaged(redis: Redis, driverId: string): Promise<void> {

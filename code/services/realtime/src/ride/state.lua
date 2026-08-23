@@ -6,7 +6,8 @@
 --
 -- Champs de la HASH :
 --   state    'reserved' ou 'engaged' (absence de la clé == libre, jamais un état écrit)
---   rideId   posé à l'acceptation, jamais avant
+--   rideId   posé à l'acceptation ('resolve') ou à la réparation ('force-engage', D44) --
+--            jamais avant, et jamais sans l'index inverse qui l'accompagne
 --
 -- Les échéances restent distinctes (spécification, "le point délicat") : une réservation porte
 -- une expiration courte (EXPIRE, action 'reserve') ; un engagement n'expire jamais tout seul
@@ -43,13 +44,16 @@
 --   entier (retour à l'état libre) et son index inverse s'il existait. Inconditionnel : relâcher
 --   un chauffeur déjà libre ne fait rien de plus, même idempotence que l'ancien code.
 --
--- 'force-engage' -- KEYS[1] état. Pose l'état 'engaged' sans passer par une réservation
---   préalable, sans rideId ni index inverse (le suivi reste indisponible pour ce chauffeur tant
---   qu'une vraie acceptation n'écrit pas ces champs -- même limite que l'ancien `setEngaged`).
---   Seul appelant : la réconciliation (L3-17, critère 7), qui répare un écart contre Odoo --
---   source de vérité, jamais une réservation disputée. Inconditionnel, comme l'ancien
---   `setEngaged` (un simple `redis.set`) : ce script est le seul écrivain, sa gate est nulle ici
---   par design, pas par oubli.
+-- 'force-engage' -- KEYS[1] état, KEYS[2] index inverse rideId -> driverId (rideOwnerKey).
+--   ARGV[2] rideId, ARGV[3] driverId (valeur écrite dans l'index inverse, même raison que pour
+--   'resolve' ci-dessus). Pose l'état 'engaged' avec rideId et l'index inverse -- un état réparé
+--   doit être indiscernable d'un état produit normalement (D44,
+--   amoa/questions/REPONSES-2026-08-28.md §3) : avant l'unification (L3-18), un engagement réparé
+--   sans suivi était deux structures visiblement incomplètes ; depuis, c'est un seul enregistrement
+--   dont rien ne signale qu'il manque le suivi. Seul appelant : la réconciliation (L3-17,
+--   critère 7), qui répare un écart contre Odoo -- source de vérité, jamais une réservation
+--   disputée. Inconditionnel, comme l'ancien `setEngaged` : ce script est le seul écrivain, sa
+--   gate est nulle ici par design, pas par oubli.
 
 local action = ARGV[1]
 
@@ -96,8 +100,9 @@ if action == 'release' then
 end
 
 if action == 'force-engage' then
-  redis.call('HSET', KEYS[1], 'state', 'engaged')
+  redis.call('HSET', KEYS[1], 'state', 'engaged', 'rideId', ARGV[2])
   redis.call('PERSIST', KEYS[1])
+  redis.call('SET', KEYS[2], ARGV[3])
   return 1
 end
 

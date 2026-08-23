@@ -196,7 +196,7 @@ describe('reserveDriver/releaseDriver (L3-06)', () => {
     // proposition qui les relie (voir test/proposal.test.ts, L3-07). setEngaged (L3-18) force
     // l'état 'engaged' sur le même enregistrement, quelle que soit sa valeur précédente -- plus
     // besoin d'effacer la réservation d'abord, il n'y a plus deux clés à désynchroniser.
-    await setEngaged(redis, driverId);
+    await setEngaged(redis, driverId, randomUUID());
 
     const context = driverContext(driverId);
     for (let i = 0; i < 3; i += 1) {
@@ -232,7 +232,7 @@ describe('reserveDriver/releaseDriver (L3-06)', () => {
         // L'acceptation remplace donc la réservation par l'engagement -- simulé ici comme
         // ci-dessus. setEngaged (L3-18) retire lui-même le TTL (PERSIST, action 'force-engage'
         // de ride/state.lua) : plus besoin d'un effacement manuel préalable.
-        await setEngaged(redis, driverId);
+        await setEngaged(redis, driverId, randomUUID());
 
         // Largement au-delà du TTL de réservation (1 s) posé ci-dessus : si le veilleur touchait
         // encore ce chauffeur, il réapparaîtrait dans le pool ici.

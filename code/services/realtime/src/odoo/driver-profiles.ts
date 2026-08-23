@@ -6,7 +6,7 @@ import type { DriverProfile } from '../redis/driver-profiles';
  * Sens temps réel -> Odoo (L3-16) : lit par lot les quatre champs de profil chauffeur affichés
  * par `nearby.drivers` (services/odoo/addons/babana/controllers/internal_profiles.py, liste
  * blanche appliquée côté Odoo). Bloquant pour son appelant (`redis/driver-profiles.ts`), même
- * raisonnement que `fetchEngagedDriverIds` (odoo/rides.ts) : l'appelant a besoin du résultat pour
+ * raisonnement que `fetchEngagedDrivers` (odoo/rides.ts) : l'appelant a besoin du résultat pour
  * décider quoi mettre en cache, pas d'un effet de bord à ne pas attendre.
  *
  * `retries: 1` plutôt que le défaut de `callOdoo` (3, jusqu'à ~1.4 s d'essais) : cet appel peut

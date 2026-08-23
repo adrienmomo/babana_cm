@@ -153,13 +153,26 @@ describe('reserve/resolve/release (L3-18) -- comportement fonctionnel', () => {
     await redis.del(`babana:driver:proposal:rideId:${driverId}`);
   });
 
-  test('forceEngaged pose state=engaged sans réservation préalable, sans rideId (réconciliation, L3-17)', async () => {
+  test('forceEngaged pose state=engaged sans réservation préalable, avec rideId et son index inverse (D44, réconciliation L3-17)', async () => {
     const driverId = id('a9-reconcile');
     usedDriverIds.add(driverId);
-    await forceEngaged(redis, driverId);
+    const rideId = randomUUID();
+    usedRideIds.add(rideId);
+
+    await forceEngaged(redis, driverId, rideId);
+
     assert.equal(await isEngaged(redis, driverId), true);
     assert.equal(await redis.ttl(rideStateKey(driverId)), -1);
-    assert.equal(await redis.hget(rideStateKey(driverId), 'rideId'), null, 'aucun rideId connu par cette voie');
+    assert.equal(
+      await redis.hget(rideStateKey(driverId), 'rideId'),
+      rideId,
+      "D44 -- un état réparé doit être indiscernable d'un état produit normalement, Odoo connaît ce rideId"
+    );
+    assert.equal(
+      await redis.get(rideOwnerKey(rideId)),
+      driverId,
+      "l'index inverse doit être posé aussi, sinon ride.track reste incapable de retrouver ce chauffeur"
+    );
   });
 
   test('attachEngagedSession complète un enregistrement déjà engagé, lisible par getEngagedSession', async () => {
@@ -231,7 +244,9 @@ describe('reserve/resolve/release (L3-18) -- comportement fonctionnel', () => {
     assert.equal(await isReserved(redis, driverId), true);
     assert.equal(await isEngaged(redis, driverId), false);
 
-    await forceEngaged(redis, driverId);
+    const rideId = randomUUID();
+    usedRideIds.add(rideId);
+    await forceEngaged(redis, driverId, rideId);
     assert.equal(await isReserved(redis, driverId), false);
     assert.equal(await isEngaged(redis, driverId), true);
   });
@@ -243,7 +258,9 @@ describe('scanEngagedDriverIds (L3-17 critère 7, réconciliation contre le nouv
     await reserve(redis, reservedOnly, 30);
 
     const engaged = await availableDriver('b2-engaged');
-    await forceEngaged(redis, engaged);
+    const rideId = randomUUID();
+    usedRideIds.add(rideId);
+    await forceEngaged(redis, engaged, rideId);
 
     const ids = await scanEngagedDriverIds(redis);
     assert.equal(ids.has(engaged), true);

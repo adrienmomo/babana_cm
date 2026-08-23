@@ -59,17 +59,34 @@ export function reportDriverRejected(
   });
 }
 
+export interface EngagedDriver {
+  driverId: string;
+  rideId: string;
+}
+
 /**
  * Sens Odoo -> temps réel n'est PAS celui-ci : cette fonction, elle, lit Odoo (réconciliation,
  * `driver/reconcile.ts`). Bloquante pour son appelant, à la différence des deux fonctions
  * ci-dessus -- la réconciliation a besoin du résultat pour décider quoi aligner, pas d'un effet de
  * bord à ne pas attendre.
+ *
+ * Porte `rideId` avec chaque chauffeur (D44, amoa/questions/REPONSES-2026-08-28.md §3) : un
+ * engagement réparé sans identifiant de course produit, depuis l'unification de l'état Redis
+ * (L3-18), un état qu'aucune transition normale ne peut produire -- engagé, sans suivi possible.
+ * Odoo connaît cet identifiant (une seule course active par chauffeur), la réponse le porte donc
+ * pour que `driver/reconcile.ts` puisse l'écrire.
  */
-export async function fetchEngagedDriverIds(config: Config): Promise<string[]> {
+export async function fetchEngagedDrivers(config: Config): Promise<EngagedDriver[]> {
   const result = await callOdoo(config, '/api/internal/drivers/engaged', {});
-  const body = result as { driverIds?: unknown };
-  if (!Array.isArray(body.driverIds)) return [];
-  return body.driverIds.filter((value): value is string => typeof value === 'string');
+  const body = result as { engaged?: unknown };
+  if (!Array.isArray(body.engaged)) return [];
+  return body.engaged.filter(
+    (entry): entry is EngagedDriver =>
+      typeof entry === 'object' &&
+      entry !== null &&
+      typeof (entry as EngagedDriver).driverId === 'string' &&
+      typeof (entry as EngagedDriver).rideId === 'string'
+  );
 }
 
 export interface ActiveRide {

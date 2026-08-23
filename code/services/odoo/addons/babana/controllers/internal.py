@@ -113,12 +113,22 @@ class InternalController(http.Controller):
         """Odoo est la source de vérité (D27) : la liste des chauffeurs que le service temps réel
         doit considérer comme engagés (marqueur sans expiration, D26) est celle des courses
         `assigned`/`in_progress` -- pas `proposed`, qui reste protégée par la réservation à
-        expiration (L3-06), pas par l'engagement."""
+        expiration (L3-06), pas par l'engagement.
+
+        Porte `rideId` avec chaque chauffeur (D44, amoa/questions/REPONSES-2026-08-28.md §3) :
+        un engagement réparé sans identifiant de course produit un état qu'aucune transition
+        normale ne peut produire -- engagé, sans suivi possible. Odoo connaît cet identifiant
+        (une seule course active par chauffeur, `assigned`/`in_progress`, jamais les deux à la
+        fois), la réponse le porte donc pour que la réparation puisse l'écrire."""
         env = request.env(user=SUPERUSER_ID)
         rides = env["babana.ride"].sudo().search(
             [("state", "in", ["assigned", "in_progress"]), ("driver_id", "!=", False)]
         )
-        return {"driverIds": rides.mapped("driver_id.public_id")}, 200
+        return {
+            "engaged": [
+                {"driverId": ride.driver_id.public_id, "rideId": ride.public_id} for ride in rides
+            ]
+        }, 200
 
     # --- POST /internal/session/active-ride (L3-11, resynchronisation à la reconnexion) -------
 

@@ -14,6 +14,7 @@ import { addEligibleToPool } from '../src/redis/pool-eligibility';
 import { isInPool, removeFromPool } from '../src/redis/geo-index';
 import { isEngaged, setEngaged, clearEngaged } from '../src/driver/engagement';
 import { storePosition } from '../src/redis/positions';
+import { rideOwnerKey } from '../src/ride/state';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const RUN_ID = randomUUID().slice(0, 8);
@@ -23,16 +24,17 @@ const SOMEWHERE = { latitude: 4.05, longitude: 9.7 };
 
 let redis: Redis;
 let odooServer: http.Server;
-let odooResponse: string[] = [];
+let odooResponse: Array<{ driverId: string; rideId: string }> = [];
 let config: Config;
 const usedIds = new Set<string>();
+const usedRideIds = new Set<string>();
 
 before(async () => {
   redis = new Redis(REDIS_URL);
   odooServer = http.createServer((req, res) => {
     if (req.url === '/api/internal/drivers/engaged') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ driverIds: odooResponse }));
+      res.end(JSON.stringify({ engaged: odooResponse }));
       return;
     }
     res.writeHead(404);
@@ -55,13 +57,14 @@ beforeEach(() => {
 
 after(async () => {
   odooServer.close();
-  await Promise.all(
-    [...usedIds].flatMap((driverId) => [
+  await Promise.all([
+    ...[...usedIds].flatMap((driverId) => [
       setOffline(redis, driverId),
       clearEngaged(redis, driverId),
       redis.del(`babana:driver:position:${driverId}`),
-    ])
-  );
+    ]),
+    ...[...usedRideIds].map((rideId) => redis.del(rideOwnerKey(rideId))),
+  ]);
   redis.disconnect();
 });
 
@@ -82,7 +85,7 @@ describe('reconcileEngagement (L3-17, critère 7)', () => {
   test("un marqueur d'engagement orphelin (absent côté Odoo) est effacé, et le chauffeur redevient disponible", async () => {
     const driverId = await onlineDriver('orphan');
     await removeFromPool(redis, driverId);
-    await setEngaged(redis, driverId);
+    await setEngaged(redis, driverId, randomUUID());
     odooResponse = []; // Odoo ne connaît aucune course active pour ce chauffeur
 
     const result = await reconcileEngagement(config, redis);
@@ -92,23 +95,31 @@ describe('reconcileEngagement (L3-17, critère 7)', () => {
     assert.equal(await isInPool(redis, driverId), true, 'redevient disponible, sa position étant connue');
   });
 
-  test('un marqueur manquant (course active côté Odoo, rien côté Redis) est posé, et le pool retiré', async () => {
+  test('un marqueur manquant (course active côté Odoo, rien côté Redis) est posé avec son rideId, et le pool retiré (D44)', async () => {
     const driverId = await onlineDriver('missing');
     await addEligibleToPool(redis, driverId, SOMEWHERE.latitude, SOMEWHERE.longitude);
-    odooResponse = [driverId]; // Odoo affirme ce chauffeur engagé sur une course active
+    const rideId = randomUUID();
+    usedRideIds.add(rideId);
+    odooResponse = [{ driverId, rideId }]; // Odoo affirme ce chauffeur engagé sur cette course
 
     const result = await reconcileEngagement(config, redis);
 
     assert.ok(result.markersSet.includes(driverId));
     assert.equal(await isEngaged(redis, driverId), true);
     assert.equal(await isInPool(redis, driverId), false, "un chauffeur qu'Odoo dit engagé ne doit jamais rester dans le pool");
+    // D44 (amoa/questions/REPONSES-2026-08-28.md §3) : un état réparé doit être indiscernable
+    // d'un état produit normalement -- l'index inverse doit donc être posé aussi, sinon
+    // ride.track resterait incapable de retrouver ce chauffeur depuis son rideId.
+    assert.equal(await redis.get(rideOwnerKey(rideId)), driverId);
   });
 
   test("un chauffeur correctement engagé des deux côtés n'est ni touché ni compté comme un écart", async () => {
     const driverId = await onlineDriver('consistent');
     await removeFromPool(redis, driverId);
-    await setEngaged(redis, driverId);
-    odooResponse = [driverId];
+    const rideId = randomUUID();
+    usedRideIds.add(rideId);
+    await setEngaged(redis, driverId, rideId);
+    odooResponse = [{ driverId, rideId }];
 
     const result = await reconcileEngagement(config, redis);
 

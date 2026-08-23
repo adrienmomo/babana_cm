@@ -185,12 +185,13 @@ class TestInternalController(HttpCase):
         response = self._post("/drivers/engaged", {}, secret=self._real_secret())
 
         self.assertEqual(response.status_code, 200)
-        driver_ids = set(response.json()["driverIds"])
-        self.assertIn(assigned_driver.public_id, driver_ids)
-        self.assertIn(in_progress_driver.public_id, driver_ids)
+        engaged = response.json()["engaged"]
+        by_driver_id = {entry["driverId"]: entry["rideId"] for entry in engaged}
+        self.assertEqual(by_driver_id[assigned_driver.public_id], assigned_ride.public_id)
+        self.assertEqual(by_driver_id[in_progress_driver.public_id], in_progress_ride.public_id)
         self.assertNotIn(
             proposed_driver.public_id,
-            driver_ids,
+            by_driver_id,
             "'proposed' est protégé par la réservation à expiration (L3-06), pas par l'engagement",
         )
 
