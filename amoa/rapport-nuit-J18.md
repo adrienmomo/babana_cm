@@ -61,3 +61,60 @@ ajoutés : clé vide acceptée, forme plate traduite, paramètre `q` envoyé, pa
 69 tests verts. `apps/driver` inchangé (n'utilise pas `searchPlace`, laissé tel quel). La preuve en
 navigateur — un point de départ et d'arrivée réellement désignés par la recherche, contre le vrai
 `mock-maps` — est réservée à la passe finale de fin de nuit, avec le parcours complet.
+
+---
+
+## Correction 2 — `GET /drivers/nearby` retiré du contrat
+
+Arbitrage déjà posé la nuit dernière (`amoa/questions/REPONSES-2026-08-26.md` §2, `amoa/questions/
+C-01R.md` §1) : la découverte de chauffeurs proches passe entièrement par `nearby.subscribe` /
+`nearby.drivers` (C-02, flux WebSocket) — un abonnement tient la liste à jour pendant que le client
+compare, ce qu'un `GET` ne fera jamais. L'endpoint n'a jamais été implémenté (vérifié par `grep`
+avant d'écrire quoi que ce soit, comme le veut `CLAUDE.md`).
+
+**Retiré, pas gardé en exception.** `nearbyDrivers` disparaît de `HTTP_ENDPOINTS`
+(`packages/contracts/src/http/index.ts`) ainsi que `NearbyDriversQuerySchema`,
+`NearbyDriversResponseSchema`, `NearbyDriversErrors` et leurs exemples
+(`packages/contracts/src/http/driver.ts`). `NearbyDriverSchema` (l'objet chauffeur, singulier)
+reste : c'est la forme partagée que `nearby.drivers` (WebSocket,
+`packages/contracts/src/realtime/server-to-client.ts::NearbyDriversPayloadSchema`) réutilisait déjà
+et continue de réutiliser seule — D17 (une seule définition) tenu, juste avec un seul consommateur
+désormais plutôt que deux.
+
+La suite de conformité (`test/http-contract/endpoint-coverage.test.ts`) perd son exception
+`nearbyDrivers` de `NOT_YET_IMPLEMENTED` : elle n'a plus besoin de vérifier un 404 attendu, ce
+endpoint n'existant simplement plus dans `HTTP_ENDPOINTS` — la vérification de complétude (chaque
+clé du contrat doit apparaître dans `EXERCISES` ou `NOT_YET_IMPLEMENTED`, jamais dans aucun ni dans
+les deux) n'a même plus à en connaître l'existence.
+
+**Effet de bord révélé par `tsc`, pas par une recherche manuelle** : `nearbyDrivers` était le seul
+endpoint `GET` du contrat à porter un `requestSchema` non nul (les paramètres de requête).
+Une fois retiré, `packages/api-client/src/http/client.ts::attemptOnce` — générique sur
+`Name extends EndpointName` — voyait son type `endpoint` se réduire à l'union exacte des
+descripteurs restants, dans laquelle plus aucun membre ne combine `method: 'GET'` et
+`requestSchema` non nul : TypeScript signalait la branche qui gère ce cas comme statiquement
+impossible (`This comparison appears to be unintentional`). Corrigé par une annotation de type
+explicite (`http.HttpEndpointDescriptor`, l'interface générale, pas le type littéral inféré) —
+la branche reste posée, correctement typée, pour le prochain `GET` paramétré, même si aucun
+endpoint ne l'exerce plus aujourd'hui. Les quatre tests de `packages/api-client/test/http/
+client.test.ts` qui prenaient `nearbyDrivers` comme exemple générique de `GET` sont réécrits contre
+`driverCash` (le seul autre `GET` authentifié du contrat), sans rien perdre de ce qu'ils
+prouvaient (réessai, idempotence absente sur lecture, `ZodError` de réponse non rejouée).
+
+**Doute noté, pas traité ce soir** : `LOCATION_REQUIRED` (catalogue général des erreurs,
+`packages/contracts/src/http/errors.ts`) n'est plus déclaré par aucun endpoint — c'était la seule
+erreur propre à `nearbyDrivers` en plus de `RATE_LIMITED` (toujours utilisé par
+`phoneVerifyStart`). Rien ne le supprime automatiquement du catalogue, et rien ne l'exige : un
+code d'erreur général inutilisé aujourd'hui n'est pas une faute, seulement un relief à surveiller
+s'il traîne encore au moment d'un futur endpoint qui aurait besoin d'un motif voisin.
+
+**Fichiers.** `packages/contracts/src/http/{index,driver,common,ride}.ts`,
+`packages/contracts/src/realtime/server-to-client.ts`, `packages/contracts/test/{http,realtime}.
+test.ts`, `packages/api-client/src/http/client.ts`, `packages/api-client/test/http/client.test.ts`,
+`test/http-contract/endpoint-coverage.test.ts`, `docs/contracts/{http-api,realtime-events}.md`.
+
+**Vérifié.** `packages/contracts` : build + génération des schémas JSON (plus de fichier
+`nearbyDrivers` dans `dist/json-schema/`) + 63/63 tests verts. `packages/api-client` : `tsc
+--noEmit` propre, 10 suites / 50 tests verts. `test/` (suite de conformité, `tsc -p tsconfig.json`)
+compile sans erreur — son exécution contre la vraie pile est due à la passe finale, avec le
+parcours complet.

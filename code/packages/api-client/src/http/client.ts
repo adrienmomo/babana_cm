@@ -72,14 +72,24 @@ export function createHttpClient(config: ApiClientConfig) {
     options: RequestOptions,
     idempotencyKey: string | undefined
   ): Promise<unknown> {
-    const endpoint = http.HTTP_ENDPOINTS[name];
+    // Type explicite plutôt qu'inféré : sans elle, TypeScript réduit `endpoint` à la forme
+    // littérale exacte des seuls endpoints réellement présents dans HTTP_ENDPOINTS pour ce
+    // `Name` générique -- ce qui, une fois `GET /drivers/nearby` retiré (le seul GET à porter un
+    // requestSchema, amoa/questions/C-01R.md §1), rend la branche GET+requestSchema ci-dessous
+    // statiquement invalide aux yeux du compilateur (aucun membre de l'union restante ne
+    // satisfait `method: 'GET'` et `requestSchema` non nul en même temps). Le contrat général
+    // (`HttpEndpointDescriptor`) reste correct : c'est lui qu'on veut ici, pas la précision
+    // ponctuelle du registre actuel.
+    const endpoint: http.HttpEndpointDescriptor = http.HTTP_ENDPOINTS[name];
     const url = buildUrl(endpoint.path, options.pathParams ?? {}, options.query);
 
-    // GET ne porte pas de corps -- son requestSchema (nearbyDrivers, par ex.) décrit les
+    // GET ne porte pas de corps -- un requestSchema sur un endpoint GET décrirait les
     // paramètres de requête, déjà posés sur `url` par buildUrl() ci-dessus ; on ne fait ici que
     // vérifier leur forme avant l'envoi, on ne les sérialise pas une seconde fois dans un corps
     // qu'un GET n'a jamais dû porter (bug latent de l0-03, révélé en écrivant les tests de L6-03
-    // -- aucun appelant n'exerçait encore un GET avec requestSchema).
+    // -- aucun appelant n'exerçait encore un GET avec requestSchema). Aucun endpoint du contrat
+    // ne prend cette branche aujourd'hui (`GET /drivers/nearby`, seul exemple, retiré du contrat
+    // -- amoa/questions/C-01R.md §1) ; elle reste posée pour le prochain GET paramétré.
     let requestBody: string | undefined;
     if (endpoint.requestSchema) {
       if (endpoint.method === 'GET') {

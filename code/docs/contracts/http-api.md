@@ -216,16 +216,13 @@ La validation par un superviseur est un flux back-office Odoo natif, hors de ce 
 
 ## Chauffeurs — `driver.ts`
 
-### `GET /drivers/nearby`
-
-Les 5 chauffeurs les plus proches (D14). Garde-fous C2b : réponse plafonnée à 5, schéma
-`.strict()` — un champ en trop (nom complet, téléphone, immatriculation) fait échouer la
-validation plutôt que d'être silencieusement accepté.
-
-- Requête (query) : `{ latitude, longitude }`
-- Réponse : `{ drivers: NearbyDriver[] }` (max 5), chaque élément :
-  `{ driverId, firstName, photoUrl, rating, motorcycleClass, position, distanceMeters }`
-- Erreurs : `LOCATION_REQUIRED`, `RATE_LIMITED`
+`GET /drivers/nearby` a figuré ici au premier jet de C-01 (les 5 chauffeurs les plus proches,
+D14) puis a été retiré du contrat, jamais implémenté : la découverte des chauffeurs proches se
+fait entièrement par `nearby.subscribe` / `nearby.drivers` (C-02, `realtime-events.md`), un flux
+WebSocket qui tient la liste à jour pendant que le client compare, ce qu'un `GET` ne ferait
+jamais. Voir `amoa/questions/C-01R.md` §1. La forme partagée (`NearbyDriver`, garde-fous C2b :
+réponse plafonnée à 5, schéma `.strict()`) reste définie dans `driver.ts` et sert désormais
+uniquement `nearby.drivers`.
 
 ### `POST /drivers/me/availability`
 
@@ -307,6 +304,6 @@ Généré depuis `errors.ts` dans `dist/json-schema/errors.json`. Reproduit ici 
 
 `NO_DRIVER_AVAILABLE` figure au catalogue par exigence de la spécification C-01 mais n'est émis
 par aucun endpoint de ce lot : le client compose lui-même sa sélection à partir de
-`GET /drivers/nearby` (D10), qui renvoie une liste vide plutôt qu'une erreur s'il n'y a personne
-à proximité. Il resterait utilisable si un endpoint de matching automatique était réintroduit
-(hors périmètre v1, §6 de `03-decoupage-taches.md`).
+`nearby.drivers` (D10, C-02, `realtime-events.md`), qui diffuse une liste vide plutôt qu'une
+erreur s'il n'y a personne à proximité. Il resterait utilisable si un endpoint de matching
+automatique était réintroduit (hors périmètre v1, §6 de `03-decoupage-taches.md`).

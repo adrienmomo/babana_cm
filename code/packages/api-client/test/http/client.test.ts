@@ -21,28 +21,31 @@ describe('createHttpClient -- réessais (L6-03, critère 2)', () => {
       .fn()
       .mockResolvedValueOnce(jsonResponse(503, apiErrorBody('ROUTE_UNAVAILABLE')))
       .mockResolvedValueOnce(jsonResponse(503, apiErrorBody('ROUTE_UNAVAILABLE')))
-      .mockResolvedValueOnce(jsonResponse(200, { drivers: [] }));
+      .mockResolvedValueOnce(jsonResponse(200, { balance: 0, limit: 100000, collectedToday: 0 }));
     const client = createHttpClient({ baseUrl: 'https://api.test', fetchImpl, wait, retryBaseDelayMs: 100 });
 
-    const result = await client.request('nearbyDrivers', { query: { latitude: 4, longitude: 9 } });
+    const result = await client.request('driverCash');
 
-    expect(result).toEqual({ drivers: [] });
+    expect(result).toEqual({ balance: 0, limit: 100000, collectedToday: 0 });
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(wait).toHaveBeenNthCalledWith(1, 100);
     expect(wait).toHaveBeenNthCalledWith(2, 200);
   });
 
   it('réessaie sur une erreur réseau (fetch qui lève, aucune réponse)', async () => {
-    const fetchImpl = jest.fn().mockRejectedValueOnce(new TypeError('network down')).mockResolvedValueOnce(jsonResponse(200, { drivers: [] }));
+    const fetchImpl = jest
+      .fn()
+      .mockRejectedValueOnce(new TypeError('network down'))
+      .mockResolvedValueOnce(jsonResponse(200, { balance: 0, limit: 100000, collectedToday: 0 }));
     const client = createHttpClient({
       baseUrl: 'https://api.test',
       fetchImpl,
       wait: jest.fn().mockResolvedValue(undefined),
     });
 
-    const result = await client.request('nearbyDrivers', { query: { latitude: 4, longitude: 9 } });
+    const result = await client.request('driverCash');
 
-    expect(result).toEqual({ drivers: [] });
+    expect(result).toEqual({ balance: 0, limit: 100000, collectedToday: 0 });
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
@@ -55,7 +58,7 @@ describe('createHttpClient -- réessais (L6-03, critère 2)', () => {
       maxRetries: 2,
     });
 
-    await expect(client.request('nearbyDrivers', { query: { latitude: 4, longitude: 9 } })).rejects.toBeInstanceOf(ApiError);
+    await expect(client.request('driverCash')).rejects.toBeInstanceOf(ApiError);
     expect(fetchImpl).toHaveBeenCalledTimes(3); // tentative initiale + 2 réessais
   });
 
@@ -84,16 +87,16 @@ describe('createHttpClient -- réessais (L6-03, critère 2)', () => {
       'déjà faite sans le moindre espoir de succès -- le même défaut de schéma se reproduit à ' +
       "l'identique à chaque tentative.",
     async () => {
-      // drivers doit être un tableau (NearbyDriversResponseSchema) -- réponse 200 malformée,
+      // balance doit être un nombre (DriverCashResponseSchema) -- réponse 200 malformée,
       // exactement la forme du défaut réel : Odoo répond, la requête a réussi, c'est la lecture
       // de la réponse qui échoue.
-      const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { drivers: 'not-an-array' }));
+      const fetchImpl = jest
+        .fn()
+        .mockResolvedValue(jsonResponse(200, { balance: 'not-a-number', limit: 100000, collectedToday: 0 }));
       const wait = jest.fn();
       const client = createHttpClient({ baseUrl: 'https://api.test', fetchImpl, wait });
 
-      const error = await client
-        .request('nearbyDrivers', { query: { latitude: 4, longitude: 9 } })
-        .catch((e) => e);
+      const error = await client.request('driverCash').catch((e) => e);
 
       expect(error).toBeInstanceOf(ZodError);
       expect(fetchImpl).toHaveBeenCalledTimes(1);
@@ -116,10 +119,10 @@ describe('createHttpClient -- idempotence (L6-03, critère 3)', () => {
   });
 
   it("une lecture (GET) ne porte pas d'identifiant d'idempotence -- elle n'en a pas besoin", async () => {
-    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { drivers: [] }));
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { balance: 0, limit: 100000, collectedToday: 0 }));
     const client = createHttpClient({ baseUrl: 'https://api.test', fetchImpl });
 
-    await client.request('nearbyDrivers', { query: { latitude: 4, longitude: 9 } });
+    await client.request('driverCash');
 
     const [, init] = fetchImpl.mock.calls[0] as [unknown, RequestInit];
     const headers = init.headers as Record<string, string>;

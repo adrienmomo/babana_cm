@@ -190,16 +190,6 @@ export const HTTP_ENDPOINTS = {
     requestExample: ride.rateRideRequestExample,
     responseExample: ride.rateRideResponseExample,
   },
-  nearbyDrivers: {
-    method: 'GET',
-    path: '/api/v1/drivers/nearby',
-    requiresAuth: true,
-    requestSchema: driver.NearbyDriversQuerySchema,
-    responseSchema: driver.NearbyDriversResponseSchema,
-    errors: driver.NearbyDriversErrors,
-    requestExample: driver.nearbyDriversQueryExample,
-    responseExample: driver.nearbyDriversResponseExample,
-  },
   setAvailability: {
     method: 'POST',
     path: '/api/v1/drivers/me/availability',

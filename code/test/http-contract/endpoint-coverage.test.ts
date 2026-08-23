@@ -118,9 +118,6 @@ const NOT_YET_IMPLEMENTED: Partial<Record<EndpointName, string>> = {
   rateRide: 'babana.rating absent (L4-09, hors périmètre à ce jour -- controllers/ride.py en tête de fichier le documente déjà).',
   phoneVerifyStart: "aucun controllers/phone.py -- endpoint jamais câblé côté Odoo (L1-xx, hors périmètre à ce jour).",
   phoneVerifyConfirm: 'idem phoneVerifyStart.',
-  nearbyDrivers:
-    "GET /drivers/nearby n'a aucune route Odoo ni service temps réel -- en pratique remplacé par " +
-    'nearby.subscribe / nearby.drivers (C-02, L3-05). Écart à signaler : amoa/questions/C-01R.md.',
 };
 
 const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {

@@ -87,21 +87,10 @@ describe('C2b — nearby.drivers ne dépasse jamais le minimum de données perso
     assert.throws(() => NearbyDriverSchema.parse(withExtra));
   });
 
-  test('la réponse nearby limite à 5 chauffeurs', () => {
-    const endpoint = HTTP_ENDPOINTS.nearbyDrivers;
-    const tooMany = {
-      drivers: Array.from({ length: 6 }, (_, i) => ({
-        driverId: `00000000-0000-4000-8000-00000000000${i}`,
-        firstName: 'X',
-        photoUrl: null,
-        rating: 5,
-        motorcycleClass: 'standard',
-        position: { latitude: 4.05, longitude: 9.76 },
-        distanceMeters: 100,
-      })),
-    };
-    assert.throws(() => endpoint.responseSchema.parse(tooMany));
-  });
+  // Le plafond à 5 chauffeurs est couvert côté message WebSocket
+  // (packages/contracts/test/realtime.test.ts, NearbyDriversMessageSchema) : `GET /drivers/nearby`
+  // n'existe plus dans HTTP_ENDPOINTS, retiré du contrat sans avoir jamais été implémenté
+  // (amoa/questions/C-01R.md §1).
 });
 
 describe('QUOTE_EXPIRED — une estimation expirée doit être refusée par /rides (critère métier de C-01)', () => {

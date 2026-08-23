@@ -56,9 +56,11 @@ export type CashLimitWarningMessage = z.infer<typeof CashLimitWarningMessageSche
 
 /**
  * Destinataire : client. Réponse à nearby.subscribe, puis mises à jour périodiques.
- * Réutilise NearbyDriverSchema de C-01 (GET /drivers/nearby) : même forme, même garde-fou
- * .strict(), une seule définition pour la règle « aucune donnée personnelle au-delà du
- * prénom, de la photo, de la note et de la gamme de moto » (critère d'acceptation 3).
+ * Réutilise NearbyDriverSchema (`http/driver.ts`) : même forme, même garde-fou .strict(), une
+ * seule définition pour la règle « aucune donnée personnelle au-delà du prénom, de la photo, de
+ * la note et de la gamme de moto » (critère d'acceptation 3). `GET /drivers/nearby` en partageait
+ * la forme avant d'être retiré du contrat, jamais implémenté (`amoa/questions/C-01R.md` §1) --
+ * nearby.drivers est désormais le seul chemin de découverte des chauffeurs proches.
  */
 export const NearbyDriversPayloadSchema = z.object({
   drivers: z.array(NearbyDriverSchema).max(5),

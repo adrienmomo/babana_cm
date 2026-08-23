@@ -80,7 +80,7 @@ export const SelectDriverErrors = [
   'RIDE_INVALID_TRANSITION',
   'DRIVER_ALREADY_TAKEN',
   // Ajouté en implémentant L4-03 : action_propose refuse un chauffeur qui n'est plus
-  // 'approved' (suspendu entre l'affichage de /drivers/nearby et la sélection, par exemple).
+  // 'approved' (suspendu entre l'affichage de nearby.drivers et la sélection, par exemple).
   // Absent de la première rédaction de ce contrat -- voir le message de commit de L4-03.
   'DRIVER_NOT_APPROVED',
 ] as const;

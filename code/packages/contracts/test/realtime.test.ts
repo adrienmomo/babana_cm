@@ -312,7 +312,7 @@ describe('critère 3 — nearby.drivers ne dépasse jamais le minimum de donnée
     );
   });
 
-  test('plafonne à 5 chauffeurs, comme la réponse REST équivalente (C-01)', () => {
+  test('plafonne à 5 chauffeurs (C2b)', () => {
     const drivers = Array.from({ length: 6 }, (_, i) => ({
       driverId: `00000000-0000-4000-8000-00000000000${i}`,
       firstName: 'X',

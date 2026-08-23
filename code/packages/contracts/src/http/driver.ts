@@ -8,19 +8,15 @@ import { LatLngSchema, DriverIdSchema } from './common';
  */
 
 /**
- * GET /drivers/nearby
- * Les 5 chauffeurs les plus proches (D14). Garde-fous C2b : nombre plafonné à 5, position
- * arrondie — jamais l'objet chauffeur complet.
- */
-export const NearbyDriversQuerySchema = z.object({
-  latitude: z.number().min(-90).max(90),
-  longitude: z.number().min(-180).max(180),
-});
-export type NearbyDriversQuery = z.infer<typeof NearbyDriversQuerySchema>;
-
-/**
- * .strict() : mêmes garde-fous que nearby.drivers en C-02 (C2b) — rejeter le surplus, pas
- * seulement valider les champs présents. Aucun nom complet, téléphone ou immatriculation.
+ * Chauffeur proche, tel qu'exposé au client (D14). Garde-fous C2b : position arrondie, jamais
+ * l'objet chauffeur complet. Servi exclusivement par `nearby.drivers` (C-02, flux WebSocket,
+ * `packages/contracts/src/realtime/server-to-client.ts::NearbyDriversPayloadSchema`) --
+ * `GET /drivers/nearby` a existé au premier jet de C-01 puis a été retiré du contrat (jamais
+ * implémenté, remplacé par le flux avant même d'être câblé ; voir `amoa/questions/C-01R.md` §1)
+ * sans que cette forme partagée ne change : seul l'endpoint HTTP a disparu.
+ *
+ * .strict() : rejeter le surplus, pas seulement valider les champs présents. Aucun nom complet,
+ * téléphone ou immatriculation.
  *
  * firstName/photoUrl/rating/motorcycleClass nullables (D30) : un défaut de cache du profil
  * chauffeur (L3-16) ne doit jamais retirer un chauffeur de la flotte -- seule une position
@@ -41,32 +37,6 @@ export const NearbyDriverSchema = z
   })
   .strict();
 export type NearbyDriver = z.infer<typeof NearbyDriverSchema>;
-
-export const NearbyDriversResponseSchema = z.object({
-  drivers: z.array(NearbyDriverSchema).max(5),
-});
-export type NearbyDriversResponse = z.infer<typeof NearbyDriversResponseSchema>;
-
-export const NearbyDriversErrors = ['LOCATION_REQUIRED', 'RATE_LIMITED'] as const;
-
-export const nearbyDriversQueryExample: NearbyDriversQuery = {
-  latitude: 4.0511,
-  longitude: 9.7679,
-};
-
-export const nearbyDriversResponseExample: NearbyDriversResponse = {
-  drivers: [
-    {
-      driverId: '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b',
-      firstName: 'Paul',
-      photoUrl: 'https://storage.babana.cm/mock/drivers/paul.jpg',
-      rating: 4.8,
-      motorcycleClass: 'standard',
-      position: { latitude: 4.0509, longitude: 9.7683 },
-      distanceMeters: 350,
-    },
-  ],
-};
 
 /**
  * POST /drivers/me/availability

@@ -127,12 +127,14 @@ tant que le client est réellement abonné à une course qui est la sienne — r
 diffusion, pas seulement à l'abonnement : un client jamais affecté, ou dont la course vient de se
 terminer, ne reçoit rien.
 
-`nearby.drivers` réutilise exactement le schéma `NearbyDriver` de C-01 (`GET /drivers/nearby`,
-`packages/contracts/src/http/driver.ts`) : même `.strict()`, mêmes champs, une seule définition
-pour la règle « aucune donnée personnelle au-delà du prénom, de la photo, de la note et de la
-gamme de moto » (critère d'acceptation 3). Position arrondie à 4 décimales (~11 m à l'équateur),
-constante partagée `NEARBY_POSITION_PRECISION_DECIMALS` dans `packages/contracts/src/http/common.ts`
-— utilisée par le REST et le WebSocket, une seule source pour C2b.
+`nearby.drivers` réutilise exactement le schéma `NearbyDriver`
+(`packages/contracts/src/http/driver.ts`) : `.strict()`, mêmes champs, une seule définition pour
+la règle « aucune donnée personnelle au-delà du prénom, de la photo, de la note et de la gamme de
+moto » (critère d'acceptation 3). `GET /drivers/nearby` (C-01) en partageait la forme avant d'être
+retiré du contrat, jamais implémenté — `nearby.drivers` est désormais le seul chemin de découverte
+des chauffeurs proches (`amoa/questions/C-01R.md` §1). Position arrondie à 4 décimales (~11 m à
+l'équateur), constante `NEARBY_POSITION_PRECISION_DECIMALS` dans
+`packages/contracts/src/http/common.ts`.
 
 `nearby.subscribe.ack` (23 août — amoa/questions/REPONSES-2026-08-23.md §2) répond à **chaque**
 `nearby.subscribe`, accepté ou refusé pour limitation de débit. Avant ce message, un abonnement
