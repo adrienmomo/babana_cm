@@ -56,6 +56,14 @@ Bénéfice inattendu : les tests négatifs de L1-01 deviennent faciles à écrir
 
 ---
 
+**D19 se vérifie en ouvrant l'application, pas en lisant la liste des simulateurs (constat du 26 août).** Le routage et l'authentification Google sont bien simulés. La **recherche de lieu**, elle, appelle directement l'API de Google depuis le client, avec une clé vide par défaut : sans compte Google réel, elle échoue en silence, et comme la carte web n'est pas encore interactive, **aucun point de départ ni d'arrivée ne peut être désigné du tout**. Le parcours principal du produit est donc bloqué en mode simulé — exactement ce que D19 promettait d'éviter.
+
+Ce n'est pas un simulateur manquant : `mock-maps` existe et sert déjà des quartiers réels de Douala. C'est un câblage qui n'a jamais été fait côté client, parce que rien ne l'exerçait avant que quelqu'un n'ouvre un navigateur.
+
+La règle à en tirer : **une dépendance externe n'est simulée que si le parcours qui l'utilise fonctionne sans compte.** La présence du simulateur ne prouve rien ; seul l'usage le prouve. C'est le même raisonnement que D38, appliqué aux simulateurs.
+
+---
+
 ## 3. D20 — Interface générique au pilote
 
 Aucune maquette ne sera produite avant le pilote. Les applications utilisent un design system minimal et cohérent, construit dans `packages/ui`, sans direction artistique.

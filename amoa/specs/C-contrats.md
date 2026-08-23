@@ -160,7 +160,6 @@ Endpoints à spécifier :
 | POST | `/rides/{id}/settle` | Encaissement espèces |
 | POST | `/rides/{id}/cancel` | Annulation |
 | POST | `/rides/{id}/rate` | Notation par le client |
-| GET | `/drivers/nearby` | Les 5 chauffeurs les plus proches (D14) |
 | POST | `/drivers/me/availability` | Bascule en ligne / hors ligne |
 | GET | `/drivers/me/cash` | Solde courant, plafond, encaissé du jour |
 | POST | `/remittances` | Déclaration de remise par le chauffeur |
@@ -178,6 +177,12 @@ Le catalogue est **partagé entre C-01 et C-02** : un même code peut être émi
 **Idempotence** — l'identifiant voyage dans l'en-tête `Idempotency-Key`, convention REST courante, plutôt que dans le corps : les schémas de corps n'ont pas à porter de mécanique de transport. Seules les transitions **réellement appliquées** sont mises en cache — rejouer un appel qui a échoué pour raison métier est sans risque, et parfois nécessaire puisque la condition qui l'a fait échouer peut avoir changé.
 
 **Versionnement** — le préfixe `/v1` est figé. Toute rupture de compatibilité crée `/v2`, elle ne modifie pas `/v1`. Documenter cette règle explicitement : une app installée sur le téléphone d'un chauffeur ne se met pas à jour à la demande.
+
+**`GET /drivers/nearby` est retiré du contrat (26 août).** Il y figurait depuis la première rédaction, avec ses schémas et ses exemples, et n'a jamais été implémenté — un vestige d'avant L3-05, écrit quand je ne savais pas encore que la découverte des chauffeurs proches passerait par un flux.
+
+Elle y passe, et c'est mieux : un abonnement tient la liste à jour pendant que le client compare, ce qu'un `GET` ne fera jamais. Le garder aurait signifié deux chemins vers la même donnée, donc deux définitions de la liste blanche et de l'arrondi à maintenir d'accord — la leçon de D26 et de D31, appliquée cette fois avant le défaut plutôt qu'après.
+
+Et un contrat qui documente un endpoint inexistant finit par tromper quelqu'un de pressé. Un contrat n'est pas une liste de souhaits.
 
 **Acceptation et refus ne sont pas des endpoints HTTP** (D31, 17 août). `/rides/{id}/accept` et `/rides/{id}/reject` ont été retirés de ce tableau. Ils y figuraient depuis la première rédaction, et L4-03 les a implémentés en appelant directement la machine à états — créant un second chemin d'écriture à côté de la résolution atomique du service temps réel. C'est le défaut D26 remonté d'un cran : un état à deux écrivains, dont l'un ne connaît pas l'autre.
 

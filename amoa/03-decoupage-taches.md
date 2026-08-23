@@ -138,13 +138,14 @@ Les états `brouillon → demandée → proposée → affectée → en_cours →
 | L3-07 | Cycle de proposition : notification au chauffeur, délai d'acceptation, acceptation, refus, expiration | M | L3-06 |
 | L3-08 | Élargissement du rayon et nouvelle liste de 5 quand aucun chauffeur ne convient | S | L3-05, L3-07 |
 | L3-09 | Diffusion du suivi au client : position du chauffeur, ETA, pendant l'approche puis pendant la course | M | L3-02, L3-07 |
-| L3-10 | Accumulation de la distance et de la durée en cours de course dans Redis | M | L3-09 |
-| L3-11 | Reconnexion et rattrapage d'état après coupure réseau, côté client comme côté chauffeur | M | C-02, L3-09 |
+| L3-10 | Accumulation de la distance et de la durée en cours de course dans Redis | M | L3-09, L3-18 |
+| L3-11 | Reconnexion et rattrapage d'état après coupure réseau, côté client comme côté chauffeur | M | C-02, L3-09, L3-18 |
 | L3-12 | Appels sortants vers Odoo aux quatre événements métier de la règle de partition, avec rejeu en cas d'échec | M | L4-02, C-01 |
 | L3-13 | **Test de concurrence sur la réservation** : N sélections simultanées du même chauffeur produisent exactement un succès | M | L3-06 |
 | L3-14 | **Test de résilience** : coupure du service temps réel en pleine course, redémarrage, la course se retrouve et se termine correctement | M | L3-12 |
 | L3-15 | **Canal de configuration Odoo → temps réel** : endpoint interne authentifié, sous-ensemble fermé de clés, cache court, repli sur les dernières valeurs connues. Fait disparaître les variables d'environnement métier posées par L3-02 à L3-04 | M | L3-04, L9-06 |
 | L3-16 | **Profils chauffeurs lisibles par le temps réel** : prénom, photo, note, gamme, servis par lot sur le canal de L3-15, liste blanche côté Odoo. Fait disparaître le hash Redis provisoire de L3-05 | S | L3-15, L3-05, L1-03 |
+| L3-18 | **État de course unifié côté Redis** : une seule structure et un seul script là où trois clés se synchronisent à la main (réservation, engagement, suivi). À faire **avant** L3-10 et L3-11, qui en ajouteraient une quatrième | M | L3-09, L3-13 |
 | L3-17 | **Câblage Odoo ↔ temps réel** : endpoint interne entrant, `select-driver` réserve et propose réellement, idempotence face au rejeu de requête d'Odoo, précondition des 5, effacement de l'engagement en fin de course, et **réconciliation des marqueurs depuis Odoo** | L | L3-07, L3-12, L4-03 |
 
 **Sur L3-06** : la tâche la plus risquée du projet. Une réservation implémentée en deux temps — lire l'état puis écrire — laisse une fenêtre de course qui produit deux gagnants. Le bug est intermittent, invisible en test unitaire, et se manifeste en production sous charge. L3-13 n'est pas optionnelle : c'est la seule preuve que L3-06 est correcte.

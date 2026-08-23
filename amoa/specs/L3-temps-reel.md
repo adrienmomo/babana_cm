@@ -726,3 +726,48 @@ L'écart constaté à chaque passage est compté et journalisé. Un écart durab
 7. **Un marqueur d'engagement orphelin est effacé par la réconciliation**, et l'écart est journalisé.
 8. Un chauffeur absent de la dernière liste des 5 envoyée au client ne peut pas être sélectionné.
 9. **Aucun appel sortant vers le service temps réel ne part avant le commit de la transaction Odoo** (D32). Test explicite : une transition dont la transaction échoue au commit ne doit avoir modifié aucune clé Redis. `reserve_and_propose` fait exception et doit le rester — il précède délibérément la transition, puisque c'est son résultat qui l'autorise.
+
+---
+
+## L3-18 — État de course unifié côté Redis
+
+### Objectif
+
+Ramener à un seul état, avec un seul écrivain, ce que trois structures portent aujourd'hui par morceaux.
+
+### Contexte
+
+**Créée le 26 août, sur un doute soulevé par l'implémentation elle-même** — et c'est la deuxième fois qu'une leçon de ce projet est appliquée avant que le défaut n'existe, ce qui vaut d'être noté.
+
+Trois structures Redis distinctes portent chacune un fragment du cycle de vie d'une course côté temps réel : la réservation (L3-06), le marqueur d'engagement (L3-07) et la session de suivi (L3-09). Elles sont posées et effacées à des moments voisins, mais par des chemins de code différents. Rien n'est faux aujourd'hui : chaque effacement a été vérifié contre son point d'accroche réel.
+
+Mais trois clés qu'il faut tenir synchronisées à la main sont exactement la configuration que D26 condamne, et dont tous les défauts de concurrence de ce projet sont sortis. Le script d'éligibilité en lit déjà quatre. Et L3-10 puis L3-11 en ajouteraient une cinquième.
+
+**Faire cette refonte maintenant coûte moins cher que de la faire ensuite** : trois structures plutôt que cinq, et un filet qui existe déjà — le test de concurrence de L3-13, écrit précisément pour qu'on puisse toucher la réservation atomique sans le faire à l'aveugle.
+
+### Fichiers
+
+```
+services/realtime/src/ride/state.ts
+services/realtime/src/ride/state.lua
+services/realtime/test/ride-state.test.ts
+```
+
+### Spécification
+
+Un seul enregistrement par chauffeur, portant l'état de sa course côté temps réel : libre, réservé, engagé, en suivi. Les transitions entre ces états passent par **un seul script**, comme les écritures sur le pool (D26).
+
+**Le script d'éligibilité lit désormais un état, pas quatre clés.** C'est le gain le plus concret : une seule lecture, une seule définition de « ce chauffeur peut-il entrer dans le pool ».
+
+**Les durées de vie restent distinctes, et c'est le point délicat.** Une réservation expire vite ; un engagement n'expire jamais tout seul (D26) ; une session de suivi vit le temps d'une course. Unifier la structure ne doit pas unifier les échéances — c'est précisément la confusion que D26 a interdite, et une refonte maladroite la réintroduirait sous une forme plus difficile à voir.
+
+**La réconciliation depuis Odoo (L3-17) lit ce même état.** Elle est le filet qui rattrape toute divergence, et elle devient plus simple : un état à comparer, pas trois.
+
+### Critères d'acceptation
+
+1. Une seule structure Redis porte l'état de course d'un chauffeur ; les trois précédentes ont disparu, vérifié par recherche.
+2. Toute transition d'état passe par le script unique — aucun écrivain direct ne subsiste, même règle et même vérification que le critère 6 de L3-06.
+3. Le test de concurrence de L3-13 passe sans modification de ses assertions. **S'il faut l'assouplir, la refonte est fausse** : c'est lui qui dit si l'atomicité a survécu.
+4. Les échéances restent distinctes : une réservation expire, un engagement non — testé aux deux bornes.
+5. La réconciliation de L3-17 fonctionne contre le nouvel état, orphelins compris.
+6. Le script d'éligibilité ne lit plus qu'un état.
