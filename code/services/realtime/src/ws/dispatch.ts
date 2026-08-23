@@ -8,6 +8,7 @@ import { setOnline, setOffline } from '../driver/availability';
 import { isCashBlocked } from '../driver/cash-guard';
 import type { NearbyManager } from '../nearby/handler';
 import type { ProposalLifecycle } from '../proposal/lifecycle';
+import type { TrackingManager } from '../tracking/broadcast';
 import { handleSessionResync } from './resync';
 
 /**
@@ -19,10 +20,10 @@ import { handleSessionResync } from './resync';
  * intermittent, un message tronqué ou en retard n'est pas une faute qui justifie de couper le
  * chauffeur.
  *
- * Les types non encore traités par ce lot (`ride.start`, `ride.complete`, `ride.track`, ...) sont
- * ignorés silencieusement -- ce n'est pas une erreur, seulement une fonctionnalité que les
- * tâches suivantes ajoutent au fil de l'eau. `session.resync` (L3-11) est le premier type de
- * cette liste à être traité.
+ * Les types non encore traités par ce lot (`ride.start`, `ride.complete`, ...) sont ignorés
+ * silencieusement -- ce n'est pas une erreur, seulement une fonctionnalité que les tâches
+ * suivantes ajoutent au fil de l'eau. `session.resync` (L3-11) et `ride.track` (L3-09) sont
+ * traités.
  */
 export type MessageDispatcher = (context: ConnectionContext, socket: WebSocket, raw: string) => Promise<void>;
 
@@ -30,7 +31,8 @@ export function createMessageDispatcher(
   config: Config,
   redis: Redis,
   nearby: NearbyManager,
-  proposals: ProposalLifecycle
+  proposals: ProposalLifecycle,
+  tracking: TrackingManager
 ): MessageDispatcher {
   const plausibility = plausibilityConfigFrom(config);
 
@@ -90,6 +92,13 @@ export function createMessageDispatcher(
       case 'proposal.reject':
         if (context.role !== 'driver' || !context.driverId) return;
         await proposals.reject(context.driverId, message.payload.rideId, message.payload.reason);
+        return;
+      case 'ride.track':
+        // Émetteur : client (C-02). L'identité vient du contexte de connexion (invariant L3-01) ;
+        // rideId est une donnée métier, jamais une identité -- l'appartenance réelle est vérifiée
+        // à chaque diffusion par tracking/session.ts, pas ici.
+        if (context.role !== 'client') return;
+        await tracking.subscribe(context, socket, message.payload);
         return;
       case 'session.resync':
         // Émetteur : client ou chauffeur (C-02) -- pas de garde-fou de rôle ici, les deux ont le

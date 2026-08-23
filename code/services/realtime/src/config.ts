@@ -97,6 +97,23 @@ const ConfigSchema = z.object({
    * actives dans Odoo (source de vérité, D27) et journalise l'écart constaté à chaque passage. */
   ENGAGEMENT_RECONCILE_INTERVAL_SECONDS: z.coerce.number().int().positive().default(20),
 
+  /** Fréquence de diffusion de driver.position pendant un suivi actif (L3-09) -- délibérément
+   * plus faible que la fréquence d'ingestion (position.update, côté app chauffeur, de l'ordre de
+   * quelques secondes) : diffuser à la même cadence que l'ingestion saturerait un forfait de
+   * données compté (CLAUDE.md, "terminaux d'entrée de gamme") pour un gain de précision que
+   * l'œil ne distingue pas entre deux points si proches dans le temps. */
+  TRACKING_BROADCAST_INTERVAL_SECONDS: z.coerce.number().positive().default(10),
+
+  /** Vitesse moyenne retenue pour l'ETA d'approche (L3-09) -- PROVISOIRE au sens de D21 : aucun
+   * service de routage n'est accessible depuis le service temps réel (D3, aucune dépendance
+   * externe hors Redis/Odoo), l'ETA est donc une distance à vol d'oiseau convertie par une
+   * vitesse plausible de moto en circulation urbaine à Douala, pas un temps de trajet routier
+   * (même honnêteté que L3-03 pour la distance affichée à la découverte : "présentée comme une
+   * proximité, pas comme un temps d'arrivée précis"). É8 : ni Google ni Mapbox ne calculent
+   * d'itinéraire deux-roues au Cameroun -- même contrainte que L10-03, non calibrée non plus ici.
+   */
+  TRACKING_AVERAGE_SPEED_MPS: z.coerce.number().positive().default(8.3),
+
   /** Durée pendant laquelle un profil chauffeur en cache (L3-16, redis/driver-profiles.ts) est
    * servi sans rafraîchissement -- "durée de vie courte" (spécification). PROVISOIRE au sens de
    * D21, même écart que les valeurs de L3-02/L3-03/L3-04 : ce paramètre devrait vivre en base

@@ -86,7 +86,7 @@ liste vide — que L6-08 traduit en `NO_DRIVER_AVAILABLE`.
 | `ride.proposed` | Client | `{ rideId, driverId, proposalExpiresAt }` | Le chauffeur choisi a été réservé |
 | `ride.assigned` | Client | `{ rideId, driverId, firstName, photoUrl, motorcycleClass, licensePlate }` | Le chauffeur a accepté |
 | `ride.rejected` | Client | `{ rideId, driverId, reason }` | Le chauffeur a refusé ou le délai a expiré |
-| `driver.position` | Client | `{ rideId, position }` | Suivi pendant une course affectée ou en cours |
+| `driver.position` | Client | `{ rideId, position, etaSeconds }` | Suivi pendant une course affectée ou en cours |
 | `ride.started` | Client | `{ rideId }` | Transition `→ in_progress` |
 | `ride.completed` | Client | `{ rideId, distanceMeters, durationSeconds, amount, breakdown }` | Transition `→ completed` |
 | `session.synced` | Client ou chauffeur | `{ activeRideId, activeRideState, serverTime }` | Voir « Politique de reconnexion » |
@@ -116,6 +116,16 @@ jamais retarder l'envoi de `ride.assigned` lui-même.
 `ride.completed` porte `breakdown` (même `FareBreakdown` que `POST /quote`, C-01) depuis le
 25 août — le résumé de fin est ce qu'un client relira en cas de litige, il doit être ce que le
 serveur a écrit, pas seulement le montant total.
+
+`driver.position` (L3-09) diffuse `position` en **précision réelle** — l'arrondi de C2b
+(`nearby.drivers`) ne s'applique qu'à la découverte, jamais au suivi d'une course affectée : le
+client a le droit de savoir où est le chauffeur qui vient le chercher. `etaSeconds` est une
+distance à vol d'oiseau jusqu'au point de prise en charge, convertie par une vitesse moyenne
+configurable — pas un temps de trajet routier (aucun service de routage accessible depuis le
+service temps réel, D3), même honnêteté que la distance affichée par `nearby.drivers`. Diffusé
+tant que le client est réellement abonné à une course qui est la sienne — réévalué à **chaque**
+diffusion, pas seulement à l'abonnement : un client jamais affecté, ou dont la course vient de se
+terminer, ne reçoit rien.
 
 `nearby.drivers` réutilise exactement le schéma `NearbyDriver` de C-01 (`GET /drivers/nearby`,
 `packages/contracts/src/http/driver.ts`) : même `.strict()`, mêmes champs, une seule définition

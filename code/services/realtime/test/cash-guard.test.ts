@@ -13,6 +13,7 @@ import { storePosition } from '../src/redis/positions';
 import { createMessageDispatcher } from '../src/ws/dispatch';
 import { NearbyManager } from '../src/nearby/handler';
 import { ProposalLifecycle, type ProposalDetails } from '../src/proposal/lifecycle';
+import { TrackingManager } from '../src/tracking/broadcast';
 import { ConnectionRegistry, type ConnectionContext } from '../src/ws/auth';
 import { isReserved } from '../src/reservation/reserve';
 import { isEngaged, clearEngaged } from '../src/driver/engagement';
@@ -130,7 +131,8 @@ describe('cash-guard (L5-02)', () => {
     const registry = new ConnectionRegistry();
     const nearby = new NearbyManager(config, redis);
     const proposals = new ProposalLifecycle(config, redis, registry);
-    const dispatch = createMessageDispatcher(config, redis, nearby, proposals);
+    const tracking = new TrackingManager(config, redis);
+    const dispatch = createMessageDispatcher(config, redis, nearby, proposals, tracking);
 
     const driverContext: ConnectionContext = Object.freeze({ userId: id('driver-user'), role: 'driver', driverId });
     const clientContext: ConnectionContext = Object.freeze({ userId: clientUserId, role: 'client', driverId: null });

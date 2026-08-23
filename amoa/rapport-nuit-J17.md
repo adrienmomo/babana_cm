@@ -219,6 +219,84 @@ fois de suite contre Redis réel.
 
 ---
 
+## L3-09 — diffusion du suivi
+
+### Ce qui manquait pour que `ride.track` puisse répondre à quoi que ce soit
+
+Vérifié avant d'écrire quoi que ce soit (pas supposé) : rien, avant ce soir, ne conservait
+l'association course/client/chauffeur après l'acceptation. `proposal/lifecycle.ts::accept`
+consommait déjà `clientUserId` de la proposition (`consumeRecord`) sans le stocker ailleurs, et
+le marqueur d'engagement (`driver/engagement.ts`, D26) n'est qu'un booléen — aucun `rideId`.
+Sans cette association, `ride.track` n'a ni de quoi vérifier qu'un client suit une course qui est
+la sienne, ni de quoi savoir quel chauffeur suivre : ce n'était pas seulement la diffusion qui
+manquait, c'était son fondement.
+
+**`tracking/session.ts`** (nouveau) : `startRideSession`/`getRideSession`/
+`endRideSessionForDriver`, posée par `proposal/lifecycle.ts::accept` (même moment que le
+marqueur d'engagement, D26 — même durée de vie, pas de TTL, effacée au même geste),
+effacée par `http/internal.ts::handleClearEngagement` (fin de course ET annulation, Odoo appelle
+ce même point interne dans les deux cas — vérifié dans `realtime_client.py`, pas supposé). Choix
+d'implémentation non spécifié (structure de clés Redis), décidé et documenté dans le fichier
+lui-même.
+
+### La diffusion elle-même
+
+`tracking/broadcast.ts::TrackingManager`, même patron que `nearby/handler.ts` (L3-05) : un seul
+abonnement `ride.track` actif par client, minuteur `unref()`, filet défensif sur panne Redis.
+
+**Vérifié à chaque diffusion, pas seulement à l'abonnement** (la précision demandée ce soir,
+critère 2) : `push()` relit `getRideSession` à chaque tick, jamais mis en cache dans
+l'abonnement. Un client qui n'est pas le sien, ou dont la course vient de se terminer entre deux
+diffusions, ne reçoit rien — silencieusement, et l'abonnement s'arrête de lui-même. Testé
+explicitement (`broadcast.test.ts`, critères 2 et 4) : la fin de course est simulée par le même
+appel (`endRideSessionForDriver`) que le vrai point d'accroche Odoo, pas un raccourci qui
+contournerait le mécanisme réel.
+
+**Précision réelle** (critère 3), pas l'arrondi de L3-05 : `redis/positions.ts::getPosition`
+directement, sans passer par `nearby/projection.ts`. **Fréquence découplée de l'ingestion**
+(critère 5, la seconde précision demandée) : `TRACKING_BROADCAST_INTERVAL_SECONDS`, un réglage
+distinct de tout ce que L3-02 consulte pour l'ingestion — le service n'a d'ailleurs aucune
+connaissance du rythme d'émission du chauffeur, seulement de la dernière position reçue.
+
+**ETA d'approche** (spécification) : distance à vol d'oiseau jusqu'au point de prise en charge
+(gelé à l'acceptation dans la session, `haversineDistanceMeters`, déjà écrite pour L3-02 et
+réutilisée telle quelle) convertie par `TRACKING_AVERAGE_SPEED_MPS`, une vitesse plausible,
+paramétrable (invariant 5), jamais un temps de trajet routier — le service temps réel n'a accès
+à aucun service de routage (D3), même contrainte É8/L10-03 que celle qui empêche déjà l'ETA de
+l'estimation d'être calibré. Documenté comme une approximation dans le contrat lui-même
+(`server-to-client.ts`), pas présenté comme une précision qu'il n'a pas.
+
+**Contrat étendu** : `DriverPositionPayloadSchema` gagne `etaSeconds` (aucun émetteur existant à
+l'époque de C-02, donc aucun point d'appel à migrer). `ws/dispatch.ts` route désormais
+`ride.track` vers `TrackingManager.subscribe`, avec le même garde-fou de rôle
+(`context.role !== 'client'`) que `nearby.subscribe`. `ws/connection.ts` efface l'abonnement à la
+fermeture du socket, même raisonnement que pour `nearby` (un minuteur orphelin ne doit jamais
+survivre à la connexion qui l'a ouvert).
+
+**Hors périmètre, explicitement** : L8-03 (partage de trajet) n'existe pas — "le contact avec qui
+le trajet est partagé reçoit le même flux, par un canal distinct" (spécification) n'est donc pas
+câblé. Aucune hypothèse posée à sa place : le canal distinct qu'attend L8-03 sera construit par
+cette tâche, pas deviné ici.
+
+**Fichiers.** `services/realtime/src/tracking/session.ts`,
+`services/realtime/src/tracking/broadcast.ts` (nouveaux),
+`services/realtime/test/broadcast.test.ts` (nouveau, sept tests). `services/realtime/src/
+proposal/lifecycle.ts`, `services/realtime/src/http/internal.ts`, `services/realtime/src/ws/
+dispatch.ts`, `services/realtime/src/ws/connection.ts`, `services/realtime/src/config.ts`
+(deux nouveaux réglages). `packages/contracts/src/realtime/server-to-client.ts`,
+`packages/contracts/test/realtime.test.ts`, `docs/contracts/realtime-events.md`. Trois fichiers
+de test existants mis à jour pour le nouveau paramètre du dispatcher
+(`services/realtime/test/cash-guard.test.ts`) et les deux nouveaux réglages de configuration
+(`auth.test.ts`, `health.test.ts`, `ws.test.ts`).
+
+**Vérifié.** `broadcast.test.ts` (7 tests) vert. Suite `services/realtime` complète (133 tests)
+verte deux fois de suite contre Redis réel. Suite `test/http-contract` (20 tests) revérifiée
+verte contre la pile réelle — sans changement attendu, `TrackingManager` n'est exercé par aucun
+endpoint HTTP, mais la revérifier après un changement de `ws/dispatch.ts` et `ws/connection.ts`
+coûte peu et confirme qu'aucun effet de bord ne s'est glissé dans le chemin partagé.
+
+---
+
 ## Doute pour un client réel
 
 **Le rejeu concurrent existait probablement ailleurs aussi, jamais prouvé avant ce soir.** Le
@@ -242,5 +320,42 @@ navigation, pas persisté) la plaque d'un chauffeur avec qui la course est finie
 tant que L6-09 (l'écran qui l'affiche) n'existe pas encore, mais la tâche qui le construira devra
 décider explicitement quand cette donnée cesse d'être affichée — pas la garder par défaut parce
 que rien ne l'a dit de faire autrement.
+
+**`tracking/session.ts` est un troisième mécanisme d'état éphémère à côté de la réservation et de
+l'engagement, jamais unifié avec eux.** Trois structures Redis distinctes (`reservation/keys.ts`,
+`driver/engagement.ts`, `tracking/session.ts`) portent chacune un fragment du cycle de vie d'une
+course côté temps réel, posées et effacées à des moments voisins mais par des chemins de code
+différents. Rien n'est faux aujourd'hui — chaque effacement a été vérifié contre son point
+d'accroche réel — mais c'est le genre de duplication qui, dans six mois, laisse un
+développeur pressé effacer l'un sans penser aux deux autres. Une refonte en un seul état de
+course côté Redis (plutôt que trois clés séparées qui doivent rester synchronisées à la main)
+mériterait d'être posée comme question de fond avant que L3-10 (accumulation distance/durée) ou
+L3-11 (reconnexion) n'ajoutent une quatrième structure au même endroit.
+
+**L'ETA n'a jamais été comparé à une vraie moto sur une vraie route de Douala.**
+`TRACKING_AVERAGE_SPEED_MPS` (8,3 m/s, ~30 km/h) est plausible, pas mesuré — même statut que le
+facteur de correction de L10-03, non calibré. Un ETA optimiste ou pessimiste de façon
+systématique ne se verra qu'à l'usage réel ; rien dans ce lot ne le détecterait.
+
+---
+
+## Ce qui reste ouvert
+
+- **L6-09** — suivi de course en direct côté app Client, puis résumé de fin. Peut commencer
+  demain sans hypothèse : `ride.assigned` (D41) et `driver.position` (L3-09) existent
+  réellement maintenant, tous deux vérifiés contre le vrai service temps réel.
+- **`GET /drivers/nearby`** — retirer du contrat ou implémenter (voir
+  `amoa/questions/C-01R.md` §1).
+- **La recherche de lieu côté client** — jamais routée vers `mock-maps` en développement (voir
+  `amoa/questions/C-01R.md` §2) : bloque toute vérification navigateur future du parcours
+  complet sans le contournement jetable de ce soir.
+- **L8-03 / L8-04** — partage de trajet et bouton d'urgence, dont L6-09 dépend pour ces deux
+  fonctions précises (le reste de L6-09 n'en dépend pas).
+- **L3-12** — file persistante avec rejeu côté service.
+- **L4-06** — la facture.
+- **Les trois structures Redis d'état de course** (réservation, engagement, session de suivi) —
+  jamais unifiées, voir le doute ci-dessus.
+- **La validation du plan comptable** — trois questions à poser (reporté depuis J16).
+- **La vérification développeur Android** (reporté depuis J16).
 
 ---

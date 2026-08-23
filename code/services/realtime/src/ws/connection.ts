@@ -12,6 +12,7 @@ import { createMessageDispatcher } from './dispatch';
 import { DisconnectGraceTimers } from '../driver/availability';
 import { NearbyManager } from '../nearby/handler';
 import { ProposalLifecycle } from '../proposal/lifecycle';
+import { TrackingManager } from '../tracking/broadcast';
 
 // Réexportés pour compatibilité : posés ici par L0-04, avant que ws/auth.ts (L3-01) n'existe.
 // test/ws.test.ts importe encore WS_CLOSE_UNAUTHENTICATED depuis ce module.
@@ -43,7 +44,8 @@ export function createConnectionHandler(config: Config, redis: Redis): Connectio
   // au chauffeur, ride.assigned/ride.rejected au client -- même registre que celui qui suit les
   // connexions actives (spécification L3-01).
   const proposals = new ProposalLifecycle(config, redis, registry);
-  const dispatch = createMessageDispatcher(config, redis, nearby, proposals);
+  const tracking = new TrackingManager(config, redis);
+  const dispatch = createMessageDispatcher(config, redis, nearby, proposals, tracking);
   const disconnectGrace = new DisconnectGraceTimers();
 
   wss.on('connection', (socket: WebSocket, request: IncomingMessage) => {
@@ -84,6 +86,9 @@ export function createConnectionHandler(config: Config, redis: Redis): Connectio
       // reconnexion laisserait un minuteur orphelin continuer à interroger Redis pour un socket
       // fermé, jusqu'au prochain nearby.subscribe qui l'aurait de toute façon remplacé.
       nearby.unsubscribe(context);
+      // Même raisonnement pour le suivi de course (L3-09) : un abonnement ride.track orphelin
+      // continuerait à interroger Redis pour un socket fermé.
+      tracking.unsubscribe(context);
 
       // Critère d'acceptation 3 : une déconnexion réseau ne met pas hors ligne immédiatement --
       // période de grâce configurable, puis sortie du pool (L3-04). Rien à faire pour un client :

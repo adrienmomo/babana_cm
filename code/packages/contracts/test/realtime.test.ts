@@ -217,7 +217,7 @@ describe('exemples valides — serveur vers client', () => {
         type: 'driver.position',
         id: randomUUID(),
         emittedAt: now,
-        payload: { rideId, position: { latitude: 4.051, longitude: 9.768 } },
+        payload: { rideId, position: { latitude: 4.051, longitude: 9.768 }, etaSeconds: 180 },
       })
     );
     assert.doesNotThrow(() =>

@@ -12,6 +12,7 @@ import { proposalRideIdKey, proposalRecordKey } from './keys';
 import { ProposalTimeoutTimers } from './timeout';
 import { reportDriverAccepted, reportDriverRejected } from '../odoo/rides';
 import { getDriverProfiles } from '../redis/driver-profiles';
+import { startRideSession } from '../tracking/session';
 
 /**
  * Cycle de proposition (L3-07) : après une réservation réussie (L3-06), notifier le chauffeur,
@@ -152,6 +153,16 @@ export class ProposalLifecycle {
 
     const record = await this.consumeRecord(driverId);
     if (record) {
+      // L3-09 : pose l'association course/client/chauffeur que le suivi (`ride.track`) exige --
+      // sans elle, rien ne permet de vérifier qu'un client suit une course qui est la sienne, ni
+      // de savoir quel chauffeur suivre. Avant `sendToClient` : si le client se réabonne au
+      // suivi dès la réception de `ride.assigned`, la session doit déjà exister.
+      await startRideSession(this.redis, record.rideId, {
+        clientUserId: record.clientUserId,
+        driverId,
+        origin: record.origin,
+      });
+
       // D41 (amoa/questions/REPONSES-2026-08-25.md §2) : de quoi reconnaître la moto qui arrive
       // -- prénom, photo, gamme, ET immatriculation, celle-ci pour la première fois puisque
       // `nearby.drivers` ne l'a jamais portée (C2b, projection.ts ne la lit pas). Même cache que

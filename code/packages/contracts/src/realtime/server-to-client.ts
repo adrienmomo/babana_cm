@@ -131,10 +131,23 @@ export const RideRejectedPayloadSchema = z.object({
 export const RideRejectedMessageSchema = envelopeSchema('ride.rejected', RideRejectedPayloadSchema);
 export type RideRejectedMessage = z.infer<typeof RideRejectedMessageSchema>;
 
-/** Destinataire : client. Suivi de position pendant une course affectée ou en cours. */
+/**
+ * Destinataire : client. Suivi de position pendant une course affectée ou en cours (L3-09).
+ *
+ * `position` est en précision réelle ici, contrairement à `nearby.drivers` (L3-05) : une fois la
+ * course affectée, le client a le droit de savoir où est le chauffeur qui vient le chercher --
+ * l'arrondi de C2b ne protège plus rien qui vaille pour cette course-là.
+ *
+ * `etaSeconds` : distance à vol d'oiseau jusqu'au point de prise en charge, convertie par une
+ * vitesse moyenne plausible (config, jamais codée en dur) -- pas un temps de trajet routier
+ * (aucun service de routage accessible depuis le service temps réel, D3). Même honnêteté que la
+ * distance de `nearby.drivers` : une approximation présentée comme telle, jamais une fausse
+ * précision.
+ */
 export const DriverPositionPayloadSchema = z.object({
   rideId: RideIdSchema,
   position: LatLngSchema,
+  etaSeconds: z.number().int().nonnegative(),
 });
 export const DriverPositionMessageSchema = envelopeSchema('driver.position', DriverPositionPayloadSchema);
 export type DriverPositionMessage = z.infer<typeof DriverPositionMessageSchema>;

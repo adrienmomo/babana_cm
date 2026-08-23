@@ -6,6 +6,7 @@ import type { ProposalLifecycle, ProposalDetails } from '../proposal/lifecycle';
 import { wasRecentlySent } from '../nearby/last-sent';
 import { withIdempotency } from '../reservation/idempotency';
 import { clearEngaged } from '../driver/engagement';
+import { endRideSessionForDriver } from '../tracking/session';
 import { reintegrateIfEligible } from '../redis/pool-eligibility';
 import { blockForCash, unblockForCash } from '../driver/cash-guard';
 
@@ -133,6 +134,10 @@ async function handleClearEngagement(deps: InternalRouterDeps, rawBody: unknown,
   }
   const { driverId } = parsed.data;
   await clearEngaged(deps.redis, driverId);
+  // L3-09 : le suivi cesse à la fin de la course (spécification, critère 4) -- même geste que
+  // l'effacement de l'engagement, appelé pour la même raison (fin de course OU annulation,
+  // notify_cancellation_async côté Odoo appelle aussi ce point).
+  await endRideSessionForDriver(deps.redis, driverId);
   await reintegrateIfEligible(deps.redis, driverId);
   sendJson(res, 200, { cleared: true });
 }
