@@ -1,0 +1,178 @@
+{
+  "$comment": "C-02, critère d'acceptation 5 (ajouté le 27 août 2026 -- amoa/questions/REPONSES-2026-08-27.md). Chaque message de packages/contracts/src/realtime/{client-to-server,server-to-client}.ts a un émetteur et un consommateur réels, ou une entrée explicite déclarant pourquoi il n'en a pas et ce qui reste à faire. Vérifié par verify-realtime-message-map.js, qui dérive la liste des noms depuis le contrat lui-même (envelopeSchema('nom', ...)) -- jamais recopiée à la main, même principe que ride-state-machine.json pour C-03 et que EXERCISES/NOT_YET_IMPLEMENTED (test/http-contract/endpoint-coverage.test.ts) pour C-01. 'status' vaut 'wired' (émetteur ET consommateur réels quelque part dans le dépôt) ou 'pending' (au moins l'un des deux manque) ; toute entrée 'pending' porte 'reason', jamais laissée vide.",
+  "messages": [
+    {
+      "name": "position.update",
+      "direction": "client-to-server",
+      "status": "pending",
+      "emitter": "aucune app réelle -- apps/driver/src ne contient aucun code temps réel (L6-05, capture GPS, non commencée : seuls SignInScreen et la navigation existent). Émis aujourd'hui uniquement par des clients WS de test (services/odoo/addons/babana/tests/_realtime_ws.py::bring_driver_online, test/concurrency/helpers).",
+      "consumer": "réel et testé : services/realtime/src/ws/dispatch.ts (case 'position.update') -> tracking/ingest.ts, services/realtime/test/ingest.test.ts.",
+      "reason": "Émetteur manquant -- tâche L6-05 (capture GPS, apps/driver), non commencée."
+    },
+    {
+      "name": "availability.set",
+      "direction": "client-to-server",
+      "status": "pending",
+      "emitter": "aucune app réelle -- même constat que position.update.",
+      "consumer": "réel et testé : dispatch.ts -> driver/availability.ts, services/realtime/test/availability.test.ts.",
+      "reason": "Émetteur manquant -- tâche L6-11 (bascule en ligne/hors ligne, apps/driver), non commencée."
+    },
+    {
+      "name": "proposal.accept",
+      "direction": "client-to-server",
+      "status": "pending",
+      "emitter": "aucune app réelle -- même constat que position.update.",
+      "consumer": "réel et testé : dispatch.ts -> proposal/lifecycle.ts::accept, services/realtime/test/proposal.test.ts, test/http-contract/endpoint-coverage.test.ts (setupAssignedRide).",
+      "reason": "Émetteur manquant -- tâche L6-12 (réception de proposition, apps/driver), non commencée."
+    },
+    {
+      "name": "proposal.reject",
+      "direction": "client-to-server",
+      "status": "pending",
+      "emitter": "aucune app réelle -- même constat que position.update.",
+      "consumer": "réel et testé : dispatch.ts -> proposal/lifecycle.ts::reject, services/realtime/test/proposal.test.ts.",
+      "reason": "Émetteur manquant -- tâche L6-12 (réception de proposition, apps/driver), non commencée."
+    },
+    {
+      "name": "ride.start",
+      "direction": "client-to-server",
+      "status": "pending",
+      "emitter": "aucun, réel ou de test -- même constat que position.update.",
+      "consumer": "AUCUN. dispatch.ts le documente lui-même : 'les types non encore traités par ce lot ... sont ignorés silencieusement'. Vérifié le 27 août (L3-19) : toujours vrai.",
+      "reason": "Candidat obsolète, pas seulement manquant -- amoa/questions/C-02R.md. Le vrai chemin de démarrage de course est HTTP (POST /rides/{id}/start, controllers/ride.py, exercé par test/http-contract/endpoint-coverage.test.ts), établi et testé depuis L3-17/L4-03. Aucune tâche du découpage ne prévoit un second chemin WebSocket -- L6-13 (course en cours, apps/driver) nomme un 'bouton de démarrage' sans jamais mentionner ce message. À trancher : retirer ce message du contrat (même précédent que D31 pour accept/reject HTTP), ou documenter explicitement pourquoi les deux chemins doivent coexister."
+    },
+    {
+      "name": "ride.complete",
+      "direction": "client-to-server",
+      "status": "pending",
+      "emitter": "aucun, réel ou de test -- même constat que ride.start.",
+      "consumer": "AUCUN -- même constat que ride.start (dispatch.ts l'ignore explicitement).",
+      "reason": "Candidat obsolète, même raisonnement que ride.start : le chemin réel est POST /rides/{id}/complete (controllers/ride.py, L3-19 y accroche désormais aussi l'émission de ride.completed). À trancher avec ride.start, voir amoa/questions/C-02R.md."
+    },
+    {
+      "name": "nearby.subscribe",
+      "direction": "client-to-server",
+      "status": "wired",
+      "emitter": "apps/client/src/screens/HomeScreen.tsx, QuoteScreen.tsx (realtimeClient.send('nearby.subscribe', ...)).",
+      "consumer": "services/realtime/src/nearby/handler.ts, services/realtime/test/nearby.test.ts."
+    },
+    {
+      "name": "nearby.unsubscribe",
+      "direction": "client-to-server",
+      "status": "wired",
+      "emitter": "apps/client/src/screens/HomeScreen.tsx, QuoteScreen.tsx.",
+      "consumer": "services/realtime/src/nearby/handler.ts."
+    },
+    {
+      "name": "ride.track",
+      "direction": "client-to-server",
+      "status": "wired",
+      "emitter": "apps/client/src/screens/TrackingScreen.tsx (dès ride.assigned, L6-09).",
+      "consumer": "services/realtime/src/tracking/broadcast.ts::TrackingManager.subscribe, services/realtime/test/broadcast.test.ts."
+    },
+    {
+      "name": "session.resync",
+      "direction": "client-to-server",
+      "status": "wired",
+      "emitter": "packages/api-client/src/realtime/connection.ts (à la reconnexion, L3-11) -- utilisé aujourd'hui par apps/client ; apps/driver ne s'y raccorde pas encore (aucune connexion WS), mais le paquet partagé est le même pour les deux (D22).",
+      "consumer": "services/realtime/src/ws/resync.ts::handleSessionResync, services/realtime/test/resync.test.ts."
+    },
+    {
+      "name": "proposal.new",
+      "direction": "server-to-client",
+      "status": "pending",
+      "emitter": "réel et testé : services/realtime/src/proposal/lifecycle.ts (après réservation), services/realtime/test/proposal.test.ts.",
+      "consumer": "aucune app réelle -- apps/driver/src/screens/ProposalScreen.tsx n'existe pas encore (L6-12).",
+      "reason": "Consommateur manquant -- tâche L6-12 (réception de proposition, apps/driver), non commencée."
+    },
+    {
+      "name": "proposal.expired",
+      "direction": "server-to-client",
+      "status": "pending",
+      "emitter": "réel et testé : proposal/lifecycle.ts::expire, services/realtime/test/proposal.test.ts.",
+      "consumer": "aucune app réelle -- même constat que proposal.new.",
+      "reason": "Consommateur manquant -- tâche L6-12 (réception de proposition, apps/driver), non commencée."
+    },
+    {
+      "name": "ride.cancelled",
+      "direction": "server-to-client",
+      "status": "pending",
+      "emitter": "AUCUN. L4-07 (annulations) est fait -- babana_ride_cancel.py transitionne bien vers 'cancelled', notify_cancellation_async (services/realtime_client.py) relâche réservation et engagement -- mais rien n'appelle jamais /internal (aucune route équivalente n'existe côté services/realtime/src/http/internal.ts) pour pousser ce message. Aucun critère d'acceptation de L4-07 ne le demande.",
+      "consumer": "AUCUN, ni côté client ni côté chauffeur.",
+      "reason": "Le troisième trou du même genre que ride.started/ride.completed avant L3-19 -- une course annulée par l'une des parties ne le fait savoir à l'autre par aucun canal temps réel aujourd'hui. Pas construit cette nuit : hors du périmètre confié (L3-19/C-02R/L3-18 seulement). Candidat naturel : L4-07R, même patron que L3-19 (point d'accroche au commit sur action_cancel). Voir amoa/questions/C-02R.md."
+    },
+    {
+      "name": "cash.limit.warning",
+      "direction": "server-to-client",
+      "status": "pending",
+      "emitter": "AUCUN. L5-02 signale le FRANCHISSEMENT du plafond au service temps réel (/internal/drivers/cash-blocked, retire du pool) mais ne pousse aucun message WS. L7-05 (alerte de plafond, l'AVERTISSEMENT avant franchissement) ne touche que services/odoo/addons/babana/models/babana_driver.py -- aucun fichier de services/realtime dans sa liste : cette alerte est prévue par notification push (FCM, L7-01), pas par ce message WS.",
+      "consumer": "AUCUN.",
+      "reason": "Candidat obsolète, même famille que ride.start/ride.complete -- amoa/questions/C-02R.md. Le mécanisme d'alerte réellement spécifié (L7-05) est une notification push, pas un message temps réel WebSocket. À trancher : retirer ce message du contrat, ou lui trouver un rôle réel distinct de L7-05 (ex. mise à jour en direct de l'écran si l'app est ouverte)."
+    },
+    {
+      "name": "nearby.drivers",
+      "direction": "server-to-client",
+      "status": "wired",
+      "emitter": "services/realtime/src/nearby/handler.ts, services/realtime/test/nearby.test.ts.",
+      "consumer": "apps/client/src/screens/HomeScreen.tsx, QuoteScreen.tsx."
+    },
+    {
+      "name": "nearby.subscribe.ack",
+      "direction": "server-to-client",
+      "status": "wired",
+      "emitter": "services/realtime/src/nearby/handler.ts (23 août, limitation de débit).",
+      "consumer": "apps/client/src/screens/HomeScreen.tsx."
+    },
+    {
+      "name": "ride.proposed",
+      "direction": "server-to-client",
+      "status": "pending",
+      "emitter": "AUCUN -- aucune occurrence de type: 'ride.proposed' dans services/realtime/src.",
+      "consumer": "AUCUN.",
+      "reason": "Candidat obsolète, même famille que ride.start/ride.complete/cash.limit.warning -- amoa/questions/C-02R.md. La transition vers 'proposed' est déjà connue du client de façon SYNCHRONE, par la réponse HTTP de POST /rides/{id}/select-driver (SelectDriverResponse.state, controllers/ride.py) -- ce message WS semble redondant avec cette réponse pour le seul appareil qui a fait la demande. À trancher : retirer du contrat, ou motiver un besoin réel (ex. synchroniser un second appareil du même client)."
+    },
+    {
+      "name": "ride.assigned",
+      "direction": "server-to-client",
+      "status": "wired",
+      "emitter": "services/realtime/src/proposal/lifecycle.ts::accept, services/realtime/test/proposal.test.ts.",
+      "consumer": "apps/client/src/screens/WaitingScreen.tsx."
+    },
+    {
+      "name": "ride.rejected",
+      "direction": "server-to-client",
+      "status": "wired",
+      "emitter": "services/realtime/src/proposal/lifecycle.ts::reject|expire, services/realtime/test/proposal.test.ts.",
+      "consumer": "apps/client/src/screens/WaitingScreen.tsx."
+    },
+    {
+      "name": "driver.position",
+      "direction": "server-to-client",
+      "status": "wired",
+      "emitter": "services/realtime/src/tracking/broadcast.ts::TrackingManager, services/realtime/test/broadcast.test.ts.",
+      "consumer": "apps/client/src/screens/TrackingScreen.tsx."
+    },
+    {
+      "name": "ride.started",
+      "direction": "server-to-client",
+      "status": "wired",
+      "emitter": "services/realtime/src/tracking/broadcast.ts::broadcastRideStarted, appelé par http/internal.ts (POST /internal/rides/started, L3-19) depuis services/odoo/addons/babana/services/realtime_client.py::notify_ride_started (accroché à action_start, D32). Testé par services/realtime/test/internal.test.ts.",
+      "consumer": "apps/client/src/screens/TrackingScreen.tsx (côté chauffeur : livré au même titre, aucun écran apps/driver ne le lit encore -- L6-13, non commencée)."
+    },
+    {
+      "name": "ride.completed",
+      "direction": "server-to-client",
+      "status": "wired",
+      "emitter": "services/realtime/src/tracking/broadcast.ts::broadcastRideCompleted, appelé par http/internal.ts (POST /internal/rides/completed, L3-19) depuis realtime_client.py::notify_ride_completed (accroché à action_complete, D32). Testé par services/realtime/test/internal.test.ts.",
+      "consumer": "apps/client/src/screens/TrackingScreen.tsx puis RideSummaryScreen (L6-09) (côté chauffeur : livré au même titre, aucun écran apps/driver ne le lit encore -- L6-14, non commencée)."
+    },
+    {
+      "name": "session.synced",
+      "direction": "server-to-client",
+      "status": "pending",
+      "emitter": "réel et testé : services/realtime/src/ws/resync.ts, services/realtime/test/resync.test.ts.",
+      "consumer": "aucun réel -- apps/client/src/realtime.ts route génériquement tout message vers onRealtimeMessage, mais aucun écran ne s'abonne à 'session.synced' pour appliquer activeRideId/activeRideState : la reprise de navigation après reconnexion n'est câblée nulle part.",
+      "reason": "Consommateur manquant -- candidat naturel : L6-16 (mode dégradé réseau, apps/client), non commencée. Voir amoa/questions/C-02R.md."
+    }
+  ]
+}

@@ -143,3 +143,64 @@ ne peux pas dire, comme les trois nuits précédentes, « je l'ai vu ». Second 
 l'application Chauffeur ne lit encore aucun des deux messages (aucun écran ne les consomme,
 `apps/driver` à peine commencée) — l'émetteur les lui pousse déjà, symétriquement, prête pour le
 jour où L6-13/L6-14 existeront.
+
+---
+
+## C-02R — la cartographie des messages
+
+### Le mécanisme
+
+`docs/contracts/realtime-message-map.json` (données) + `docs/contracts/verify-realtime-message-map.js`
+(vérification), chaîné après `npm test` (`package.json`, même patron que
+`verify-ride-state-machine.js` pour C-03). La liste des messages à couvrir se dérive du contrat
+lui-même par extraction textuelle des appels `envelopeSchema('nom', ...)` dans
+`packages/contracts/src/realtime/{client-to-server,server-to-client}.ts` — jamais recopiée à la
+main. Le script échoue au chargement si un message du contrat n'a pas d'entrée, si une entrée
+`wired` n'a pas d'émetteur/consommateur non vides, ou si une entrée `pending` n'a pas de `reason`
+— la mention explicite qu'exige le critère 5. Vérifié dans les deux sens : j'ai retiré une entrée
+du fichier de données pour confirmer que le script la réclame (`"ride.started" du contrat n'a
+aucune entrée..."`), remis, revérifié vert.
+
+### Ce qui compte plus que le mécanisme : douze sur vingt-trois
+
+**12 des 23 messages du contrat sont en attente** — pas 2 ou 3 comme je m'y attendais en commençant
+(je pensais ne retrouver que `ride.started`/`ride.completed`, déjà réparés par L3-19). Le détail
+complet, avec émetteur/consommateur réels ou raison de l'attente, fichier par fichier, est dans
+`realtime-message-map.json` ; ce qui suit trie les douze en trois familles, parce qu'elles
+n'appellent pas la même décision — voir `amoa/questions/C-02R.md` pour le détail complet et les
+options.
+
+**Sept — il manque une application, pas un câblage.** `position.update`, `availability.set`,
+`proposal.accept`, `proposal.reject`, `proposal.new`, `proposal.expired` : le serveur est réel et
+testé pour chacun, `apps/driver` n'existe presque pas encore (L6-05/L6-11/L6-12). `session.synced` :
+émis et testé, mais aucun écran d'`apps/client` ne s'abonne à son type pour reprendre la
+navigation après reconnexion (L6-16) — un routeur générique de messages n'est pas une
+consommation, le cas le plus facile à manquer en relisant vite.
+
+**Quatre — probablement des définitions obsolètes du contrat**, sans émetteur ni consommateur,
+réel ou de test, nulle part : `ride.start`/`ride.complete` (le vrai chemin est HTTP, établi
+depuis L3-17/L4-03, et c'est là que L3-19 accroche l'émission ce soir), `cash.limit.warning`
+(L7-05, l'alerte réellement spécifiée, est une notification push, pas ce message), `ride.proposed`
+(déjà connu du client de façon synchrone par la réponse HTTP de `select-driver`). Précédent déjà
+posé par D31 pour `/accept`/`/reject` HTTP : une décision d'architecture semble prise ailleurs,
+le contrat porte encore une définition qui la contredit en silence. Pas retiré ce soir — un
+changement de `@babana/contracts` mérite une décision explicite, pas un retrait de bord de route.
+
+**Un — un troisième trou du même genre que celui que L3-19 vient de réparer.** `ride.cancelled` :
+L4-07 (annulations) transitionne réellement, relâche réservation et engagement côté Redis, mais ne
+prévient jamais l'autre partie. Aucun critère d'acceptation de L4-07 ne le demandait — pas un
+défaut d'implémentation, le même manque de découpage. Candidat naturel pour la priorité de la
+prochaine session : L4-07R, même patron que L3-19.
+
+### Fichiers
+
+`docs/contracts/realtime-message-map.json`, `docs/contracts/verify-realtime-message-map.js`,
+`package.json` (chaînage). `amoa/questions/C-02R.md` (le détail des trois familles, avec
+proposition pour chacune).
+
+### Doute pour un client réel
+
+**Aucun sur le mécanisme** — il fait exactement ce qu'on lui demande, vérifié dans les deux sens.
+Le doute est ailleurs, et c'est la vraie réponse à la question posée en tête de nuit : la moitié du
+contrat n'a personne au bout, dans un sens ou dans l'autre, et je ne l'aurais pas su sans ce
+fichier. C'est la mesure que je n'avais pas hier.
