@@ -47,6 +47,8 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D40 | **Toute date qui traverse le contrat porte son fuseau**, écrite en UTC suffixé par un sérialiseur unique côté Odoo | Assouplir le schéma pour accepter une date nue | Une date sans fuseau n'est pas ambiguë, elle est fausse d'une heure à Douala : un navigateur l'interprète comme heure locale. Voir §5 bis |
 | D41 | **L'immatriculation est révélée à l'affectation**, jamais avant | Ne jamais l'exposer ; l'exposer dès la liste des cinq | Avant le choix, la flotte doit rester non balayable (C2b) ; après, le client doit reconnaître la moto qui arrive. C'est le choix qui fait basculer la règle |
 | D42 | **Les numéros de téléphone sont révélés à l'affectation et effacés à la fin de la course**, des deux côtés | Relais de masquage ; ne rien exposer | À Douala on se repère en s'appelant, et un client qui ne trouve pas sa moto annule. Le relais est la bonne réponse à terme, et c'est une intégration téléphonique entière |
+| D43 | **Aucune configuration de fournisseur externe n'a de valeur par défaut qui pointe vers le vrai fournisseur.** Non configuré, on échoue bruyamment | Une valeur par défaut « raisonnable » | Une configuration qui retombe sur le vrai service masque sa propre panne : le simulateur paraît branché et ne l'est pas. Voir §9 ter |
+| D44 | **Un état réparé est indiscernable d'un état produit normalement.** Une réconciliation restaure l'état complet, jamais un fragment | Réparer le marqueur qui manque | Un état partiel qu'aucune transition ne pourrait produire est un quatrième cas que personne n'a prévu. Voir §2 ter |
 
 ---
 
@@ -324,6 +326,18 @@ Exigences du CDC §VII.2 et §VII.3, à traiter comme des tâches et non comme d
 - **Rôles** : le mobile n'accède jamais à un modèle Odoo hors de ce que les règles d'enregistrement autorisent pour son utilisateur. Un chauffeur ne lit pas la course d'un autre chauffeur ; un client ne lit pas les documents d'un chauffeur. À vérifier par des tests, pas par relecture.
 - **Journalisation** : toute transition de course et toute opération sur le compte courant chauffeur sont journalisées de manière non modifiable. C'est ce qui permettra de trancher un litige.
 - **L'export web ne persiste aucune session (D39, 24 août).** Un navigateur n'a pas de trousseau système à qui déléguer : tout ce qu'on y range est lisible par n'importe quelle injection de script. Le jeton de renouvellement, qui vaut une session entière et survit à l'expiration du jeton d'accès, n'y a donc pas sa place. La session web vit en mémoire ; fermer l'onglet déconnecte, rouvrir demande une reconnexion Google — deux clics, puisque la session Google du navigateur est déjà ouverte. C'est le coût réel de D22, et il est acceptable précisément parce que l'export web est un complément de démonstration, pas le canal principal. Un cookie inaccessible au script serait la bonne réponse pour une vraie application web ; il exigerait un second mécanisme d'authentification à côté du porteur, ce que D35 vient d'écarter.
+
+---
+
+## 9 ter. Une configuration qui retombe sur le vrai fournisseur masque sa propre panne (D43)
+
+La recherche de lieu a été routée vers le simulateur, la variable d'environnement injectée, la valeur littérale vérifiée dans le bundle produit — et l'appel réel partait quand même chez Google. La cause probable est une double instanciation du module dans le bundle : deux exemplaires de la même configuration, l'un renseigné, l'autre lu.
+
+Cette cause est banale et se corrigera. **Ce qui l'a rendue invisible ne l'est pas** : la configuration non renseignée retombait sur l'adresse du vrai fournisseur. Le code faisait donc exactement ce qu'il fait quand tout va bien, avec un destinataire différent — et personne ne pouvait le voir sans regarder le trafic réseau.
+
+Une valeur par défaut qui pointe vers le vrai service transforme une erreur de configuration en comportement silencieux. Non configuré, on échoue, bruyamment, à l'appel. C'est le même principe que partout ailleurs ici — une absence explicite plutôt qu'une valeur plausible et fausse — appliqué cette fois à la configuration elle-même.
+
+**Corollaire pour les paquets partagés** : une configuration tenue dans une variable de module suppose qu'il n'existe qu'un exemplaire du module. Un empaqueteur ne le garantit pas. Ce qui doit être configuré une fois et lu partout se passe explicitement, ou se vérifie à l'usage.
 
 ---
 

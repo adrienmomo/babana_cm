@@ -454,6 +454,47 @@ Couvrir en plus :
 
 ---
 
+## L4-12 — Notification d'annulation aux deux parties
+
+### Objectif
+
+Prévenir celui qui n'a pas annulé.
+
+### Contexte
+
+**Créée le 28 août, trouvée par la cartographie des messages (C-02, critère 5) — et c'est exactement ce pour quoi ce critère existait.** L4-07 transitionne bien une course vers `cancelled`, et relâche réservation et engagement côté Redis. Mais `ride.cancelled` n'est poussé nulle part : **un client qui annule ne prévient jamais le chauffeur qu'il vient de perdre sa course**, et réciproquement.
+
+Ce n'est pas un défaut d'implémentation — aucun critère de L4-07 ne le demandait. C'est le quatrième manque de mon découpage, et le quatrième du même genre : sur le chemin de notification, jamais sur le composant. La différence, cette fois, est qu'une cartographie l'a trouvé au lieu d'un développeur à trois heures du matin.
+
+Le chauffeur est le cas qui coûte le plus : il roule vers un point de prise en charge pour une course qui n'existe plus.
+
+### Fichiers
+
+```
+services/odoo/addons/babana/services/realtime_client.py
+services/realtime/src/http/internal.ts
+```
+
+### Spécification
+
+Même patron que L3-19, avec les mêmes trois règles : point d'accroche **au commit** (D32), jamais depuis un savepoint (D33), et cet émetteur notifie sans jamais transitionner (D31).
+
+**Le destinataire dépend de l'acteur.** Un client qui annule prévient le chauffeur ; un chauffeur qui annule prévient le client ; un superviseur prévient les deux. `action_cancel` connaît déjà l'acteur — c'est son premier argument.
+
+**Le message porte le motif**, quand il y en a un. Un chauffeur qui apprend qu'une course est annulée sans savoir par qui ni pourquoi ne peut rien en faire ; il vient de rouler pour rien, et c'est le minimum de lui dire lequel des deux cas s'est produit.
+
+**Une annulation depuis `requested` n'a personne à prévenir** — aucun chauffeur n'est encore affecté. C'est le seul état où cette tâche ne fait rien, et c'est normal.
+
+### Critères d'acceptation
+
+1. Une annulation client sur une course `proposed` ou `assigned` pousse `ride.cancelled` au chauffeur concerné, et à lui seul.
+2. Une annulation chauffeur pousse le message au client.
+3. Une annulation depuis `requested` n'émet rien.
+4. Une transaction d'annulation qui échoue au commit n'émet rien.
+5. Le message porte l'acteur et le motif.
+
+---
+
 ## L4-11 — Test de concurrence sur les transitions
 
 ### Objectif

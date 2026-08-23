@@ -715,6 +715,10 @@ Le service temps réel demande donc périodiquement à Odoo la liste des chauffe
 
 L'écart constaté à chaque passage est compté et journalisé. Un écart durablement non nul n'est pas un incident de réconciliation, c'est un défaut du chemin nominal — la réconciliation le répare et le **dénonce**, elle ne le masque pas.
 
+**Et elle restaure un état complet, jamais un fragment (D44, 28 août).** La première implémentation reposait un marqueur d'engagement sans l'identifiant de course qui va avec — état qu'aucune transition normale ne peut produire, et depuis lequel le suivi d'une course reste indisponible sans que rien ne le signale. Odoo connaît l'identifiant de la course : la réponse de l'endpoint le porte, et la réparation l'écrit.
+
+La règle vaut au-delà de cette tâche : **un état réparé doit être indiscernable d'un état produit normalement.** Sinon la réparation crée un cas de plus, que le reste du code n'a jamais eu à envisager — et une réconciliation qui invente un quatrième état est pire que celle qui n'aurait rien fait, parce qu'elle a l'air d'avoir réussi.
+
 ### Critères d'acceptation
 
 1. Une course va de `requested` à `assigned` par l'API mobile, réservation atomique comprise, contre la pile réelle.

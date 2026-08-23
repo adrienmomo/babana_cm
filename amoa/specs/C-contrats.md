@@ -234,11 +234,15 @@ docs/contracts/realtime-events.md
 
 **Enveloppe commune** : type du message, identifiant unique, horodatage d'émission. L'identifiant sert à l'idempotence côté réception — un message rejoué après reconnexion ne doit pas produire deux effets.
 
-**Chauffeur vers serveur** : `position.update` (latitude, longitude, précision, vitesse, cap), `availability.set`, `proposal.accept`, `proposal.reject`, `ride.start`, `ride.complete`.
+**Chauffeur vers serveur** : `position.update` (latitude, longitude, précision, vitesse, cap), `availability.set`, `proposal.accept`, `proposal.reject`.
+
+**`ride.start`, `ride.complete` et `cash.limit.warning` sont retirés du contrat (28 août).** La cartographie du critère 5 les a trouvés sans émetteur ni consommateur nulle part — et pour chacun, la décision qui explique pourquoi était déjà prise ailleurs : le démarrage et la fin de course passent par HTTP (`POST /rides/{id}/start`, `/complete`), et l'alerte de plafond réelle est une notification push (L7-05, FCM). Même geste que le retrait de `GET /drivers/nearby` : un contrat qui décrit un chemin que personne n'emprunte finit par être cité comme référence par quelqu'un de pressé.
+
+**`ride.proposed` reste, et la raison s'écrit maintenant plutôt que se redécouvre.** Il est redondant avec la réponse HTTP de `select-driver` pour l'appareil qui a fait la demande — mais pas pour un **second appareil du même client**, cas réel ici : un téléphone se partage en famille, et la personne qui commande n'est pas toujours celle qui voyage.
 
 **Client vers serveur** : `nearby.subscribe` (position, rayon), `nearby.unsubscribe`, `ride.track` (abonnement au suivi d'une course).
 
-**Serveur vers chauffeur** : `proposal.new` (course, départ, arrivée, montant, distance, délai restant), `proposal.expired`, `ride.cancelled`, `cash.limit.warning`.
+**Serveur vers chauffeur** : `proposal.new` (course, départ, arrivée, montant, distance, délai restant), `proposal.expired`, `ride.cancelled`.
 
 **Serveur vers client** : `nearby.drivers` (les 5 plus proches, position arrondie), `ride.proposed`, `ride.assigned`, `ride.rejected`, `driver.position` (suivi), `ride.started`, `ride.completed`.
 

@@ -169,6 +169,7 @@ Les états `brouillon → demandée → proposée → affectée → en_cours →
 | L4-08 | Historique des courses et des factures, exposé en JSON-RPC natif | S | L4-06 |
 | L4-09 | Notation et avis client après la course, mise à jour de la note moyenne du chauffeur | M | L4-05, L1-03 |
 | L4-10 | **Tests de la machine à états** : toutes les transitions valides passent, toutes les interdites échouent, double encaissement impossible | M | L4-02 |
+| L4-12 | **Notification d'annulation aux deux parties** : point d'accroche au commit sur `action_cancel`, qui pousse `ride.cancelled` à celui qui n'a pas annulé. Quatrième trou du même genre que L3-19, trouvé par la cartographie | S | L4-07, L3-19 |
 | L4-11 | **Test de concurrence sur les transitions**, contre une pile réelle hors du harnais Odoo | M | L4-03, L0-01 |
 
 **Sur L4-11** : dépend de **L4-03**, pas de L4-02 — correction du 15 août. Les méthodes de transition prennent des recordsets en argument ; seule la couche HTTP les rend appelables de l'extérieur d'Odoo. Un test « contre une pile réelle » a donc besoin des endpoints, pas seulement du modèle. Erreur de dépendance de ma part, relevée par l'implémentation.
