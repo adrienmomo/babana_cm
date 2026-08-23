@@ -63,11 +63,38 @@ export type ClientParamList = {
     reason: 'driver_rejected' | 'driver_timeout';
     selection: RideSelectionContext;
   };
-  Tracking: { rideId: RideId };
-  RideSummary: { rideId: RideId };
+  Tracking: {
+    rideId: RideId;
+    origin: RidePoint;
+    destination: RidePoint;
+    driver: AssignedDriverInfo;
+  };
+  RideSummary: {
+    rideId: RideId;
+    distanceMeters: number;
+    durationSeconds: number;
+    amount: number;
+    breakdown: http.FareBreakdown;
+  };
   History: undefined;
   Invoice: { rideId: RideId };
 };
+
+/**
+ * Cliché du chauffeur affecté, porté par `ride.assigned` (D41) -- ce que TrackingScreen (L6-09)
+ * affiche pendant l'approche et la course. Volontairement absent de `RideSummary` ci-dessus :
+ * l'immatriculation et l'identité du chauffeur cessent d'être affichées exactement à la
+ * transition Tracking -> RideSummary (`navigation.replace`, qui fait disparaître les paramètres
+ * de Tracking de la pile) -- décision explicite, pas un champ qu'on aurait oublié de retirer
+ * (doute relevé le 26 août, amoa/questions/REPONSES-2026-08-26.md §5).
+ */
+export interface AssignedDriverInfo {
+  driverId: DriverId;
+  firstName: string | null;
+  photoUrl: string | null;
+  motorcycleClass: http.VehicleClass | null;
+  licensePlate: string | null;
+}
 
 export type AuthParamList = {
   SignIn: undefined;

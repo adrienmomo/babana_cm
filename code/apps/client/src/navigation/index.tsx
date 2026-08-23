@@ -10,6 +10,8 @@ import { HomeScreen } from '../screens/HomeScreen';
 import { QuoteScreen } from '../screens/QuoteScreen';
 import { WaitingScreen } from '../screens/WaitingScreen';
 import { DriverRejectedScreen } from '../screens/DriverRejectedScreen';
+import { TrackingScreen } from '../screens/TrackingScreen';
+import { RideSummaryScreen } from '../screens/RideSummaryScreen';
 import type { AuthParamList, ClientParamList } from './types';
 
 const AuthStack = createNativeStackNavigator<AuthParamList>();
@@ -114,12 +116,8 @@ function ClientNavigator() {
       <ClientStack.Screen name="Quote" component={QuoteScreen} />
       <ClientStack.Screen name="Waiting" component={WaitingScreen} />
       <ClientStack.Screen name="DriverRejected" component={DriverRejectedScreen} />
-      <ClientStack.Screen name="Tracking">
-        {() => <PlaceholderScreen title="Suivi de course" task="L6-09" />}
-      </ClientStack.Screen>
-      <ClientStack.Screen name="RideSummary">
-        {() => <PlaceholderScreen title="Résumé" task="L6-09" />}
-      </ClientStack.Screen>
+      <ClientStack.Screen name="Tracking" component={TrackingScreen} />
+      <ClientStack.Screen name="RideSummary" component={RideSummaryScreen} />
       <ClientStack.Screen name="History">
         {() => <PlaceholderScreen title="Historique" task="L6-10" />}
       </ClientStack.Screen>

@@ -7,6 +7,8 @@ import { ApiError, USER_MESSAGES, translateApiError } from '@babana/api-client';
 import type { http, realtime } from '@babana/contracts';
 import { apiClient } from '../auth';
 import { DriverCard } from '../components/DriverCard';
+import { FARE_LINES } from '../components/fareBreakdown';
+import { formatDistance, formatEta, formatMoney } from '../format';
 import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { replaceWithRideFlow } from '../navigation/transitions';
 import type { ClientParamList } from '../navigation/types';
@@ -37,37 +39,6 @@ const VEHICLE_CLASS_LABELS: Record<http.VehicleClass, string> = {
   standard: 'Standard',
   premium: 'Confort',
 };
-
-/**
- * Détail décomposé (spécification : « prise en charge, distance, coefficient éventuel, remise »).
- * `floorAmount` et `roundingAmount` complètent la liste pour que les lignes affichées somment
- * *exactement* le total affiché (L2-03, critère 4) -- masquées quand nulles pour ne pas
- * encombrer un montant sans surprise, jamais réarrondies : additionner zéro ne change rien à la
- * somme, donc l'identité tient qu'une ligne nulle soit montrée ou non.
- */
-const FARE_LINES: ReadonlyArray<{ key: keyof http.FareBreakdown; label: string; subtract?: boolean; alwaysShown?: boolean }> = [
-  { key: 'baseFare', label: 'Prise en charge', alwaysShown: true },
-  { key: 'distanceFare', label: 'Distance', alwaysShown: true },
-  { key: 'surgeAmount', label: 'Majoration' },
-  { key: 'discountAmount', label: 'Remise', subtract: true },
-  { key: 'floorAmount', label: 'Ajustement plancher' },
-  { key: 'roundingAmount', label: 'Arrondi' },
-];
-
-function formatMoney(amount: number): string {
-  return `${amount.toLocaleString('fr-FR')} FCFA`;
-}
-
-function formatEta(etaSeconds: number): string {
-  // La durée vient d'un modèle voiture corrigé côté serveur (É8, L10-03) par un facteur qui vaut
-  // 1.0 aujourd'hui -- non calibré. "≈" et l'arrondi à la minute évitent d'afficher une précision
-  // que ce chiffre n'a pas.
-  return `≈ ${Math.max(1, Math.round(etaSeconds / 60))} min`;
-}
-
-function formatDistance(distanceMeters: number): string {
-  return `${(distanceMeters / 1000).toFixed(1)} km`;
-}
 
 function remainingSeconds(expiresAt: string): number {
   return Math.max(0, Math.round((new Date(expiresAt).getTime() - Date.now()) / 1000));

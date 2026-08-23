@@ -1,5 +1,5 @@
-import { asRideId } from '@babana/navigation';
-import type { ClientParamList } from '../types';
+import { asDriverId, asRideId } from '@babana/navigation';
+import type { ClientParamList, RidePoint } from '../types';
 
 /**
  * Preuve de compilation (critère d'acceptation 2 de L6-00) : les `@ts-expect-error` ci-dessous
@@ -9,11 +9,19 @@ import type { ClientParamList } from '../types';
  * vide ; la preuve réelle est dans `tsc --noEmit`, pas dans cette assertion.
  */
 const rideId = asRideId('r1');
+const point: RidePoint = { position: { latitude: 4.05, longitude: 9.7 }, label: 'Akwa' };
+const driver: ClientParamList['Tracking']['driver'] = {
+  driverId: asDriverId('d1'),
+  firstName: 'Paul',
+  photoUrl: null,
+  motorcycleClass: 'standard',
+  licensePlate: 'LT-1234-AB',
+};
 
-const valid: ClientParamList['Tracking'] = { rideId };
+const valid: ClientParamList['Tracking'] = { rideId, origin: point, destination: point, driver };
 
 // @ts-expect-error -- un identifiant numérique n'est pas un RideId : doit casser la compilation.
-const wrongType: ClientParamList['Tracking'] = { rideId: 42 };
+const wrongType: ClientParamList['Tracking'] = { rideId: 42, origin: point, destination: point, driver };
 
 // @ts-expect-error -- Home ne prend aucun paramètre.
 const extraParam: ClientParamList['Home'] = { rideId };

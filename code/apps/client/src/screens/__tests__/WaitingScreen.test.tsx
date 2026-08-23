@@ -88,14 +88,37 @@ describe('WaitingScreen (L6-08)', () => {
     expect(root.root.findByProps({ testID: 'waiting-countdown' })).toBeTruthy();
   });
 
-  it('ride.assigned remplace la pile vers le suivi de course', async () => {
+  it('ride.assigned remplace la pile vers le suivi de course, avec le cliché du chauffeur affecté', async () => {
     const { navigation } = await renderWaiting();
 
     await act(async () => {
-      realtimeListener?.({ type: 'ride.assigned', id: 'm1', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, driverId: DRIVER_ID } });
+      realtimeListener?.({
+        type: 'ride.assigned',
+        id: 'm1',
+        emittedAt: new Date().toISOString(),
+        payload: {
+          rideId: RIDE_ID,
+          driverId: DRIVER_ID,
+          firstName: 'Paul',
+          photoUrl: null,
+          motorcycleClass: 'standard',
+          licensePlate: 'LT-1234-AB',
+        },
+      });
     });
 
-    expect(navigation.replace).toHaveBeenCalledWith('Tracking', { rideId: RIDE_ID });
+    expect(navigation.replace).toHaveBeenCalledWith('Tracking', {
+      rideId: RIDE_ID,
+      origin: SELECTION.origin,
+      destination: SELECTION.destination,
+      driver: {
+        driverId: DRIVER_ID,
+        firstName: 'Paul',
+        photoUrl: null,
+        motorcycleClass: 'standard',
+        licensePlate: 'LT-1234-AB',
+      },
+    });
   });
 
   it('ride.rejected pour cette course navigue vers DriverRejected avec le motif et le chauffeur concernés', async () => {

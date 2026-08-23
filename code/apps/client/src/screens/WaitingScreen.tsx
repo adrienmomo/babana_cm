@@ -6,6 +6,7 @@ import { asDriverId } from '@babana/navigation';
 import { ApiError, reportMetric, translateApiError } from '@babana/api-client';
 import type { realtime } from '@babana/contracts';
 import { apiClient } from '../auth';
+import { formatMoney } from '../format';
 import { ensureRealtimeConnected, onRealtimeMessage } from '../realtime';
 import type { ClientParamList } from '../navigation/types';
 
@@ -30,10 +31,6 @@ function remainingSeconds(expiresAt: string): number {
   return Math.max(0, Math.round((new Date(expiresAt).getTime() - Date.now()) / 1000));
 }
 
-function formatMoney(amount: number): string {
-  return `${amount.toLocaleString('fr-FR')} FCFA`;
-}
-
 export function WaitingScreen({ route, navigation }: Props) {
   const { rideId, proposalExpiresAt, amount, selectedAt, selection } = route.params;
   const [cancelling, setCancelling] = useState(false);
@@ -46,7 +43,18 @@ export function WaitingScreen({ route, navigation }: Props) {
     ensureRealtimeConnected();
     return onRealtimeMessage((message) => {
       if (isRideAssigned(message) && message.payload.rideId === rideId) {
-        navigation.replace('Tracking', { rideId });
+        navigation.replace('Tracking', {
+          rideId,
+          origin: selection.origin,
+          destination: selection.destination,
+          driver: {
+            driverId: asDriverId(message.payload.driverId),
+            firstName: message.payload.firstName,
+            photoUrl: message.payload.photoUrl,
+            motorcycleClass: message.payload.motorcycleClass,
+            licensePlate: message.payload.licensePlate,
+          },
+        });
       } else if (isRideRejected(message) && message.payload.rideId === rideId) {
         navigation.replace('DriverRejected', {
           rideId,
