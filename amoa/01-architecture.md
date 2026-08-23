@@ -46,6 +46,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D39 | **L'export web ne persiste aucune session** : rien dans le stockage du navigateur, reconnexion à la réouverture | Trousseau simulé par `localStorage` | Un navigateur n'a pas de trousseau système ; un jeton de renouvellement dans `localStorage` est lisible par toute faille d'injection. Voir §9 |
 | D40 | **Toute date qui traverse le contrat porte son fuseau**, écrite en UTC suffixé par un sérialiseur unique côté Odoo | Assouplir le schéma pour accepter une date nue | Une date sans fuseau n'est pas ambiguë, elle est fausse d'une heure à Douala : un navigateur l'interprète comme heure locale. Voir §5 bis |
 | D41 | **L'immatriculation est révélée à l'affectation**, jamais avant | Ne jamais l'exposer ; l'exposer dès la liste des cinq | Avant le choix, la flotte doit rester non balayable (C2b) ; après, le client doit reconnaître la moto qui arrive. C'est le choix qui fait basculer la règle |
+| D42 | **Les numéros de téléphone sont révélés à l'affectation et effacés à la fin de la course**, des deux côtés | Relais de masquage ; ne rien exposer | À Douala on se repère en s'appelant, et un client qui ne trouve pas sa moto annule. Le relais est la bonne réponse à terme, et c'est une intégration téléphonique entière |
 
 ---
 

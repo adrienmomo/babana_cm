@@ -242,7 +242,11 @@ docs/contracts/realtime-events.md
 
 **Serveur vers client** : `nearby.drivers` (les 5 plus proches, position arrondie), `ride.proposed`, `ride.assigned`, `ride.rejected`, `driver.position` (suivi), `ride.started`, `ride.completed`.
 
-**`ride.assigned` porte de quoi reconnaître la moto qui arrive (D41, 25 août)** : prénom, photo, gamme et **immatriculation**. Ce dernier champ est délibérément exclu de tout ce qui précède l'affectation — la flotte ne doit pas être balayable par un client qui ne fait que regarder (C2b). Le choix est ce qui fait basculer la règle : ce client-là a choisi ce chauffeur-là, et il attend au bord d'une route de Douala, où une plaque se reconnaît mieux qu'un visage sous un casque.
+**`ride.assigned` porte de quoi reconnaître la moto qui arrive (D41, 25 août)** : prénom, photo, gamme, **immatriculation** et **numéro de téléphone** (D42, 27 août). Ce dernier champ est délibérément exclu de tout ce qui précède l'affectation — la flotte ne doit pas être balayable par un client qui ne fait que regarder (C2b). Le choix est ce qui fait basculer la règle : ce client-là a choisi ce chauffeur-là, et il attend au bord d'une route de Douala, où une plaque se reconnaît mieux qu'un visage sous un casque.
+
+**Le numéro de téléphone suit exactement la même discipline que l'immatriculation (D42)** : révélé à l'affectation, **effacé à la fin de la course**, des deux côtés — le client peut appeler son chauffeur, le chauffeur son client. À Douala on se repère en s'appelant, et un client qui ne trouve pas sa moto annule ; ce n'est pas un confort.
+
+L'effacement compte autant que la révélation. Une donnée personnelle qu'on expose sans jamais décider quand elle cesse d'être exposée reste exposée par défaut, faute d'instruction contraire — c'est ce qui a failli arriver à l'immatriculation. Le masquage de numéro par un relais serveur reste la bonne réponse à terme, et il demande une intégration téléphonique entière : hors v1.
 
 **`ride.completed` porte le détail décomposé**, pas seulement le montant. Le résumé de fin est ce qu'un client relira en cas de litige : il doit être ce que le serveur a écrit, pas ce que l'application a accumulé en route.
 
@@ -265,6 +269,11 @@ Le défaut n'était pas dans l'accusé, il était dans la lecture. Un flux de me
 2. La politique de reconnexion est écrite, y compris le comportement des messages en file d'attente.
 3. Le schéma de `nearby.drivers` ne contient aucune donnée personnelle au-delà du prénom, de la photo, de la note et de la gamme de moto. Ni nom complet, ni téléphone, ni immatriculation.
 4. Les paquets `apps/client`, `apps/driver` et `services/realtime` importent tous ce contrat ; aucun ne définit ses propres types de message.
+5. **Chaque message du contrat a un émetteur et un consommateur réels, ou est explicitement déclaré en attente** — ajouté le 27 août. Une cartographie dérivée du contrat lui-même, qui échoue si un message n'est ni émis, ni consommé, ni inscrit dans une liste d'attentes nommant la tâche qui le posera.
+
+   **Ce critère existe parce que trois manques de mon découpage se sont tous logés au même endroit** : la navigation entre les écrans, la synchronisation entre trois structures Redis, et l'émission de `ride.started`/`ride.completed`. Aucun ne portait sur un composant ; tous portaient sur **ce qui relie les composants**. Un découpage se relit bien colonne par colonne et mal entre les colonnes, et le dernier de ces trous aurait laissé toute course apparaître « affectée » pour toujours au client.
+
+   Ce que le critère 6 de C-01 fait pour les endpoints REST, celui-ci le fait pour les messages : rendre mécanique une vérification qu'aucune relecture ne fait fiablement.
 
 ### Piège
 

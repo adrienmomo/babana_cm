@@ -729,6 +729,50 @@ L'écart constaté à chaque passage est compté et journalisé. Un écart durab
 
 ---
 
+## L3-19 — Émetteur du cycle de vie de course vers le client
+
+### Objectif
+
+Faire savoir au client que sa course a commencé, et qu'elle est terminée.
+
+### Contexte
+
+**Créée le 27 août. C'est un manque de mon découpage, et le troisième du même genre.** Odoo transitionne bien la course vers `in_progress` puis `completed` ; le contrat définit `ride.started` et `ride.completed` ; le client sait s'y abonner depuis L3-09. Mais rien, nulle part, ne relie les deux. Une course commandée resterait **« affectée » pour toujours** aux yeux du client, quoi que fasse réellement le chauffeur — et l'écran de résumé est purement inatteignable par le parcours réel.
+
+Les trois manques de découpage de ce projet — la navigation (L6-00), l'unification de l'état Redis (L3-18) et celui-ci — portent tous sur **ce qui relie les composants**, jamais sur les composants eux-mêmes. Un découpage se relit bien colonne par colonne et mal entre les colonnes. C'est ce que la cartographie des messages (C-02, critère ajouté le même jour) doit rendre mécanique.
+
+### Fichiers
+
+```
+services/odoo/addons/babana/services/realtime_client.py
+services/realtime/src/http/internal.ts
+services/realtime/src/tracking/broadcast.ts
+```
+
+### Spécification
+
+Même patron que D31 pour l'acceptation : un point d'accroche **au commit** (D32) sur `action_start` et `action_complete`, qui appelle le service temps réel, qui pousse le message au client déjà abonné (`ride.track`).
+
+**Trois règles déjà écrites ailleurs s'appliquent ici, et il serait facile de les manquer** parce que cette tâche ressemble à du câblage anodin :
+
+- **Au commit, jamais pendant** (D32). Une transition annulée ou rejouée ne doit pas avoir déjà annoncé au client que sa course était terminée.
+- **Jamais depuis l'intérieur d'un savepoint** (D33). `action_complete` en porte un ; l'intention se retient et s'enregistre à la sortie réussie du bloc.
+- **Pas de second chemin d'écriture** (D31). Cet émetteur notifie, il ne transitionne rien.
+
+`ride.completed` porte le détail décomposé (D41) : le résumé de fin doit être ce que le serveur a écrit.
+
+**L'application Chauffeur en aura besoin symétriquement** pour ses propres écrans de course. Poser ici un mécanisme qui ne sert qu'au client obligerait à en écrire un second — c'est le même message, poussé à deux abonnés différents.
+
+### Critères d'acceptation
+
+1. Une course menée de bout en bout par l'API réelle produit `ride.started` puis `ride.completed` chez un client abonné.
+2. Une transition dont la transaction échoue au commit n'émet rien — testé, pas relu.
+3. `ride.completed` porte le détail décomposé, identique à ce que porte la course côté Odoo.
+4. Un client abonné à une autre course ne reçoit rien.
+5. **Le parcours complet est vérifié dans un navigateur**, de la commande au résumé de fin (D38).
+
+---
+
 ## L3-18 — État de course unifié côté Redis
 
 ### Objectif
