@@ -55,8 +55,6 @@ réel en commentaire au-dessus de son schéma.
 | `availability.set` | Chauffeur | `{ online }` | Bascule en ligne / hors ligne (D7) |
 | `proposal.accept` | Chauffeur | `{ rideId }` | Transition `proposed → assigned` |
 | `proposal.reject` | Chauffeur | `{ rideId, reason? }` | Transition `proposed → rejected` |
-| `ride.start` | Chauffeur | `{ rideId }` | Transition `assigned → in_progress` |
-| `ride.complete` | Chauffeur | `{ rideId, distanceMeters, durationSeconds, polyline }` | Transition `in_progress → completed` |
 | `nearby.subscribe` | Client | `{ position, radiusMeters, excludeDriverIds }` | S'abonne à `nearby.drivers` |
 | `nearby.unsubscribe` | Client | `{}` | Se désabonne |
 | `ride.track` | Client | `{ rideId }` | S'abonne au suivi d'une course affectée ou en cours |
@@ -79,11 +77,10 @@ liste vide — que L6-08 traduit en `NO_DRIVER_AVAILABLE`.
 |---|---|---|---|
 | `proposal.new` | Chauffeur | `{ rideId, origin, destination, amount, distanceMeters, expiresAt }` | Nouvelle proposition |
 | `proposal.expired` | Chauffeur | `{ rideId }` | Délai d'acceptation dépassé |
-| `ride.cancelled` | Chauffeur et/ou client | `{ rideId, reason? }` | La course a été annulée |
-| `cash.limit.warning` | Chauffeur | `{ balance, limit }` | Avertissement avant `CASH_LIMIT_REACHED` |
+| `ride.cancelled` | Chauffeur et/ou client, selon `cancelledBy` (L4-12) | `{ rideId, cancelledBy, reason? }` | La course a été annulée |
 | `nearby.drivers` | Client | `{ drivers: NearbyDriver[] }` (max 5) | Réponse à `nearby.subscribe`, puis mises à jour |
 | `nearby.subscribe.ack` | Client | `{ accepted: true }` ou `{ accepted: false, retryAfterMs }` | Accusé de réception de `nearby.subscribe` |
-| `ride.proposed` | Client | `{ rideId, driverId, proposalExpiresAt }` | Le chauffeur choisi a été réservé |
+| `ride.proposed` | Client | `{ rideId, driverId, proposalExpiresAt }` | Le chauffeur choisi a été réservé (redondant pour l'appareil qui a fait la demande, gardé pour un second appareil du même client — `amoa/questions/REPONSES-2026-08-28.md` §1) |
 | `ride.assigned` | Client | `{ rideId, driverId, firstName, photoUrl, motorcycleClass, licensePlate }` | Le chauffeur a accepté |
 | `ride.rejected` | Client | `{ rideId, driverId, reason }` | Le chauffeur a refusé ou le délai a expiré |
 | `driver.position` | Client | `{ rideId, position, etaSeconds }` | Suivi pendant une course affectée ou en cours |
@@ -95,6 +92,13 @@ liste vide — que L6-08 traduit en `NO_DRIVER_AVAILABLE`.
 concerné par la course — le critère d'acceptation 1 de C-02 porte sur l'émetteur, pas sur le
 nombre de destinataires ; il n'exige pas deux noms de message distincts pour un même événement
 poussé à deux connexions différentes.
+
+`cancelledBy` (L4-12, `amoa/questions/REPONSES-2026-08-28.md` §2) décide QUI reçoit le message,
+jamais celui qui vient de décider (il le sait déjà) : un client qui annule prévient le chauffeur
+affecté (s'il y en a un), un chauffeur prévient le client, un superviseur prévient les deux.
+`babana_ride_state.py::action_cancel` connaît `actor_role` (son premier argument) et calcule ce
+destinataire lui-même, avant d'appeler `realtime_client.notify_ride_cancelled` — le service temps
+réel ne fait que pousser à qui on lui dit de pousser, il ne redérive pas cette règle.
 
 `ride.rejected` porte `driverId` et `reason` (`'driver_rejected' | 'driver_timeout'`) depuis le
 23 août (L6-08, `amoa/questions/L3-07.md`) — absents de la première rédaction, alors que L3-07
@@ -163,7 +167,7 @@ qu'il a manqué ; après une coupure de durée inconnue, cette hypothèse est ju
 tient pas.
 
 **File locale et rejeu à l'identique.** Les actions émises hors connexion (`proposal.accept`,
-`ride.start`, `position.update`, etc.) sont mises en file sur l'appareil et rejouées à la
+`ride.track`, `position.update`, etc.) sont mises en file sur l'appareil et rejouées à la
 reconnexion, dans l'ordre, **avec leur `id` d'origine** — pas un nouvel identifiant généré au
 moment du rejeu. C'est ce qui permet au serveur de les traiter avec sa déduplication normale par
 `id` plutôt que d'avoir besoin d'un protocole de rejeu séparé.

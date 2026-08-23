@@ -321,6 +321,47 @@ class TestRealtimeCommitHook(HttpCase):
             },
         )
 
+    # --- notify_ride_cancelled (L4-12) -------------------------------------------------------
+    #
+    # Même raisonnement que notify_ride_started/notify_ride_completed ci-dessus : ne touche
+    # aucune clé Redis (D31), la preuve porte donc sur le point d'accroche lui-même (_post),
+    # pas sur un état observable.
+
+    def test_notify_ride_cancelled_does_not_call_out_if_the_transaction_rolls_back(self):
+        env = _FakeEnv()
+        with patch.object(realtime_client, "_post") as mock_post:
+            realtime_client.notify_ride_cancelled(
+                env,
+                ride_public_id="ride-1",
+                cancelled_by="client",
+                reason="changement de plan",
+                notify_driver_id="driver-1",
+            )
+            env.cr.rollback()
+        mock_post.assert_not_called()
+
+    def test_notify_ride_cancelled_calls_out_once_the_transaction_actually_commits(self):
+        env = _FakeEnv()
+        with patch.object(realtime_client, "_post") as mock_post:
+            realtime_client.notify_ride_cancelled(
+                env,
+                ride_public_id="ride-1",
+                cancelled_by="client",
+                reason="changement de plan",
+                notify_driver_id="driver-1",
+            )
+            env.cr.commit()
+        mock_post.assert_called_once_with(
+            "/internal/rides/cancelled",
+            {
+                "rideId": "ride-1",
+                "cancelledBy": "client",
+                "reason": "changement de plan",
+                "notifyClientUserId": None,
+                "notifyDriverId": "driver-1",
+            },
+        )
+
 
 class TestRealtimeCommitHookLint(HttpCase):
     """Vérifié par le lint (CLAUDE.md, frontière D32) : « Aucun appel sortant vers le service
@@ -348,6 +389,7 @@ class TestRealtimeCommitHookLint(HttpCase):
         "notify_cash_limit_cleared",
         "notify_ride_started",
         "notify_ride_completed",
+        "notify_ride_cancelled",
     )
 
     def test_every_gated_call_passes_env_as_its_first_argument(self):

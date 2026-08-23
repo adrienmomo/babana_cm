@@ -11,7 +11,7 @@ import { clearEngaged } from '../driver/engagement';
 import { endRideSessionForDriver } from '../tracking/session';
 import { reintegrateIfEligible } from '../redis/pool-eligibility';
 import { blockForCash, unblockForCash } from '../driver/cash-guard';
-import { broadcastRideStarted, broadcastRideCompleted } from '../tracking/broadcast';
+import { broadcastRideStarted, broadcastRideCompleted, broadcastRideCancelled } from '../tracking/broadcast';
 
 /**
  * Endpoint HTTP interne, sens Odoo -> temps réel (L3-17). Authentifié par `REALTIME_SHARED_SECRET`
@@ -37,6 +37,10 @@ import { broadcastRideStarted, broadcastRideCompleted } from '../tracking/broadc
  *   `ride.started`/`ride.completed` (C-02) au client suivi ET au chauffeur -- déclenché au
  *   COMMIT (D32) par `action_start`/`action_complete`. Ne touche aucun état Redis : notifie,
  *   ne transitionne rien (D31).
+ * - `POST /internal/rides/cancelled` (L4-12) : pousse `ride.cancelled` (C-02) aux destinataires
+ *   qu'Odoo désigne (`notifyClientUserId`/`notifyDriverId`, chacun optionnel -- le destinataire
+ *   dépend de l'acteur, jamais celui qui vient de décider). Déclenché au COMMIT (D32) par
+ *   `action_cancel`. Ne touche aucun état Redis : notifie, ne transitionne rien (D31).
  */
 
 export const INTERNAL_PATH_PREFIX = '/internal/';
@@ -93,6 +97,17 @@ const RideCompletedRequestSchema = z.object({
   // Réutilise le schéma du contrat (D17) -- une seule définition du détail décomposé, celle que
   // `ride.completed` (server-to-client.ts) exporte déjà.
   breakdown: httpContract.FareBreakdownSchema,
+});
+
+// L4-12 : notifyClientUserId/notifyDriverId sont chacun optionnels et indépendants (nullable) --
+// Odoo (action_cancel) décide déjà qui prévenir selon l'acteur, ce schéma ne fait que porter sa
+// décision, jamais la recalculer.
+const RideCancelledRequestSchema = z.object({
+  rideId: z.string().min(1),
+  cancelledBy: z.enum(['client', 'driver', 'supervisor']),
+  reason: z.string().max(280).optional(),
+  notifyClientUserId: z.string().min(1).nullable().optional(),
+  notifyDriverId: z.string().min(1).nullable().optional(),
 });
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
@@ -214,6 +229,16 @@ async function handleRideCompleted(deps: InternalRouterDeps, rawBody: unknown, r
   sendJson(res, 200, { notified: true });
 }
 
+async function handleRideCancelled(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
+  const parsed = RideCancelledRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    sendJson(res, 400, { error: 'VALIDATION_ERROR', details: parsed.error.issues });
+    return;
+  }
+  broadcastRideCancelled(deps.registry, parsed.data);
+  sendJson(res, 200, { notified: true });
+}
+
 export function createInternalHandler(deps: InternalRouterDeps) {
   return async function handleInternal(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<void> {
     const secret = req.headers['x-realtime-secret'];
@@ -255,6 +280,9 @@ export function createInternalHandler(deps: InternalRouterDeps) {
         return;
       case '/internal/rides/completed':
         await handleRideCompleted(deps, body, res);
+        return;
+      case '/internal/rides/cancelled':
+        await handleRideCancelled(deps, body, res);
         return;
       default:
         sendJson(res, 404, { error: 'NOT_FOUND' });

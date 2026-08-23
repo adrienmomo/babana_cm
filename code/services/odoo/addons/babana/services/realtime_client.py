@@ -337,3 +337,63 @@ def notify_ride_completed(
             breakdown=breakdown,
         )
     )
+
+
+def _notify_ride_cancelled_now(
+    *,
+    ride_public_id: str,
+    cancelled_by: str,
+    reason: str | None,
+    notify_client_user_id: str | None,
+    notify_driver_id: str | None,
+) -> None:
+    try:
+        _post(
+            "/internal/rides/cancelled",
+            {
+                "rideId": ride_public_id,
+                "cancelledBy": cancelled_by,
+                "reason": reason,
+                "notifyClientUserId": notify_client_user_id,
+                "notifyDriverId": notify_driver_id,
+            },
+        )
+    except RealtimeUnavailable:
+        _logger.warning(
+            "échec de la notification ride.cancelled pour la course %s -- le destinataire ne "
+            "verra pas l'annulation tant qu'il ne resynchronise pas (L3-11, session.resync).",
+            ride_public_id,
+        )
+
+
+def notify_ride_cancelled(
+    env,
+    *,
+    ride_public_id: str,
+    cancelled_by: str,
+    reason: str | None = None,
+    notify_client_user_id: str | None = None,
+    notify_driver_id: str | None = None,
+) -> None:
+    """Annulation (L4-12, amoa/questions/REPONSES-2026-08-28.md §2) : pousse `ride.cancelled`
+    (C-02) au SEUL destinataire concerné -- contrairement à `notify_ride_started`/
+    `notify_ride_completed` ci-dessus (toujours les deux participants), le destinataire dépend de
+    l'acteur, jamais celui qui vient de décider (il le sait déjà). `action_cancel`
+    (babana_ride_state.py) connaît `actor_role`, c'est son premier argument -- c'est donc lui qui
+    calcule `notify_client_user_id`/`notify_driver_id`, cette fonction ne fait que porter sa
+    décision jusqu'au service temps réel, jamais la recalculer (même séparation des
+    responsabilités que le reste de ce module : Odoo décide, le service temps réel pousse).
+
+    **D32** : au COMMIT, jamais pendant -- une annulation rejouée ou finalement annulée (D25) ne
+    doit pas avoir déjà prévenu qui que ce soit. **D33** : `action_cancel` ne porte aucun
+    savepoint (vérifié dans le code, même règle que `notify_ride_started`/`notify_ride_completed`)
+    -- rien à protéger, l'appel est enregistré directement après l'écriture."""
+    env.cr.postcommit.add(
+        lambda: _notify_ride_cancelled_now(
+            ride_public_id=ride_public_id,
+            cancelled_by=cancelled_by,
+            reason=reason,
+            notify_client_user_id=notify_client_user_id,
+            notify_driver_id=notify_driver_id,
+        )
+    )

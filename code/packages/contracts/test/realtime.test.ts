@@ -7,8 +7,6 @@ import {
   AvailabilitySetMessageSchema,
   ProposalAcceptMessageSchema,
   ProposalRejectMessageSchema,
-  RideStartMessageSchema,
-  RideCompleteMessageSchema,
   NearbySubscribeMessageSchema,
   NearbyUnsubscribeMessageSchema,
   RideTrackMessageSchema,
@@ -18,7 +16,6 @@ import {
   ProposalNewMessageSchema,
   ProposalExpiredMessageSchema,
   RideCancelledMessageSchema,
-  CashLimitWarningMessageSchema,
   NearbyDriversMessageSchema,
   NearbySubscribeAckMessageSchema,
   RideProposedMessageSchema,
@@ -74,23 +71,12 @@ describe('exemples valides — chauffeur vers serveur', () => {
     );
   });
 
-  test('proposal.accept / proposal.reject / ride.start / ride.complete', () => {
+  test('proposal.accept / proposal.reject', () => {
     assert.doesNotThrow(() =>
       ProposalAcceptMessageSchema.parse({ type: 'proposal.accept', id: randomUUID(), emittedAt: now, payload: { rideId } })
     );
     assert.doesNotThrow(() =>
       ProposalRejectMessageSchema.parse({ type: 'proposal.reject', id: randomUUID(), emittedAt: now, payload: { rideId } })
-    );
-    assert.doesNotThrow(() =>
-      RideStartMessageSchema.parse({ type: 'ride.start', id: randomUUID(), emittedAt: now, payload: { rideId } })
-    );
-    assert.doesNotThrow(() =>
-      RideCompleteMessageSchema.parse({
-        type: 'ride.complete',
-        id: randomUUID(),
-        emittedAt: now,
-        payload: { rideId, distanceMeters: 4300, durationSeconds: 800, polyline: 'a~l~F' },
-      })
     );
   });
 });
@@ -126,7 +112,7 @@ describe('exemples valides — client vers serveur', () => {
 });
 
 describe('exemples valides — serveur vers chauffeur', () => {
-  test('proposal.new / proposal.expired / ride.cancelled / cash.limit.warning', () => {
+  test('proposal.new / proposal.expired / ride.cancelled', () => {
     assert.doesNotThrow(() =>
       ProposalNewMessageSchema.parse({
         type: 'proposal.new',
@@ -146,15 +132,18 @@ describe('exemples valides — serveur vers chauffeur', () => {
       ProposalExpiredMessageSchema.parse({ type: 'proposal.expired', id: randomUUID(), emittedAt: now, payload: { rideId } })
     );
     assert.doesNotThrow(() =>
-      RideCancelledMessageSchema.parse({ type: 'ride.cancelled', id: randomUUID(), emittedAt: now, payload: { rideId } })
-    );
-    assert.doesNotThrow(() =>
-      CashLimitWarningMessageSchema.parse({
-        type: 'cash.limit.warning',
+      RideCancelledMessageSchema.parse({
+        type: 'ride.cancelled',
         id: randomUUID(),
         emittedAt: now,
-        payload: { balance: 14000, limit: 15000 },
+        payload: { rideId, cancelledBy: 'client' },
       })
+    );
+  });
+
+  test('ride.cancelled exige cancelledBy (L4-12) -- le destinataire doit savoir lequel des deux cas s\'est produit', () => {
+    assert.throws(() =>
+      RideCancelledMessageSchema.parse({ type: 'ride.cancelled', id: randomUUID(), emittedAt: now, payload: { rideId } })
     );
   });
 });
@@ -331,9 +320,9 @@ describe('critère 3 — nearby.drivers ne dépasse jamais le minimum de donnée
 describe('idempotence — l\'identifiant d\'enveloppe est stable pour un message rejoué', () => {
   test('deux parse() du même message conservent le même id', () => {
     const id = randomUUID();
-    const raw = { type: 'ride.start' as const, id, emittedAt: now, payload: { rideId } };
-    const first = RideStartMessageSchema.parse(raw);
-    const second = RideStartMessageSchema.parse(raw);
+    const raw = { type: 'proposal.accept' as const, id, emittedAt: now, payload: { rideId } };
+    const first = ProposalAcceptMessageSchema.parse(raw);
+    const second = ProposalAcceptMessageSchema.parse(raw);
     assert.equal(first.id, second.id);
   });
 });

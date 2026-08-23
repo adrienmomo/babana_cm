@@ -484,3 +484,111 @@ class TestRideStateMachine(TransactionCase):
             )
 
         mock_notify.assert_not_called()
+
+    # === L4-12 : ride.cancelled, destinataire dépendant de l'acteur (amoa/questions/
+    # REPONSES-2026-08-28.md §2) ===============================================================
+
+    def test_action_cancel_by_client_notifies_only_the_driver(self):
+        client = self._make_partner()
+        client_user = self._link_user_to_partner(client, "cancel-by-client")
+        driver = self._make_driver()
+        ride = self.env["babana.ride"].action_request(self._base_vals(client))
+        ride.action_propose(by_partner=client, driver=driver)
+        ride.action_accept(by_driver=driver)
+
+        with patch.object(realtime_client, "notify_ride_cancelled") as mock_notify:
+            ride.action_cancel(actor_role="client", actor_record=client, reason="changement de plan")
+
+        mock_notify.assert_called_once_with(
+            self.env,
+            ride_public_id=ride.public_id,
+            cancelled_by="client",
+            reason="changement de plan",
+            notify_client_user_id=None,
+            notify_driver_id=driver.public_id,
+        )
+        # Sanity check indirect : si _babana_client_public_id() avait été appelé malgré tout, ce
+        # test l'aurait quand même laissé passer (client_user existe) -- la valeur ci-dessus le
+        # couvre déjà (notify_client_user_id=None), gardé explicite pour ne pas dépendre de
+        # l'ordre des assertions.
+        self.assertTrue(client_user.babana_public_id)
+
+    def test_action_cancel_by_driver_notifies_only_the_client(self):
+        client = self._make_partner()
+        client_user = self._link_user_to_partner(client, "cancel-by-driver")
+        driver = self._make_driver()
+        ride = self.env["babana.ride"].action_request(self._base_vals(client))
+        ride.action_propose(by_partner=client, driver=driver)
+        ride.action_accept(by_driver=driver)
+        ride.action_start(by_driver=driver)
+
+        with patch.object(realtime_client, "notify_ride_cancelled") as mock_notify:
+            ride.action_cancel(actor_role="driver", actor_record=driver, reason="panne moteur")
+
+        mock_notify.assert_called_once_with(
+            self.env,
+            ride_public_id=ride.public_id,
+            cancelled_by="driver",
+            reason="panne moteur",
+            notify_client_user_id=client_user.babana_public_id,
+            notify_driver_id=None,
+        )
+
+    def test_action_cancel_by_supervisor_notifies_both(self):
+        client = self._make_partner()
+        client_user = self._link_user_to_partner(client, "cancel-by-supervisor")
+        driver = self._make_driver()
+        ride = self.env["babana.ride"].action_request(self._base_vals(client))
+        ride.action_propose(by_partner=client, driver=driver)
+        ride.action_accept(by_driver=driver)
+
+        with patch.object(realtime_client, "notify_ride_cancelled") as mock_notify:
+            ride.action_cancel(actor_role="supervisor", reason="incident signalé")
+
+        mock_notify.assert_called_once_with(
+            self.env,
+            ride_public_id=ride.public_id,
+            cancelled_by="supervisor",
+            reason="incident signalé",
+            notify_client_user_id=client_user.babana_public_id,
+            notify_driver_id=driver.public_id,
+        )
+
+    def test_action_cancel_from_requested_has_no_driver_to_notify(self):
+        # Aucun chauffeur affecté à ce stade -- notify_ride_cancelled ne doit même pas être
+        # appelée (rien à envoyer d'un côté, et le client qui annule n'a pas à se notifier
+        # lui-même de l'autre).
+        client = self._make_partner()
+        ride = self.env["babana.ride"].action_request(self._base_vals(client))
+
+        with patch.object(realtime_client, "notify_ride_cancelled") as mock_notify:
+            ride.action_cancel(actor_role="client", actor_record=client)
+
+        mock_notify.assert_not_called()
+
+    def test_action_cancel_from_rejected_has_no_driver_to_notify(self):
+        # action_reject efface driver_id (état 'rejected') -- le chauffeur qui a refusé n'est
+        # plus partie à cette course, il n'y a donc personne côté chauffeur à prévenir d'un
+        # abandon qui suit ce refus.
+        client = self._make_partner()
+        driver = self._make_driver()
+        ride = self.env["babana.ride"].action_request(self._base_vals(client))
+        ride.action_propose(by_partner=client, driver=driver)
+        ride.action_reject(by_driver=driver, reason="indisponible")
+
+        with patch.object(realtime_client, "notify_ride_cancelled") as mock_notify:
+            ride.action_cancel(actor_role="client", actor_record=client)
+
+        mock_notify.assert_not_called()
+
+    def test_action_cancel_does_not_notify_without_a_linked_user(self):
+        # Même dégradation silencieuse que action_start/action_complete
+        # (_babana_client_public_id) : un client_id sans res.users rattaché ne doit pas faire
+        # échouer l'annulation elle-même, seulement omettre la notification qu'aucune identité
+        # ne peut recevoir.
+        ride, _client, driver = self._ride_at_assigned()
+
+        with patch.object(realtime_client, "notify_ride_cancelled") as mock_notify:
+            ride.action_cancel(actor_role="driver", actor_record=driver, reason="empêchement")
+
+        mock_notify.assert_not_called()

@@ -474,4 +474,26 @@ class BabanaRideState(models.Model):
 
         self._babana_write_transition(cancel_vals)
         self._babana_journalize("cancellation", actor_role=actor_role)
+
+        # L4-12 (D31, D32, amoa/questions/REPONSES-2026-08-28.md §2) : pousse ride.cancelled à
+        # celui qui N'A PAS décidé -- il le sait déjà, sinon. Le destinataire dépend donc de
+        # l'acteur, connu ici (premier argument de cette méthode), jamais recalculé côté service
+        # temps réel. `self.driver_id` reste lisible : seul action_reject l'efface (état
+        # 'rejected'), jamais action_cancel -- une annulation depuis 'rejected' n'a donc, à raison,
+        # aucun chauffeur à prévenir (celui qui a refusé n'est plus partie à cette course).
+        notify_client_user_id = None
+        notify_driver_id = None
+        if actor_role in ("client", "supervisor"):
+            notify_driver_id = self.driver_id.public_id if self.driver_id else None
+        if actor_role in ("driver", "supervisor"):
+            notify_client_user_id = self._babana_client_public_id()
+        if notify_client_user_id or notify_driver_id:
+            realtime_client.notify_ride_cancelled(
+                self.env,
+                ride_public_id=self.public_id,
+                cancelled_by=actor_role,
+                reason=reason,
+                notify_client_user_id=notify_client_user_id,
+                notify_driver_id=notify_driver_id,
+            )
         return self

@@ -377,3 +377,98 @@ describe('POST /internal/rides/started|completed (sens Odoo -> temps réel, L3-1
     }
   });
 });
+
+describe('POST /internal/rides/cancelled (sens Odoo -> temps réel, L4-12)', () => {
+  test('un corps invalide est rejeté (400)', async () => {
+    const { status } = await post('/internal/rides/cancelled', { rideId: 'x' });
+    assert.equal(status, 400);
+  });
+
+  test("un client qui annule prévient le chauffeur, jamais lui-même", async () => {
+    const rideId = randomUUID();
+    const clientUserId = randomUUID();
+    const driverId = randomUUID();
+
+    const clientWs = await connectWs(tokenFor('client', clientUserId));
+    const driverWs = await connectWs(tokenFor('driver', driverId, driverId));
+
+    try {
+      const [driverMessage, { status }] = await Promise.all([
+        waitForMessage(driverWs, 'ride.cancelled'),
+        post('/internal/rides/cancelled', {
+          rideId,
+          cancelledBy: 'client',
+          reason: 'changement de plan',
+          notifyDriverId: driverId,
+        }),
+      ]);
+      assert.equal(status, 200);
+      const payload = driverMessage.payload as Record<string, unknown>;
+      assert.equal(payload.rideId, rideId);
+      assert.equal(payload.cancelledBy, 'client');
+      assert.equal(payload.reason, 'changement de plan');
+      await assertNoMessage(clientWs, 'ride.cancelled');
+    } finally {
+      clientWs.close();
+      driverWs.close();
+    }
+  });
+
+  test('un chauffeur qui annule prévient le client, jamais lui-même', async () => {
+    const rideId = randomUUID();
+    const clientUserId = randomUUID();
+    const driverId = randomUUID();
+
+    const clientWs = await connectWs(tokenFor('client', clientUserId));
+    const driverWs = await connectWs(tokenFor('driver', driverId, driverId));
+
+    try {
+      const [clientMessage, { status }] = await Promise.all([
+        waitForMessage(clientWs, 'ride.cancelled'),
+        post('/internal/rides/cancelled', {
+          rideId,
+          cancelledBy: 'driver',
+          reason: 'panne moto',
+          notifyClientUserId: clientUserId,
+        }),
+      ]);
+      assert.equal(status, 200);
+      const payload = clientMessage.payload as Record<string, unknown>;
+      assert.equal(payload.rideId, rideId);
+      assert.equal(payload.cancelledBy, 'driver');
+      assert.equal(payload.reason, 'panne moto');
+      await assertNoMessage(driverWs, 'ride.cancelled');
+    } finally {
+      clientWs.close();
+      driverWs.close();
+    }
+  });
+
+  test('un superviseur qui annule prévient les deux', async () => {
+    const rideId = randomUUID();
+    const clientUserId = randomUUID();
+    const driverId = randomUUID();
+
+    const clientWs = await connectWs(tokenFor('client', clientUserId));
+    const driverWs = await connectWs(tokenFor('driver', driverId, driverId));
+
+    try {
+      const [clientMessage, driverMessage, { status }] = await Promise.all([
+        waitForMessage(clientWs, 'ride.cancelled'),
+        waitForMessage(driverWs, 'ride.cancelled'),
+        post('/internal/rides/cancelled', {
+          rideId,
+          cancelledBy: 'supervisor',
+          notifyClientUserId: clientUserId,
+          notifyDriverId: driverId,
+        }),
+      ]);
+      assert.equal(status, 200);
+      assert.equal((clientMessage.payload as { cancelledBy: string }).cancelledBy, 'supervisor');
+      assert.equal((driverMessage.payload as { cancelledBy: string }).cancelledBy, 'supervisor');
+    } finally {
+      clientWs.close();
+      driverWs.close();
+    }
+  });
+});

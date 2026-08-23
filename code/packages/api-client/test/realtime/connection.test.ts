@@ -124,8 +124,8 @@ describe('createRealtimeClient -- file d\'actions hors connexion (critères 2 et
     const client = createRealtimeClient(config);
     // Jamais connecté -- aucun socket ouvert.
 
-    client.send('ride.start', { rideId: 'r1' });
-    client.send('ride.complete', { rideId: 'r1', distanceMeters: 100, durationSeconds: 60, polyline: 'abc' });
+    client.send('proposal.accept', { rideId: 'r1' });
+    client.send('ride.track', { rideId: 'r1' });
 
     await client.connect();
     sockets[0].simulateOpen();
@@ -133,8 +133,8 @@ describe('createRealtimeClient -- file d\'actions hors connexion (critères 2 et
 
     const sent = sockets[0].sent.map((raw) => JSON.parse(raw));
     expect(sent[0].type).toBe('session.resync');
-    expect(sent[1].type).toBe('ride.start');
-    expect(sent[2].type).toBe('ride.complete');
+    expect(sent[1].type).toBe('proposal.accept');
+    expect(sent[2].type).toBe('ride.track');
     // Les identifiants d'origine (posés à l'émission hors connexion) sont conservés.
     expect(sent[1].id).toEqual(expect.any(String));
     expect(sent[1].id).toBe(sent[1].id);

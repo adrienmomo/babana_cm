@@ -34,23 +34,23 @@ export type ProposalExpiredMessage = z.infer<typeof ProposalExpiredMessageSchema
 /**
  * Destinataire : chauffeur ou client, selon la connexion à laquelle le serveur choisit de le
  * pousser — un seul type de message, un seul émetteur (le serveur), simplement délivré aux
- * deux rôles concernés par la course annulée. Le critère d'acceptation 1 de C-02 porte sur
+ * rôles concernés par la course annulée. Le critère d'acceptation 1 de C-02 porte sur
  * l'émetteur (client vs serveur), pas sur le nombre de destinataires possibles.
+ *
+ * `cancelledBy` (L4-12, amoa/questions/REPONSES-2026-08-28.md §2) : le destinataire dépend de
+ * l'acteur -- un client qui annule prévient le chauffeur, un chauffeur prévient le client, un
+ * superviseur prévient les deux (jamais celui qui vient de décider, qui le sait déjà). Sans ce
+ * champ, un chauffeur qui apprend qu'une course est annulée ne peut pas distinguer un client qui
+ * a changé d'avis d'une annulation par supervision -- le minimum pour ne pas rouler pour rien
+ * vers un point de prise en charge qui n'existe plus.
  */
 export const RideCancelledPayloadSchema = z.object({
   rideId: RideIdSchema,
+  cancelledBy: z.enum(['client', 'driver', 'supervisor']),
   reason: z.string().max(280).optional(),
 });
 export const RideCancelledMessageSchema = envelopeSchema('ride.cancelled', RideCancelledPayloadSchema);
 export type RideCancelledMessage = z.infer<typeof RideCancelledMessageSchema>;
-
-/** Destinataire : chauffeur. Avertissement avant CASH_LIMIT_REACHED (D8). */
-export const CashLimitWarningPayloadSchema = z.object({
-  balance: MoneyAmountSchema,
-  limit: MoneyAmountSchema,
-});
-export const CashLimitWarningMessageSchema = envelopeSchema('cash.limit.warning', CashLimitWarningPayloadSchema);
-export type CashLimitWarningMessage = z.infer<typeof CashLimitWarningMessageSchema>;
 
 // --- Serveur vers client (passager) --------------------------------------------------------
 
@@ -83,7 +83,17 @@ export const NearbySubscribeAckPayloadSchema = z.discriminatedUnion('accepted', 
 export const NearbySubscribeAckMessageSchema = envelopeSchema('nearby.subscribe.ack', NearbySubscribeAckPayloadSchema);
 export type NearbySubscribeAckMessage = z.infer<typeof NearbySubscribeAckMessageSchema>;
 
-/** Destinataire : client. Le chauffeur sélectionné a été réservé (transition -> proposed). */
+/**
+ * Destinataire : client. Le chauffeur sélectionné a été réservé (transition -> proposed).
+ *
+ * Redondant pour l'appareil qui a fait la demande : `POST /rides/{id}/select-driver`
+ * (`SelectDriverResponse.state`, `controllers/ride.py`) le lui apprend déjà de façon synchrone,
+ * dans la réponse HTTP elle-même. Ce message garde son rôle pour **un second appareil du même
+ * client** -- un téléphone se partage en famille à Douala, et la personne qui commande n'est pas
+ * toujours celle qui voyage (amoa/questions/REPONSES-2026-08-28.md §1). Gardé au contrat
+ * pour cette raison, contrairement à `ride.start`/`ride.complete`/`cash.limit.warning`, retirés
+ * le même soir faute de tout rôle réel.
+ */
 export const RideProposedPayloadSchema = z.object({
   rideId: RideIdSchema,
   driverId: DriverIdSchema,
@@ -199,7 +209,6 @@ export const ServerToClientMessageSchema = z.discriminatedUnion('type', [
   ProposalNewMessageSchema,
   ProposalExpiredMessageSchema,
   RideCancelledMessageSchema,
-  CashLimitWarningMessageSchema,
   NearbyDriversMessageSchema,
   NearbySubscribeAckMessageSchema,
   RideProposedMessageSchema,

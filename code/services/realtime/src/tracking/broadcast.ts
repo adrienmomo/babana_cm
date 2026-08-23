@@ -127,6 +127,52 @@ export function broadcastRideStarted(
   sendToRideParticipants(registry, params.clientUserId, params.driverId, buildRideStartedMessage(params.rideId));
 }
 
+/**
+ * Annulation (L4-12, sens Odoo -> temps réel) : pousse `ride.cancelled` (C-02) au SEUL
+ * destinataire qu'Odoo désigne -- contrairement à `broadcastRideStarted`/`broadcastRideCompleted`
+ * ci-dessus (toujours les deux participants), le destinataire dépend ici de l'acteur (D31 :
+ * `action_cancel`, babana_ride_state.py, calcule qui prévenir -- jamais celui qui vient de
+ * décider, qui le sait déjà). `notifyClientUserId`/`notifyDriverId` sont donc chacun optionnels
+ * et indépendants : `null` ou absent ne pousse simplement rien vers ce rôle, plutôt que de faire
+ * porter cette décision au service temps réel lui-même.
+ */
+export function broadcastRideCancelled(
+  registry: ConnectionRegistry,
+  params: {
+    rideId: string;
+    cancelledBy: realtime.RideCancelledMessage['payload']['cancelledBy'];
+    reason?: string;
+    notifyClientUserId?: string | null;
+    notifyDriverId?: string | null;
+  }
+): void {
+  const message = buildRideCancelledMessage(params);
+  const payload = JSON.stringify(message);
+  if (params.notifyClientUserId) {
+    for (const socket of registry.getByUserId(params.notifyClientUserId)) {
+      if (socket.readyState === socket.OPEN) socket.send(payload);
+    }
+  }
+  if (params.notifyDriverId) {
+    for (const socket of registry.getByDriverId(params.notifyDriverId)) {
+      if (socket.readyState === socket.OPEN) socket.send(payload);
+    }
+  }
+}
+
+function buildRideCancelledMessage(params: {
+  rideId: string;
+  cancelledBy: realtime.RideCancelledMessage['payload']['cancelledBy'];
+  reason?: string;
+}): realtime.RideCancelledMessage {
+  return {
+    type: 'ride.cancelled',
+    id: randomUUID(),
+    emittedAt: new Date().toISOString(),
+    payload: { rideId: params.rideId, cancelledBy: params.cancelledBy, reason: params.reason },
+  };
+}
+
 export function broadcastRideCompleted(
   registry: ConnectionRegistry,
   params: {

@@ -47,23 +47,6 @@ export const ProposalRejectPayloadSchema = z.object({
 export const ProposalRejectMessageSchema = envelopeSchema('proposal.reject', ProposalRejectPayloadSchema);
 export type ProposalRejectMessage = z.infer<typeof ProposalRejectMessageSchema>;
 
-/** Émetteur : chauffeur. Transition assigned -> in_progress (C-03). */
-export const RideStartPayloadSchema = z.object({
-  rideId: RideIdSchema,
-});
-export const RideStartMessageSchema = envelopeSchema('ride.start', RideStartPayloadSchema);
-export type RideStartMessage = z.infer<typeof RideStartMessageSchema>;
-
-/** Émetteur : chauffeur. Transition in_progress -> completed (C-03). */
-export const RideCompletePayloadSchema = z.object({
-  rideId: RideIdSchema,
-  distanceMeters: z.number().int().nonnegative(),
-  durationSeconds: z.number().int().nonnegative(),
-  polyline: z.string().min(1),
-});
-export const RideCompleteMessageSchema = envelopeSchema('ride.complete', RideCompletePayloadSchema);
-export type RideCompleteMessage = z.infer<typeof RideCompleteMessageSchema>;
-
 // --- Client (passager) vers serveur -------------------------------------------------------
 
 /**
@@ -115,8 +98,6 @@ export const ClientToServerMessageSchema = z.discriminatedUnion('type', [
   AvailabilitySetMessageSchema,
   ProposalAcceptMessageSchema,
   ProposalRejectMessageSchema,
-  RideStartMessageSchema,
-  RideCompleteMessageSchema,
   NearbySubscribeMessageSchema,
   NearbyUnsubscribeMessageSchema,
   RideTrackMessageSchema,

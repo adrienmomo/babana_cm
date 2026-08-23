@@ -34,22 +34,6 @@
       "reason": "Émetteur manquant -- tâche L6-12 (réception de proposition, apps/driver), non commencée."
     },
     {
-      "name": "ride.start",
-      "direction": "client-to-server",
-      "status": "pending",
-      "emitter": "aucun, réel ou de test -- même constat que position.update.",
-      "consumer": "AUCUN. dispatch.ts le documente lui-même : 'les types non encore traités par ce lot ... sont ignorés silencieusement'. Vérifié le 27 août (L3-19) : toujours vrai.",
-      "reason": "Candidat obsolète, pas seulement manquant -- amoa/questions/C-02R.md. Le vrai chemin de démarrage de course est HTTP (POST /rides/{id}/start, controllers/ride.py, exercé par test/http-contract/endpoint-coverage.test.ts), établi et testé depuis L3-17/L4-03. Aucune tâche du découpage ne prévoit un second chemin WebSocket -- L6-13 (course en cours, apps/driver) nomme un 'bouton de démarrage' sans jamais mentionner ce message. À trancher : retirer ce message du contrat (même précédent que D31 pour accept/reject HTTP), ou documenter explicitement pourquoi les deux chemins doivent coexister."
-    },
-    {
-      "name": "ride.complete",
-      "direction": "client-to-server",
-      "status": "pending",
-      "emitter": "aucun, réel ou de test -- même constat que ride.start.",
-      "consumer": "AUCUN -- même constat que ride.start (dispatch.ts l'ignore explicitement).",
-      "reason": "Candidat obsolète, même raisonnement que ride.start : le chemin réel est POST /rides/{id}/complete (controllers/ride.py, L3-19 y accroche désormais aussi l'émission de ride.completed). À trancher avec ride.start, voir amoa/questions/C-02R.md."
-    },
-    {
       "name": "nearby.subscribe",
       "direction": "client-to-server",
       "status": "wired",
@@ -97,17 +81,9 @@
       "name": "ride.cancelled",
       "direction": "server-to-client",
       "status": "pending",
-      "emitter": "AUCUN. L4-07 (annulations) est fait -- babana_ride_cancel.py transitionne bien vers 'cancelled', notify_cancellation_async (services/realtime_client.py) relâche réservation et engagement -- mais rien n'appelle jamais /internal (aucune route équivalente n'existe côté services/realtime/src/http/internal.ts) pour pousser ce message. Aucun critère d'acceptation de L4-07 ne le demande.",
-      "consumer": "AUCUN, ni côté client ni côté chauffeur.",
-      "reason": "Le troisième trou du même genre que ride.started/ride.completed avant L3-19 -- une course annulée par l'une des parties ne le fait savoir à l'autre par aucun canal temps réel aujourd'hui. Pas construit cette nuit : hors du périmètre confié (L3-19/C-02R/L3-18 seulement). Candidat naturel : L4-07R, même patron que L3-19 (point d'accroche au commit sur action_cancel). Voir amoa/questions/C-02R.md."
-    },
-    {
-      "name": "cash.limit.warning",
-      "direction": "server-to-client",
-      "status": "pending",
-      "emitter": "AUCUN. L5-02 signale le FRANCHISSEMENT du plafond au service temps réel (/internal/drivers/cash-blocked, retire du pool) mais ne pousse aucun message WS. L7-05 (alerte de plafond, l'AVERTISSEMENT avant franchissement) ne touche que services/odoo/addons/babana/models/babana_driver.py -- aucun fichier de services/realtime dans sa liste : cette alerte est prévue par notification push (FCM, L7-01), pas par ce message WS.",
-      "consumer": "AUCUN.",
-      "reason": "Candidat obsolète, même famille que ride.start/ride.complete -- amoa/questions/C-02R.md. Le mécanisme d'alerte réellement spécifié (L7-05) est une notification push, pas un message temps réel WebSocket. À trancher : retirer ce message du contrat, ou lui trouver un rôle réel distinct de L7-05 (ex. mise à jour en direct de l'écran si l'app est ouverte)."
+      "emitter": "réel et testé (L4-12, amoa/questions/REPONSES-2026-08-28.md §2) : babana_ride_state.py::action_cancel calcule le destinataire depuis actor_role et appelle realtime_client.notify_ride_cancelled (postcommit, D32/D33) ; services/realtime/src/http/internal.ts (POST /internal/rides/cancelled) -> tracking/broadcast.ts::broadcastRideCancelled. Testé par test_ride_state_machine.py, test_realtime_commit_hook.py et services/realtime/test/internal.test.ts (les trois preuves composées, même patron que L3-19).",
+      "consumer": "AUCUN, ni côté client ni côté chauffeur -- aucun écran ne lit encore ce type de message.",
+      "reason": "Consommateur manquant -- même situation que proposal.new/proposal.expired (L6-12) : l'émetteur est fait, aucun écran (WaitingScreen, TrackingScreen, apps/driver) ne réagit encore à ride.cancelled. Candidat naturel : la tâche qui affiche l'annulation à l'écran, non commencée."
     },
     {
       "name": "nearby.drivers",
@@ -129,7 +105,7 @@
       "status": "pending",
       "emitter": "AUCUN -- aucune occurrence de type: 'ride.proposed' dans services/realtime/src.",
       "consumer": "AUCUN.",
-      "reason": "Candidat obsolète, même famille que ride.start/ride.complete/cash.limit.warning -- amoa/questions/C-02R.md. La transition vers 'proposed' est déjà connue du client de façon SYNCHRONE, par la réponse HTTP de POST /rides/{id}/select-driver (SelectDriverResponse.state, controllers/ride.py) -- ce message WS semble redondant avec cette réponse pour le seul appareil qui a fait la demande. À trancher : retirer du contrat, ou motiver un besoin réel (ex. synchroniser un second appareil du même client)."
+      "reason": "Gardé au contrat, contrairement à ride.start/ride.complete/cash.limit.warning (arbitrage du 28 août, amoa/questions/REPONSES-2026-08-28.md §1) : redondant pour l'appareil qui a fait la demande (déjà appris de façon synchrone par SelectDriverResponse.state, POST /rides/{id}/select-driver), mais pas pour un second appareil du même client -- un téléphone se partage en famille à Douala. Émetteur/consommateur restent à construire : candidat naturel L6-16 (mode dégradé réseau, apps/client) ou une tâche dédiée à la synchronisation multi-appareil, non commencée."
     },
     {
       "name": "ride.assigned",

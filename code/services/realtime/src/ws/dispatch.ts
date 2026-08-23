@@ -20,10 +20,12 @@ import { handleSessionResync } from './resync';
  * intermittent, un message tronqué ou en retard n'est pas une faute qui justifie de couper le
  * chauffeur.
  *
- * Les types non encore traités par ce lot (`ride.start`, `ride.complete`, ...) sont ignorés
- * silencieusement -- ce n'est pas une erreur, seulement une fonctionnalité que les tâches
- * suivantes ajoutent au fil de l'eau. `session.resync` (L3-11) et `ride.track` (L3-09) sont
- * traités.
+ * `default` ci-dessous ignore silencieusement tout `type` que ce switch ne connaîtrait pas
+ * encore -- ce n'est pas une erreur, seulement une fonctionnalité que les tâches suivantes
+ * ajoutent au fil de l'eau. Chaque type de `ClientToServerMessageSchema` a aujourd'hui un
+ * `case`. `ride.start`/`ride.complete` en faisaient partie mais ont été retirés du contrat
+ * (amoa/questions/REPONSES-2026-08-28.md §1) : le vrai chemin de démarrage/fin de course est
+ * HTTP (`POST /rides/{id}/start`, `/complete`, `controllers/ride.py`), jamais un message WS.
  */
 export type MessageDispatcher = (context: ConnectionContext, socket: WebSocket, raw: string) => Promise<void>;
 
