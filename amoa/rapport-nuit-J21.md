@@ -78,3 +78,37 @@ correctif — et les deux sont passés.
 `tests/test_driver.py`.
 
 ---
+
+## D46 — le banc de vérification en même origine, aucun code applicatif touché
+
+Aucun fichier du dépôt à changer : `controllers/`, `infra/caddy/Caddyfile`, `apps/client/config.ts`
+restent inchangés. La correction est entièrement dans **la façon de vérifier**, pas dans le
+produit — exactement ce que D46 (`amoa/01-architecture.md` §9 ter) demande.
+
+### Ce qui a été refait, précisément
+
+Même montage que J16/J17 (`amoa/rapport-nuit-J16.md`, `amoa/rapport-nuit-J17.md`) : `dist-web`
+construit avec `BABANA_API_URL`/`BABANA_REALTIME_WS_URL` pointés sur l'origine du banc lui-même,
+et un Caddy jetable (`http://verify.localhost:8888`, jamais commité, retiré en fin de session) qui
+sert `dist-web` **et** relaie `/api/*` et `/rt/*` vers Odoo et le service temps réel réels —
+`api/*` sur la même origine que le bundle, pas sur une seconde. C'est précisément l'inverse du
+montage de J20 (bundle sur `verify.localhost`, API laissée sur `api.localhost` — deux origines),
+identifié comme la cause du préflight refusé (`amoa/questions/L6-18-cors-api-web-quote.md`).
+
+### Preuve, pas seulement le montage
+
+Session réelle injectée (même geste que J17 — restauration de session, pas le flux OAuth web qui
+n'existe pas encore), jeton obtenu par un vrai aller-retour `mock-google-identity` → `POST
+/api/v1/auth/google` contre le banc lui-même. Après rechargement : `HomeScreen` s'affiche,
+`GET /api/v1/me` répond **200** sur `http://verify.localhost:8888` (même origine que la page,
+`read_network_requests` à l'appui), aucune erreur console. Aucun préflight `OPTIONS` déclenché —
+un navigateur n'en émet jamais pour une requête réellement same-origin, c'est tout l'intérêt du
+montage.
+
+**Ce que ça ne referme pas** : `amoa/questions/L6-18-cors-api-web-quote.md` reste ouvert tel quel
+— le jour où l'app Client réelle sera déployée en web (L6-18), la topologie de production devra
+elle-même être same-origin (ou une vraie politique CORS explicite posée), ce qui est le travail de
+cette tâche-là, pas de ce soir. Ce soir prouve seulement que **le défaut était dans le banc**, pas
+dans l'API — et que vérifié correctement, le parcours ne bute sur rien.
+
+---
