@@ -5,8 +5,10 @@
 import { configureGoogleMapsProvider, _resetGoogleMapsApiKeyForTests } from '../src/providers/google/config';
 import { reverseGeocode, searchPlace } from '../src/providers/google/places';
 
-function mockFetchOnce(body: unknown) {
+function mockFetchOnce(body: unknown, init: { ok?: boolean; status?: number } = {}) {
   global.fetch = jest.fn().mockResolvedValue({
+    ok: init.ok ?? true,
+    status: init.status ?? 200,
     json: () => Promise.resolve(body),
   }) as unknown as typeof fetch;
 }
@@ -65,5 +67,62 @@ describe('searchPlace / reverseGeocode (fournisseur Google)', () => {
     mockFetchOnce({ status: 'ZERO_RESULTS' });
 
     await expect(reverseGeocode({ latitude: 0, longitude: 0 })).resolves.toBeNull();
+  });
+
+  // D19, amoa/questions/C-01R.md §2 : recherche de lieu routée vers mock-maps en développement.
+  describe('vers mock-maps (D19)', () => {
+    it('une clé vide est acceptée -- mock-maps ne la consomme pas', async () => {
+      configureGoogleMapsProvider({ apiKey: '', searchUrl: 'http://localhost:4001/search' });
+      mockFetchOnce({ results: [{ id: 'akwa', name: 'Akwa', latitude: 4.05, longitude: 9.7 }] });
+
+      await expect(searchPlace('Akwa')).resolves.toEqual([
+        { label: 'Akwa', position: { latitude: 4.05, longitude: 9.7 } },
+      ]);
+    });
+
+    it("traduit la forme plate de mock-maps, sans enveloppe status", async () => {
+      configureGoogleMapsProvider({ apiKey: 'test-key', searchUrl: 'http://localhost:4001/search' });
+      mockFetchOnce({
+        results: [
+          { id: 'akwa', name: 'Akwa', latitude: 4.05, longitude: 9.7 },
+          { id: 'bonanjo', name: 'Bonanjo', latitude: 4.04, longitude: 9.69 },
+        ],
+      });
+
+      await expect(searchPlace('Ak')).resolves.toEqual([
+        { label: 'Akwa', position: { latitude: 4.05, longitude: 9.7 } },
+        { label: 'Bonanjo', position: { latitude: 4.04, longitude: 9.69 } },
+      ]);
+    });
+
+    it("envoie le paramètre `q` de mock-maps vers l'URL configurée", async () => {
+      configureGoogleMapsProvider({ apiKey: '', searchUrl: 'http://localhost:4001/search' });
+      mockFetchOnce({ results: [] });
+
+      await searchPlace('Akwa');
+
+      const calledUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(calledUrl.origin + calledUrl.pathname).toBe('http://localhost:4001/search');
+      expect(calledUrl.searchParams.get('q')).toBe('Akwa');
+    });
+
+    it('une panne HTTP sans enveloppe status lève une exception explicite', async () => {
+      configureGoogleMapsProvider({ apiKey: '', searchUrl: 'http://localhost:4001/search' });
+      mockFetchOnce({ error: 'panne simulée' }, { ok: false, status: 503 });
+
+      await expect(searchPlace('Akwa')).rejects.toThrow(/503/);
+    });
+
+    it("sans searchUrl configuré, retombe sur l'adresse Google réelle", async () => {
+      configureGoogleMapsProvider({ apiKey: 'test-key' });
+      mockFetchOnce({ status: 'OK', results: [] });
+
+      await searchPlace('Akwa');
+
+      const calledUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
+      expect(calledUrl.origin + calledUrl.pathname).toBe(
+        'https://maps.googleapis.com/maps/api/place/textsearch/json'
+      );
+    });
   });
 });

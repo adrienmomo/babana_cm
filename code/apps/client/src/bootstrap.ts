@@ -1,6 +1,11 @@
 import { configureGoogleSignIn } from '@babana/api-client';
 import { configureMapsProvider } from '@babana/maps';
-import { GOOGLE_IOS_CLIENT_ID, GOOGLE_MAPS_API_KEY, GOOGLE_WEB_CLIENT_ID } from '../config';
+import {
+  GOOGLE_IOS_CLIENT_ID,
+  GOOGLE_MAPS_API_KEY,
+  GOOGLE_WEB_CLIENT_ID,
+  MAPS_SEARCH_URL,
+} from '../config';
 
 /**
  * Point d'accroche unique et nommé pour toute configuration à effectuer une seule fois, au tout
@@ -16,6 +21,6 @@ let bootstrapped = false;
 export function bootstrap(): void {
   if (bootstrapped) return;
   configureGoogleSignIn({ webClientId: GOOGLE_WEB_CLIENT_ID, iosClientId: GOOGLE_IOS_CLIENT_ID });
-  configureMapsProvider({ apiKey: GOOGLE_MAPS_API_KEY });
+  configureMapsProvider({ apiKey: GOOGLE_MAPS_API_KEY, searchUrl: MAPS_SEARCH_URL });
   bootstrapped = true;
 }

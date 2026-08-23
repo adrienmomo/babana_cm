@@ -29,3 +29,14 @@ export const GOOGLE_IOS_CLIENT_ID = process.env.BABANA_GOOGLE_IOS_CLIENT_ID || u
  * passe pas par ce mécanisme d'inlining (voir `providers/google/config.ts`).
  */
 export const GOOGLE_MAPS_API_KEY = process.env.BABANA_GOOGLE_MAPS_API_KEY || '';
+
+/**
+ * Adresse de la recherche de lieu REST (`searchPlace`, L6-01) -- même mécanisme que
+ * `GOOGLE_ROUTING_URL` côté Odoo (`services/odoo/addons/babana/services/routing.py`) : une seule
+ * variable d'environnement, aucune branche sur l'environnement dans le code (D19,
+ * `amoa/questions/C-01R.md` §2). `undefined` laisse `@babana/maps` retomber sur l'adresse Google
+ * réelle (`providers/google/places.ts::PLACES_TEXT_SEARCH_URL`) -- le comportement de production
+ * si la variable est absente. En développement, `infra/env/.env.example` la pointe vers
+ * `mock-maps` (port hôte exposé directement, `infra/compose.dev.yaml`, pas besoin de Caddy).
+ */
+export const MAPS_SEARCH_URL = process.env.BABANA_MAPS_SEARCH_URL || undefined;

@@ -41,6 +41,7 @@ injecte les variables directement dans l'environnement du conteneur au démarrag
 | `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY` | Compte de service Firebase Cloud Messaging (API HTTP v1), notifications push | identifiants de compte de service | vides, non consommées (L1-09/L7-01 journalisent, D19) | Console Firebase du projet babana.cm, compte de service dédié aux notifications |
 | `SMS_GATEWAY_API_KEY`, `SMS_GATEWAY_SENDER_ID` | Passerelle SMS pour l'OTP de rattachement de numéro | clé API, identifiant expéditeur | vides, non consommées (L1-09 journalise, D19) | Fournisseur SMS retenu (à choisir, hors de ce soir) |
 | `GOOGLE_MAPS_API_KEY` | Clé API Google Maps consommée par les apps au build natif (D13) | clé API | vide, non consommée (mock-maps sert de doublure complète, D19) | Console Google Cloud, restreinte par empreinte de signature Android / bundle iOS |
+| `BABANA_MAPS_SEARCH_URL` | Adresse de la recherche de lieu REST (`searchPlace`, L6-01) consommée par `apps/client` au build (même mécanisme que `GOOGLE_JWKS_URL` : une seule variable, une valeur par environnement) | URL | `http://localhost:4001/search` (mock-maps, port hôte exposé directement, `infra/compose.dev.yaml`) | Adresse Google réelle (valeur par défaut si absente, `packages/maps/src/providers/google/places.ts::PLACES_TEXT_SEARCH_URL`) |
 
 **Ce qui n'apparaît volontairement pas dans cette table :** l'adresse de Redis
 (`redis://redis:6379`) et l'URL interne d'Odoo (`http://odoo:8069`, consommée par le service
