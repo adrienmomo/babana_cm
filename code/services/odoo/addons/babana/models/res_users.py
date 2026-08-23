@@ -5,6 +5,14 @@ import uuid
 
 from odoo import api, fields, models
 
+# D45 (amoa/questions/REPONSES-2026-08-29.md §1) : sans ceci, tout compte hérite du fuseau par
+# défaut d'Odoo (Europe/Brussels, donnée de démo) -- pour la base de données, chaque chauffeur de
+# Douala habite Bruxelles, et toute fenêtre "aujourd'hui" calculée depuis son fuseau (context_today,
+# babana_driver.py::_babana_cash_collected_today) se décale d'autant. Paramétrable (invariant 5) :
+# le jour où le service dépasse le Cameroun, cette valeur doit changer sans toucher au code.
+DEFAULT_ACCOUNT_TZ_PARAM = "babana.default_account_tz"
+DEFAULT_ACCOUNT_TZ_FALLBACK = "Africa/Douala"
+
 
 class ResUsers(models.Model):
     _inherit = "res.users"
@@ -70,6 +78,9 @@ class ResUsers(models.Model):
             "login": f"google:{sub}",
             "email": email,
             "google_sub": sub,
+            "tz": self.env["ir.config_parameter"]
+            .sudo()
+            .get_param(DEFAULT_ACCOUNT_TZ_PARAM, DEFAULT_ACCOUNT_TZ_FALLBACK),
             "company_id": company.id,
             "company_ids": [(6, 0, [company.id])],
             # Aucun groupe métier (L0-02) : les droits passent exclusivement par les règles

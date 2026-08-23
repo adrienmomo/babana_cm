@@ -3,6 +3,9 @@
 # amoa/questions/L1-03.md -- un test qui simulerait ce recalcul ne prouverait rien.
 from __future__ import annotations
 
+import unittest.mock
+from datetime import date
+
 from odoo.exceptions import ValidationError
 from odoo.tests.common import TransactionCase, tagged
 
@@ -55,6 +58,79 @@ class TestBabanaDriver(TransactionCase):
     def test_cash_balance_is_zero_without_any_movement(self):
         driver = self._make_driver()
         self.assertEqual(driver.cash_balance, 0.0)
+
+    # --- D45 (amoa/questions/REPONSES-2026-08-29.md §1) : la borne du jour local se convertit
+    # en UTC avant d'interroger create_date -- "ce qui se teste, c'est la frontière" (CLAUDE.md) :
+    # `today` est figé par patch plutôt que laissé à l'horloge réelle, pour que le test échoue ou
+    # réussisse de la même façon quelle que soit l'heure à laquelle il tourne. -------------------
+
+    def _make_driver_with_tz(self, tz_name):
+        user = self.env["res.users"].create(
+            {
+                "name": "Chauffeur fuseau",
+                "login": f"driver-tz-test-{tz_name}@example.invalid",
+                "tz": tz_name,
+            }
+        )
+        employee = self.env["hr.employee"].create({"name": "Chauffeur fuseau"})
+        return self.env["babana.driver"].create(
+            {"employee_id": employee.id, "user_id": user.id}
+        )
+
+    def _make_collection(self, driver, *, create_date):
+        movement = self.env["babana.cash.movement"].create(
+            {"driver_id": driver.id, "movement_type": "collection", "amount": 500}
+        )
+        self.env.cr.execute(
+            "UPDATE babana_cash_movement SET create_date = %s WHERE id = %s",
+            (create_date, movement.id),
+        )
+        movement.invalidate_recordset(["create_date"])
+        return movement
+
+    def test_collected_today_includes_a_movement_just_after_local_midnight(self):
+        # Africa/Douala est UTC+1 : minuit local le 24 août correspond à 23h00 UTC le 23 août.
+        # Un mouvement encaissé à 23h30 UTC le 23 est donc déjà dans le jour local du 24 --
+        # exactement le mouvement qui « disparaissait » entre 22h et minuit UTC avant correctif.
+        driver = self._make_driver_with_tz("Africa/Douala")
+        self._make_collection(driver, create_date="2026-08-23 23:30:00")
+
+        with unittest.mock.patch(
+            "odoo.fields.Date.context_today", return_value=date(2026, 8, 24)
+        ):
+            collected = driver.with_user(driver.user_id)._babana_cash_collected_today()
+
+        self.assertEqual(collected, 500)
+
+    def test_collected_today_excludes_a_movement_from_the_next_local_day(self):
+        # Symétrique : un mouvement à 23h30 UTC le 24 est déjà dans le jour local du 25 --
+        # sous l'ancien calcul (bornes naïves comparées telles quelles à create_date UTC), il
+        # aurait été compté à tort dans la recette du 24.
+        driver = self._make_driver_with_tz("Africa/Douala")
+        self._make_collection(driver, create_date="2026-08-24 23:30:00")
+
+        with unittest.mock.patch(
+            "odoo.fields.Date.context_today", return_value=date(2026, 8, 24)
+        ):
+            collected = driver.with_user(driver.user_id)._babana_cash_collected_today()
+
+        self.assertEqual(collected, 0)
+
+    def test_collected_today_uses_the_driver_own_timezone_not_utc(self):
+        # Un chauffeur sans fuseau explicite hériterait du défaut Odoo (Europe/Brussels, UTC+2
+        # en août) -- même défaut, même sens d'erreur, écart plus grand. Prouve que le calcul
+        # suit bien le fuseau du compte, pas une valeur fixe.
+        driver = self._make_driver_with_tz("Europe/Brussels")
+        # 22h30 UTC le 23 août == 00h30 CEST le 24 août -- dans le jour local du 24 pour
+        # Bruxelles, mais pas encore pour Douala (qui n'y entre qu'à 23h00 UTC).
+        self._make_collection(driver, create_date="2026-08-23 22:30:00")
+
+        with unittest.mock.patch(
+            "odoo.fields.Date.context_today", return_value=date(2026, 8, 24)
+        ):
+            collected = driver.with_user(driver.user_id)._babana_cash_collected_today()
+
+        self.assertEqual(collected, 500)
 
     # --- Contraintes structurelles ---------------------------------------------------------
 

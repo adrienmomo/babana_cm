@@ -205,6 +205,28 @@ class TestGoogleAuth(HttpCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["error"]["code"], "VALIDATION_ERROR")
 
+    # --- D45 (amoa/questions/REPONSES-2026-08-29.md §1) : le fuseau se pose à la création,
+    # paramétrable -- sans lui, tout compte hérite du défaut Odoo (Europe/Brussels) et sa
+    # "recette du jour" (babana_driver.py::_babana_cash_collected_today) se décale de plusieurs
+    # heures par jour à Douala. ---------------------------------------------------------------
+
+    def test_new_account_gets_the_configured_default_timezone(self):
+        sub = "sub-tz-default-test"
+        self._post_auth(_mint_google_token(sub=sub, email="tz@example.invalid"), role="client")
+
+        user = self.env["res.users"].sudo().search([("google_sub", "=", sub)])
+        self.assertEqual(user.tz, "Africa/Douala")
+
+    def test_default_timezone_is_configurable_without_touching_code(self):
+        self.env["ir.config_parameter"].sudo().set_param(
+            "babana.default_account_tz", "Europe/Paris"
+        )
+        sub = "sub-tz-configured-test"
+        self._post_auth(_mint_google_token(sub=sub, email="tz2@example.invalid"), role="client")
+
+        user = self.env["res.users"].sudo().search([("google_sub", "=", sub)])
+        self.assertEqual(user.tz, "Europe/Paris")
+
 
 @tagged("post_install", "-at_install")
 class TestAuthRefreshAndLogout(HttpCase):

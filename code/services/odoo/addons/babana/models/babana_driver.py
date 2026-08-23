@@ -10,6 +10,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, time, timedelta
 
+import pytz
+
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
@@ -180,11 +182,31 @@ class BabanaDriver(models.Model):
         `fields.Date.context_today(self)`, pas `fields.Date.today()` : ce calcul répond à un
         chauffeur qui regarde effectivement son écran dans son propre fuseau horaire -- exactement
         le cas réservé à `context_today()` par code/docs/odoo-pitfalls.md, à l'inverse d'un cron ou
-        d'une valeur par défaut sans utilisateur réel connecté."""
+        d'une valeur par défaut sans utilisateur réel connecté.
+
+        D45 (amoa/questions/REPONSES-2026-08-29.md §1) -- la moitié qui manquait : les deux bornes
+        du jour calendaire local sont construites comme des datetime naïfs puis comparées telles
+        quelles à `create_date`, stocké en UTC. Entre 22h et minuit UTC (l'avance du fuseau sur
+        UTC, qu'il vaille +1 comme Africa/Douala ou +2 comme Europe/Brussels en été), la fenêtre
+        interrogée ne contient plus les mouvements du jour local en cours -- une course encaissée
+        à l'instant disparaît de l'écran. `pytz` localise chaque borne dans le fuseau du compte
+        avant de la convertir en UTC ; les deux bornes sont recalculées séparément (`combine` sur
+        `today` puis sur `today + 1 jour`) plutôt qu'un simple `start + timedelta(days=1)`, pour
+        rester correct un jour de changement d'heure (sans objet pour Africa/Douala, qui n'en a
+        pas, mais Europe/Brussels -- le repli si le paramètre n'est pas posé -- si)."""
         self.ensure_one()
+        tz_name = self.env.context.get("tz") or self.env.user.tz or "UTC"
+        try:
+            tz = pytz.timezone(tz_name)
+        except pytz.UnknownTimeZoneError:
+            tz = pytz.UTC
         today = fields.Date.context_today(self)
-        start = fields.Datetime.to_datetime(datetime.combine(today, time.min))
-        end = start + timedelta(days=1)
+        start = tz.localize(datetime.combine(today, time.min)).astimezone(pytz.UTC).replace(
+            tzinfo=None
+        )
+        end = tz.localize(datetime.combine(today + timedelta(days=1), time.min)).astimezone(
+            pytz.UTC
+        ).replace(tzinfo=None)
         movements = self.env["babana.cash.movement"].sudo().search(
             [
                 ("driver_id", "=", self.id),
