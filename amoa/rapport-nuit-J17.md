@@ -217,6 +217,18 @@ plus les fixtures `DriverProfile` des tests existants (`expand.test.ts`, `nearby
 `accept()` : profil présent avec les quatre champs, profil absent dégradé en `null`) verte deux
 fois de suite contre Redis réel.
 
+**Trouvé par la passe finale (`make test`), pas avant.** Deux fixtures de
+`packages/api-client/test/realtime/` (`connection.test.ts`, `handlers.test.ts`) construisaient
+elles-mêmes un message `ride.assigned` brut pour tester `parseIncomingMessage`/la connexion --
+sans les quatre nouveaux champs, désormais requis par `RideAssignedPayloadSchema`. Invisible au
+moment du commit D41 : j'avais revérifié `@babana/contracts` et `services/realtime`, pas
+`@babana/api-client` (qui consomme le contrat mais n'en fait pas partie) -- exactement la classe
+d'oubli que le point 3 de la définition de fini (« make test passe en entier ») existe pour
+attraper, et qu'elle a attrapée. Corrigé, les deux fixtures complétées ; suite `@babana/api-client`
+revérifiée (50 tests verts). Aucun autre point d'appel construisant `ride.assigned`/
+`ride.completed` à la main trouvé par recherche exhaustive (`grep`) au-delà de ces deux fichiers
+et de ceux déjà mis à jour.
+
 ---
 
 ## L3-09 — diffusion du suivi
@@ -357,5 +369,21 @@ systématique ne se verra qu'à l'usage réel ; rien dans ce lot ne le détecter
   jamais unifiées, voir le doute ci-dessus.
 - **La validation du plan comptable** — trois questions à poser (reporté depuis J16).
 - **La vérification développeur Android** (reporté depuis J16).
+
+---
+
+## Passe finale
+
+`make reset` puis `make up` sur une base neuve, comme dû. Premier `make test` complet rouge --
+une seule vraie régression (les deux fixtures `ride.assigned` de `@babana/api-client`, voir D41
+ci-dessus) et un flake ponctuel dans `services/realtime` (`reservation.test.ts`, critère 5 --
+même classe de flake que J16, système sous charge juste après les 2200 tests Odoo ; revérifié
+seul trois fois de suite, toujours vert). Corrigé, puis **second `make test` complet, sur la même
+base, entièrement vert** : 400 tests Odoo, 133 tests `services/realtime`, 66 tests
+`@babana/contracts`, 50 tests `@babana/api-client`, 69 + 15 tests jest (Client/Chauffeur), 26
+tests `test/concurrency` + `test/http-contract` (dont les trois scénarios de concurrence réelle
+et le nouveau critère 6 de C-01), et la vérification structurelle de la machine à états. Zéro
+`not ok`, zéro `npm error`, `node docs/contracts/verify-ride-state-machine.js` exécuté jusqu'au
+bout.
 
 ---

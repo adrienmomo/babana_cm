@@ -104,7 +104,14 @@ describe('createRealtimeClient -- connexion et resynchronisation (L6-04, L3-11)'
       type: 'ride.assigned',
       id: '11111111-1111-4111-8111-111111111111',
       emittedAt: '2026-01-01T00:00:00Z',
-      payload: { rideId: '22222222-2222-4222-8222-222222222222', driverId: '33333333-3333-4333-8333-333333333333' },
+      payload: {
+        rideId: '22222222-2222-4222-8222-222222222222',
+        driverId: '33333333-3333-4333-8333-333333333333',
+        firstName: 'Paul',
+        photoUrl: null,
+        motorcycleClass: 'standard',
+        licensePlate: 'LT-1234-BC',
+      },
     });
 
     expect(onMessage).toHaveBeenCalledWith(expect.objectContaining({ type: 'ride.assigned' }));
