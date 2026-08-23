@@ -32,6 +32,12 @@ Les mouvements sont **immuables** : ni modification, ni suppression, y compris p
 
 Le solde ne peut pas devenir négatif par un mouvement de type `collection` ou `remittance` : une remise supérieure au solde signale une erreur de saisie, à traiter en écart (L5-06). Seul un ajustement explicite peut produire un solde négatif, et il doit alerter.
 
+**Toute borne dérivée d'un jour calendaire se convertit en UTC avant de servir à une requête (D45, 29 août).** La recette du jour construisait ses bornes sur le jour local et les comparait à des dates stockées en UTC : entre 22 h et minuit UTC, elle retombait à **zéro** — une course encaissée à l'instant disparaissait de l'écran du chauffeur, tous les jours, pendant deux heures.
+
+Les deux moitiés du défaut comptent : le fuseau jamais posé sur le compte (L1-01, critère 8) et les bornes jamais converties. Corriger l'une sans l'autre laisse un décalage d'une heure à Douala — plus rare, donc plus difficile à voir.
+
+Et ce qui se teste, c'est la frontière : un test qui tourne à quatorze heures ne dira jamais rien.
+
 ### Critères d'acceptation
 
 1. Le solde est calculé, jamais stocké librement.

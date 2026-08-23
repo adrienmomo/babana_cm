@@ -59,6 +59,7 @@ Un chauffeur dont le dossier n'est pas approuvé **reçoit tout de même un jeto
 5. Un jeton avec `email_verified` faux est rejeté.
 6. Un changement d'email chez Google ne crée pas de doublon : l'utilisateur est retrouvé par `sub`.
 7. Les clés Google sont mises en cache : un second appel dans la fenêtre de cache ne déclenche pas de requête sortante.
+8. **Le compte créé porte son fuseau** (D45, 29 août) : `Africa/Douala` par défaut, paramétrable. Sans cela il hérite du défaut d'Odoo, `Europe/Brussels` — et pour la base de données, chaque chauffeur de Douala habite Bruxelles. Le défaut n'était pas visible parce qu'il ne se manifeste qu'aux heures où les deux calendriers divergent : c'est là qu'il faut le tester, pas au milieu de la journée.
 8. Un chauffeur non approuvé obtient un jeton et un statut `pending`.
 9. **Aucun `hr.employee` n'est créé par l'authentification** — test explicite : après un premier sign-in `role=driver`, le nombre de fiches employé est inchangé.
 10. La création de candidature est soumise à une limitation de débit.

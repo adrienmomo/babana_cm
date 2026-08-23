@@ -49,6 +49,8 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D42 | **Les numéros de téléphone sont révélés à l'affectation et effacés à la fin de la course**, des deux côtés | Relais de masquage ; ne rien exposer | À Douala on se repère en s'appelant, et un client qui ne trouve pas sa moto annule. Le relais est la bonne réponse à terme, et c'est une intégration téléphonique entière |
 | D43 | **Aucune configuration de fournisseur externe n'a de valeur par défaut qui pointe vers le vrai fournisseur.** Non configuré, on échoue bruyamment | Une valeur par défaut « raisonnable » | Une configuration qui retombe sur le vrai service masque sa propre panne : le simulateur paraît branché et ne l'est pas. Voir §9 ter |
 | D44 | **Un état réparé est indiscernable d'un état produit normalement.** Une réconciliation restaure l'état complet, jamais un fragment | Réparer le marqueur qui manque | Un état partiel qu'aucune transition ne pourrait produire est un quatrième cas que personne n'a prévu. Voir §2 ter |
+| D45 | **Tout compte reçoit son fuseau à la création** (`Africa/Douala`, paramétrable), et toute requête bornée par un jour calendaire convertit ses bornes en UTC | Laisser courir le fuseau par défaut d'Odoo | Sans lui, tout chauffeur camerounais est à Bruxelles, et sa recette du jour tombe à zéro plusieurs heures par jour. Voir §5 bis |
+| D46 | **Le banc de vérification reproduit la topologie de production** : même origine pour le bundle web et l'API, donc aucun CORS | Ajouter des en-têtes CORS à l'API authentifiée | On n'ajoute pas une surface d'attaque à une API qui porte des jetons pour accommoder une erreur de banc d'essai. Voir §9 ter |
 
 ---
 
@@ -225,6 +227,12 @@ Le contrat exigeait un format univoque ; Odoo n'en produisait pas, et **c'est Od
 
 Toute date qui traverse le contrat est donc écrite en UTC, suffixée, par **un sérialiseur unique** : une conversion recopiée dans chaque contrôleur diverge, et cette divergence-là ne se voit pas à la lecture.
 
+**Le fuseau des comptes est le même problème d'un cran plus bas (D45, 29 août).** Rien ne pose de fuseau à la création d'un compte : tout utilisateur hérite du défaut d'Odoo, `Europe/Brussels`. Autrement dit, pour la base de données, **chaque chauffeur de Douala habite Bruxelles**.
+
+Pris seul, cela paraît cosmétique. Combiné à une requête qui construit ses bornes sur le jour calendaire local et les compare à des dates stockées en UTC, cela donne un défaut quotidien : entre 22 h et minuit UTC, la recette du jour d'un chauffeur **retombe à zéro** — une course encaissée à l'instant disparaît de son propre écran. Il a été trouvé parce qu'une passe de tests est tombée dans cette fenêtre ; il aurait été trouvé en production par un chauffeur qui n'aurait pas compris ce qu'il voyait.
+
+Deux règles, donc, et il faut les deux : **le fuseau se pose à la création** (`Africa/Douala`, paramétrable — le jour où le service dépasse le Cameroun, cette valeur doit pouvoir changer sans toucher au code), et **toute borne dérivée d'un jour calendaire se convertit en UTC avant de servir à une requête**. Une seule des deux ne suffit pas : un fuseau juste avec des bornes naïves reste faux d'une heure à Douala, simplement moins souvent.
+
 **Et ce défaut a tenu six semaines parce qu'aucune suite ne pouvait le voir.** Les tests d'écran simulent le client HTTP ; les tests du client construisent eux-mêmes des réponses déjà bien formées ; les scénarios de bout en bout parlent en `fetch` brut, sans validation de schéma. Aucune suite n'exerçait, en même temps, le vrai Odoo, le vrai client et sa vraie validation. C'est exactement la famille de trou qui avait justifié le critère 5 de C-01 pour le jeton — étendu maintenant aux réponses REST.
 
 ---
@@ -338,6 +346,10 @@ Cette cause est banale et se corrigera. **Ce qui l'a rendue invisible ne l'est p
 Une valeur par défaut qui pointe vers le vrai service transforme une erreur de configuration en comportement silencieux. Non configuré, on échoue, bruyamment, à l'appel. C'est le même principe que partout ailleurs ici — une absence explicite plutôt qu'une valeur plausible et fausse — appliqué cette fois à la configuration elle-même.
 
 **Corollaire pour les paquets partagés** : une configuration tenue dans une variable de module suppose qu'il n'existe qu'un exemplaire du module. Un empaqueteur ne le garantit pas. Ce qui doit être configuré une fois et lu partout se passe explicitement, ou se vérifie à l'usage.
+
+**Et le banc de vérification reproduit la production, jamais l'inverse (D46, 29 août).** L'export web a buté sur un préflight CORS refusé, ce qui a fait proposer d'ajouter le support de CORS à l'API. Mais en production, Caddy sert le bundle et l'API **sous le même domaine** (D18) : CORS ne s'y applique jamais. C'est le banc d'essai qui utilisait deux origines, pas la production.
+
+Ajouter des en-têtes CORS à une API qui porte des jetons pour satisfaire un banc d'essai reviendrait à ouvrir une vraie surface d'attaque pour accommoder une erreur de montage. Quand une vérification révèle un problème que la production n'aura pas, **c'est la vérification qu'on corrige** — sinon on finit par durcir le produit contre des contraintes imaginaires, et par manquer les vraies.
 
 ---
 

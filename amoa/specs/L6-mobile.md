@@ -777,6 +777,10 @@ Le contournement posé le 24 août pour vérifier le bundle — un stockage loca
 
 Déploiement sur Vercel, en prévisualisation par branche. La version web pointe sur `staging.babana.cm` par défaut, jamais sur la production — une démonstration ne doit pas créer de vraies courses.
 
+**Le bundle et l'API sont servis sous la même origine, et l'API ne porte aucun en-tête CORS (D46, 29 août).** Un préflight refusé a été rencontré en vérification et a fait proposer d'ajouter le support de CORS ; c'était le banc d'essai qui utilisait deux origines, pas la production. Caddy sert le bundle et proxifie `/api/*` sous le même domaine (D18), et CORS ne s'y applique jamais.
+
+Ajouter des en-têtes CORS à une API qui porte des jetons pour satisfaire un banc d'essai reviendrait à ouvrir une surface d'attaque réelle pour accommoder une erreur de montage. **Si le déploiement retenu ici imposait deux origines, c'est ce choix qu'il faudrait rouvrir**, pas l'API.
+
 ### Critères d'acceptation
 
 1. L'application Client se charge et permet le parcours complet — estimation, sélection, suivi, résumé — dans un navigateur.
