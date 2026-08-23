@@ -35,7 +35,7 @@ services:
       USER: ${POSTGRES_USER}
       PASSWORD: ${POSTGRES_PASSWORD}
       GOOGLE_OAUTH_CLIENT_IDS: ${GOOGLE_OAUTH_CLIENT_IDS}
-      GOOGLE_JWKS_URL: ${GOOGLE_JWKS_URL:-https://www.googleapis.com/oauth2/v3/certs}
+      GOOGLE_JWKS_URL: ${GOOGLE_JWKS_URL:?GOOGLE_JWKS_URL doit être configurée -- D43, aucun repli implicite vers la vraie adresse Google}
       GOOGLE_ROUTING_URL: ${GOOGLE_ROUTING_URL:-http://mock-maps:4001/route}
       JWT_SECRET: ${JWT_SECRET}
       REALTIME_INTERNAL_URL: http://realtime:3000

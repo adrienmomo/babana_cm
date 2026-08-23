@@ -10,13 +10,17 @@
 let apiKey: string | undefined;
 
 /**
- * Adresse de la recherche de lieu (D19, `amoa/questions/C-01R.md` §2). Même principe que
- * `GOOGLE_ROUTING_URL` côté Odoo (`services/odoo/addons/babana/services/routing.py`) : une seule
- * variable d'environnement fait pointer ce module vers `mock-maps` en développement ou vers l'API
- * Google réelle en production -- ce fichier ne contient aucune branche conditionnelle sur
- * l'environnement, seul `searchUrl` change. `undefined` retombe sur `PLACES_TEXT_SEARCH_URL`
- * (places.ts), l'adresse Google réelle -- un oubli de configuration reste donc un défaut visible
- * en production (REQUEST_DENIED, faute de clé), jamais un repli silencieux vers le simulateur.
+ * Adresse de la recherche de lieu (D19, `amoa/questions/C-01R.md` §2). Une seule variable
+ * d'environnement fait pointer ce module vers `mock-maps` en développement ou vers l'API Google
+ * réelle en production -- ce fichier ne contient aucune branche conditionnelle sur
+ * l'environnement, seul `searchUrl` change.
+ *
+ * `undefined` ne retombe plus sur l'adresse Google réelle (D43,
+ * `amoa/questions/REPONSES-2026-08-28.md` §4) : ce repli faisait exactement ce que le code fait
+ * quand tout va bien, avec un destinataire différent -- invisible sans lire le trafic réseau. Une
+ * adresse non configurée doit échouer à l'appel, bruyamment (`getSearchUrl` ci-dessous) ; la
+ * production configure explicitement `PLACES_TEXT_SEARCH_URL` (places.ts) via `searchUrl`, elle
+ * ne la reçoit jamais par défaut.
  */
 let searchUrl: string | undefined;
 
@@ -42,8 +46,21 @@ export function getGoogleMapsApiKey(): string {
   return apiKey;
 }
 
-export function getSearchUrl(defaultUrl: string): string {
-  return searchUrl || defaultUrl;
+/**
+ * Lève plutôt que de retomber sur une adresse par défaut (D43) -- même principe que
+ * `getGoogleMapsApiKey` ci-dessus, appliqué à l'adresse plutôt qu'à la clé : un fournisseur
+ * externe non configuré doit échouer bruyamment à l'appel, jamais silencieusement appeler la
+ * vraie API avec un destinataire différent de celui attendu.
+ */
+export function getSearchUrl(): string {
+  if (searchUrl === undefined) {
+    throw new Error(
+      "@babana/maps: configureMapsProvider({ searchUrl }) doit être appelé au démarrage de l'app " +
+        "avant tout appel à searchPlace -- aucune adresse de fournisseur externe ne retombe " +
+        'silencieusement sur une valeur par défaut (invariant 5, D43).'
+    );
+  }
+  return searchUrl;
 }
 
 /** Réservé aux tests : remet le module dans son état initial entre deux cas. */

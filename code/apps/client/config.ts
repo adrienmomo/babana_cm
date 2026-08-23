@@ -34,9 +34,11 @@ export const GOOGLE_MAPS_API_KEY = process.env.BABANA_GOOGLE_MAPS_API_KEY || '';
  * Adresse de la recherche de lieu REST (`searchPlace`, L6-01) -- même mécanisme que
  * `GOOGLE_ROUTING_URL` côté Odoo (`services/odoo/addons/babana/services/routing.py`) : une seule
  * variable d'environnement, aucune branche sur l'environnement dans le code (D19,
- * `amoa/questions/C-01R.md` §2). `undefined` laisse `@babana/maps` retomber sur l'adresse Google
- * réelle (`providers/google/places.ts::PLACES_TEXT_SEARCH_URL`) -- le comportement de production
- * si la variable est absente. En développement, `infra/env/.env.example` la pointe vers
- * `mock-maps` (port hôte exposé directement, `infra/compose.dev.yaml`, pas besoin de Caddy).
+ * `amoa/questions/C-01R.md` §2). `undefined` fait désormais échouer `searchPlace` bruyamment au
+ * premier appel (D43, `amoa/questions/REPONSES-2026-08-28.md` §4) -- `@babana/maps` ne retombe
+ * plus silencieusement sur l'adresse Google réelle si la variable est absente. La production doit
+ * donc la poser explicitement (à l'adresse Google réelle), au même titre que le développement la
+ * pose vers `mock-maps` (`infra/env/.env.example`, port hôte exposé directement,
+ * `infra/compose.dev.yaml`, pas besoin de Caddy).
  */
 export const MAPS_SEARCH_URL = process.env.BABANA_MAPS_SEARCH_URL || undefined;

@@ -3,6 +3,7 @@
 # ne peut qu'observer indirectement ce comportement ; celui-ci l'isole précisément.
 from __future__ import annotations
 
+import os
 from unittest.mock import patch
 
 from odoo.tests.common import BaseCase, tagged
@@ -73,3 +74,23 @@ class TestJwksCache(BaseCase):
             True,
             "un délai de cache par défaut doit s'appliquer même sans en-tête Cache-Control",
         )
+
+
+@tagged("post_install", "-at_install")
+class TestJwksUrlConfiguration(BaseCase):
+    """D43 (amoa/questions/REPONSES-2026-08-28.md §4) : GOOGLE_JWKS_URL non configurée doit
+    échouer bruyamment, jamais retomber silencieusement sur la vraie adresse Google -- ce repli
+    est exactement ce qui a caché une nuit entière la cause d'un défaut symétrique côté
+    recherche de lieu."""
+
+    def test_missing_jwks_url_raises_instead_of_defaulting_to_the_real_google_endpoint(self):
+        env_without_jwks_url = {k: v for k, v in os.environ.items() if k != "GOOGLE_JWKS_URL"}
+        with patch.dict(os.environ, env_without_jwks_url, clear=True):
+            with self.assertRaises(RuntimeError):
+                google_identity._jwks_url()
+
+    def test_configured_jwks_url_is_returned_unchanged(self):
+        with patch.dict(os.environ, {"GOOGLE_JWKS_URL": "http://mock-google-identity:4000/jwks"}):
+            self.assertEqual(
+                google_identity._jwks_url(), "http://mock-google-identity:4000/jwks"
+            )

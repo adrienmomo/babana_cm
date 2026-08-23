@@ -5,6 +5,10 @@
 import { configureGoogleMapsProvider, _resetGoogleMapsApiKeyForTests } from '../src/providers/google/config';
 import { reverseGeocode, searchPlace } from '../src/providers/google/places';
 
+// Adresse Google réelle -- ces tests exercent la forme des réponses du vrai fournisseur, jamais
+// un défaut de configuration : depuis D43, `searchUrl` doit toujours être posé explicitement.
+const GOOGLE_SEARCH_URL = 'https://maps.googleapis.com/maps/api/place/textsearch/json';
+
 function mockFetchOnce(body: unknown, init: { ok?: boolean; status?: number } = {}) {
   global.fetch = jest.fn().mockResolvedValue({
     ok: init.ok ?? true,
@@ -23,8 +27,20 @@ describe('searchPlace / reverseGeocode (fournisseur Google)', () => {
     await expect(searchPlace('Akwa')).rejects.toThrow(/configureMapsProvider/);
   });
 
-  it('traduit une réponse Places en résultats propres au paquet', async () => {
+  // D43 (amoa/questions/REPONSES-2026-08-28.md §4) : un `searchUrl` non configuré échoue
+  // bruyamment, il ne retombe plus silencieusement sur l'adresse Google réelle -- c'est
+  // exactement ce repli qui a rendu la double instanciation du module invisible une nuit
+  // entière avant d'être trouvée en lisant le trafic réseau plutôt que le code.
+  it('exige aussi une adresse configurée, plutôt que de retomber sur Google (D43)', async () => {
     configureGoogleMapsProvider({ apiKey: 'test-key' });
+    mockFetchOnce({ status: 'OK', results: [] });
+
+    await expect(searchPlace('Akwa')).rejects.toThrow(/configureMapsProvider/);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('traduit une réponse Places en résultats propres au paquet', async () => {
+    configureGoogleMapsProvider({ apiKey: 'test-key', searchUrl: GOOGLE_SEARCH_URL });
     mockFetchOnce({
       status: 'OK',
       results: [
@@ -42,14 +58,14 @@ describe('searchPlace / reverseGeocode (fournisseur Google)', () => {
   });
 
   it('un ZERO_RESULTS produit une liste vide, pas une erreur', async () => {
-    configureGoogleMapsProvider({ apiKey: 'test-key' });
+    configureGoogleMapsProvider({ apiKey: 'test-key', searchUrl: GOOGLE_SEARCH_URL });
     mockFetchOnce({ status: 'ZERO_RESULTS' });
 
     await expect(searchPlace('lieu inconnu')).resolves.toEqual([]);
   });
 
   it('un statut Google en erreur lève une exception explicite', async () => {
-    configureGoogleMapsProvider({ apiKey: 'test-key' });
+    configureGoogleMapsProvider({ apiKey: 'test-key', searchUrl: GOOGLE_SEARCH_URL });
     mockFetchOnce({ status: 'REQUEST_DENIED' });
 
     await expect(searchPlace('Akwa')).rejects.toThrow(/REQUEST_DENIED/);
@@ -111,18 +127,6 @@ describe('searchPlace / reverseGeocode (fournisseur Google)', () => {
       mockFetchOnce({ error: 'panne simulée' }, { ok: false, status: 503 });
 
       await expect(searchPlace('Akwa')).rejects.toThrow(/503/);
-    });
-
-    it("sans searchUrl configuré, retombe sur l'adresse Google réelle", async () => {
-      configureGoogleMapsProvider({ apiKey: 'test-key' });
-      mockFetchOnce({ status: 'OK', results: [] });
-
-      await searchPlace('Akwa');
-
-      const calledUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
-      expect(calledUrl.origin + calledUrl.pathname).toBe(
-        'https://maps.googleapis.com/maps/api/place/textsearch/json'
-      );
     });
   });
 });

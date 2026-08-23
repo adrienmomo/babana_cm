@@ -5,9 +5,11 @@ import { getGoogleMapsApiKey, getSearchUrl } from './config';
  * Recherche de lieu et géocodage inverse (L6-01, spécification) via les API REST Google Places
  * et Geocoding -- pas le SDK Places embarqué (react-native ne l'exposant pas nativement sans
  * dépendance supplémentaire, et ces deux appels sont de simples requêtes HTTP, testables sans
- * SDK réel, critère d'acceptation 4).
+ * SDK réel, critère d'acceptation 4). L'adresse de recherche (`searchPlace`) n'a plus de valeur
+ * en dur ici depuis D43 -- `getSearchUrl` (config.ts) l'exige configurée, jamais un repli
+ * implicite vers `https://maps.googleapis.com/maps/api/place/textsearch/json` (c'est la
+ * production qui doit désormais poser cette adresse explicitement en `searchUrl`).
  */
-const PLACES_TEXT_SEARCH_URL = 'https://maps.googleapis.com/maps/api/place/textsearch/json';
 const GEOCODE_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
 
 interface GooglePlacesTextSearchResult {
@@ -57,7 +59,7 @@ function normalizeSearchResult(result: SearchResult): PlaceResult {
 }
 
 export async function searchPlace(query: string): Promise<PlaceResult[]> {
-  const url = new URL(getSearchUrl(PLACES_TEXT_SEARCH_URL));
+  const url = new URL(getSearchUrl());
   // `query` (Google) et `q` (mock-maps, D19) portées toutes les deux -- chaque serveur ignore le
   // paramètre qu'il ne connaît pas, ce qui évite de faire dépendre le nom du paramètre du
   // fournisseur ciblé.

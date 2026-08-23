@@ -91,7 +91,7 @@ def verify_google_id_token(id_token: str) -> dict:
     — c'est le piège documenté de cette tâche, et la cause classique d'usurpation de compte sur
     ce type d'intégration.
     """
-    jwks_url = os.environ.get("GOOGLE_JWKS_URL", "https://www.googleapis.com/oauth2/v3/certs")
+    jwks_url = _jwks_url()
     allowed_audiences = _allowed_audiences()
 
     try:
@@ -135,6 +135,19 @@ def verify_google_id_token(id_token: str) -> dict:
         raise InvalidGoogleToken("email_verified est faux")
 
     return claims
+
+
+def _jwks_url() -> str:
+    """Adresse du jeu de clés JWKS -- plus de repli implicite vers la vraie adresse Google si la
+    variable est absente (D43, amoa/questions/REPONSES-2026-08-28.md §4) : ce repli est
+    exactement ce qui a caché une nuit entière la vraie cause d'un défaut symétrique côté
+    recherche de lieu (@babana/maps, providers/google/config.ts). Une adresse de fournisseur
+    externe non configurée doit échouer bruyamment, jamais retomber silencieusement sur la vraie
+    API avec un destinataire différent de celui attendu."""
+    url = os.environ.get("GOOGLE_JWKS_URL")
+    if not url:
+        raise RuntimeError("GOOGLE_JWKS_URL n'est pas configurée")
+    return url
 
 
 def _allowed_audiences() -> list[str]:
