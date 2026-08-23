@@ -3,6 +3,7 @@ import { envelopeSchema } from './envelope';
 import { LatLngSchema, MoneyAmountSchema, RideIdSchema, DriverIdSchema, IsoDateTimeSchema } from '../http/common';
 import { NearbyDriverSchema } from '../http/driver';
 import { RideStateSchema } from '../http/ride';
+import { FareBreakdownSchema, VehicleClassSchema } from '../http/quote';
 
 /**
  * Tous les messages émis DEPUIS le serveur, à destination de l'application Chauffeur ou de
@@ -89,10 +90,28 @@ export const RideProposedPayloadSchema = z.object({
 export const RideProposedMessageSchema = envelopeSchema('ride.proposed', RideProposedPayloadSchema);
 export type RideProposedMessage = z.infer<typeof RideProposedMessageSchema>;
 
-/** Destinataire : client. Le chauffeur a accepté (transition -> assigned). */
+/**
+ * Destinataire : client. Le chauffeur a accepté (transition -> assigned).
+ *
+ * `firstName`/`photoUrl`/`motorcycleClass`/`licensePlate` ajoutés le 25 août (D41,
+ * amoa/questions/REPONSES-2026-08-25.md §2) : de quoi reconnaître la moto qui arrive. Avant
+ * l'affectation, rien de tout cela ne quitte le serveur pour ce client — `nearby.drivers`
+ * (précédent, ci-dessus) reste la seule vue disponible, et son schéma n'a pas changé :
+ * `licensePlate` en particulier n'y figure toujours pas (C2b, la flotte ne doit pas être
+ * balayable par un client qui ne fait que regarder). C'est le choix du client qui fait basculer
+ * la sensibilité de la même donnée — ce client-là a choisi ce chauffeur-là.
+ *
+ * Nullable, même raison que `NearbyDriverSchema` (D30) : un profil chauffeur qu'Odoo n'a jamais
+ * fini de synchroniser ne doit jamais retarder ni bloquer l'envoi de `ride.assigned` — la
+ * confirmation de l'affectation elle-même ne dépend d'aucun de ces quatre champs.
+ */
 export const RideAssignedPayloadSchema = z.object({
   rideId: RideIdSchema,
   driverId: DriverIdSchema,
+  firstName: z.string().nullable(),
+  photoUrl: z.string().url().nullable(),
+  motorcycleClass: VehicleClassSchema.nullable(),
+  licensePlate: z.string().nullable(),
 });
 export const RideAssignedMessageSchema = envelopeSchema('ride.assigned', RideAssignedPayloadSchema);
 export type RideAssignedMessage = z.infer<typeof RideAssignedMessageSchema>;
@@ -127,12 +146,22 @@ export const RideStartedPayloadSchema = z.object({
 export const RideStartedMessageSchema = envelopeSchema('ride.started', RideStartedPayloadSchema);
 export type RideStartedMessage = z.infer<typeof RideStartedMessageSchema>;
 
-/** Destinataire : client. Transition -> completed. */
+/**
+ * Destinataire : client. Transition -> completed.
+ *
+ * `breakdown` ajouté le 25 août (amoa/questions/REPONSES-2026-08-25.md §2) : le résumé de fin
+ * est ce qu'un client relira en cas de litige, il doit être ce que le serveur a écrit — pas
+ * seulement le montant total, pas ce que l'application aurait accumulé en route. Réutilise
+ * `FareBreakdownSchema` de C-01 (`POST /quote`) : même détail décomposé, une seule définition
+ * (D17) — le montant final de `POST /rides/{id}/complete` (L4-04) est celui de l'estimation
+ * gelée à la création (L2-04), jamais recalculé, donc le même détail s'applique tel quel.
+ */
 export const RideCompletedPayloadSchema = z.object({
   rideId: RideIdSchema,
   distanceMeters: z.number().int().nonnegative(),
   durationSeconds: z.number().int().nonnegative(),
   amount: MoneyAmountSchema,
+  breakdown: FareBreakdownSchema,
 });
 export const RideCompletedMessageSchema = envelopeSchema('ride.completed', RideCompletedPayloadSchema);
 export type RideCompletedMessage = z.infer<typeof RideCompletedMessageSchema>;

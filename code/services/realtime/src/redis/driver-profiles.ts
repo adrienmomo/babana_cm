@@ -23,6 +23,14 @@ export interface DriverProfile {
   photoUrl: string | null;
   rating: number | null;
   motorcycleClass: 'standard' | 'premium' | null;
+  /**
+   * Ajouté le 25 août (D41, amoa/questions/REPONSES-2026-08-25.md §2) : de quoi reconnaître la
+   * moto qui arrive, une fois seulement un chauffeur affecté. `nearby/projection.ts` ne lit
+   * jamais ce champ (liste blanche explicite, C2b) -- seul `proposal/lifecycle.ts::accept`
+   * (`ride.assigned`) le fait. Le cache est le même que celui de `nearby.drivers` : même donnée
+   * Odoo, même fraîcheur, deux consommateurs qui ne projettent pas les mêmes champs.
+   */
+  licensePlate: string | null;
 }
 
 const DRIVER_PROFILE_KEY_PREFIX = 'babana:driver:profile:';

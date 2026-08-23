@@ -39,6 +39,7 @@ const PROFILE: DriverProfile = {
   photoUrl: 'https://storage.babana.cm/mock/drivers/paul.jpg',
   rating: 4.8,
   motorcycleClass: 'standard',
+  licensePlate: 'LT-1234-BC',
 };
 
 const NEARBY_DRIVER_WHITELIST = ['driverId', 'firstName', 'photoUrl', 'rating', 'motorcycleClass', 'position', 'distanceMeters'].sort();

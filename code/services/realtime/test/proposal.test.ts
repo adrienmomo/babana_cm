@@ -17,6 +17,7 @@ import { setOnline, setOffline } from '../src/driver/availability';
 import { storePosition } from '../src/redis/positions';
 import { addEligibleToPool } from '../src/redis/pool-eligibility';
 import { parseConfig, type Config } from '../src/config';
+import { setDriverProfile, type DriverProfile } from '../src/redis/driver-profiles';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const RUN_ID = randomUUID().slice(0, 8);
@@ -112,6 +113,18 @@ describe('ProposalLifecycle (L3-07)', () => {
     const clientUserId = id('accept-client');
     const rideId = randomUUID();
 
+    // D41 (amoa/questions/REPONSES-2026-08-25.md §2) : ride.assigned porte désormais de quoi
+    // reconnaître la moto -- seedé directement dans le cache (setDriverProfile), même patron que
+    // nearby.test.ts, pour ne pas dépendre d'un Odoo réellement joignable dans ce test unitaire.
+    const profile: DriverProfile = {
+      firstName: 'Paul',
+      photoUrl: 'https://storage.babana.cm/mock/drivers/paul.jpg',
+      rating: 4.8,
+      motorcycleClass: 'standard',
+      licensePlate: 'LT-1234-BC',
+    };
+    await setDriverProfile(redis, driverId, profile);
+
     const driverSocket = fakeSocket();
     const clientSocket = fakeSocket();
     registry.add(driverContext(driverId), driverSocket.socket);
@@ -132,7 +145,43 @@ describe('ProposalLifecycle (L3-07)', () => {
 
     assert.equal(clientSocket.messages.length, 1);
     assert.equal(clientSocket.messages[0]!.type, 'ride.assigned');
-    assert.deepEqual(clientSocket.messages[0]!.payload, { rideId, driverId });
+    assert.deepEqual(clientSocket.messages[0]!.payload, {
+      rideId,
+      driverId,
+      firstName: profile.firstName,
+      photoUrl: profile.photoUrl,
+      motorcycleClass: profile.motorcycleClass,
+      licensePlate: profile.licensePlate,
+    });
+  });
+
+  test('critère 1 bis -- un profil pas encore synchronisé dégrade en null, ne bloque pas ride.assigned (D30/D41)', async () => {
+    const config = configWith();
+    const registry = new ConnectionRegistry();
+    const lifecycle = new ProposalLifecycle(config, redis, registry);
+
+    const driverId = await availableDriver('accept-driver-no-profile');
+    const clientUserId = id('accept-client-no-profile');
+    const rideId = randomUUID();
+
+    const driverSocket = fakeSocket();
+    const clientSocket = fakeSocket();
+    registry.add(driverContext(driverId), driverSocket.socket);
+    registry.add(clientContext(clientUserId), clientSocket.socket);
+
+    await lifecycle.propose(driverId, proposalDetails(rideId, clientUserId));
+    const accepted = await lifecycle.accept(driverId, rideId);
+    assert.equal(accepted, true);
+
+    assert.equal(clientSocket.messages.length, 1);
+    assert.deepEqual(clientSocket.messages[0]!.payload, {
+      rideId,
+      driverId,
+      firstName: null,
+      photoUrl: null,
+      motorcycleClass: null,
+      licensePlate: null,
+    });
   });
 
   test('critère 2 -- le refus explicite libère le chauffeur et notifie le client (ride.rejected), sans proposal.expired', async () => {

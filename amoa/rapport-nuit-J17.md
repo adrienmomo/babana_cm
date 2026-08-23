@@ -167,6 +167,58 @@ garde-fou C2b qui fonctionne, pas un défaut du parcours.
 
 ---
 
+## D41 — l'extension de contrat que L6-09 attend
+
+Périmètre de spécification : `ride.assigned` porte prénom, photo, gamme et immatriculation ;
+`ride.completed` porte le détail décomposé. Décidé et arbitré le 25 août
+(`amoa/questions/REPONSES-2026-08-25.md` §2) — cette tâche l'implémente.
+
+### `ride.assigned` : quatre champs nullables, un seul nouveau canal de donnée
+
+`RideAssignedPayloadSchema` (`packages/contracts/src/realtime/server-to-client.ts`) gagne
+`firstName`, `photoUrl`, `motorcycleClass` (réutilise `VehicleClassSchema` de `quote.ts` plutôt
+que de redéclarer l'énumération, D17) et **`licensePlate`** — le champ que C2b interdit partout
+ailleurs. Tous nullables, même raison que `NearbyDriverSchema` (D30) : un profil chauffeur
+qu'Odoo n'a pas fini de synchroniser ne doit jamais retarder ni bloquer l'envoi de la confirmation
+d'affectation elle-même.
+
+**La frontière C2b ne bouge pas** : `services/odoo/addons/babana/controllers/
+internal_profiles.py::_project` gagne `licensePlate` (`driver.motorcycle_id.license_plate`), mais
+c'est un canal interne (authentifié par secret partagé, jamais atteignable depuis le mobile ni
+Caddy) lu par deux consommateurs distincts côté temps réel — `nearby/projection.ts`, qui continue
+de ne PAS lire ce champ (liste blanche explicite, inchangée), et `proposal/lifecycle.ts::accept`,
+qui le lit pour la première fois, seulement au moment où le chauffeur est réellement accepté.
+Même cache Redis que `nearby.drivers` (`redis/driver-profiles.ts::DriverProfile`, TTL de
+fraîcheur, pas d'expiration qui perdrait un profil déjà lu) — une seule lecture Odoo, deux
+projections différentes en sortie.
+
+### `ride.completed` : le détail décomposé, pas recalculé
+
+`RideCompletedPayloadSchema` gagne `breakdown: FareBreakdownSchema` — réutilise exactement le
+schéma de `POST /quote` (D17), cohérent avec le fait que le montant final de
+`POST /rides/{id}/complete` (L4-04) est celui de l'estimation gelée à la création, jamais
+recalculé. Aucun point d'appel existant à mettre à jour : `ride.completed`/`ride.started` ne sont
+émis nulle part encore dans `services/realtime/src` (vérifié par recherche, pas supposé) — cette
+partie du contrat attend son émetteur, une tâche encore non assignée, distincte de L3-09 dont le
+périmètre est le suivi de position, pas le cycle de vie de la course.
+
+**Fichiers.** `packages/contracts/src/realtime/server-to-client.ts`,
+`packages/contracts/test/realtime.test.ts` (exemples mis à jour),
+`docs/contracts/realtime-events.md` (doc à jour, D17 — le contrat est du code, la doc le suit).
+`services/odoo/addons/babana/controllers/internal_profiles.py`,
+`services/odoo/addons/babana/tests/test_internal_profiles_controller.py` (cinq champs, pas
+quatre). `services/realtime/src/redis/driver-profiles.ts`,
+`services/realtime/src/proposal/lifecycle.ts` (le seul point d'appel réel de `ride.assigned`),
+plus les fixtures `DriverProfile` des tests existants (`expand.test.ts`, `nearby.test.ts`,
+`driver-profiles.test.ts`) étendues du champ requis.
+
+**Vérifié.** Suite Odoo (`TestInternalProfilesController`, 7 tests) et suite `@babana/contracts`
+(66 tests) vertes. Suite `services/realtime` complète (126 tests, dont deux nouveaux pour
+`accept()` : profil présent avec les quatre champs, profil absent dégradé en `null`) verte deux
+fois de suite contre Redis réel.
+
+---
+
 ## Doute pour un client réel
 
 **Le rejeu concurrent existait probablement ailleurs aussi, jamais prouvé avant ce soir.** Le
@@ -182,5 +234,13 @@ la classe de défaut mérite sa propre preuve).
 dangereux en soi (rien ne l'appelle), mais un contrat qui documente un endpoint qui n'existe pas
 est le genre d'écart qui trompe un développeur pressé — à trancher (retirer, ou construire) avant
 qu'il ne soit cité comme référence par erreur.
+
+**`ride.assigned` porte l'immatriculation dès l'affectation, jamais retirée après.** D41 dit « rien
+ne change avant l'affectation » — c'est vrai à l'émission. Mais rien, côté serveur, n'efface ce
+que le client a reçu une fois la course terminée ou annulée : l'app garde en mémoire (état de
+navigation, pas persisté) la plaque d'un chauffeur avec qui la course est finie. Sans conséquence
+tant que L6-09 (l'écran qui l'affiche) n'existe pas encore, mais la tâche qui le construira devra
+décider explicitement quand cette donnée cesse d'être affichée — pas la garder par défaut parce
+que rien ne l'a dit de faire autrement.
 
 ---

@@ -11,6 +11,7 @@ import { engagementKey } from '../driver/keys';
 import { proposalRideIdKey, proposalRecordKey } from './keys';
 import { ProposalTimeoutTimers } from './timeout';
 import { reportDriverAccepted, reportDriverRejected } from '../odoo/rides';
+import { getDriverProfiles } from '../redis/driver-profiles';
 
 /**
  * Cycle de proposition (L3-07) : après une réservation réussie (L3-06), notifier le chauffeur,
@@ -151,11 +152,26 @@ export class ProposalLifecycle {
 
     const record = await this.consumeRecord(driverId);
     if (record) {
+      // D41 (amoa/questions/REPONSES-2026-08-25.md §2) : de quoi reconnaître la moto qui arrive
+      // -- prénom, photo, gamme, ET immatriculation, celle-ci pour la première fois puisque
+      // `nearby.drivers` ne l'a jamais portée (C2b, projection.ts ne la lit pas). Même cache que
+      // `nearby.drivers` (redis/driver-profiles.ts) : un profil pas encore synchronisé dégrade
+      // en `null`, ne retarde ni ne bloque l'envoi de `ride.assigned` (même raisonnement que
+      // D30, étendu de la disponibilité d'un chauffeur à la confirmation d'une affectation).
+      const profiles = await getDriverProfiles(this.config, this.redis, [driverId]);
+      const profile = profiles.get(driverId) ?? null;
       this.sendToClient(record.clientUserId, {
         type: 'ride.assigned',
         id: randomUUID(),
         emittedAt: new Date().toISOString(),
-        payload: { rideId: record.rideId, driverId },
+        payload: {
+          rideId: record.rideId,
+          driverId,
+          firstName: profile?.firstName ?? null,
+          photoUrl: profile?.photoUrl ?? null,
+          motorcycleClass: profile?.motorcycleClass ?? null,
+          licensePlate: profile?.licensePlate ?? null,
+        },
       });
     }
     return true;

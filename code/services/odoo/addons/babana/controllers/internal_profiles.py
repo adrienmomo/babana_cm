@@ -52,8 +52,15 @@ class InternalDriverProfilesController(http.Controller):
         """Liste blanche champ par champ (critère 4) : jamais driver.read(), jamais un champ
         ajouté ici sans décision explicite -- même discipline que
         services/realtime/src/nearby/projection.ts côté temps réel (L3-05/L3-16). Si la seule
-        protection contre une fuite (numéro de téléphone, immatriculation...) était la projection
-        côté temps réel, elle tomberait le jour où quelqu'un y ajouterait un champ "pratique"."""
+        protection contre une fuite (numéro de téléphone...) était la projection côté temps
+        réel, elle tomberait le jour où quelqu'un y ajouterait un champ "pratique".
+
+        `licensePlate` ajouté le 25 août (D41, amoa/questions/REPONSES-2026-08-25.md §2) --
+        décision explicite, pas l'exception que le paragraphe ci-dessus met en garde contre.
+        Ce canal est interne (authenticated_internal_call, jamais atteignable depuis le mobile
+        ni Caddy) : la frontière C2b qui compte reste `nearby/projection.ts`, qui n'expose
+        toujours PAS ce champ à `nearby.drivers` -- seul `ride.assigned`
+        (`proposal/lifecycle.ts::accept`) le lit, une fois le chauffeur choisi et affecté."""
         first_name = None
         if driver.employee_id and driver.employee_id.name:
             # Seul le prénom est affiché (C2b) -- aucun champ prénom/nom séparé sur hr.employee
@@ -68,6 +75,7 @@ class InternalDriverProfilesController(http.Controller):
         rating = driver.rating_avg if driver.rating_count > 0 else None
 
         motorcycle_class = driver.motorcycle_id.vehicle_class if driver.motorcycle_id else None
+        license_plate = driver.motorcycle_id.license_plate if driver.motorcycle_id else None
 
         return {
             "firstName": first_name,
@@ -77,4 +85,5 @@ class InternalDriverProfilesController(http.Controller):
             "photoUrl": None,
             "rating": rating,
             "motorcycleClass": motorcycle_class,
+            "licensePlate": license_plate,
         }

@@ -84,11 +84,11 @@ liste vide — que L6-08 traduit en `NO_DRIVER_AVAILABLE`.
 | `nearby.drivers` | Client | `{ drivers: NearbyDriver[] }` (max 5) | Réponse à `nearby.subscribe`, puis mises à jour |
 | `nearby.subscribe.ack` | Client | `{ accepted: true }` ou `{ accepted: false, retryAfterMs }` | Accusé de réception de `nearby.subscribe` |
 | `ride.proposed` | Client | `{ rideId, driverId, proposalExpiresAt }` | Le chauffeur choisi a été réservé |
-| `ride.assigned` | Client | `{ rideId, driverId }` | Le chauffeur a accepté |
+| `ride.assigned` | Client | `{ rideId, driverId, firstName, photoUrl, motorcycleClass, licensePlate }` | Le chauffeur a accepté |
 | `ride.rejected` | Client | `{ rideId, driverId, reason }` | Le chauffeur a refusé ou le délai a expiré |
 | `driver.position` | Client | `{ rideId, position }` | Suivi pendant une course affectée ou en cours |
 | `ride.started` | Client | `{ rideId }` | Transition `→ in_progress` |
-| `ride.completed` | Client | `{ rideId, distanceMeters, durationSeconds, amount }` | Transition `→ completed` |
+| `ride.completed` | Client | `{ rideId, distanceMeters, durationSeconds, amount, breakdown }` | Transition `→ completed` |
 | `session.synced` | Client ou chauffeur | `{ activeRideId, activeRideState, serverTime }` | Voir « Politique de reconnexion » |
 
 `ride.cancelled` a un seul émetteur (le serveur) mais deux destinataires possibles selon qui est
@@ -102,6 +102,20 @@ poussé à deux connexions différentes.
 `driverId` permet à L6-08 d'écarter précisément ce chauffeur de la liste réaffichée ; `reason`
 permet de ne pas confondre un chauffeur qui refuse explicitement d'un chauffeur qui ne répond
 pas, deux situations que le client ne vit pas de la même façon.
+
+`ride.assigned` porte `firstName`, `photoUrl`, `motorcycleClass` et **`licensePlate`** depuis le
+25 août (D41, `amoa/questions/REPONSES-2026-08-25.md` §2) — de quoi reconnaître la moto qui
+arrive. `licensePlate` est délibérément absent de tout ce qui précède l'affectation
+(`nearby.drivers` ci-dessus, schéma inchangé) : la flotte ne doit pas être balayable par un
+client qui ne fait que regarder (C2b). C'est le choix qui fait basculer la sensibilité de la
+même donnée — ce client-là a choisi ce chauffeur-là, et il attend au bord d'une route de Douala,
+où une plaque se reconnaît mieux qu'un visage sous un casque. Les quatre champs sont nullables,
+même raison que `NearbyDriver` (D30) : un profil qu'Odoo n'a pas fini de synchroniser ne doit
+jamais retarder l'envoi de `ride.assigned` lui-même.
+
+`ride.completed` porte `breakdown` (même `FareBreakdown` que `POST /quote`, C-01) depuis le
+25 août — le résumé de fin est ce qu'un client relira en cas de litige, il doit être ce que le
+serveur a écrit, pas seulement le montant total.
 
 `nearby.drivers` réutilise exactement le schéma `NearbyDriver` de C-01 (`GET /drivers/nearby`,
 `packages/contracts/src/http/driver.ts`) : même `.strict()`, mêmes champs, une seule définition

@@ -43,9 +43,9 @@ class TestInternalProfilesController(HttpCase):
         response = self._post({"driverIds": []}, secret="not-the-secret")
         self.assertEqual(response.status_code, 401)
 
-    # --- Critère 1 : les quatre champs viennent d'Odoo ---------------------------------------
+    # --- Critère 1 : les cinq champs viennent d'Odoo ------------------------------------------
 
-    def test_returns_the_four_whitelisted_fields(self):
+    def test_returns_the_five_whitelisted_fields(self):
         driver = self._make_approved_driver("Paul Ekwalla", vehicle_class="premium")
 
         response = self._post({"driverIds": [driver.public_id]}, secret=self._real_secret())
@@ -56,6 +56,10 @@ class TestInternalProfilesController(HttpCase):
         self.assertEqual(profile["motorcycleClass"], "premium")
         self.assertIsNone(profile["photoUrl"])
         self.assertIsNone(profile["rating"], "rating_count est un champ-pont, toujours 0 (L4-09)")
+        # licensePlate (D41, 25 août) : décision explicite pour ce canal interne uniquement --
+        # jamais exposé par nearby.drivers (voir services/realtime/src/nearby/projection.ts, qui
+        # ne le lit pas), seulement par ride.assigned une fois le chauffeur affecté.
+        self.assertEqual(profile["licensePlate"], driver.motorcycle_id.license_plate)
 
     # --- Critère 3 : un seul appel gère tout un lot -------------------------------------------
 
@@ -80,7 +84,8 @@ class TestInternalProfilesController(HttpCase):
 
         profile = response.json()["profiles"][driver.public_id]
         self.assertEqual(
-            set(profile.keys()), {"firstName", "photoUrl", "rating", "motorcycleClass"}
+            set(profile.keys()),
+            {"firstName", "photoUrl", "rating", "motorcycleClass", "licensePlate"},
         )
         serialized = json.dumps(profile)
         for forbidden in ("Confidentiel", "license_plate", "employee_id", "phone"):

@@ -190,7 +190,19 @@ describe('exemples valides — serveur vers client', () => {
       })
     );
     assert.doesNotThrow(() =>
-      RideAssignedMessageSchema.parse({ type: 'ride.assigned', id: randomUUID(), emittedAt: now, payload: { rideId, driverId } })
+      RideAssignedMessageSchema.parse({
+        type: 'ride.assigned',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: {
+          rideId,
+          driverId,
+          firstName: 'Paul',
+          photoUrl: null,
+          motorcycleClass: 'standard',
+          licensePlate: 'LT-1234-BC',
+        },
+      })
     );
     assert.doesNotThrow(() =>
       RideRejectedMessageSchema.parse({
@@ -216,7 +228,21 @@ describe('exemples valides — serveur vers client', () => {
         type: 'ride.completed',
         id: randomUUID(),
         emittedAt: now,
-        payload: { rideId, distanceMeters: 4300, durationSeconds: 800, amount: 1200 },
+        payload: {
+          rideId,
+          distanceMeters: 4300,
+          durationSeconds: 800,
+          amount: 1200,
+          breakdown: {
+            baseFare: 200,
+            distanceFare: 900,
+            surgeAmount: 0,
+            discountAmount: 0,
+            floorAmount: 0,
+            roundingAmount: 100,
+            minimumFareApplied: false,
+          },
+        },
       })
     );
   });
