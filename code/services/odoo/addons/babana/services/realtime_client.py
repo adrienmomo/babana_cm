@@ -225,3 +225,115 @@ def notify_cash_limit_cleared(env, *, driver_public_id: str) -> None:
     **D32** : au COMMIT, jamais pendant -- une validation rejouée ou finalement annulée n'a pas
     réellement fait repasser le chauffeur sous le plafond."""
     env.cr.postcommit.add(lambda: _notify_cash_limit_cleared_now(driver_public_id=driver_public_id))
+
+
+def _notify_ride_started_now(*, ride_public_id: str, client_user_public_id: str, driver_public_id: str) -> None:
+    try:
+        _post(
+            "/internal/rides/started",
+            {
+                "rideId": ride_public_id,
+                "clientUserId": client_user_public_id,
+                "driverId": driver_public_id,
+            },
+        )
+    except RealtimeUnavailable:
+        _logger.warning(
+            "échec de la notification ride.started pour la course %s -- le client ne verra pas "
+            "le démarrage tant qu'il ne resynchronise pas (L3-11, session.resync).",
+            ride_public_id,
+        )
+
+
+def notify_ride_started(env, *, ride_public_id: str, client_user_public_id: str, driver_public_id: str) -> None:
+    """Démarrage de course (L3-19, assigned -> in_progress) : pousse `ride.started` (C-02) au
+    client déjà abonné (`ride.track`, L3-09) et au chauffeur -- même message, deux destinataires
+    (spécification L3-19 : "c'est le même message poussé à deux abonnés différents", même
+    raisonnement que `ride.cancelled`, server-to-client.ts). Best-effort, comme les autres appels
+    de ce module : la transition Odoo reste appliquée même si cette notification échoue, il n'y a
+    ici aucun état à réconcilier (contrairement à l'engagement) -- un client qui rate ce message
+    précis retrouve l'état réel à sa prochaine resynchronisation (L3-11) ou à la diffusion
+    suivante de `driver.position` qui, elle, continue sans interruption.
+
+    **D32** : au COMMIT, jamais pendant -- une transition annulée ou rejouée (D25) ne doit pas
+    avoir déjà annoncé au client que sa course avait démarré. **D33** : `action_start`
+    (babana_ride_state.py) ne porte aujourd'hui aucun savepoint (vérifié dans le code, pas
+    supposé) -- rien à protéger ici, l'appel est enregistré directement après l'écriture."""
+    env.cr.postcommit.add(
+        lambda: _notify_ride_started_now(
+            ride_public_id=ride_public_id,
+            client_user_public_id=client_user_public_id,
+            driver_public_id=driver_public_id,
+        )
+    )
+
+
+def _notify_ride_completed_now(
+    *,
+    ride_public_id: str,
+    client_user_public_id: str,
+    driver_public_id: str,
+    distance_meters: int,
+    duration_seconds: int,
+    amount: float,
+    breakdown: dict,
+) -> None:
+    try:
+        _post(
+            "/internal/rides/completed",
+            {
+                "rideId": ride_public_id,
+                "clientUserId": client_user_public_id,
+                "driverId": driver_public_id,
+                "distanceMeters": distance_meters,
+                "durationSeconds": duration_seconds,
+                "amount": amount,
+                "breakdown": breakdown,
+            },
+        )
+    except RealtimeUnavailable:
+        _logger.warning(
+            "échec de la notification ride.completed pour la course %s -- le résumé de fin "
+            "reste inatteignable pour ce client tant qu'il ne resynchronise pas (L3-11).",
+            ride_public_id,
+        )
+
+
+def notify_ride_completed(
+    env,
+    *,
+    ride_public_id: str,
+    client_user_public_id: str,
+    driver_public_id: str,
+    distance_meters: int,
+    duration_seconds: int,
+    amount: float,
+    breakdown: dict,
+) -> None:
+    """Fin de course (L3-19, in_progress -> completed) : pousse `ride.completed` (C-02, D41) au
+    client et au chauffeur -- `breakdown` est le détail décomposé GELÉ à la création de la course
+    (fare_rule_snapshot, L2-04), jamais recalculé (D41 : "le résumé de fin doit être ce que le
+    serveur a écrit"), construit par l'appelant via `services.pricing.round_breakdown_for_wire`.
+
+    Sans lien avec `clear_engagement` (L3-17, appelé séparément par le contrôleur après
+    `action_complete`) : cette notification ne touche aucun état Redis, elle ne fait que pousser
+    -- D31, "cet émetteur notifie, il ne transitionne rien". Elle ne dépend donc pas de l'ordre
+    d'enregistrement des deux appels postcommit, contrairement à ce qu'aurait exigé une
+    implémentation qui serait passée par la session de suivi (`tracking/session.ts`) pour
+    retrouver les destinataires.
+
+    **D32** : au COMMIT, jamais pendant. **D33** : `action_complete` ne porte aujourd'hui aucun
+    savepoint (vérifié dans le code, pas supposé -- contrairement à ce que le lot de nuit
+    supposait ; voir amoa/rapport-nuit-J19.md) -- rien à protéger, l'appel est enregistré
+    directement après l'écriture."""
+    env.cr.postcommit.add(
+        lambda: _notify_ride_completed_now(
+            ride_public_id=ride_public_id,
+            client_user_public_id=client_user_public_id,
+            driver_public_id=driver_public_id,
+            distance_meters=distance_meters,
+            duration_seconds=duration_seconds,
+            amount=amount,
+            breakdown=breakdown,
+        )
+    )

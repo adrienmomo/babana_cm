@@ -214,6 +214,19 @@ class BabanaRide(models.Model):
         self.ensure_one()
         return self.estimated_amount
 
+    def _babana_client_public_id(self):
+        """Identifiant public du CLIENT (res.users.babana_public_id, L1-01) de cette course --
+        pas res.partner.id (interne, séquentiel), pas babana_google_sub (res.partner, L1-04) qui
+        n'est pas l'identifiant exposé aux apps mobiles. `client_id` est un res.partner ; l'app
+        s'authentifie comme un res.users (UserIdSchema, C-01) -- une seule requête pour faire le
+        pont, ajoutée pour L3-19 (notify_ride_started/notify_ride_completed, realtime_client.py),
+        qui ont besoin de la même identité que reserve_and_propose (controllers/ride.py) déjà
+        connaît via `user.babana_public_id` côté appelant client, mais que action_start/
+        action_complete (chauffeur appelant) n'ont pas sous la main."""
+        self.ensure_one()
+        user = self.env["res.users"].sudo().search([("partner_id", "=", self.client_id.id)], limit=1)
+        return user.babana_public_id or None
+
     @api.model_create_multi
     def create(self, vals_list):
         for vals in vals_list:

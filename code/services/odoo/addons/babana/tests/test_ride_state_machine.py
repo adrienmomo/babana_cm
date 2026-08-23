@@ -6,11 +6,15 @@
 # supprimé d'ici.
 from __future__ import annotations
 
+import json
+from unittest.mock import patch
+
 import psycopg2
 from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase, tagged
 
 from ..models.babana_ride_state import RideInvalidTransition
+from ..services import realtime_client
 
 
 @tagged("post_install", "-at_install")
@@ -359,3 +363,124 @@ class TestRideStateMachine(TransactionCase):
 
         self.assertEqual(str(ctx.exception), "DRIVER_ALREADY_TAKEN")
         self.assertEqual(ride2.state, "requested", "aucune transition n'a eu lieu")
+
+    # === L3-19 : action_start / action_complete appellent l'émetteur du cycle de vie ==========
+    #
+    # Preuve de CÂBLAGE (cette méthode appelle bien la bonne fonction, avec les bons arguments) --
+    # complète, sans la remplacer, la preuve du POINT D'ACCROCHE au commit (D32/D33,
+    # test_realtime_commit_hook.py, contre un _FakeEnv qui simule réellement commit/rollback) et
+    # celle de la LIVRAISON aux deux destinataires (services/realtime/test/internal.test.ts,
+    # contre un Redis et des WebSocket réels). Un test HttpCase de bout en bout NE PEUT PAS
+    # prouver ce câblage-ci : constaté en en écrivant un (amoa/rapport-nuit-J19.md) -- `--test-
+    # enable` enveloppe TOUTE requête HTTP dans TestCursor (`Registry.cursor`), dont `commit()`
+    # vide `postcommit` SANS jamais l'exécuter (`odoo.sql_db.TestCursor.commit`, docstring :
+    # "TestCursor ignores post-commit hooks by default") -- aucun appel HTTP interne n'a jamais
+    # atteint le service temps réel, sans la moindre erreur ni avertissement pour le signaler.
+
+    def _link_user_to_partner(self, partner, label):
+        """`_make_partner` (fixture de ce fichier) ne crée qu'un res.partner, jamais le
+        res.users qu'une vraie inscription /auth/google pose à côté (res_users.py) -- ce
+        qu'`action_start`/`action_complete` doivent traverser pour retrouver
+        `babana_public_id` (babana_ride.py::_babana_client_public_id). Posé ici pour les tests
+        qui en ont besoin, jamais dans `_make_partner` lui-même : les tests qui n'en ont pas
+        besoin doivent rester le cas dégradé (voir test_action_start_does_not_notify_without_a_
+        linked_user ci-dessous)."""
+        return self.env["res.users"].sudo().create(
+            {"name": f"Client {label}", "login": f"{label}-{partner.id}@example.invalid", "partner_id": partner.id}
+        )
+
+    def _base_vals_with_snapshot(self, client):
+        vals = self._base_vals(client)
+        vals["fare_rule_snapshot"] = json.dumps(
+            {
+                "base_fare": 200.0,
+                "distance_fare": 1000.0,
+                "surge_amount": 0.0,
+                "discount_amount": 0.0,
+                "floor_amount": 0.0,
+                "rounding_amount": 0.0,
+                "minimum_fare_applied": False,
+                "total": 1200.0,
+            }
+        )
+        return vals
+
+    def test_action_start_notifies_ride_started(self):
+        client = self._make_partner()
+        client_user = self._link_user_to_partner(client, "start-notify")
+        driver = self._make_driver()
+        ride = self.env["babana.ride"].action_request(self._base_vals(client))
+        ride.action_propose(by_partner=client, driver=driver)
+        ride.action_accept(by_driver=driver)
+
+        with patch.object(realtime_client, "notify_ride_started") as mock_notify:
+            ride.action_start(by_driver=driver)
+
+        mock_notify.assert_called_once_with(
+            self.env,
+            ride_public_id=ride.public_id,
+            client_user_public_id=client_user.babana_public_id,
+            driver_public_id=driver.public_id,
+        )
+
+    def test_action_start_does_not_notify_without_a_linked_user(self):
+        # Dégradation silencieuse (babana_ride.py::_babana_client_public_id) plutôt qu'une
+        # exception : un client_id sans res.users rattaché (jamais le cas d'une vraie course,
+        # toujours celui d'une fixture de test qui crée directement le partenaire) ne doit pas
+        # faire échouer la transition elle-même.
+        ride, _client, driver = self._ride_at_assigned()
+
+        with patch.object(realtime_client, "notify_ride_started") as mock_notify:
+            ride.action_start(by_driver=driver)
+
+        mock_notify.assert_not_called()
+
+    def test_action_complete_notifies_ride_completed_with_the_frozen_breakdown(self):
+        client = self._make_partner()
+        client_user = self._link_user_to_partner(client, "complete-notify")
+        driver = self._make_driver()
+        ride = self.env["babana.ride"].action_request(self._base_vals_with_snapshot(client))
+        ride.action_propose(by_partner=client, driver=driver)
+        ride.action_accept(by_driver=driver)
+        ride.action_start(by_driver=driver)
+
+        with patch.object(realtime_client, "notify_ride_completed") as mock_notify:
+            ride.action_complete(
+                by_driver=driver,
+                actual_distance_km=5.2,
+                actual_duration_minutes=18,
+                final_amount=1200,
+            )
+
+        mock_notify.assert_called_once_with(
+            self.env,
+            ride_public_id=ride.public_id,
+            client_user_public_id=client_user.babana_public_id,
+            driver_public_id=driver.public_id,
+            distance_meters=5200,
+            duration_seconds=1080,
+            amount=1200,
+            breakdown={
+                "baseFare": 200,
+                "distanceFare": 1000,
+                "surgeAmount": 0,
+                "discountAmount": 0,
+                "floorAmount": 0,
+                "roundingAmount": 0,
+                "minimumFareApplied": False,
+            },
+        )
+
+    def test_action_complete_does_not_notify_without_a_fare_rule_snapshot(self):
+        # _ride_at_assigned() (fixture de ce fichier) crée la course par action_request direct,
+        # sans passer par /quote -- fare_rule_snapshot reste vide, comme documenté dans
+        # babana_ride_state.py::action_complete.
+        ride, _client, driver = self._ride_at_assigned()
+        ride.action_start(by_driver=driver)
+
+        with patch.object(realtime_client, "notify_ride_completed") as mock_notify:
+            ride.action_complete(
+                by_driver=driver, actual_distance_km=5.0, actual_duration_minutes=15, final_amount=1000,
+            )
+
+        mock_notify.assert_not_called()

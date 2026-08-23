@@ -11,6 +11,7 @@
 # censé rendre impossible d'oublier de garder synchronisé.
 from __future__ import annotations
 
+import json
 import logging
 
 import psycopg2
@@ -18,6 +19,7 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 
 from ..services import realtime_client
+from ..services.pricing import FareBreakdown, round_breakdown_for_wire
 
 _logger = logging.getLogger(__name__)
 
@@ -294,6 +296,18 @@ class BabanaRideState(models.Model):
             {"state": "in_progress", "started_at": fields.Datetime.now()}
         )
         self._babana_journalize("ride_start")
+
+        # L3-19 (D31, D32) : pousse ride.started au client suivi et au chauffeur -- notifie
+        # seulement, ne transitionne rien. Aucun savepoint ici (vérifié : cette méthode n'en
+        # porte pas), donc rien à protéger de D33 -- l'appel suit directement l'écriture.
+        client_public_id = self._babana_client_public_id()
+        if client_public_id:
+            realtime_client.notify_ride_started(
+                self.env,
+                ride_public_id=self.public_id,
+                client_user_public_id=client_public_id,
+                driver_public_id=by_driver.public_id,
+            )
         return self
 
     # --- 7. in_progress -> completed ----------------------------------------------------------
@@ -323,6 +337,31 @@ class BabanaRideState(models.Model):
             }
         )
         self._babana_journalize("ride_completion")
+
+        # L3-19 (D31, D32) : pousse ride.completed au client suivi et au chauffeur, avec le
+        # détail décomposé GELÉ à la création (fare_rule_snapshot, D41) -- jamais recalculé, le
+        # résumé de fin doit être ce que le serveur a réellement écrit. Aucun savepoint ici
+        # (vérifié : cette méthode n'en porte pas, malgré ce que le lot de nuit supposait --
+        # amoa/rapport-nuit-J19.md) : rien à protéger de D33, l'appel suit directement l'écriture.
+        #
+        # `fare_rule_snapshot` absent (courses créées directement par les tests hors du vrai
+        # flux /quote -> /rides, ex. test_ride_state_machine.py) : dégrade en silence plutôt que
+        # de lever -- même principe que D30 (un défaut de donnée dégrade l'affichage, jamais la
+        # disponibilité). Une vraie course, elle, passe toujours par /quote (L2-04/L4-03R) et
+        # porte donc toujours ce champ.
+        client_public_id = self._babana_client_public_id()
+        if client_public_id and self.fare_rule_snapshot:
+            breakdown = FareBreakdown(**json.loads(self.fare_rule_snapshot))
+            realtime_client.notify_ride_completed(
+                self.env,
+                ride_public_id=self.public_id,
+                client_user_public_id=client_public_id,
+                driver_public_id=by_driver.public_id,
+                distance_meters=round(actual_distance_km * 1000),
+                duration_seconds=round(actual_duration_minutes * 60),
+                amount=round(final_amount),
+                breakdown=round_breakdown_for_wire(breakdown),
+            )
         return self
 
     # --- 8. completed -> settled ---------------------------------------------------------------

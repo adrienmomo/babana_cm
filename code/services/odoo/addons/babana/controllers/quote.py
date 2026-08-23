@@ -14,7 +14,7 @@ from odoo import fields, http
 
 from . import _common
 from ..services import routing
-from ..services.pricing import FareRuleInput, compute_fare
+from ..services.pricing import FareRuleInput, compute_fare, round_breakdown_for_wire
 
 _logger = logging.getLogger(__name__)
 
@@ -29,32 +29,6 @@ QUOTE_VALIDITY_DEFAULT = 300  # 5 minutes -- "de l'ordre de quelques minutes" (L
 # amoa/questions/L2-04.md.
 ETA_CORRECTION_FACTOR_PARAM = "babana.eta_correction_factor"
 ETA_CORRECTION_FACTOR_DEFAULT = 1.0
-
-
-def _round_breakdown_for_wire(breakdown) -> dict:
-    """XAF n'a pas de sous-unité (packages/contracts/src/http/common.ts, MoneyAmountSchema) :
-    chaque composante doit voyager en entier. Arrondir composante par composante indépendamment
-    casserait l'identité « la somme des composantes égale le total » (L2-03, critère 4) dès que
-    l'une d'elles porte une partie fractionnaire de FCFA (ex. distance_km non entier) -- rounding
-    (déjà chargé d'absorber l'arrondi au pas configuré côté pur) absorbe ici en plus l'arrondi
-    entier d'affichage, pour que l'identité reste exacte sur ce qui est effectivement montré au
-    client. Le détail brut (float), lui, reste stocké tel quel dans fare_rule_snapshot."""
-    base = round(breakdown.base_fare)
-    distance = round(breakdown.distance_fare)
-    surge = round(breakdown.surge_amount)
-    discount = round(breakdown.discount_amount)
-    floor = round(breakdown.floor_amount)
-    total = round(breakdown.total)
-    rounding = total - (base + distance + surge - discount + floor)
-    return {
-        "baseFare": base,
-        "distanceFare": distance,
-        "surgeAmount": surge,
-        "discountAmount": discount,
-        "floorAmount": floor,
-        "roundingAmount": rounding,
-        "minimumFareApplied": breakdown.minimum_fare_applied,
-    }
 
 
 class QuoteController(http.Controller):
@@ -151,7 +125,7 @@ class QuoteController(http.Controller):
             }
         )
 
-        wire_breakdown = _round_breakdown_for_wire(breakdown)
+        wire_breakdown = round_breakdown_for_wire(breakdown)
         return {
             "quoteId": quote.public_id,
             "amount": round(breakdown.total),

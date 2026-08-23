@@ -18,6 +18,7 @@ import os
 import re
 import socket
 from pathlib import Path
+from unittest.mock import patch
 
 from odoo.tests.common import HttpCase, tagged
 
@@ -240,6 +241,72 @@ class TestRealtimeCommitHook(HttpCase):
         self.assertFalse(_redis_exists(engagement_key))
         self.assertFalse(_redis_exists(reservation_key))
 
+    # --- notify_ride_started / notify_ride_completed (L3-19) --------------------------------
+    #
+    # Ni l'une ni l'autre ne touche Redis (D31 : "cet émetteur notifie, il ne transitionne
+    # rien") -- contrairement à clear_engagement/notify_cancellation_async ci-dessus, il n'y a
+    # donc aucune clé observable pour prouver que l'appel HTTP a (ou n'a pas) eu lieu. La preuve
+    # porte ici sur `_post` elle-même (patch.object), même niveau que
+    # test_settlement.py::test_settle_notifies_the_realtime_service_once_the_limit_is_crossed --
+    # ce que ce test-ci vérifie est le POINT D'ACCROCHE (rollback n'appelle jamais, commit
+    # appelle exactement une fois), pas la livraison réseau réelle (couverte côté service temps
+    # réel par services/realtime/test/internal.test.ts).
+
+    def test_notify_ride_started_does_not_call_out_if_the_transaction_rolls_back(self):
+        env = _FakeEnv()
+        with patch.object(realtime_client, "_post") as mock_post:
+            realtime_client.notify_ride_started(
+                env, ride_public_id="ride-1", client_user_public_id="client-1", driver_public_id="driver-1"
+            )
+            env.cr.rollback()
+        mock_post.assert_not_called()
+
+    def test_notify_ride_started_calls_out_once_the_transaction_actually_commits(self):
+        env = _FakeEnv()
+        with patch.object(realtime_client, "_post") as mock_post:
+            realtime_client.notify_ride_started(
+                env, ride_public_id="ride-1", client_user_public_id="client-1", driver_public_id="driver-1"
+            )
+            env.cr.commit()
+        mock_post.assert_called_once_with(
+            "/internal/rides/started",
+            {"rideId": "ride-1", "clientUserId": "client-1", "driverId": "driver-1"},
+        )
+
+    def test_notify_ride_completed_does_not_call_out_if_the_transaction_rolls_back(self):
+        env = _FakeEnv()
+        breakdown = {
+            "baseFare": 200, "distanceFare": 1000, "surgeAmount": 0, "discountAmount": 0,
+            "floorAmount": 0, "roundingAmount": 0, "minimumFareApplied": False,
+        }
+        with patch.object(realtime_client, "_post") as mock_post:
+            realtime_client.notify_ride_completed(
+                env, ride_public_id="ride-1", client_user_public_id="client-1", driver_public_id="driver-1",
+                distance_meters=2000, duration_seconds=300, amount=1200, breakdown=breakdown,
+            )
+            env.cr.rollback()
+        mock_post.assert_not_called()
+
+    def test_notify_ride_completed_calls_out_once_the_transaction_actually_commits(self):
+        env = _FakeEnv()
+        breakdown = {
+            "baseFare": 200, "distanceFare": 1000, "surgeAmount": 0, "discountAmount": 0,
+            "floorAmount": 0, "roundingAmount": 0, "minimumFareApplied": False,
+        }
+        with patch.object(realtime_client, "_post") as mock_post:
+            realtime_client.notify_ride_completed(
+                env, ride_public_id="ride-1", client_user_public_id="client-1", driver_public_id="driver-1",
+                distance_meters=2000, duration_seconds=300, amount=1200, breakdown=breakdown,
+            )
+            env.cr.commit()
+        mock_post.assert_called_once_with(
+            "/internal/rides/completed",
+            {
+                "rideId": "ride-1", "clientUserId": "client-1", "driverId": "driver-1",
+                "distanceMeters": 2000, "durationSeconds": 300, "amount": 1200, "breakdown": breakdown,
+            },
+        )
+
 
 class TestRealtimeCommitHookLint(HttpCase):
     """Vérifié par le lint (CLAUDE.md, frontière D32) : « Aucun appel sortant vers le service
@@ -265,6 +332,8 @@ class TestRealtimeCommitHookLint(HttpCase):
         "notify_cancellation_async",
         "notify_cash_limit_reached",
         "notify_cash_limit_cleared",
+        "notify_ride_started",
+        "notify_ride_completed",
     )
 
     def test_every_gated_call_passes_env_as_its_first_argument(self):

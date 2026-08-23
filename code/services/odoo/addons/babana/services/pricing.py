@@ -98,6 +98,38 @@ def compute_fare(
     )
 
 
+def round_breakdown_for_wire(breakdown: FareBreakdown) -> dict:
+    """XAF n'a pas de sous-unité (packages/contracts/src/http/common.ts, MoneyAmountSchema) :
+    chaque composante doit voyager en entier. Arrondir composante par composante indépendamment
+    casserait l'identité « la somme des composantes égale le total » (L2-03, critère 4) dès que
+    l'une d'elles porte une partie fractionnaire de FCFA (ex. distance_km non entier) -- rounding
+    (déjà chargé d'absorber l'arrondi au pas configuré côté pur) absorbe ici en plus l'arrondi
+    entier d'affichage, pour que l'identité reste exacte sur ce qui est effectivement montré au
+    client. Le détail brut (float), lui, reste stocké tel quel dans fare_rule_snapshot.
+
+    Déplacé de controllers/quote.py (L3-19) : `ride.completed` (C-02, D41) doit porter le même
+    détail décomposé que POST /quote, gelé à la création de la course (fare_rule_snapshot) et
+    jamais recalculé -- une fonction pure ici, importable par le contrôleur de cotation ET par
+    le modèle babana.ride, sans faire dépendre un modèle d'un contrôleur (mauvais sens de
+    dépendance)."""
+    base = round(breakdown.base_fare)
+    distance = round(breakdown.distance_fare)
+    surge = round(breakdown.surge_amount)
+    discount = round(breakdown.discount_amount)
+    floor = round(breakdown.floor_amount)
+    total = round(breakdown.total)
+    rounding = total - (base + distance + surge - discount + floor)
+    return {
+        "baseFare": base,
+        "distanceFare": distance,
+        "surgeAmount": surge,
+        "discountAmount": discount,
+        "floorAmount": floor,
+        "roundingAmount": rounding,
+        "minimumFareApplied": breakdown.minimum_fare_applied,
+    }
+
+
 def _compute_discount(subtotal: float, promotion: PromotionInput) -> float:
     if promotion.type == "percentage":
         discount = subtotal * (promotion.value / 100.0)

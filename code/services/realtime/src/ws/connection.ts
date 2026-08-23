@@ -34,6 +34,13 @@ export interface ConnectionHandler {
    * WebSocket réellement ouvertes.
    */
   proposals: ProposalLifecycle;
+  /**
+   * Exposé pour `server.ts` (L3-19) : `http/internal.ts::/internal/rides/started|completed`
+   * pousse `ride.started`/`ride.completed` directement sur ce registre -- même raison que
+   * `proposals` ci-dessus, la MÊME instance que celle qui suit les connexions réellement
+   * ouvertes (`ws/auth.ts::ConnectionRegistry`), pas un second registre déconnecté.
+   */
+  registry: ConnectionRegistry;
 }
 
 export function createConnectionHandler(config: Config, redis: Redis): ConnectionHandler {
@@ -108,5 +115,5 @@ export function createConnectionHandler(config: Config, redis: Redis): Connectio
     });
   });
 
-  return { wss, proposals };
+  return { wss, proposals, registry };
 }

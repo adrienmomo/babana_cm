@@ -24,11 +24,12 @@ async function computeHealth(config: Config, redis: Redis) {
 }
 
 export function createServer(config: Config, redis: Redis): Server {
-  const { wss, proposals } = createConnectionHandler(config, redis);
+  const { wss, proposals, registry } = createConnectionHandler(config, redis);
   // Même instance que celle qui traite proposal.accept/proposal.reject côté WebSocket
   // (ws/connection.ts) -- /internal/reservations doit poser sa proposition sur les mêmes
-  // minuteurs et le même registre de connexions, pas sur une seconde instance isolée.
-  const internal = createInternalHandler({ config, redis, proposals });
+  // minuteurs et le même registre de connexions, pas sur une seconde instance isolée. `registry`
+  // (L3-19) : même raison, pour /internal/rides/started|completed.
+  const internal = createInternalHandler({ config, redis, proposals, registry });
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '', 'http://internal');

@@ -1,14 +1,17 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type Redis from 'ioredis';
 import { z } from 'zod';
+import { http as httpContract } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ProposalLifecycle, ProposalDetails } from '../proposal/lifecycle';
+import type { ConnectionRegistry } from '../ws/auth';
 import { wasRecentlySent } from '../nearby/last-sent';
 import { withIdempotency } from '../reservation/idempotency';
 import { clearEngaged } from '../driver/engagement';
 import { endRideSessionForDriver } from '../tracking/session';
 import { reintegrateIfEligible } from '../redis/pool-eligibility';
 import { blockForCash, unblockForCash } from '../driver/cash-guard';
+import { broadcastRideStarted, broadcastRideCompleted } from '../tracking/broadcast';
 
 /**
  * Endpoint HTTP interne, sens Odoo -> temps réel (L3-17). Authentifié par `REALTIME_SHARED_SECRET`
@@ -30,6 +33,10 @@ import { blockForCash, unblockForCash } from '../driver/cash-guard';
  *   sous le plafond (D8, L5-04, critère 5) -- lève le blocage et le réintègre au pool s'il est
  *   par ailleurs toujours éligible (en ligne, positionné, ni engagé ni réservé). Ne le remet
  *   jamais en ligne lui-même -- symétrique de `cash-blocked`, jamais un ajout inconditionnel.
+ * - `POST /internal/rides/started` / `/internal/rides/completed` (L3-19) : pousse
+ *   `ride.started`/`ride.completed` (C-02) au client suivi ET au chauffeur -- déclenché au
+ *   COMMIT (D32) par `action_start`/`action_complete`. Ne touche aucun état Redis : notifie,
+ *   ne transitionne rien (D31).
  */
 
 export const INTERNAL_PATH_PREFIX = '/internal/';
@@ -42,6 +49,7 @@ export interface InternalRouterDeps {
   config: Config;
   redis: Redis;
   proposals: ProposalLifecycle;
+  registry: ConnectionRegistry;
 }
 
 const ReservationRequestSchema = z.object({
@@ -64,6 +72,28 @@ const ReleaseRequestSchema = z.object({ driverId: z.string().min(1) });
 const ClearEngagementRequestSchema = z.object({ driverId: z.string().min(1) });
 const CashBlockedRequestSchema = z.object({ driverId: z.string().min(1) });
 const CashUnblockedRequestSchema = z.object({ driverId: z.string().min(1) });
+
+// L3-19 : rideId/clientUserId/driverId transmis directement par Odoo, qui les connaît déjà
+// (babana.ride.client_id/driver_id) -- pas une lecture de tracking/session.ts, qui introduirait
+// une dépendance d'ordre avec /internal/engagement/clear (même requête HTTP côté Odoo, voir
+// controllers/ride.py::_complete_ride) sans rien apporter.
+const RideStartedRequestSchema = z.object({
+  rideId: z.string().min(1),
+  clientUserId: z.string().min(1),
+  driverId: z.string().min(1),
+});
+
+const RideCompletedRequestSchema = z.object({
+  rideId: z.string().min(1),
+  clientUserId: z.string().min(1),
+  driverId: z.string().min(1),
+  distanceMeters: z.number().int().nonnegative(),
+  durationSeconds: z.number().int().nonnegative(),
+  amount: z.number(),
+  // Réutilise le schéma du contrat (D17) -- une seule définition du détail décomposé, celle que
+  // `ride.completed` (server-to-client.ts) exporte déjà.
+  breakdown: httpContract.FareBreakdownSchema,
+});
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   const chunks: Buffer[] = [];
@@ -164,6 +194,26 @@ async function handleCashUnblocked(deps: InternalRouterDeps, rawBody: unknown, r
   sendJson(res, 200, { unblocked: true });
 }
 
+async function handleRideStarted(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
+  const parsed = RideStartedRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    sendJson(res, 400, { error: 'VALIDATION_ERROR', details: parsed.error.issues });
+    return;
+  }
+  broadcastRideStarted(deps.registry, parsed.data);
+  sendJson(res, 200, { notified: true });
+}
+
+async function handleRideCompleted(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
+  const parsed = RideCompletedRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    sendJson(res, 400, { error: 'VALIDATION_ERROR', details: parsed.error.issues });
+    return;
+  }
+  broadcastRideCompleted(deps.registry, parsed.data);
+  sendJson(res, 200, { notified: true });
+}
+
 export function createInternalHandler(deps: InternalRouterDeps) {
   return async function handleInternal(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<void> {
     const secret = req.headers['x-realtime-secret'];
@@ -199,6 +249,12 @@ export function createInternalHandler(deps: InternalRouterDeps) {
         return;
       case '/internal/drivers/cash-unblocked':
         await handleCashUnblocked(deps, body, res);
+        return;
+      case '/internal/rides/started':
+        await handleRideStarted(deps, body, res);
+        return;
+      case '/internal/rides/completed':
+        await handleRideCompleted(deps, body, res);
         return;
       default:
         sendJson(res, 404, { error: 'NOT_FOUND' });

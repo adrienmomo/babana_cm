@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type Redis from 'ioredis';
 import type { WebSocket } from 'ws';
-import { realtime } from '@babana/contracts';
+import { realtime, http } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ConnectionContext } from '../ws/auth';
+import type { ConnectionRegistry } from '../ws/auth';
 import { getRideSession } from './session';
 import { getPosition } from '../redis/positions';
 import { haversineDistanceMeters } from './validation';
@@ -104,5 +105,89 @@ function buildDriverPositionMessage(
     id: randomUUID(),
     emittedAt: new Date().toISOString(),
     payload: { rideId, position, etaSeconds },
+  };
+}
+
+/**
+ * Émetteur du cycle de vie de course (L3-19), sens Odoo -> temps réel : `http/internal.ts`
+ * reçoit `/internal/rides/started|completed` déclenché au COMMIT (D32) par
+ * `action_start`/`action_complete` (babana_ride_state.py), et pousse ici -- même patron d'envoi
+ * que `proposal/lifecycle.ts::send` (registre ciblé par identité de connexion, jamais par une
+ * relecture de session), à DEUX destinataires : le client suivi ET le chauffeur, « le même
+ * message poussé à deux abonnés différents » (spécification L3-19). Odoo fournit `clientUserId`/
+ * `driverId` directement (il les connaît déjà, `babana.ride.client_id`/`driver_id`) -- pas de
+ * lecture de `tracking/session.ts` ici, qui introduirait une dépendance d'ordre avec
+ * `handleClearEngagement` (fin de course, même requête) sans rien apporter : notifie, ne
+ * transitionne rien (D31).
+ */
+export function broadcastRideStarted(
+  registry: ConnectionRegistry,
+  params: { rideId: string; clientUserId: string; driverId: string }
+): void {
+  sendToRideParticipants(registry, params.clientUserId, params.driverId, buildRideStartedMessage(params.rideId));
+}
+
+export function broadcastRideCompleted(
+  registry: ConnectionRegistry,
+  params: {
+    rideId: string;
+    clientUserId: string;
+    driverId: string;
+    distanceMeters: number;
+    durationSeconds: number;
+    amount: number;
+    breakdown: http.FareBreakdown;
+  }
+): void {
+  sendToRideParticipants(
+    registry,
+    params.clientUserId,
+    params.driverId,
+    buildRideCompletedMessage(params)
+  );
+}
+
+function sendToRideParticipants(
+  registry: ConnectionRegistry,
+  clientUserId: string,
+  driverId: string,
+  message: realtime.ServerToClientMessage
+): void {
+  const payload = JSON.stringify(message);
+  for (const socket of registry.getByUserId(clientUserId)) {
+    if (socket.readyState === socket.OPEN) socket.send(payload);
+  }
+  for (const socket of registry.getByDriverId(driverId)) {
+    if (socket.readyState === socket.OPEN) socket.send(payload);
+  }
+}
+
+function buildRideStartedMessage(rideId: string): realtime.RideStartedMessage {
+  return {
+    type: 'ride.started',
+    id: randomUUID(),
+    emittedAt: new Date().toISOString(),
+    payload: { rideId },
+  };
+}
+
+function buildRideCompletedMessage(params: {
+  rideId: string;
+  distanceMeters: number;
+  durationSeconds: number;
+  amount: number;
+  breakdown: http.FareBreakdown;
+}): realtime.RideCompletedMessage {
+  return {
+    type: 'ride.completed',
+    id: randomUUID(),
+    emittedAt: new Date().toISOString(),
+    payload: {
+      rideId: params.rideId,
+      distanceMeters: params.distanceMeters,
+      durationSeconds: params.durationSeconds,
+      amount: params.amount,
+      breakdown: params.breakdown,
+    },
   };
 }

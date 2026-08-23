@@ -118,3 +118,41 @@ par L4-06 -- l'aurait rendu réel. Arbitrage : D33 (`amoa/questions/REPONSES-202
 `env.cr.postcommit`) ne s'enregistre qu'**après la sortie réussie** du savepoint qui l'a produit,
 jamais depuis l'intérieur. Retenir l'intention (un booléen, un identifiant) pendant le savepoint,
 enregistrer l'appel une fois qu'on sait que l'effet a vraiment eu lieu.
+
+---
+
+## `cr.postcommit` ne s'exécute jamais dans un test `--test-enable`, `HttpCase` compris
+
+`Registry.cursor()` renvoie un `TestCursor` dès que `registry.test_cr` est posé -- ce qui couvre
+**toute la durée d'une exécution `--test-enable`**, y compris les requêtes HTTP réellement servies
+par le thread de fond d'un `HttpCase` (`url_open`). Or `TestCursor.commit()` vide `postcommit`
+**sans l'exécuter** ("TestCursor ignores post-commit hooks by default", `odoo/sql_db.py`). Un test
+qui appelle une vraie route HTTP puis attend l'effet d'un appel sortant enregistré par
+`env.cr.postcommit.add(...)` (`realtime_client.py`) ne verra donc **jamais** cet effet -- pas une
+seule fois, sans la moindre erreur ni avertissement pour le signaler : le rappel est simplement
+jeté au moment du commit.
+
+Découvert le 23 août (L3-19) en écrivant un test `HttpCase` censé prouver que `POST /rides/{id}/
+start` fait réellement recevoir `ride.started` à un client WebSocket réel : dix secondes
+d'attente, aucun message, aucun appel sortant journalisé côté service temps réel -- alors que la
+même vérification, isolée dans un script hors du harnais de test, fonctionnait immédiatement.
+
+**Ce n'est pas nouveau à L3-19** : `clear_engagement` (L3-17) souffre du même sort dans
+`test_ride_controller.py` depuis sa création -- aucun test HttpCase existant n'a jamais prouvé que
+l'engagement se relâche réellement côté temps réel après un `/complete` réel, uniquement que la
+transition Odoo elle-même a lieu.
+
+**Règle** : prouver un effet accroché à `cr.postcommit` demande de contourner `TestCursor`, jamais
+de l'affronter :
+- **Le point d'accroche** (s'enregistre-t-il au commit, jamais pendant, jamais depuis un
+  savepoint ?) se prouve avec un `_FakeEnv`/`_FakeCursor` qui reproduit `commit()`/`rollback()`
+  fidèlement (voir `test_realtime_commit_hook.py`) -- jamais `self.env` d'un test Odoo.
+- **Le câblage** (la bonne méthode appelle-t-elle la bonne fonction, avec les bons arguments ?) se
+  prouve par `patch.object` sur la fonction de `realtime_client`, dans un `TransactionCase` --
+  n'a besoin d'aucun commit réel, seulement que l'appel Python ait eu lieu.
+- **La livraison réelle** (l'appel HTTP produit-il l'effet attendu de l'autre côté ?) se prouve
+  côté service temps réel lui-même (`services/realtime/test/*.test.ts`, contre un Redis/WebSocket
+  réels), jamais en la redemandant à un test Odoo.
+
+Les trois preuves composées remplacent ce qu'un unique test HttpCase de bout en bout promettait
+de couvrir mais ne peut structurellement pas prouver.

@@ -10,8 +10,9 @@
 // tout ce qui pourrait le déclencher en production.
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHmac } from 'node:crypto';
 import Redis from 'ioredis';
+import { WebSocket } from 'ws';
 import { createServer } from '../src/server';
 import { parseConfig, type Config } from '../src/config';
 import { setOnline, setOffline } from '../src/driver/availability';
@@ -77,6 +78,80 @@ async function post(path: string, body: unknown, headers: Record<string, string>
   });
   const json = await response.json();
   return { status: response.status, body: json as Record<string, unknown> };
+}
+
+// --- Signature de jetons applicatifs de test (L3-19) -- même construction que ws.test.ts, non
+// partagée entre fichiers de test (chacun de ce service pose la sienne, patron déjà établi). ---
+function sign(claims: Record<string, unknown>, secret: string): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
+  const signature = createHmac('sha256', secret).update(`${header}.${payload}`).digest('base64url');
+  return `${header}.${payload}.${signature}`;
+}
+
+// AccessTokenClaimsSchema (@babana/contracts, D23) exige sub/driverId au format UUID, et
+// driverId ABSENT (pas null) hors du rôle chauffeur -- les identifiants "lisibles" (`id(...)`)
+// utilisés ailleurs dans ce fichier pour driverId/clientUserId ne conviennent donc pas ici : ce
+// sont toujours de vrais UUID (`randomUUID()`) qui signent la connexion ET voyagent dans le
+// corps de la requête interne, pour que registry.getByUserId/getByDriverId les retrouvent.
+function tokenFor(role: 'client' | 'driver', userId: string, driverId?: string): string {
+  const now = Math.floor(Date.now() / 1000);
+  const claims: Record<string, unknown> = {
+    sub: userId,
+    role,
+    iat: now,
+    exp: now + 3600,
+    jti: randomUUID(),
+  };
+  if (role === 'driver') claims.driverId = driverId;
+  return sign(claims, BASE_ENV.JWT_SECRET);
+}
+
+async function connectWs(token: string): Promise<WebSocket> {
+  const ws = new WebSocket(`ws://127.0.0.1:${port}/rt/ws?token=${token}`);
+  await new Promise<void>((resolve, reject) => {
+    ws.once('open', () => resolve());
+    ws.once('close', (code) => reject(new Error(`connexion fermée avant ouverture (code ${code})`)));
+  });
+  return ws;
+}
+
+function waitForMessage(ws: WebSocket, type: string, timeoutMs = 3000): Promise<Record<string, unknown>> {
+  // Filtre par type, jamais la trame suivante quelle qu'elle soit (C-02, discipline de lecture)
+  // -- rien d'autre n'est diffusé sur ce socket ici, mais la règle reste la même partout.
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.off('message', onMessage);
+      reject(new Error(`"${type}" jamais reçu avant ${timeoutMs}ms`));
+    }, timeoutMs);
+    function onMessage(data: Buffer) {
+      const message = JSON.parse(data.toString()) as Record<string, unknown>;
+      if (message.type === type) {
+        clearTimeout(timer);
+        ws.off('message', onMessage);
+        resolve(message);
+      }
+    }
+    ws.on('message', onMessage);
+  });
+}
+
+function assertNoMessage(ws: WebSocket, type: string, timeoutMs = 500): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      ws.off('message', onMessage);
+      resolve();
+    }, timeoutMs);
+    function onMessage(data: Buffer) {
+      const message = JSON.parse(data.toString()) as Record<string, unknown>;
+      if (message.type === type) {
+        clearTimeout(timer);
+        ws.off('message', onMessage);
+        reject(new Error(`message "${type}" inattendu reçu par un tiers`));
+      }
+    }
+    ws.on('message', onMessage);
+  });
 }
 
 async function availableDriver(label: string): Promise<string> {
@@ -222,5 +297,84 @@ describe('POST /internal/engagement/clear (fin de course, critère 6)', () => {
     assert.equal(body.cleared, true);
     assert.equal(await isEngaged(redis, driverId), false);
     assert.equal(await isInPool(redis, driverId), true, 'redevient disponible immédiatement, sans attendre la position suivante');
+  });
+});
+
+describe('POST /internal/rides/started|completed (sens Odoo -> temps réel, L3-19)', () => {
+  test('un corps invalide est rejeté (400)', async () => {
+    const { status } = await post('/internal/rides/started', { rideId: 'x' });
+    assert.equal(status, 400);
+  });
+
+  test('ride.started est poussé au client suivi ET au chauffeur, jamais à un tiers', async () => {
+    const rideId = randomUUID();
+    const clientUserId = randomUUID();
+    const driverId = randomUUID();
+    const strangerUserId = randomUUID();
+
+    const clientWs = await connectWs(tokenFor('client', clientUserId));
+    const driverWs = await connectWs(tokenFor('driver', driverId, driverId));
+    const strangerWs = await connectWs(tokenFor('client', strangerUserId));
+
+    try {
+      const [clientMessage, driverMessage, { status }] = await Promise.all([
+        waitForMessage(clientWs, 'ride.started'),
+        waitForMessage(driverWs, 'ride.started'),
+        post('/internal/rides/started', { rideId, clientUserId, driverId }),
+      ]);
+      assert.equal(status, 200);
+      assert.equal((clientMessage.payload as { rideId: string }).rideId, rideId);
+      assert.equal((driverMessage.payload as { rideId: string }).rideId, rideId);
+      await assertNoMessage(strangerWs, 'ride.started');
+    } finally {
+      clientWs.close();
+      driverWs.close();
+      strangerWs.close();
+    }
+  });
+
+  test('ride.completed porte le détail décomposé transmis par Odoo, aux deux destinataires', async () => {
+    const rideId = randomUUID();
+    const clientUserId = randomUUID();
+    const driverId = randomUUID();
+    const breakdown = {
+      baseFare: 200,
+      distanceFare: 1000,
+      surgeAmount: 0,
+      discountAmount: 0,
+      floorAmount: 0,
+      roundingAmount: 0,
+      minimumFareApplied: false,
+    };
+
+    const clientWs = await connectWs(tokenFor('client', clientUserId));
+    const driverWs = await connectWs(tokenFor('driver', driverId, driverId));
+
+    try {
+      const [clientMessage, driverMessage] = await Promise.all([
+        waitForMessage(clientWs, 'ride.completed'),
+        waitForMessage(driverWs, 'ride.completed'),
+        post('/internal/rides/completed', {
+          rideId,
+          clientUserId,
+          driverId,
+          distanceMeters: 4200,
+          durationSeconds: 720,
+          amount: 1200,
+          breakdown,
+        }),
+      ]);
+      for (const message of [clientMessage, driverMessage]) {
+        const payload = message.payload as Record<string, unknown>;
+        assert.equal(payload.rideId, rideId);
+        assert.equal(payload.distanceMeters, 4200);
+        assert.equal(payload.durationSeconds, 720);
+        assert.equal(payload.amount, 1200);
+        assert.deepEqual(payload.breakdown, breakdown);
+      }
+    } finally {
+      clientWs.close();
+      driverWs.close();
+    }
   });
 });
