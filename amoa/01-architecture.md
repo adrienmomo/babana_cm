@@ -44,6 +44,8 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D37 | **Le jeton rejouable est conservé chiffré, avec une clé dérivée du jeton présenté** — et effacé à la fin de la fenêtre, par une tâche périodique, pas seulement à la prochaine présentation | Le conserver en clair | Sans cela, chaque renouvellement laissait en base, définitivement, le jeton valide de l'utilisateur en clair. Voir §5 |
 | D38 | **Un artefact qui se construit n'est pas un artefact qui fonctionne.** Tout livrable destiné à être ouvert par quelqu'un a pour critère qu'il ait été ouvert | Compilation réussie comme preuve | Le bundle web compilait depuis quatre nuits et affichait une page blanche. Voir §9 |
 | D39 | **L'export web ne persiste aucune session** : rien dans le stockage du navigateur, reconnexion à la réouverture | Trousseau simulé par `localStorage` | Un navigateur n'a pas de trousseau système ; un jeton de renouvellement dans `localStorage` est lisible par toute faille d'injection. Voir §9 |
+| D40 | **Toute date qui traverse le contrat porte son fuseau**, écrite en UTC suffixé par un sérialiseur unique côté Odoo | Assouplir le schéma pour accepter une date nue | Une date sans fuseau n'est pas ambiguë, elle est fausse d'une heure à Douala : un navigateur l'interprète comme heure locale. Voir §5 bis |
+| D41 | **L'immatriculation est révélée à l'affectation**, jamais avant | Ne jamais l'exposer ; l'exposer dès la liste des cinq | Avant le choix, la flotte doit rester non balayable (C2b) ; après, le client doit reconnaître la moto qui arrive. C'est le choix qui fait basculer la règle |
 
 ---
 
@@ -209,6 +211,18 @@ La sortie tient en une observation : le client qui a le droit de rejouer est exa
 **La leçon dépasse le cas.** Une décision qui ajoute une commodité — ici, ne pas déconnecter un chauffeur sur une coupure réseau — peut retirer une garantie posée ailleurs sans que ni l'une ni l'autre ne paraisse fausse isolément. C'est la même forme que D26 et D33 : deux règles correctes qui ne composent pas. La différence, cette fois, est que la règle perdue était une propriété de sécurité, et qu'aucun test ne la vérifiait — d'où le critère 3 ter de L1-02, qui la rend mécanique.
 
 **Vérification du numéro de téléphone.** Google Sign-In ne fournit pas de numéro vérifié. Le numéro reste indispensable : le chauffeur doit pouvoir appeler le client, et le Mobile Money de la phase 2 en dépendra. Un numéro saisi au clavier et jamais vérifié est un risque à assumer explicitement. Mitigation recommandée, à coût quasi nul : **un seul OTP dans la vie du compte**, au moment du rattachement du numéro — pas à chaque connexion.
+
+---
+
+## 5 bis. Le temps qui traverse le contrat (D40)
+
+Une date sans fuseau paraît un détail de formatage. Elle ne l'est pas : un navigateur qui lit `2026-08-22T06:38:44` l'interprète comme une **heure locale**. À Douala, où l'heure locale est en avance d'une heure sur UTC, un instant stocké en UTC et écrit sans suffixe est donc lu **décalé d'une heure**, silencieusement, partout où il s'affiche. Une estimation valable cinq minutes apparaît expirée, ou valable une heure de trop. Un compte à rebours part faux. Un horodatage de course en dispute désigne le mauvais moment.
+
+Le contrat exigeait un format univoque ; Odoo n'en produisait pas, et **c'est Odoo qui avait tort**. Assouplir le schéma aurait fait disparaître le message d'erreur en gardant l'erreur d'une heure — la pire des deux issues, puisqu'elle est muette.
+
+Toute date qui traverse le contrat est donc écrite en UTC, suffixée, par **un sérialiseur unique** : une conversion recopiée dans chaque contrôleur diverge, et cette divergence-là ne se voit pas à la lecture.
+
+**Et ce défaut a tenu six semaines parce qu'aucune suite ne pouvait le voir.** Les tests d'écran simulent le client HTTP ; les tests du client construisent eux-mêmes des réponses déjà bien formées ; les scénarios de bout en bout parlent en `fetch` brut, sans validation de schéma. Aucune suite n'exerçait, en même temps, le vrai Odoo, le vrai client et sa vraie validation. C'est exactement la famille de trou qui avait justifié le critère 5 de C-01 pour le jeton — étendu maintenant aux réponses REST.
 
 ---
 

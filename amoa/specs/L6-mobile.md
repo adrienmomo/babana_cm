@@ -431,6 +431,8 @@ Phase de course : position en direct, tracé, destination.
 
 Accès permanent au partage de trajet (L8-03) et au bouton d'urgence (L8-04). Ces deux fonctions doivent être atteignables en un geste depuis cet écran, pas enfouies dans un menu — leur utilité tient entièrement à leur accessibilité en situation de stress.
 
+**Et si L8-03 et L8-04 n'existent pas encore, ces boutons sont absents, jamais inertes** (précision du 25 août). Un bouton d'urgence qui ne fait rien est pire que pas de bouton du tout : quelqu'un finira par compter dessus au mauvais moment. La même règle vaut partout ailleurs dans ce projet — une absence explicite plutôt qu'une présence trompeuse — mais elle se dit ici, parce que c'est le seul écran où l'illusion peut coûter davantage qu'une course.
+
 Résumé de fin : distance, durée, montant, détail décomposé, notation (L4-09), accès à la facture.
 
 Si la connexion est perdue, l'écran affiche le dernier état connu avec un indicateur explicite, pas une position figée qu'on croirait à jour.

@@ -118,6 +118,10 @@ La réponse de `/me` porte le même objet utilisateur que celui d'une session �
 
 **Casse des champs** : le contrat est en camelCase (`idToken`), y compris quand une spécification de tâche écrit le nom en snake_case dans sa prose. Le contrat fait foi sur le format de fil (D17).
 
+**Toute date porte son fuseau, écrite en UTC suffixé (D40, 25 août).** `IsoDateTimeSchema` l'exigeait déjà ; Odoo écrivait des dates nues, et **chaque réponse portant une date échouait donc sa propre validation côté client** — y compris `POST /rides`, réussi côté serveur, rejeté côté app. Une seule fonction de sérialisation côté Odoo, jamais une conversion recopiée par contrôleur : une divergence de ce genre ne se voit pas à la lecture.
+
+Le motif de ne pas assouplir le schéma est au §5 bis de `01-architecture.md`, et il vaut d'être retenu : une date nue n'est pas ambiguë, elle est **fausse d'une heure** à Douala.
+
 **La charge utile du jeton d'accès fait partie du contrat** (D23, posée le 15 août). Un jeton d'accès est lu par deux implémentations indépendantes — Odoo l'émet en Python, le service temps réel le vérifie en TypeScript sans jamais appeler Odoo (L1-02, L3-01). C'est un format de fil comme un autre, et la règle de D17 s'y applique : il ne se déclare qu'une fois.
 
 ```
@@ -190,6 +194,11 @@ Le chauffeur accepte et refuse par `proposal.accept` / `proposal.reject` (C-02),
 3. Chaque endpoint a au moins un exemple de requête et un exemple de réponse.
 4. Le catalogue d'erreurs est exhaustif : aucun endpoint ne peut renvoyer une erreur non listée.
 5. **Un test de bout en bout obtient un jeton par `/auth/google` et ouvre avec lui une connexion WebSocket acceptée.** Il tourne contre les deux services réels, pas contre des jetons fabriqués par le test. Aucune suite propre à un service ne peut le remplacer : c'est précisément l'accord entre les deux qu'il vérifie.
+6. **Chaque endpoint est appelé contre le vrai Odoo, et sa réponse validée par son propre schéma de réponse** (ajouté le 25 août). Pas une réponse fabriquée par le test : celle que le serveur produit réellement, passée par la validation que le client applique en production.
+
+   C'est le critère qui manquait, et son absence a laissé passer six semaines un défaut qui faisait échouer **toute** commande de course : les tests d'écran simulent le client HTTP, les tests du client construisent des réponses déjà bien formées, les scénarios de bout en bout parlent en `fetch` brut sans validation. Trois suites vertes, et aucune n'exerçait le seul assemblage qui compte — le vrai serveur, le vrai client, la vraie validation.
+
+   La liste des endpoints à couvrir se dérive du contrat lui-même, jamais tenue à la main : un endpoint ajouté sans son test doit faire échouer la suite, comme la machine à états et la matrice d'habilitations le font déjà.
 
 ---
 
@@ -227,6 +236,10 @@ docs/contracts/realtime-events.md
 **Serveur vers chauffeur** : `proposal.new` (course, départ, arrivée, montant, distance, délai restant), `proposal.expired`, `ride.cancelled`, `cash.limit.warning`.
 
 **Serveur vers client** : `nearby.drivers` (les 5 plus proches, position arrondie), `ride.proposed`, `ride.assigned`, `ride.rejected`, `driver.position` (suivi), `ride.started`, `ride.completed`.
+
+**`ride.assigned` porte de quoi reconnaître la moto qui arrive (D41, 25 août)** : prénom, photo, gamme et **immatriculation**. Ce dernier champ est délibérément exclu de tout ce qui précède l'affectation — la flotte ne doit pas être balayable par un client qui ne fait que regarder (C2b). Le choix est ce qui fait basculer la règle : ce client-là a choisi ce chauffeur-là, et il attend au bord d'une route de Douala, où une plaque se reconnaît mieux qu'un visage sous un casque.
+
+**`ride.completed` porte le détail décomposé**, pas seulement le montant. Le résumé de fin est ce qu'un client relira en cas de litige : il doit être ce que le serveur a écrit, pas ce que l'application a accumulé en route.
 
 **Politique de reconnexion** — à spécifier précisément, c'est ce qui sera oublié sinon :
 
