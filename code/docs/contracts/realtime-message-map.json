@@ -12,26 +12,23 @@
     {
       "name": "availability.set",
       "direction": "client-to-server",
-      "status": "pending",
-      "emitter": "aucune app réelle -- même constat que position.update.",
-      "consumer": "réel et testé : dispatch.ts -> driver/availability.ts, services/realtime/test/availability.test.ts.",
-      "reason": "Émetteur manquant -- tâche L6-11 (bascule en ligne/hors ligne, apps/driver), non commencée."
+      "status": "wired",
+      "emitter": "apps/driver/src/components/AvailabilityToggle.tsx (L6-11, 24 août) -- envoyé après une autorisation HTTP réussie (POST /drivers/me/availability), jamais avant, jamais à sa place. apps/driver/src/components/__tests__/AvailabilityToggle.test.tsx.",
+      "consumer": "réel et testé : dispatch.ts -> driver/availability.ts, services/realtime/test/availability.test.ts."
     },
     {
       "name": "proposal.accept",
       "direction": "client-to-server",
-      "status": "pending",
-      "emitter": "aucune app réelle -- même constat que position.update.",
-      "consumer": "réel et testé : dispatch.ts -> proposal/lifecycle.ts::accept, services/realtime/test/proposal.test.ts, test/http-contract/endpoint-coverage.test.ts (setupAssignedRide).",
-      "reason": "Émetteur manquant -- tâche L6-12 (réception de proposition, apps/driver), non commencée."
+      "status": "wired",
+      "emitter": "apps/driver/src/screens/ProposalScreen.tsx (L6-12, 24 août), apps/driver/src/screens/__tests__/ProposalScreen.test.tsx.",
+      "consumer": "réel et testé : dispatch.ts -> proposal/lifecycle.ts::accept, services/realtime/test/proposal.test.ts, test/http-contract/endpoint-coverage.test.ts (setupAssignedRide)."
     },
     {
       "name": "proposal.reject",
       "direction": "client-to-server",
-      "status": "pending",
-      "emitter": "aucune app réelle -- même constat que position.update.",
-      "consumer": "réel et testé : dispatch.ts -> proposal/lifecycle.ts::reject, services/realtime/test/proposal.test.ts.",
-      "reason": "Émetteur manquant -- tâche L6-12 (réception de proposition, apps/driver), non commencée."
+      "status": "wired",
+      "emitter": "apps/driver/src/screens/ProposalScreen.tsx (L6-12, 24 août), apps/driver/src/screens/__tests__/ProposalScreen.test.tsx.",
+      "consumer": "réel et testé : dispatch.ts -> proposal/lifecycle.ts::reject, services/realtime/test/proposal.test.ts."
     },
     {
       "name": "nearby.subscribe",
@@ -58,24 +55,22 @@
       "name": "session.resync",
       "direction": "client-to-server",
       "status": "wired",
-      "emitter": "packages/api-client/src/realtime/connection.ts (à la reconnexion, L3-11) -- utilisé aujourd'hui par apps/client ; apps/driver ne s'y raccorde pas encore (aucune connexion WS), mais le paquet partagé est le même pour les deux (D22).",
+      "emitter": "packages/api-client/src/realtime/connection.ts (à la reconnexion, L3-11) -- utilisé par apps/client, et par apps/driver depuis L6-11 (24 août, apps/driver/src/realtime.ts, même paquet partagé, D22).",
       "consumer": "services/realtime/src/ws/resync.ts::handleSessionResync, services/realtime/test/resync.test.ts."
     },
     {
       "name": "proposal.new",
       "direction": "server-to-client",
-      "status": "pending",
+      "status": "wired",
       "emitter": "réel et testé : services/realtime/src/proposal/lifecycle.ts (après réservation), services/realtime/test/proposal.test.ts.",
-      "consumer": "aucune app réelle -- apps/driver/src/screens/ProposalScreen.tsx n'existe pas encore (L6-12).",
-      "reason": "Consommateur manquant -- tâche L6-12 (réception de proposition, apps/driver), non commencée."
+      "consumer": "apps/driver/src/screens/HomeScreen.tsx (L6-12, 24 août) -- reçoit le message, navigue vers ProposalScreen en lui transmettant tout le contenu (le message n'est diffusé qu'une fois, un abonnement posé au montage de ProposalScreen ne le recevrait jamais une seconde fois). apps/driver/src/screens/__tests__/HomeScreen.test.tsx."
     },
     {
       "name": "proposal.expired",
       "direction": "server-to-client",
-      "status": "pending",
+      "status": "wired",
       "emitter": "réel et testé : proposal/lifecycle.ts::expire, services/realtime/test/proposal.test.ts.",
-      "consumer": "aucune app réelle -- même constat que proposal.new.",
-      "reason": "Consommateur manquant -- tâche L6-12 (réception de proposition, apps/driver), non commencée."
+      "consumer": "apps/driver/src/screens/ProposalScreen.tsx (L6-12, 24 août) -- distingue une expiration simple d'une acceptation tardive (critère 3), retour automatique à l'accueil (critère 4). apps/driver/src/screens/__tests__/ProposalScreen.test.tsx."
     },
     {
       "name": "ride.cancelled",
@@ -147,8 +142,8 @@
       "direction": "server-to-client",
       "status": "pending",
       "emitter": "réel et testé : services/realtime/src/ws/resync.ts, services/realtime/test/resync.test.ts.",
-      "consumer": "aucun réel -- apps/client/src/realtime.ts route génériquement tout message vers onRealtimeMessage, mais aucun écran ne s'abonne à 'session.synced' pour appliquer activeRideId/activeRideState : la reprise de navigation après reconnexion n'est câblée nulle part.",
-      "reason": "Consommateur manquant -- candidat naturel : L6-16 (mode dégradé réseau, apps/client), non commencée. Voir amoa/questions/C-02R.md."
+      "consumer": "partiel depuis L6-11 (24 août) : apps/driver/src/screens/HomeScreen.tsx lit activeRideState pour désactiver la bascule en ligne/hors ligne pendant une course (L3-04, critère 2) -- mais aucun écran, ni côté Client ni côté Chauffeur, n'applique encore activeRideId pour reprendre la navigation après reconnexion (le cas que cette entrée nommait à l'origine).",
+      "reason": "Reprise de navigation après reconnexion toujours non câblée -- candidat naturel : L6-16 (mode dégradé réseau, apps/client), non commencée. Voir amoa/questions/C-02R.md."
     }
   ]
 }
