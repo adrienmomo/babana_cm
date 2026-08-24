@@ -18,6 +18,10 @@ module.exports = {
   // -> createAsyncStorageActionQueue, requis dès la construction du client temps réel, avant même
   // toute connexion -- même raison, même correctif que apps/client/jest.config.js) -- même
   // paquet, même raison que packages/api-client/jest.config.js.
+  //
+  // react-native-push-notification (L6-12) n'a pas besoin d'entrer ici : `__mocks__/
+  // react-native-push-notification.js` le remplace entièrement avant même que Jest n'ait à le
+  // parser (même patron que `__mocks__/react-native-maps.tsx`, déjà dans ce dossier).
   transformIgnorePatterns: [
     'node_modules/(?!((jest-)?react-native|@react-native(-community)?|@react-native-google-signin|@react-navigation|@react-native-async-storage)/)',
   ],

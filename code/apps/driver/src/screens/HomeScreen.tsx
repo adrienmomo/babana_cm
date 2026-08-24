@@ -53,7 +53,17 @@ export function HomeScreen({ navigation }: Props) {
         // en double ou en retard reste possible sur un réseau intermittent.
         const alreadyOnProposal = navigation.getState().routes.some((route) => route.name === 'Proposal');
         if (alreadyOnProposal) return;
-        navigation.navigate('Proposal', { rideId: asRideId(message.payload.rideId) });
+        // Le message entier est transmis (pas seulement rideId) : `proposal.new` ne repasse
+        // jamais deux fois sur `onRealtimeMessage`, un abonnement posé au montage de `Proposal`
+        // ne le recevrait donc jamais (voir navigation/types.ts).
+        navigation.navigate('Proposal', {
+          rideId: asRideId(message.payload.rideId),
+          origin: message.payload.origin,
+          destination: message.payload.destination,
+          amount: message.payload.amount,
+          distanceMeters: message.payload.distanceMeters,
+          expiresAt: message.payload.expiresAt,
+        });
       }
     });
 

@@ -226,3 +226,77 @@ chauffeur pressé pourrait taper l'interrupteur avant que la connexion ne soit p
 pas un problème (l'appel HTTP `setAvailability` ne dépend pas du WebSocket, seul le passage dans
 le pool en dépend, via L3-04), mais rien à l'écran ne le distingue d'un vrai problème de réseau.
 À observer au pilote plutôt qu'à deviner ce soir.
+
+---
+
+## L6-12 — Réception de proposition
+
+### Réveille l'appareil, joue un son, vibre — une dépendance nouvelle, signalée avant d'être ajoutée
+
+Aucune bibliothèque de ce genre n'existait dans `apps/driver` (vérifié). Signalé avant d'ajouter
+quoi que ce soit (CLAUDE.md, « dépendance lourde »). Choix retenu (soumis, tranché) :
+`react-native-push-notification` -- une notification **locale** (déclenchée par l'app à la
+réception de `proposal.new` sur la connexion déjà ouverte, pas une notification distante) réveille
+l'écran, joue le son et vibre par un seul mécanisme (canal Android à importance haute), plutôt que
+trois. `L7-04` (notification push hors connexion, distante celle-là) reste une tâche distincte,
+non touchée ce soir.
+
+`android/app/src/main/AndroidManifest.xml` ne porte que ce qui est strictement nécessaire au
+local : permission `VIBRATE`, la meta-donnée de couleur, et les deux `<receiver>` d'actions/de
+publication -- ni le récepteur de redémarrage (aucune notification programmée à l'avance) ni le
+service Firebase (aucun envoi distant). **Non vérifiable ce soir** : un build Android/iOS réel
+(reprend la liste déjà ouverte, « la vérification développeur Android »).
+
+### « Acceptation tardive » : le seul signal que le fil porte réellement
+
+Écart déposé (`amoa/questions/L6-12.md`) : aucun message serveur ne confirme au **chauffeur**
+qu'une acceptation a réussi (`ride.assigned` ne part que vers le client). Le seul signal négatif
+disponible est `proposal.expired`, déjà prévu pour l'expiration -- et c'est exactement le cas que
+L3-07 nomme comme le plus probable (« le chauffeur appuie à temps, le message arrive en retard »).
+`ProposalScreen.tsx` s'appuie dessus : un délai de grâce fixe après l'envoi de `proposal.accept`,
+pendant lequel un `proposal.expired` reçu bascule vers le message « cette course a été attribuée »
+(critère 3) plutôt que vers `ActiveRide`. Passé ce délai sans rien recevoir, la bascule a lieu --
+un pari raisonnable ce soir puisque `ActiveRide` n'est encore qu'un `PlaceholderScreen` (L6-13),
+mais qui devra être remplacé par un vrai accusé de réception avant que cet écran ne fasse quelque
+chose de réel.
+
+### `proposal.new` transmis en entier à la navigation, jamais relu
+
+`DriverParamList['Proposal']` porte désormais tout le contenu du message, pas seulement `rideId`
+(`navigation/types.ts`) : `proposal.new` est diffusé une seule fois aux abonnés déjà en écoute au
+moment de sa réception (`onRealtimeMessage`) -- un abonnement posé au montage de `ProposalScreen`
+ne le recevrait jamais une seconde fois. Departure/arrivée sont reverse-géocodés côté écran
+(`@babana/maps`), même honnêteté d'affichage que `HomeScreen.tsx` côté Client.
+
+### Tests
+
+`apps/driver/src/screens/__tests__/ProposalScreen.test.tsx` (9), couvrant les 5 critères
+numérotés : réveil au montage (1, via un double `proposalAlert.ts` mocké -- le déclenchement réel
+ne peut pas être vérifié en test unitaire, seulement l'appel), taille tactile (2, mesurée sur le
+style réel des deux boutons), acceptation tardive avec message distinct (3), expiration simple ET
+tardive ramenant automatiquement à l'accueil (4), et la garde contre une double proposition
+(5, déjà testée côté `HomeScreen.test.tsx`, L6-11).
+
+Effet de bord trouvé et corrigé, même famille que celui de L6-11 (async-storage) : le module réel
+de `react-native-push-notification` construit un `NativeEventEmitter` dès son chargement --
+`apps/driver/__mocks__/react-native-push-notification.js`, même patron que
+`__mocks__/react-native-maps.tsx` déjà dans ce dossier (double automatique, sans `jest.mock()`
+explicite dans chaque fichier).
+
+### Fichiers
+
+`apps/driver/src/screens/ProposalScreen.tsx`, `apps/driver/src/components/CountdownRing.tsx`,
+`apps/driver/src/proposalAlert.ts`, `apps/driver/src/format.ts` (nouveaux),
+`apps/driver/src/bootstrap.ts`, `apps/driver/src/navigation/{index.tsx,types.ts}`,
+`apps/driver/android/app/src/main/AndroidManifest.xml`, `apps/driver/package.json`,
+`apps/driver/__mocks__/react-native-push-notification.js`, tests associés.
+
+### Doute pour un chauffeur réel
+
+**Le délai de grâce de 1500 ms est deviné, pas mesuré.** Sur un réseau réellement dégradé (le cas
+courant à Douala, CLAUDE.md), un aller-retour peut dépasser cette valeur -- l'écran basculerait
+alors vers `ActiveRide` alors qu'un `proposal.expired` est encore en chemin. Sans conséquence
+visible ce soir (l'écran de destination est vide), mais c'est exactement le genre d'hypothèse
+temporelle que ce dépôt a appris à se méfier de lui-même (L3-20, cette même nuit). Le seul
+correctif propre est celui déjà proposé dans l'écart : un accusé de réception dédié, qui retire le
+besoin de deviner un délai.
