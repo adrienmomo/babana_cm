@@ -5,6 +5,7 @@ import { pingRedis } from './redis/client';
 import { pingOdoo } from './odoo/client';
 import { createConnectionHandler } from './ws/connection';
 import { createInternalHandler, isInternalPath } from './http/internal';
+import { createShareHandler, isSharePath } from './share/handler';
 
 /**
  * /health (nu) : vérifié directement par le healthcheck Docker, sans passer par Caddy
@@ -30,6 +31,7 @@ export function createServer(config: Config, redis: Redis): Server {
   // minuteurs et le même registre de connexions, pas sur une seconde instance isolée. `registry`
   // (L3-19) : même raison, pour /internal/rides/started|completed.
   const internal = createInternalHandler({ config, redis, proposals, registry });
+  const share = createShareHandler(config, redis);
 
   const server = http.createServer((req, res) => {
     const url = new URL(req.url ?? '', 'http://internal');
@@ -51,6 +53,14 @@ export function createServer(config: Config, redis: Redis): Server {
     // route jamais vers ce préfixe depuis l'extérieur -- seuls /rt/* et /s/* le sont.
     if (isInternalPath(url.pathname)) {
       internal(req, res, url.pathname).catch(() => {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'INTERNAL_ERROR' }));
+      });
+      return;
+    }
+
+    if (isSharePath(url.pathname)) {
+      share(req, res, url.pathname).catch(() => {
         res.writeHead(500, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'INTERNAL_ERROR' }));
       });

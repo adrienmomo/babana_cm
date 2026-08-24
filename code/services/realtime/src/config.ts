@@ -122,6 +122,16 @@ const ConfigSchema = z.object({
    * tout (D30 : c'est nearby/projection.ts qui traduit son absence en champs à `null`, jamais ce
    * paramètre). */
   DRIVER_PROFILE_CACHE_TTL_SECONDS: z.coerce.number().positive().default(30),
+
+  /** Partage de trajet (L8-03), critère d'acceptation 6 : "un jeton partagé publiquement ne doit
+   * pas devenir un point de charge". Fenêtre glissante en mémoire, par jeton -- même patron que
+   * NEARBY_RATE_LIMIT_* (nearby/handler.ts), pas un second mécanisme à inventer. */
+  SHARE_RATE_LIMIT_MAX_REQUESTS: z.coerce.number().int().positive().default(30),
+  SHARE_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().positive().default(60),
+  /** Cadence d'actualisation de la page publique -- même ordre de grandeur que
+   * TRACKING_BROADCAST_INTERVAL_SECONDS (L3-09), pas plus fréquent : un visiteur public sur un
+   * forfait de données compté n'a pas besoin d'une fraîcheur supérieure à celle du client lui-même. */
+  SHARE_POLL_INTERVAL_SECONDS: z.coerce.number().positive().default(10),
 }).refine((config) => config.RESERVATION_TTL_SECONDS > config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS, {
   // Sans cette marge, le filet de sécurité Redis (RESERVATION_TTL_SECONDS) pourrait expirer une
   // réservation AVANT le minuteur JS qui doit normalement trancher en premier (proposal/timeout.ts)

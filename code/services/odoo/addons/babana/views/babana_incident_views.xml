@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        L8-04, critère d'acceptation 3 : « l'alerte apparaît au back-office sans délai ».
+        Non listée dans les fichiers de la tâche (models/controllers/composants d'app
+        seulement), ajoutée quand même : sans une vue, ce critère n'est pas vérifiable, même
+        principe que babana_discrepancy_views.xml (L5-06).
+    -->
+    <record id="babana_incident_view_list" model="ir.ui.view">
+        <field name="name">babana.incident.list</field>
+        <field name="model">babana.incident</field>
+        <field name="arch" type="xml">
+            <list default_order="status asc, create_date asc" decoration-danger="status == 'open'">
+                <field name="create_date" string="Déclenché le"/>
+                <field name="ride_id"/>
+                <field name="trigger_actor"/>
+                <field name="incident_type"/>
+                <field name="emergency_contact_notified"/>
+                <field name="status"/>
+                <field name="handled_by_id"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="babana_incident_view_form" model="ir.ui.view">
+        <field name="name">babana.incident.form</field>
+        <field name="model">babana.incident</field>
+        <field name="arch" type="xml">
+            <form>
+                <header>
+                    <button name="button_acknowledge" type="object" string="Prendre en charge"
+                        class="oe_highlight" invisible="status != 'open'"
+                        groups="babana.group_babana_supervisor"/>
+                    <button name="button_close" type="object" string="Clôturer"
+                        class="oe_highlight" invisible="status != 'acknowledged'"
+                        groups="babana.group_babana_supervisor"/>
+                    <field name="status" widget="statusbar" statusbar_visible="open,acknowledged,closed"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group string="Incident">
+                            <field name="ride_id" readonly="1"/>
+                            <field name="trigger_actor" readonly="1"/>
+                            <field name="trigger_user_id" readonly="1"/>
+                            <field name="incident_type" readonly="1"/>
+                            <field name="triggered_at" readonly="1"/>
+                            <field name="latitude" readonly="1"/>
+                            <field name="longitude" readonly="1"/>
+                        </group>
+                        <group string="Contact d'urgence">
+                            <field name="emergency_contact_phone" readonly="1"/>
+                            <field name="emergency_contact_notified" readonly="1"/>
+                        </group>
+                        <group string="Traitement">
+                            <field name="handled_by_id" readonly="1"/>
+                            <field name="handled_at" readonly="1"/>
+                            <field name="resolution_notes" readonly="status == 'closed'"/>
+                        </group>
+                    </group>
+                </sheet>
+                <chatter/>
+            </form>
+        </field>
+    </record>
+
+    <record id="babana_incident_view_search" model="ir.ui.view">
+        <field name="name">babana.incident.search</field>
+        <field name="model">babana.incident</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="ride_id"/>
+                <field name="trigger_user_id"/>
+                <filter name="filter_open" string="Ouverts" domain="[('status', '=', 'open')]"/>
+                <group expand="0" string="Regrouper par">
+                    <filter name="group_by_status" string="Statut" context="{'group_by': 'status'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="babana_incident_action" model="ir.actions.act_window">
+        <field name="name">Incidents</field>
+        <field name="res_model">babana.incident</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="babana_incident_view_search"/>
+        <field name="context">{'search_default_filter_open': 1}</field>
+    </record>
+
+    <menuitem id="babana_menu_incident" name="Incidents" parent="babana_menu_root"
+        action="babana_incident_action" sequence="15"/>
+</odoo>

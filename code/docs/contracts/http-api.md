@@ -265,6 +265,55 @@ d'autre combinaison.
 
 ---
 
+## Bouton d'urgence — `incident.ts`
+
+L8-04 (CDC §II.6). Déclenchable par le client ou le chauffeur — l'acteur se déduit du jeton
+d'authentification, jamais transmis dans le corps. Réservé aux courses `assigned`/`in_progress`
+(`TOGETHER_STATES`, `babana_ride.py`) : ni avant l'affectation, ni après un état terminal.
+N'interrompt jamais la course elle-même.
+
+### `POST /rides/{id}/incidents`
+
+- Requête : `{ latitude, longitude, triggeredAt }` — `triggeredAt` est l'horodatage d'origine posé
+  côté appareil, pas celui de réception serveur (peut différer si mis en file hors connexion puis
+  rejoué)
+- Réponse (`201`) : `{ id, status: "open", position, triggeredAt }`
+- Erreurs : `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_NOT_ACTIVE`
+
+Idempotent (en-tête `Idempotency-Key`) — c'est ce qui rend le rejeu hors connexion sûr : un
+déclenchement mis en file localement, puis rejoué une fois le réseau revenu, ne crée jamais deux
+incidents pour le même appui.
+
+---
+
+## Partage de trajet — `share.ts`
+
+L8-03 (CDC §II.6). Réservé au client de la course. La page publique qu'un proche ouvre
+(`https://babana.cm/s/{token}`) **n'est pas un endpoint de ce contrat** : elle est servie
+directement par le service temps réel (`services/realtime/src/share/handler.ts` et `page.ts`),
+sans authentification — c'est le jeton lui-même, opaque et non devinable, qui tient lieu
+d'autorisation. Sa liste blanche de champs (position, ETA, destination, prénom du chauffeur,
+gamme) est appliquée côté Odoo (`controllers/internal.py::resolve_share`), jamais par ce service.
+
+### `POST /rides/{id}/share`
+
+Crée un jeton de partage, ou reprend celui déjà actif pour cette course (un client qui rouvre
+l'écran ne doit pas invalider un lien déjà envoyé par SMS).
+
+- Réponse (`201`) : `{ token, url, expiresAt }` — `url` est l'adresse complète, apex jamais
+  sous-domaine ; `expiresAt` est `null` tant que la course est active
+- Erreurs : `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_NOT_ACTIVE`
+
+### `POST /rides/{id}/share/revoke`
+
+Révocation immédiate. Idempotent : révoquer un jeton déjà révoqué, ou en l'absence de tout jeton
+actif, réussit sans effet.
+
+- Réponse : `{ revoked: true }`
+- Erreurs : `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`
+
+---
+
 ## Catalogue d'erreurs
 
 Généré depuis `errors.ts` dans `dist/json-schema/errors.json`. Reproduit ici pour lecture rapide.

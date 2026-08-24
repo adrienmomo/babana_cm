@@ -50,6 +50,10 @@ export const ErrorCode = z.enum([
   'PROPOSAL_EXPIRED',
   'RATING_ALREADY_SUBMITTED',
   'RATING_NOT_ALLOWED',
+  // Incident (L8-04) et partage de trajet (L8-03) : tous deux réservés à une course dont l'état
+  // place effectivement le client et le chauffeur ensemble (assigned/in_progress) -- avant
+  // l'affectation, personne n'est encore réuni ; après un état terminal, ce n'est plus "pendant".
+  'RIDE_NOT_ACTIVE',
 
   // Caisse
   'CASH_LIMIT_REACHED',
@@ -102,6 +106,7 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
   PROPOSAL_EXPIRED: 410,
   RATING_ALREADY_SUBMITTED: 409,
   RATING_NOT_ALLOWED: 403,
+  RIDE_NOT_ACTIVE: 409,
 
   CASH_LIMIT_REACHED: 409,
   SETTLEMENT_AMOUNT_MISMATCH: 400,
@@ -149,6 +154,7 @@ export const ERROR_DESCRIPTION: Record<ErrorCode, string> = {
   PROPOSAL_EXPIRED: "Le délai d'acceptation de la proposition est dépassé.",
   RATING_ALREADY_SUBMITTED: "Cette course a déjà été notée.",
   RATING_NOT_ALLOWED: "Une course ne peut être notée qu'une fois encaissée (settled).",
+  RIDE_NOT_ACTIVE: "Cette action n'est possible que pendant une course affectée ou en cours.",
 
   CASH_LIMIT_REACHED: "Cet encaissement dépasserait le plafond de caisse du chauffeur (D8).",
   SETTLEMENT_AMOUNT_MISMATCH: "Le montant déclaré ne correspond pas au montant dû.",

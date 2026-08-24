@@ -10,6 +10,20 @@ jest.mock('@babana/maps', () => {
   };
 });
 
+const mockRequest = jest.fn();
+jest.mock('../../auth', () => ({
+  apiClient: { request: (...args: unknown[]) => mockRequest(...args) },
+}));
+
+jest.mock('../../location', () => ({
+  getCurrentPosition: jest.fn().mockResolvedValue({ status: 'success', position: { latitude: 4.05, longitude: 9.7 } }),
+}));
+
+jest.mock('../../incidentQueue', () => {
+  const { PendingIncidentQueue, createInMemoryPendingIncidentQueue } = jest.requireActual('@babana/api-client');
+  return { pendingIncidentQueue: new PendingIncidentQueue(createInMemoryPendingIncidentQueue()) };
+});
+
 let realtimeListener: ((message: unknown) => void) | null = null;
 let connectionStateListener: ((state: string) => void) | null = null;
 const mockSend = jest.fn();
@@ -222,12 +236,23 @@ describe('TrackingScreen (L6-09)', () => {
     expect(mockSend).toHaveBeenCalledWith('ride.track', { rideId: RIDE_ID });
   });
 
-  it('critère 2 : partage de trajet et bouton d’urgence sont ABSENTS -- L8-03/L8-04 n’existent pas encore', async () => {
+  // L8-03/L8-04 (24 août) : partage de trajet et bouton d'urgence, tous deux atteignables en un
+  // geste depuis cet écran -- ni l'un ni l'autre n'est plus absent (précédent commentaire).
+  it('le partage de trajet et le bouton d’urgence sont tous deux atteignables depuis l’écran de suivi', async () => {
     const { root } = await renderTracking();
 
-    expect(root.root.findAllByProps({ testID: 'share-ride' })).toHaveLength(0);
-    expect(root.root.findAllByProps({ testID: 'emergency-button' })).toHaveLength(0);
-    expect(texts(root).toLowerCase()).not.toContain('urgence');
-    expect(texts(root).toLowerCase()).not.toContain('partager');
+    expect(root.root.findAllByProps({ testID: 'share-trip-button' }).length).toBeGreaterThan(0);
+    expect(root.root.findAllByProps({ testID: 'emergency-button' }).length).toBeGreaterThan(0);
+  });
+
+  it('le bouton d’urgence reste atteignable pendant l’approche comme pendant la course', async () => {
+    const { root } = await renderTracking();
+    expect(root.root.findAllByProps({ testID: 'emergency-button' }).length).toBeGreaterThan(0);
+
+    await act(async () => {
+      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+    });
+
+    expect(root.root.findAllByProps({ testID: 'emergency-button' }).length).toBeGreaterThan(0);
   });
 });

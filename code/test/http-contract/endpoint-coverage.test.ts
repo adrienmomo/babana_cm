@@ -219,6 +219,33 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     assert.equal(cancelled.state, 'cancelled');
   },
 
+  triggerIncident: async () => {
+    const rig = await setupAssignedRide('trigger-incident');
+    const triggered = (await rig.client.request('triggerIncident', {
+      pathParams: { id: rig.ride.id },
+      body: { latitude: 4.05, longitude: 9.7, triggeredAt: new Date().toISOString() },
+    })) as http.TriggerIncidentResponse;
+    assert.equal(triggered.status, 'open');
+  },
+
+  createRideShare: async () => {
+    const rig = await setupAssignedRide('create-ride-share');
+    const share = (await rig.client.request('createRideShare', {
+      pathParams: { id: rig.ride.id },
+    })) as http.CreateRideShareResponse;
+    assert.ok(share.token.length > 0);
+    assert.ok(share.url.includes(share.token));
+  },
+
+  revokeRideShare: async () => {
+    const rig = await setupAssignedRide('revoke-ride-share');
+    await rig.client.request('createRideShare', { pathParams: { id: rig.ride.id } });
+    const revoked = (await rig.client.request('revokeRideShare', {
+      pathParams: { id: rig.ride.id },
+    })) as http.RevokeRideShareResponse;
+    assert.equal(revoked.revoked, true);
+  },
+
   setAvailability: async () => {
     const { session } = await approvedDriverSession('set-availability');
     const client = clientFor(session.accessToken);

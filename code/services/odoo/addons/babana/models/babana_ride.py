@@ -38,6 +38,14 @@ RIDE_STATES = [
 DRIVER_ACTIVE_STATES = ("proposed", "assigned", "in_progress")
 CLIENT_ACTIVE_STATES = ("requested", "proposed", "assigned", "in_progress")
 
+# États "pendant une course", au sens où client et chauffeur sont physiquement réunis (L8-03,
+# L8-04) : ni avant l'affectation (personne n'est encore ensemble), ni après un état terminal
+# (la course n'a plus lieu). Distinct de DRIVER_ACTIVE_STATES (qui inclut `proposed`, où le
+# chauffeur n'a pas encore accepté) et de CLIENT_ACTIVE_STATES (qui inclut `requested`, avant
+# tout chauffeur désigné) -- ni le partage de trajet ni le bouton d'urgence n'ont de sens
+# avant que les deux parties ne soient réellement en présence l'une de l'autre.
+TOGETHER_STATES = ("assigned", "in_progress")
+
 
 class BabanaRide(models.Model):
     _name = "babana.ride"

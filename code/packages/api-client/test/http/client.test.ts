@@ -146,4 +146,18 @@ describe('createHttpClient -- idempotence (L6-03, critère 3)', () => {
     const secondHeaders = (fetchImpl.mock.calls[1][1] as RequestInit).headers as Record<string, string>;
     expect(secondHeaders['Idempotency-Key']).toBe(firstHeaders['Idempotency-Key']);
   });
+
+  it('un idempotencyKey fourni par l\'appelant remplace la clé auto-générée (L8-04)', async () => {
+    // Un appelant qui met sa propre écriture en file hors connexion doit pouvoir rejouer avec
+    // la même clé d'un appel request() à l'autre -- sans quoi chaque tentative obtiendrait une
+    // nouvelle clé et pourrait dupliquer une écriture déjà reçue par le serveur.
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { revoked: true }));
+    const client = createHttpClient({ baseUrl: 'https://api.test', fetchImpl });
+
+    await client.request('authLogout', { body: { refreshToken: 'rt' }, idempotencyKey: 'fixed-key-123' });
+
+    const [, init] = fetchImpl.mock.calls[0] as [unknown, RequestInit];
+    const headers = init.headers as Record<string, string>;
+    expect(headers['Idempotency-Key']).toBe('fixed-key-123');
+  });
 });

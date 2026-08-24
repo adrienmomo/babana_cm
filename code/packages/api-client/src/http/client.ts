@@ -29,6 +29,13 @@ export interface RequestOptions {
   pathParams?: Record<string, string>;
   body?: unknown;
   query?: Record<string, string | number | boolean>;
+  /** Remplace la clé auto-générée (L8-04) -- un appelant qui met sa propre écriture en file
+   * hors connexion (`@babana/api-client` n'a pas de file persistante générique, L6-16) doit
+   * pouvoir réutiliser la MÊME clé d'un appel `request()` à l'autre, sans quoi chaque tentative
+   * de rejeu obtiendrait une nouvelle clé et pourrait dupliquer une écriture déjà reçue par le
+   * serveur mais dont la réponse se serait perdue en chemin. Ignoré sur un GET (jamais
+   * d'idempotence, isWriteMethod ci-dessous). */
+  idempotencyKey?: string;
 }
 
 function defaultWait(ms: number): Promise<void> {
@@ -128,7 +135,7 @@ export function createHttpClient(config: ApiClientConfig) {
 
   async function request<Name extends EndpointName>(name: Name, options: RequestOptions = {}): Promise<unknown> {
     const endpoint = http.HTTP_ENDPOINTS[name];
-    const idempotencyKey = isWriteMethod(endpoint.method) ? generateIdempotencyKey() : undefined;
+    const idempotencyKey = isWriteMethod(endpoint.method) ? options.idempotencyKey ?? generateIdempotencyKey() : undefined;
 
     let attempt = 0;
     for (;;) {

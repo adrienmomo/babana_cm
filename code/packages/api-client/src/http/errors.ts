@@ -61,6 +61,7 @@ export const USER_MESSAGES = {
   PROPOSAL_EXPIRED: 'Le délai pour répondre à cette proposition est dépassé.',
   RATING_ALREADY_SUBMITTED: 'Vous avez déjà noté cette course.',
   RATING_NOT_ALLOWED: 'Cette course ne peut pas encore être notée.',
+  RIDE_NOT_ACTIVE: "Cette action n'est possible que pendant une course en cours.",
 
   CASH_LIMIT_REACHED: "Votre plafond d'encaisse est atteint. Faites une remise pour continuer.",
   SETTLEMENT_AMOUNT_MISMATCH: "Le montant ne correspond pas à ce qui est attendu.",

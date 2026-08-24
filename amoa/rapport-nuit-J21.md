@@ -112,3 +112,115 @@ cette tâche-là, pas de ce soir. Ce soir prouve seulement que **le défaut éta
 dans l'API — et que vérifié correctement, le parcours ne bute sur rien.
 
 ---
+
+## L8-03 et L8-04 — partage de trajet et bouton d'urgence, cinq nuits reportées
+
+**Un seul commit pour les deux**, décision assumée plutôt que subie : les deux fonctions
+partagent le même écran d'accueil (`TrackingScreen.tsx`), la même notion de « pendant une
+course » (`babana_ride.py::TOGETHER_STATES`, nouvelle, utilisée par les deux contrôleurs), et le
+même registre de contrat (`packages/contracts/src/http/index.ts`). Les séparer en deux commits
+aurait exigé des états intermédiaires qui ne compilent pas ou dont les tests d'écran ne
+passeraient pas — un choix d'implémentation non spécifié (`CLAUDE.md`), tranché et documenté ici
+plutôt que forcé.
+
+### L8-03 — partage de trajet
+
+**Jeton et validité vivent dans Odoo** (`models/babana_ride_share.py`) : `secrets.token_urlsafe(32)`,
+jamais dérivé de l'identifiant de course (critère 1), réutilisé tant qu'il reste actif
+(`action_get_or_create`, un client qui rouvre l'écran ne doit pas invalider le lien déjà envoyé
+par SMS), révocable immédiatement et de façon idempotente (critère 4). Expiration (critère 3) :
+`completed_at`/`cancelled_at` du ride plus un délai de grâce configurable
+(`babana.share_link_grace_minutes`, repli 30) — délibérément **pas** `settled_at`, qui peut
+survenir bien après si l'encaissement traîne et prolongerait à tort un lien déjà périmé du point
+de vue du proche qui le suit. `rejected` en est exclu : ce n'est pas un état terminal pour le
+client (D11), une course refusée retourne à la sélection.
+
+**La page publique est servie par le service temps réel, jamais par Odoo** (spécification) :
+`GET /s/{token}` et `GET /s/{token}/status` (`services/realtime/src/share/`), déjà routés par
+Caddy (`handle /s/*`, en place depuis L0-01 — rien à changer côté infra). Odoo n'expose que la
+liste blanche (`POST /api/internal/share/resolve`, critère 2 : destination, prénom, gamme, phase
+`approach`/`course` — jamais le nom du client, son téléphone, l'historique, le montant, ni
+l'identité complète du chauffeur, testé explicitement en cherchant leur absence dans la réponse
+brute). La position vive et le point de rendez-vous pendant l'approche viennent de Redis
+(`tracking/session.ts`, `redis/positions.ts`) — la même donnée éphémère que `ride.track` lit déjà,
+pas une seconde source, invariant 1 respecté.
+
+**Pas de dépendance de carte** (délibéré, signalé plutôt qu'ajouté en silence) : la page est un
+seul fichier HTML/CSS/JS inline, sans bundler, avec un repère SVG minimal (deux points mis à
+l'échelle de leur propre boîte englobante à chaque actualisation) plutôt qu'un fond de carte
+tuilé — `@babana/maps` suppose un bundle React Native/web, une bibliothèque de tuiles (Leaflet)
+aurait été une dépendance nouvelle non nécessaire pour une page dont la spécification demande
+justement l'inverse (« pas de dépendance lourde », terminal d'entrée de gamme, réseau lent).
+Actualisation par sondage (`fetch` toutes les `SHARE_POLL_INTERVAL_SECONDS`, 10 s par défaut),
+jamais de WebSocket depuis une page publique sans authentification.
+
+**Critère 6, limitation de débit par jeton** : fenêtre glissante en mémoire par jeton
+(`share/rateLimit.ts`), même patron que `nearby/handler.ts` -- pas un second mécanisme inventé.
+
+Tests : 14 côté Odoo (modèle, contrôleur client, résolution interne), 10 côté service temps réel
+(page, statut, liste blanche, limitation de débit, routage), 4 côté app Client
+(`ShareTripButton.test.tsx` : création puis ouverture du sélecteur natif, repli sur le lien affiché
+si `Share` est indisponible — l'export web, révocation immédiate, erreur métier traduite).
+
+### L8-04 — bouton d'urgence
+
+**Un seul endpoint, symétrique** (`POST /rides/{id}/incidents`, `babana.incident`) : l'acteur
+(client ou chauffeur) se déduit du jeton d'authentification, jamais transmis dans le corps
+(invariant 3). Réservé aux états `TOGETHER_STATES` -- avant l'affectation personne n'est encore
+réuni, après un état terminal ce n'est plus « pendant ». La course ne s'arrête jamais
+automatiquement (critère 5, prouvé par un test qui vérifie l'état de la course après création de
+l'incident) -- la décision revient à un humain au back-office.
+
+**Back-office, critère 3** : non listée dans les fichiers de la tâche (comme la vue des écarts de
+caisse, L5-06, avant elle) -- ajoutée quand même, sans elle le critère n'est pas vérifiable.
+`views/babana_incident_views.xml`, liste triée statut puis ancienneté, décoration rouge sur
+`open`, boutons `Prendre en charge`/`Clôturer` réservés aux superviseurs.
+
+**Critère 4, contact d'urgence -- notifié, pas livré, et c'est écrit noir sur blanc.** Aucun relais
+SMS n'existe dans ce dépôt (aucun mock, comme il en existe pour Google ou la cartographie -- D42
+nomme déjà ce trou pour le masquage de numéro, « une intégration téléphonique entière »).
+`_notify_emergency_contact` fige le numéro sur l'incident et journalise l'intention
+(`_logger.warning`) plutôt que de simuler un envoi réussi -- écart consigné,
+`amoa/questions/L8-04-emergency-contact-relay.md`, **la limite la plus sérieuse de ce lot**.
+
+**Critère 6, hors connexion.** Une file locale dédiée
+(`packages/api-client/src/incident/offlineQueue.ts`, `PendingIncidentQueue`) -- pas une
+généralisation de `realtime/queue.ts::ActionQueue`, qui documente explicitement ne connaître que
+les messages WebSocket rejoués à la reconnexion : forcer un déclenchement REST hors connexion
+dans ce contrat aurait étiré une portée déjà explicite pour un module minuscule qu'il est plus sûr
+de dupliquer. `client.request()` (`@babana/api-client`) gagne un `idempotencyKey` optionnel
+(critère nouveau, testé) -- sans lui, chaque tentative de rejeu après une coupure aurait obtenu
+une nouvelle clé et aurait pu dupliquer un incident déjà reçu par le serveur dont la réponse se
+serait perdue en chemin.
+
+**Le geste, pas une boîte de dialogue** (spécification) : `Pressable` avec `onLongPress`
+(800 ms) -- un relâchement avant ce délai n'a aucun effet, prouvé par test.
+
+**Symétrique entre client et chauffeur, avec une différence assumée.** Côté client,
+`EmergencyButton.tsx` obtient sa position via `../location` (déjà utilisé par `HomeScreen`,
+L6-06). Côté chauffeur, **aucun écran de course en cours n'existe** (L6-11 à L6-14, jamais
+construites -- vérifié dans le dépôt, aucune branche ne les nomme) : le composant existe, testé
+en isolation (quatre tests), mais `getPosition` y est **injecté** plutôt qu'obtenu directement,
+pour ne pas ajouter une dépendance de géolocalisation à une app qui n'a encore personne pour la
+déclencher, et pour laisser à L6-13 le vrai choix (rappeler le GPS, ou réutiliser la dernière
+position déjà en vol vers `position.update`). Écart consigné,
+`amoa/questions/L8-04-driver-screen-gap.md` -- le critère 1 (« atteignable en un geste ») **n'est
+pas vérifiable côté chauffeur ce soir**, faute d'écran où le vérifier.
+
+Tests : 9 côté Odoo (modèle -- notification, snapshot du contact, course jamais interrompue,
+traitement back-office ; contrôleur -- déclenchement client/chauffeur, états rejetés, propriété,
+validation, rejeu par idempotence), 7 pour la file hors connexion (`@babana/api-client`), 1 pour
+`idempotencyKey`, 7 côté app Client (`EmergencyButton.test.tsx`), 4 côté app Chauffeur.
+
+**Fichiers.** Contrats : `packages/contracts/src/http/{incident,share}.ts`, `errors.ts` (+
+`RIDE_NOT_ACTIVE`), `index.ts`. Odoo : `models/{babana_incident,babana_ride_share}.py`,
+`babana_ride.py` (+`TOGETHER_STATES`), `controllers/{incident,share}.py`,
+`controllers/internal.py` (+`resolve_share`), `views/babana_incident_views.xml`,
+`security/ir.model.access.csv`, `__manifest__.py`. Service temps réel :
+`src/odoo/share.ts`, `src/share/*`, `config.ts`, `server.ts`. `@babana/api-client` :
+`src/incident/offlineQueue.ts`, `src/http/client.ts` (+`idempotencyKey`), `src/http/errors.ts`.
+Apps : `apps/client/src/components/{EmergencyButton,ShareTripButton}.tsx`,
+`apps/client/src/incidentQueue.ts`, `apps/client/src/screens/TrackingScreen.tsx`,
+`apps/driver/src/components/EmergencyButton.tsx`, `apps/driver/src/incidentQueue.ts`.
+
+---

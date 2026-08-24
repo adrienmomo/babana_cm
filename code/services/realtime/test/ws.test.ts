@@ -38,6 +38,9 @@ const config: Config = {
   TRACKING_BROADCAST_INTERVAL_SECONDS: 10,
   TRACKING_AVERAGE_SPEED_MPS: 8.3,
   DRIVER_PROFILE_CACHE_TTL_SECONDS: 30,
+  SHARE_RATE_LIMIT_MAX_REQUESTS: 30,
+  SHARE_RATE_LIMIT_WINDOW_SECONDS: 60,
+  SHARE_POLL_INTERVAL_SECONDS: 10,
 };
 
 function sign(claims: Record<string, unknown>, secret: string): string {

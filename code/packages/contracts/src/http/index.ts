@@ -11,6 +11,8 @@ export * from './settlement';
 export * from './remittance';
 export * from './driver';
 export * from './documents';
+export * from './incident';
+export * from './share';
 
 import * as auth from './auth';
 import * as phone from './phone';
@@ -20,6 +22,8 @@ import * as settlement from './settlement';
 import * as remittance from './remittance';
 import * as driver from './driver';
 import * as documents from './documents';
+import * as incident from './incident';
+import * as share from './share';
 
 /**
  * Codes implicitement possibles sur tout endpoint, sans être répétés dans la liste
@@ -245,5 +249,35 @@ export const HTTP_ENDPOINTS = {
     errors: documents.DriverDocumentSignedUrlErrors,
     requestExample: null,
     responseExample: documents.driverDocumentSignedUrlResponseExample,
+  },
+  triggerIncident: {
+    method: 'POST',
+    path: '/api/v1/rides/{id}/incidents',
+    requiresAuth: true,
+    requestSchema: incident.TriggerIncidentRequestSchema,
+    responseSchema: incident.TriggerIncidentResponseSchema,
+    errors: incident.TriggerIncidentErrors,
+    requestExample: incident.triggerIncidentRequestExample,
+    responseExample: incident.triggerIncidentResponseExample,
+  },
+  createRideShare: {
+    method: 'POST',
+    path: '/api/v1/rides/{id}/share',
+    requiresAuth: true,
+    requestSchema: null,
+    responseSchema: share.CreateRideShareResponseSchema,
+    errors: share.CreateRideShareErrors,
+    requestExample: null,
+    responseExample: share.createRideShareResponseExample,
+  },
+  revokeRideShare: {
+    method: 'POST',
+    path: '/api/v1/rides/{id}/share/revoke',
+    requiresAuth: true,
+    requestSchema: null,
+    responseSchema: share.RevokeRideShareResponseSchema,
+    errors: share.RevokeRideShareErrors,
+    requestExample: null,
+    responseExample: share.revokeRideShareResponseExample,
   },
 } satisfies Record<string, HttpEndpointDescriptor>;

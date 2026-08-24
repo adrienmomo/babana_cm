@@ -5,6 +5,8 @@ import { MapView, type LatLng, type MapMarker } from '@babana/maps';
 import type { ConnectionState } from '@babana/api-client';
 import type { realtime } from '@babana/contracts';
 import { GENERIC_AVATAR, classLabel } from '../components/driverFormatting';
+import { EmergencyButton } from '../components/EmergencyButton';
+import { ShareTripButton } from '../components/ShareTripButton';
 import { formatEta } from '../format';
 import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import type { ClientParamList } from '../navigation/types';
@@ -14,10 +16,11 @@ import type { ClientParamList } from '../navigation/types';
  * **Affiche, ne dérive rien** (spécification) : position et ETA viennent tels quels de
  * `driver.position` (L3-09), jamais recalculés ici.
  *
- * **Partage de trajet (L8-03) et bouton d'urgence (L8-04) : ABSENTS, pas inertes.** Aucune de ces
- * deux tâches n'existe -- un bouton qui ne ferait rien serait pire que son absence, quelqu'un
- * finirait par compter dessus au mauvais moment (précision du 25/26 août,
- * amoa/questions/REPONSES-2026-08-26.md). Rien à câbler ici tant qu'elles ne sont pas construites.
+ * **Partage de trajet (L8-03) et bouton d'urgence (L8-04)**, tous deux atteignables en un geste
+ * depuis cet écran (24 août, amoa/questions/REPONSES-2026-08-29.md) -- l'un et l'autre n'ont de
+ * sens que pendant que client et chauffeur sont réunis (`assigned`/`in_progress` côté serveur,
+ * `babana_ride.py::TOGETHER_STATES`), donc pendant toute la durée où cet écran est affiché,
+ * approche comme course.
  *
  * **Aucun bouton d'appel du chauffeur non plus** : la spécification en prose le demande
  * (« coordonnées du chauffeur pour l'appeler »), mais `ride.assigned` (D41) ne porte aucun numéro
@@ -155,6 +158,11 @@ export function TrackingScreen({ route, navigation }: Props) {
         ) : null}
       </View>
 
+      <View style={styles.actionsRow} testID="tracking-actions">
+        <ShareTripButton rideId={rideId} />
+        <EmergencyButton rideId={rideId} />
+      </View>
+
       <View style={styles.mapWrap} testID="tracking-map">
         {driverPosition ? (
           <MapView
@@ -238,6 +246,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#0A7D3D',
+  },
+  actionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 24,
   },
   mapWrap: {
     flex: 1,

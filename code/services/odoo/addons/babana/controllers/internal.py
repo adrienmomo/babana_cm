@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 from odoo import SUPERUSER_ID, http
 from odoo.exceptions import UserError
@@ -18,6 +19,10 @@ from odoo.service.model import PG_CONCURRENCY_EXCEPTIONS_TO_RETRY
 from . import _common
 from ..models.babana_ride import CLIENT_ACTIVE_STATES, DRIVER_ACTIVE_STATES
 from ..models.babana_ride_state import RideInvalidTransition
+from ..models.babana_ride_share import (
+    SHARE_LINK_GRACE_MINUTES_FALLBACK,
+    SHARE_LINK_GRACE_MINUTES_PARAM,
+)
 
 _logger = logging.getLogger(__name__)
 
@@ -186,3 +191,67 @@ class InternalController(http.Controller):
         if not ride:
             return {"rideId": None, "state": None}, 200
         return {"rideId": ride.public_id, "state": ride.state}, 200
+
+    # --- POST /internal/share/resolve (L8-03, sens temps réel -> Odoo) ------------------------
+
+    @http.route("/api/internal/share/resolve", **_READ_ROUTE)
+    def resolve_share(self, **_kwargs):
+        return self._dispatch("resolveShare", self._resolve_share)
+
+    def _resolve_share(self):
+        """Odoo possède le jeton et sa validité (D27) -- le service temps réel ne calcule
+        jamais lui-même une expiration, il la redemande ici à chaque page publique servie
+        (`GET /s/{token}`, services/realtime/src/share/handler.ts). `{"active": false}` couvre
+        aussi bien un jeton inconnu qu'un jeton révoqué ou expiré -- jamais distingué, un visiteur
+        de la page publique n'a aucune raison de savoir laquelle des trois s'applique.
+
+        Liste blanche champ par champ (spécification, critère 2) : mêmes deux champs chauffeur
+        que `internal_profiles.py::_project` (prénom, gamme), jamais un champ de plus -- jamais
+        le nom complet, l'immatriculation, le montant, ni la moindre donnée sur le client."""
+        env = request.env(user=SUPERUSER_ID)
+        body = _common.parse_json_body() or {}
+        token = body.get("token")
+        if not token:
+            return {"active": False}, 200
+
+        share = env["babana.ride.share"].sudo().search([("token", "=", token)], limit=1)
+        if not share or not share._is_active():
+            return {"active": False}, 200
+
+        ride = share.ride_id
+        driver = ride.driver_id
+        first_name = None
+        if driver and driver.employee_id and driver.employee_id.name:
+            first_name = driver.employee_id.name.split(" ")[0]
+        motorcycle_class = driver.motorcycle_id.vehicle_class if driver and driver.motorcycle_id else None
+
+        expires_at = None
+        if ride.state in ("settled", "completed", "cancelled"):
+            grace_minutes = int(
+                env["ir.config_parameter"]
+                .sudo()
+                .get_param(SHARE_LINK_GRACE_MINUTES_PARAM, SHARE_LINK_GRACE_MINUTES_FALLBACK)
+            )
+            terminal_at = ride.completed_at or ride.cancelled_at
+            if terminal_at:
+                expires_at = terminal_at + timedelta(minutes=grace_minutes)
+
+        return (
+            {
+                "active": True,
+                "rideId": ride.public_id,
+                # 'approach' | 'course', jamais le state Odoo brut -- même vocabulaire que
+                # TrackingScreen.tsx (L6-09) côté client, pour la même raison : l'ETA affichée n'a
+                # de sens qu'à l'approche (distance jusqu'au point de départ, voir
+                # tracking/broadcast.ts), plus une fois la course commencée.
+                "phase": "course" if ride.state == "in_progress" else "approach",
+                "destination": {
+                    "latitude": ride.dropoff_latitude,
+                    "longitude": ride.dropoff_longitude,
+                },
+                "driverFirstName": first_name,
+                "motorcycleClass": motorcycle_class,
+                "expiresAt": _common.iso_datetime(expires_at),
+            },
+            200,
+        )
