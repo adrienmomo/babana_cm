@@ -158,6 +158,43 @@ constante de ce genre.
 
 ---
 
+## Vérification navigateur — le parcours complet boucle enfin jusqu'au résumé de fin
+
+Critère 5 de L3-19, ouvert depuis quatre nuits. Banc same-origin (D46, même méthode que J21) monté
+sur un Caddy jetable **séparé** (conteneur `docker run` propre, port hôte 8888, Caddyfile dans
+`/tmp`) plutôt que sur une modification temporaire du Caddy versionné — évite au passage le
+blocage de certificat TLS rencontré le 20 août (tout en HTTP simple sur ce port jetable).
+
+**Le silence de `nearby.drivers` est corrigé.** Après un abonnement réussi (chauffeur réel,
+positionné et maintenu vivant par des `position.update` réguliers), la liste est restée à jour en
+continu pendant plus de 60 secondes d'observation (12+ cycles de diffusion de 5 s), sans jamais se
+vider ni se figer. Une fausse alerte de méthodologie a été root-causée avant toute conclusion : la
+sonde brute laissait expirer le TTL de position (60 s) faute de rafraîchissement continu --
+`GEOPOS`/`GEOSEARCH` (Redis) ont confirmé que le chauffeur était réellement sorti du pool, pas que
+le flux mentait. Une fois un battement de position ajouté à la sonde, le silence n'est jamais
+réapparu.
+
+**Le parcours complet boucle jusqu'au résumé de fin, en entier, contre la vraie pile.** Carte →
+sélection du chauffeur → réservation réelle → `proposal.new` reçue côté sonde chauffeur →
+`proposal.accept` → `WaitingScreen` → `TrackingScreen` (approche, puis « Course en cours » après
+un `POST /rides/{id}/start` réel) → `POST /rides/{id}/complete` réel → **`RideSummaryScreen`
+atteint avec exactement les données écrites par le serveur** (550 FCFA, détail décomposé
+200/344/6 FCFA, 3.4 km · 8 min). Aucune erreur console ni réseau sur tout le parcours.
+
+**Un second défaut réel trouvé et corrigé au passage, hors du périmètre initial de cette
+vérification** : `AvailabilityToggle.tsx` (L6-11) appelait `POST /drivers/me/availability` mais
+n'envoyait jamais `availability.set`, le message qui applique réellement l'état côté service temps
+réel (`ws/dispatch.ts` -- Odoo décide de l'autorisation, le service temps réel l'applique, aucun
+des deux ne fait le travail de l'autre). Un chauffeur pouvait donc obtenir l'autorisation d'Odoo
+sans jamais entrer dans le pool -- silencieusement, sans que rien à l'écran ne le dise. Corrigé,
+testé (2 tests ajoutés), commité séparément (`f8fb365`) avant de poursuivre la vérification.
+
+Rien commité depuis ce banc : `infra/caddy/Caddyfile`/`infra/compose.yaml` jamais touchés (le
+montage jetable était un conteneur séparé), le conteneur de vérification et `dist-web/` supprimés
+en fin de session, `git status --short` propre sur l'ensemble du dépôt.
+
+---
+
 ## L6-11 — Bascule en ligne / hors ligne
 
 Premier écran métier réel de l'app Chauffeur — comme `HomeScreen.tsx` l'a été côté Client (L6-06),
@@ -300,3 +337,30 @@ visible ce soir (l'écran de destination est vide), mais c'est exactement le gen
 temporelle que ce dépôt a appris à se méfier de lui-même (L3-20, cette même nuit). Le seul
 correctif propre est celui déjà proposé dans l'écart : un accusé de réception dédié, qui retire le
 besoin de deviner un délai.
+
+---
+
+## Ce qui reste ouvert
+
+- **`amoa/questions/L6-11.md`** (nouveau) -- L5-07 n'a encore qu'une route réservée, pas d'écran ;
+  « distance à parcourir jusqu'au client » n'a pas de porteur dans le contrat.
+- **`amoa/questions/L6-12.md`** (nouveau) -- aucun accusé de réception dédié pour une acceptation
+  réussie côté chauffeur ; `ProposalScreen` s'appuie sur un délai de grâce deviné (1500 ms), sans
+  conséquence tant qu'`ActiveRide` reste un `PlaceholderScreen` (L6-13).
+- **La vérification développeur Android/iOS** -- `react-native-push-notification` (L6-12) est
+  câblé et testé côté JS, mais son comportement natif réel (réveil d'écran, son, canal de
+  notification) n'a pas pu être vérifié faute de build mobile dans cet environnement.
+- **`amoa/questions/L6-18-cors-api-web-quote.md`** -- toujours ouvert, hors périmètre de ce soir.
+- L3-12 (file persistante avec rejeu), L4-06 (la facture), la passerelle SMS, `make secrets-scan`
+  (le faux positif préexistant, toujours pas corrigé, vérifié qu'aucun nouveau n'a été introduit
+  ce soir), la validation du plan comptable -- inchangés depuis J21.
+
+## Doute pour un utilisateur réel, à retenir de la nuit
+
+Le même que celui nommé par L3-20 : une hypothèse temporelle non vérifiée (un TTL, un délai de
+grâce, une cadence supposée) est le point de défaillance le plus discret de ce dépôt -- invisible
+en test unitaire, qui contrôle son horloge, et qui n'apparaît qu'au moment où quelqu'un observe le
+système en direct, avec de vrais délais réseau. Trois fois cette nuit la même leçon : l'hypothèse
+qui a produit le silence du 30 août, la fausse alerte de la vérification de ce soir (le TTL de
+position de la sonde), et le délai de grâce deviné de L6-12, laissé en écart plutôt que résolu à
+l'aveugle.
