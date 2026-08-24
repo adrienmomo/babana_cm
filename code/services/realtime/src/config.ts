@@ -132,6 +132,15 @@ const ConfigSchema = z.object({
    * TRACKING_BROADCAST_INTERVAL_SECONDS (L3-09), pas plus fréquent : un visiteur public sur un
    * forfait de données compté n'a pas besoin d'une fraîcheur supérieure à celle du client lui-même. */
   SHARE_POLL_INTERVAL_SECONDS: z.coerce.number().positive().default(10),
+
+  /** Cadence du battement de cœur WebSocket (L3-20, ws/liveness.ts) -- détecte une connexion à
+   * moitié fermée (le cas courant sur un réseau mobile), symétrique de la surveillance par
+   * abonnement côté application. Une connexion qui n'a pas répondu à un ping avant le battement
+   * suivant est terminée. Valeur volontairement plus large que les cadences de diffusion
+   * (NEARBY_BROADCAST_INTERVAL_SECONDS, TRACKING_BROADCAST_INTERVAL_SECONDS) : ce n'est pas un
+   * flux applicatif à surveiller finement, seulement un filet contre un registre qui grossirait
+   * indéfiniment vers des connexions mortes. */
+  WS_HEARTBEAT_INTERVAL_SECONDS: z.coerce.number().positive().default(30),
 }).refine((config) => config.RESERVATION_TTL_SECONDS > config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS, {
   // Sans cette marge, le filet de sécurité Redis (RESERVATION_TTL_SECONDS) pourrait expirer une
   // réservation AVANT le minuteur JS qui doit normalement trancher en premier (proposal/timeout.ts)

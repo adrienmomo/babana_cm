@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MapView, reverseGeocode, type LatLng, type MapMarker } from '@babana/maps';
 import { Button } from '@babana/ui';
 import type { http, realtime } from '@babana/contracts';
+import { StreamLivenessWatchdog } from '@babana/api-client';
 import { PlacePicker } from '../components/PlacePicker';
 import { DriverMarker } from '../components/DriverMarker';
 import { getCurrentPosition, type LocationFailureReason } from '../location';
@@ -25,6 +26,16 @@ const DOUALA_DEFAULT_CENTER: LatLng = { latitude: 4.0511, longitude: 9.7679 };
 // Choix d'implémentation non spécifié, à ajuster si L6-17 (mesure batterie/données) le juge trop
 // large.
 const NEARBY_SUBSCRIBE_RADIUS_METERS = 5000;
+
+// Cadence attendue de la diffusion périodique nearby.drivers (L3-05) -- PROVISOIRE au sens de
+// D21, même statut que NEARBY_SUBSCRIBE_RADIUS_METERS ci-dessus : aucun canal Odoo -> app ne
+// transmet la vraie valeur serveur (NEARBY_BROADCAST_INTERVAL_SECONDS, L3-15 ne couvre que
+// Odoo -> temps réel), donc reprise ici comme valeur plausible plutôt que lue dynamiquement.
+const NEARBY_BROADCAST_EXPECTED_INTERVAL_MS = 5000;
+
+function formatSilentDuration(silentForMs: number): string {
+  return `${Math.max(1, Math.round(silentForMs / 1000))} s`;
+}
 
 type ActiveSlot = 'departure' | 'arrival';
 
@@ -74,6 +85,13 @@ export function HomeScreen({ navigation }: Props) {
   // Accusé de réception d'un abonnement refusé pour limitation de débit (doute L6-06 §3) --
   // distinct de "aucun chauffeur à proximité" (nearbyDrivers vide), qui reste un état légitime.
   const [subscribeRefusal, setSubscribeRefusal] = useState<{ retryAfterMs: number } | null>(null);
+  // Silence de diffusion détecté par abonnement (L3-20, D47 -- amoa/questions/
+  // L3-05-nearby-list-goes-silently-empty.md) : la connexion peut rester `connected` pendant que
+  // la diffusion périodique elle-même s'est tue -- distinct de subscribeRefusal (un abonnement
+  // qui n'a jamais été accepté). `nearbyDrivers` n'est jamais vidé quand ce cas se produit : la
+  // dernière liste connue reste affichée, avec ce bandeau en plus, jamais un silence ni un
+  // marqueur figé.
+  const [nearbySilentForMs, setNearbySilentForMs] = useState<number | null>(null);
   // Un abonnement en vol par point de départ (critère 3, mis à jour en direct) -- un identifiant
   // croissant écarte la réponse d'un abonnement déjà remplacé, même raison que PlacePicker pour
   // une recherche texte abandonnée.
@@ -127,9 +145,31 @@ export function HomeScreen({ navigation }: Props) {
       realtimeClient.send('nearby.subscribe', { position: center, radiusMeters: NEARBY_SUBSCRIBE_RADIUS_METERS, excludeDriverIds: [] });
     subscribe();
 
+    // Surveillance de silence (L3-20) : par abonnement, pas par connexion (D47) -- un battement
+    // de cœur sur la connexion arriverait normalement pendant qu'un flux applicatif est mort,
+    // exactement la cause racine du 30 août. Recréée à chaque nouvel abonnement (même portée que
+    // `thisRequest`), jamais partagée entre deux centres différents.
+    setNearbySilentForMs(null);
+    const watchdog = new StreamLivenessWatchdog({
+      expectedIntervalMs: NEARBY_BROADCAST_EXPECTED_INTERVAL_MS,
+      onStale: (silentForMs) => {
+        if (subscriptionRequest.current !== thisRequest) return;
+        setNearbySilentForMs(silentForMs);
+      },
+      onRecovered: () => {
+        if (subscriptionRequest.current !== thisRequest) return;
+        setNearbySilentForMs(null);
+      },
+      // Réabonne sur la connexion existante -- la cause racine du 30 août était un abonnement
+      // mort sur une connexion par ailleurs vivante, pas une connexion tombée.
+      resubscribe: subscribe,
+    });
+    watchdog.start();
+
     const unsubscribeMessages = onRealtimeMessage((message) => {
       if (subscriptionRequest.current !== thisRequest) return;
       if (isNearbyDriversMessage(message)) {
+        watchdog.recordActivity();
         setNearbyDrivers(message.payload.drivers);
         setSubscribeRefusal(null);
       } else if (isNearbySubscribeAckMessage(message)) {
@@ -144,12 +184,25 @@ export function HomeScreen({ navigation }: Props) {
     });
 
     return () => {
+      watchdog.stop();
       unsubscribeMessages();
       unsubscribeConnectionState();
       realtimeClient.send('nearby.unsubscribe', {});
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [departure?.position.latitude, departure?.position.longitude]);
+
+  // Fait avancer l'affichage "il y a Ns" pendant un silence (spécification L3-20 : "le dire
+  // compte autant que se réabonner") -- seulement tant qu'un silence est en cours, pour ne
+  // jamais re-rendre l'écran une fois par seconde en fonctionnement normal.
+  const isNearbySilent = nearbySilentForMs !== null;
+  useEffect(() => {
+    if (!isNearbySilent) return;
+    const ticker = setInterval(() => {
+      setNearbySilentForMs((current) => (current === null ? null : current + 1000));
+    }, 1000);
+    return () => clearInterval(ticker);
+  }, [isNearbySilent]);
 
   // --- Déplacement de la carte sous le réticule fixe (premier des deux moyens de désignation,
   // prioritaire -- spécification L6-06). Le géocodage inverse se déclenche ici, au relâchement du
@@ -255,6 +308,13 @@ export function HomeScreen({ navigation }: Props) {
       <Text style={styles.mapTruthHint}>📍 C’est le point sur la carte qui fait foi, le libellé n’est qu’une indication.</Text>
 
       <View style={styles.driversSection}>
+        {nearbySilentForMs !== null ? (
+          <View style={styles.staleBanner} testID="nearby-stale">
+            <Text style={styles.staleBannerText}>
+              {`Liste des chauffeurs non mise à jour depuis ${formatSilentDuration(nearbySilentForMs)}, nouvelle tentative en cours…`}
+            </Text>
+          </View>
+        ) : null}
         {subscribeRefusal ? (
           <View style={styles.noDrivers} testID="subscribe-refused">
             <Text style={styles.noDriversText}>
@@ -395,5 +455,14 @@ const styles = StyleSheet.create({
   },
   noDriversText: {
     color: '#374151',
+  },
+  staleBanner: {
+    backgroundColor: '#FEF3C7',
+    borderRadius: 8,
+    padding: 8,
+    marginBottom: 8,
+  },
+  staleBannerText: {
+    color: '#92400E',
   },
 });

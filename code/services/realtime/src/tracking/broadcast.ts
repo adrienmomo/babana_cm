@@ -28,6 +28,12 @@ interface Subscription {
  */
 export class TrackingManager {
   private readonly subscriptions = new Map<string, Subscription>();
+  // Même garde-fou de fraîcheur que NearbyManager (L3-20, nearby/handler.ts) : posé avant tout
+  // `await` pour que l'ordre d'APPEL, pas l'ordre de résolution de push(), décide quel
+  // abonnement l'emporte -- sinon deux `ride.track` reçus presque simultanément pour le même
+  // client peuvent laisser un minuteur orphelin que plus personne ne peut arrêter.
+  private readonly latestRequestSequence = new Map<string, number>();
+  private sequenceCounter = 0;
 
   constructor(
     private readonly config: Config,
@@ -35,6 +41,9 @@ export class TrackingManager {
   ) {}
 
   async subscribe(context: ConnectionContext, socket: WebSocket, payload: realtime.RideTrackMessage['payload']): Promise<void> {
+    const mySequence = ++this.sequenceCounter;
+    this.latestRequestSequence.set(context.userId, mySequence);
+
     this.clearSubscription(context.userId);
 
     const push = async (): Promise<void> => {
@@ -72,6 +81,12 @@ export class TrackingManager {
 
     await push();
 
+    if (this.latestRequestSequence.get(context.userId) !== mySequence) {
+      // Réponse obsolète (L3-20, même raisonnement que nearby/handler.ts) -- n'installe jamais
+      // son propre minuteur, il resterait orphelin.
+      return;
+    }
+
     const timer = setInterval(() => {
       push().catch(() => {
         // Filet défensif, même politique que le reste du service (ws/connection.ts,
@@ -83,6 +98,7 @@ export class TrackingManager {
   }
 
   unsubscribe(context: ConnectionContext): void {
+    this.latestRequestSequence.set(context.userId, ++this.sequenceCounter);
     this.clearSubscription(context.userId);
   }
 

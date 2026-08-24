@@ -119,13 +119,12 @@ describe('createRealtimeClient -- connexion et resynchronisation (L6-04, L3-11)'
 });
 
 describe('createRealtimeClient -- file d\'actions hors connexion (critères 2 et 4)', () => {
-  it('une action émise hors connexion est mise en file, puis rejouée dans l\'ordre à la reconnexion, avec son identifiant d\'origine (critère 2 ; 3, 5)', async () => {
+  it('une action métier émise hors connexion est mise en file, puis rejouée à la reconnexion, avec son identifiant d\'origine (critère 2 ; 3, 5)', async () => {
     const { sockets, config } = baseConfig();
     const client = createRealtimeClient(config);
     // Jamais connecté -- aucun socket ouvert.
 
     client.send('proposal.accept', { rideId: 'r1' });
-    client.send('ride.track', { rideId: 'r1' });
 
     await client.connect();
     sockets[0].simulateOpen();
@@ -134,10 +133,35 @@ describe('createRealtimeClient -- file d\'actions hors connexion (critères 2 et
     const sent = sockets[0].sent.map((raw) => JSON.parse(raw));
     expect(sent[0].type).toBe('session.resync');
     expect(sent[1].type).toBe('proposal.accept');
-    expect(sent[2].type).toBe('ride.track');
-    // Les identifiants d'origine (posés à l'émission hors connexion) sont conservés.
+    // L'identifiant d'origine (posé à l'émission hors connexion) est conservé.
     expect(sent[1].id).toEqual(expect.any(String));
     expect(sent[1].id).toBe(sent[1].id);
+  });
+
+  // L3-20 (30 août) -- cause racine du silence de diffusion : `nearby.subscribe`, `ride.track`
+  // (et leur pendant `nearby.unsubscribe`) sont des déclarations d'intérêt courant, jamais des
+  // actions métier. L'écran appelant les réémet déjà lui-même à chaque `connected`
+  // (`onRealtimeConnectionStateChange`) -- les mettre en file les faisait rejouer une SECONDE
+  // fois, avec des paramètres capturés au moment de l'émission d'origine, potentiellement
+  // périmés au moment du rejeu. Les deux envois arrivaient alors en course côté service, et
+  // rien ne garantissait que le plus récent gagne (`amoa/questions/
+  // L3-05-nearby-list-goes-silently-empty.md`).
+  it('nearby.subscribe, nearby.unsubscribe et ride.track ne sont jamais mis en file hors connexion (L3-20)', async () => {
+    const { sockets, config } = baseConfig();
+    const client = createRealtimeClient(config);
+    // Jamais connecté -- aucun socket ouvert.
+
+    client.send('nearby.subscribe', { position: { latitude: 4.05, longitude: 9.7 }, radiusMeters: 3000, excludeDriverIds: [] });
+    client.send('nearby.unsubscribe', {});
+    client.send('ride.track', { rideId: 'r1' });
+    client.send('proposal.accept', { rideId: 'r1' }); // témoin : une vraie action métier, elle, doit survivre
+
+    await client.connect();
+    sockets[0].simulateOpen();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const sentTypes = sockets[0].sent.map((raw) => JSON.parse(raw).type);
+    expect(sentTypes).toEqual(['session.resync', 'proposal.accept']);
   });
 
   it('les positions ne sont jamais mises en file -- seule la dernière compte (critère 4)', async () => {

@@ -78,6 +78,14 @@ function fakeNavigation() {
   return { navigate: jest.fn() };
 }
 
+// Démontés dans afterEach ci-dessous -- sans ça, l'effet de L3-20 (StreamLivenessWatchdog,
+// HomeScreen.tsx) reste actif indéfiniment après la fin de chaque test (aucun unmount() ne
+// déclenche son nettoyage), et son minuteur réel de vérification finit par se déclencher pendant
+// un test suivant, hors de tout act() -- constaté en écrivant cette tâche : le processus de test
+// plantait (`window.dispatchEvent is not a function`) une fois la suite assez longue pour
+// dépasser NEARBY_BROADCAST_EXPECTED_INTERVAL_MS.
+const renderedRoots: ReactTestRenderer[] = [];
+
 async function renderHome(navigation = fakeNavigation()): Promise<ReactTestRenderer> {
   const route = { key: 'Home', name: 'Home' as const, params: undefined };
   let root!: ReactTestRenderer;
@@ -85,6 +93,7 @@ async function renderHome(navigation = fakeNavigation()): Promise<ReactTestRende
     // @ts-expect-error -- fausse navigation minimale, suffisante pour cet écran (seul navigate() est utilisé)
     root = create(<HomeScreen navigation={navigation} route={route} />);
   });
+  renderedRoots.push(root);
   return root;
 }
 
@@ -112,6 +121,15 @@ beforeEach(() => {
   mockGetCurrentPosition.mockResolvedValue({ status: 'error', reason: 'position-unavailable' });
   mockReverseGeocode.mockResolvedValue(null);
   mockSearchPlace.mockResolvedValue([]);
+});
+
+afterEach(() => {
+  // Déclenche le nettoyage des effets (dont StreamLivenessWatchdog.stop(), L3-20) avant le test
+  // suivant -- voir le commentaire sur renderedRoots ci-dessus.
+  act(() => {
+    while (renderedRoots.length > 0) renderedRoots.pop()!.unmount();
+  });
+  jest.useRealTimers();
 });
 
 describe('HomeScreen (L6-06)', () => {
@@ -187,6 +205,50 @@ describe('HomeScreen (L6-06)', () => {
     });
     expect(texts(root)).toContain('Aminata');
     expect(texts(root)).not.toContain('Paul');
+  });
+
+  // L3-20 (30 août) -- cause racine du silence de diffusion : la connexion reste `connected`
+  // pendant que la diffusion périodique elle-même s'est tue, sans fermeture ni erreur. Ces deux
+  // tests exercent StreamLivenessWatchdog depuis l'écran, avec de vrais minuteurs fictifs (pas
+  // d'injection `now`/`wait` côté HomeScreen -- jest.useFakeTimers() pilote les vrais setInterval
+  // /setTimeout du module).
+  it('L3-20 -- un silence de diffusion prolongé affiche un bandeau et déclenche un réabonnement, sans jamais vider la liste déjà connue', async () => {
+    jest.useFakeTimers();
+    const root = await renderHome();
+    await act(async () => {
+      emitNearbyDrivers([driver({ driverId: 'a', firstName: 'Paul' })]);
+    });
+    expect(texts(root)).toContain('Paul');
+    mockSend.mockClear();
+
+    // Aucun nearby.drivers pendant 3 x NEARBY_BROADCAST_EXPECTED_INTERVAL_MS (5 s, le seuil par
+    // défaut) : exactement le silence du 30 août -- la diffusion périodique n'atteint plus la
+    // connexion, sans fermeture ni erreur.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(15_000);
+    });
+
+    expect(texts(root)).toMatch(/non mise à jour depuis/);
+    // Le dernier chauffeur connu reste affiché -- un silence n'est jamais montré comme "aucun
+    // chauffeur disponible" (spécification : jamais un marqueur figé, jamais un silence).
+    expect(texts(root)).toContain('Paul');
+    // Réabonnement automatique, sur la connexion existante -- pas une reconnexion.
+    expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', expect.objectContaining({ position: DOUALA }));
+  });
+
+  it('L3-20 -- la reprise de la diffusion efface le bandeau de silence', async () => {
+    jest.useFakeTimers();
+    const root = await renderHome();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(15_000);
+    });
+    expect(texts(root)).toMatch(/non mise à jour depuis/);
+
+    await act(async () => {
+      emitNearbyDrivers([driver({ driverId: 'a', firstName: 'Paul' })]);
+    });
+
+    expect(texts(root)).not.toMatch(/non mise à jour depuis/);
   });
 
   it("une reconnexion (coupure réseau puis retour) réémet l'abonnement -- la liste ne se fige jamais", async () => {
