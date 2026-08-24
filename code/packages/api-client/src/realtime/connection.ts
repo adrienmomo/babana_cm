@@ -48,6 +48,26 @@ function defaultWait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/**
+ * Déclarations d'intérêt courant, jamais des actions métier (L3-20, cause racine du 30 août --
+ * `amoa/questions/L3-05-nearby-list-goes-silently-empty.md`). Chaque écran qui les émet les
+ * réémet déjà lui-même à chaque `connected` (`onRealtimeConnectionStateChange`, `HomeScreen`,
+ * `TrackingScreen`) : les mettre en file les rendait rejouables une seconde fois, avec des
+ * paramètres capturés au moment de l'émission d'origine -- potentiellement périmés (position de
+ * découverte, rayon) au moment du rejeu, plusieurs secondes ou minutes plus tard. Le rejeu
+ * arrivait alors en course avec la réémission fraîche : selon l'ordre de traitement côté
+ * service, la file pouvait installer SON abonnement (périmé) en dernier, remplaçant définitivement
+ * l'abonnement à jour sans qu'aucune erreur ne le signale -- exactement le silence observé sur
+ * `nearby.drivers`. Même raisonnement que `position.update` juste en dessous (« une position
+ * obsolète est pire que pas de position », L3-11) : une déclaration d'intérêt obsolète est pire
+ * que son absence.
+ */
+const NEVER_QUEUED_MESSAGE_TYPES: ReadonlySet<realtime.ClientToServerMessage['type']> = new Set([
+  'nearby.subscribe',
+  'nearby.unsubscribe',
+  'ride.track',
+]);
+
 function buildEnvelope<Type extends realtime.ClientToServerMessage['type']>(
   type: Type,
   payload: Extract<realtime.ClientToServerMessage, { type: Type }>['payload'],
@@ -172,6 +192,13 @@ export function createRealtimeClient(config: RealtimeClientConfig) {
 
     if (socket && socket.readyState === 1) {
       socket.send(JSON.stringify(envelope));
+      return;
+    }
+
+    if (NEVER_QUEUED_MESSAGE_TYPES.has(type)) {
+      // Silencieusement abandonné, jamais mis en file (voir le commentaire au-dessus de
+      // NEVER_QUEUED_MESSAGE_TYPES) : l'écran appelant réémettra lui-même dès la prochaine
+      // connexion établie, avec des paramètres à jour.
       return;
     }
 

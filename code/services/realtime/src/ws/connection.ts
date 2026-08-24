@@ -13,6 +13,7 @@ import { DisconnectGraceTimers } from '../driver/availability';
 import { NearbyManager } from '../nearby/handler';
 import { ProposalLifecycle } from '../proposal/lifecycle';
 import { TrackingManager } from '../tracking/broadcast';
+import { installLivenessHeartbeat } from './liveness';
 
 // Réexportés pour compatibilité : posés ici par L0-04, avant que ws/auth.ts (L3-01) n'existe.
 // test/ws.test.ts importe encore WS_CLOSE_UNAUTHENTICATED depuis ce module.
@@ -54,6 +55,11 @@ export function createConnectionHandler(config: Config, redis: Redis): Connectio
   const tracking = new TrackingManager(config, redis);
   const dispatch = createMessageDispatcher(config, redis, nearby, proposals, tracking);
   const disconnectGrace = new DisconnectGraceTimers();
+  // L3-20, D47 -- détection d'une connexion à moitié fermée, symétrique de la surveillance par
+  // abonnement côté application (nearby/handler.ts, tracking/broadcast.ts). Posé sur `wss`
+  // directement : `terminate()` déclenche le `close` géré ci-dessous, tout le nettoyage existant
+  // s'applique donc sans duplication.
+  installLivenessHeartbeat(wss, config.WS_HEARTBEAT_INTERVAL_SECONDS * 1000);
 
   wss.on('connection', (socket: WebSocket, request: IncomingMessage) => {
     const auth = authenticateConnection(request, config);

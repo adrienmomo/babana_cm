@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MapView, type LatLng, type MapMarker } from '@babana/maps';
-import type { ConnectionState } from '@babana/api-client';
+import { StreamLivenessWatchdog, type ConnectionState } from '@babana/api-client';
 import type { realtime } from '@babana/contracts';
 import { GENERIC_AVATAR, classLabel } from '../components/driverFormatting';
 import { EmergencyButton } from '../components/EmergencyButton';
@@ -48,6 +48,11 @@ function secondsSince(at: number): number {
   return Math.max(0, Math.round((Date.now() - at) / 1000));
 }
 
+// Cadence attendue de driver.position (L3-09) -- PROVISOIRE au sens de D21, même statut que la
+// constante équivalente de HomeScreen.tsx (NEARBY_BROADCAST_EXPECTED_INTERVAL_MS) : aucun canal
+// Odoo -> app ne transmet la vraie valeur serveur (TRACKING_BROADCAST_INTERVAL_SECONDS).
+const TRACKING_BROADCAST_EXPECTED_INTERVAL_MS = 10_000;
+
 export function TrackingScreen({ route, navigation }: Props) {
   const { rideId, origin, destination, driver } = route.params;
 
@@ -57,6 +62,11 @@ export function TrackingScreen({ route, navigation }: Props) {
   const [lastPositionAt, setLastPositionAt] = useState<number | null>(null);
   const [trace, setTrace] = useState<LatLng[]>([]);
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => realtimeClient.getState());
+  // Silence de diffusion détecté par abonnement (L3-20, D47 -- amoa/questions/
+  // L3-05-nearby-list-goes-silently-empty.md) : c'est précisément le risque nommé par ce défaut
+  // -- `connectionState` peut rester `connected` pendant que `driver.position` s'est tu, et sans
+  // ce mécanisme rien ne le distinguerait d'une course simplement calme.
+  const [positionStreamStale, setPositionStreamStale] = useState(false);
   // Lu de façon synchrone dans le gestionnaire de `driver.position` -- `phase` (état React) y
   // serait périmé, l'effet ci-dessous ne s'exécutant qu'une fois (dépendances [rideId]).
   const phaseRef = useRef<Phase>('approach');
@@ -66,8 +76,20 @@ export function TrackingScreen({ route, navigation }: Props) {
     const subscribe = () => realtimeClient.send('ride.track', { rideId });
     subscribe();
 
+    const watchdog = new StreamLivenessWatchdog({
+      expectedIntervalMs: TRACKING_BROADCAST_EXPECTED_INTERVAL_MS,
+      onStale: () => setPositionStreamStale(true),
+      onRecovered: () => setPositionStreamStale(false),
+      // Réabonne sur la connexion existante -- un battement de cœur sur la connexion
+      // confirmerait que tout va bien pendant qu'un flux applicatif est mort (D47), c'est
+      // pourquoi la surveillance porte ici sur l'abonnement, pas sur `connectionState`.
+      resubscribe: subscribe,
+    });
+    watchdog.start();
+
     const unsubscribeMessages = onRealtimeMessage((message) => {
       if (isDriverPositionMessage(message) && message.payload.rideId === rideId) {
+        watchdog.recordActivity();
         setDriverPosition(message.payload.position);
         setEtaSeconds(message.payload.etaSeconds);
         setLastPositionAt(new Date(message.emittedAt).getTime());
@@ -103,6 +125,7 @@ export function TrackingScreen({ route, navigation }: Props) {
     });
 
     return () => {
+      watchdog.stop();
       unsubscribeMessages();
       unsubscribeConnectionState();
     };
@@ -138,6 +161,18 @@ export function TrackingScreen({ route, navigation }: Props) {
             {lastPositionAt === null
               ? 'Connexion en cours -- position pas encore reçue.'
               : `Connexion perdue -- dernière position il y a ${secondsSince(lastPositionAt)} s.`}
+          </Text>
+        </View>
+      ) : positionStreamStale ? (
+        // Silence de diffusion sur une connexion par ailleurs vivante (L3-20, D47) -- distinct du
+        // bandeau ci-dessus : `connectionState` reste `connected` ici, c'est précisément le
+        // risque que ce bandeau existe pour attraper. « position datée de N secondes » plutôt
+        // qu'un marqueur figé ou un silence (spécification).
+        <View style={styles.connectionBanner} testID="tracking-stale-banner">
+          <Text style={styles.connectionText}>
+            {lastPositionAt === null
+              ? 'Position pas encore reçue -- nouvelle tentative en cours…'
+              : `Position non mise à jour depuis ${secondsSince(lastPositionAt)} s -- nouvelle tentative en cours…`}
           </Text>
         </View>
       ) : null}
@@ -179,7 +214,7 @@ export function TrackingScreen({ route, navigation }: Props) {
         )}
       </View>
 
-      {!disconnected && lastPositionAt !== null ? (
+      {!disconnected && !positionStreamStale && lastPositionAt !== null ? (
         <Text style={styles.freshness} testID="tracking-freshness">
           Position mise à jour il y a {secondsSince(lastPositionAt)} s
         </Text>

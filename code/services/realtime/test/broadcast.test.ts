@@ -226,4 +226,46 @@ describe('TrackingManager (L3-09)', () => {
     assert.equal(messages.length, 1);
     assert.ok(messages[0]!.payload.etaSeconds > 0, 'un chauffeur loin du point de départ a un ETA strictement positif');
   });
+
+  // L3-20 (30 août) -- même cause racine que nearby.test.ts (amoa/questions/
+  // L3-05-nearby-list-goes-silently-empty.md), et le risque le plus sérieux qu'elle soulève : un
+  // client qui suit une vraie course pourrait voir la position de son chauffeur se figer en
+  // pleine course, sans jamais qu'une bannière de déconnexion ne le dise. `subscribe()` fait
+  // toujours getRideSession() PUIS getPosition() -- deux allers-retours de coût égal envoyés sur
+  // la MÊME connexion Redis (ioredis), dont les réponses reviennent donc en FIFO strict : le
+  // scénario "deux subscribe() concurrents, le plus ancien répond après le plus récent" (utilisé
+  // dans nearby.test.ts, où l'élargissement donne au plus ancien un nombre de trajets différent)
+  // ne peut pas être forcé ici par la seule API publique -- les deux abonnements finissent
+  // toujours dans leur ordre d'envoi. Le scénario suivant, lui, est déterministe à 100 % et
+  // couvre la même classe de défaut sans dépendre d'un quelconque minutage réseau : une
+  // désinscription explicite arrivant PENDANT qu'un subscribe() est encore en vol (un
+  // `ride.track` en cours de traitement quand la connexion se ferme, ou quand le client change
+  // d'écran) ne doit jamais laisser ce subscribe() installer son minuteur après coup -- un
+  // abonnement que plus personne ne peut arrêter, pour un client qui a explicitement dit ne plus
+  // vouloir suivre personne.
+  test("L3-20 -- une désinscription reçue pendant qu'un subscribe() est encore en vol empêche son minuteur de s'installer après coup", async () => {
+    const config = configWith({ TRACKING_BROADCAST_INTERVAL_SECONDS: '0.05' });
+    const manager = new TrackingManager(config, redis);
+    const clientCtx = clientContext('l320b-client');
+    const rideId = randomUUID();
+    const origin = { latitude: 4.05, longitude: 9.7 };
+    const driverId = await positionedDriver('l320b-driver', { latitude: 4.0501, longitude: 9.7001 });
+    await startRideSession(redis, rideId, { clientUserId: clientCtx.userId, driverId, origin });
+
+    const { socket, messages } = fakeSocket();
+    const subscribing = manager.subscribe(clientCtx, socket, { rideId });
+    // Synchrone, avant que le moindre aller-retour Redis de subscribe() ci-dessus n'ait pu
+    // revenir -- exactement la fenêtre de course visée.
+    manager.unsubscribe(clientCtx);
+    await subscribing;
+
+    const countAfterSubscribeSettled = messages.length;
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    assert.equal(
+      messages.length,
+      countAfterSubscribeSettled,
+      'aucun minuteur ne doit apparaître après une désinscription reçue pendant que le subscribe() était encore en vol'
+    );
+  });
 });

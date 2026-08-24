@@ -346,4 +346,67 @@ describe('NearbyManager (L3-05, D14)', () => {
       'une découverte libre ne doit jamais dépasser le plafond configuré'
     );
   });
+
+  // L3-20 (30 août) -- cause racine du silence de diffusion (amoa/questions/
+  // L3-05-nearby-list-goes-silently-empty.md) : deux `nearby.subscribe` reçus pour le même
+  // client SANS attendre le premier (ce que produisait la file hors connexion côté app en
+  // rejouant un abonnement périmé en même temps que l'écran en réémettait un à jour). Le test
+  // "critère 5" ci-dessus attend chaque abonnement avant le suivant -- il ne peut pas voir cette
+  // course. Celui-ci force délibérément l'abonnement le plus ANCIEN à répondre le plus
+  // LENTEMENT (plusieurs paliers d'élargissement séquentiels, origine sans aucun chauffeur) pour
+  // prouver que l'ORDRE D'APPEL, pas l'ordre de résolution, décide qui l'emporte.
+  test("L3-20 -- un abonnement plus ancien dont la réponse Redis revient après un plus récent ne doit jamais lui survivre", async () => {
+    const freshOrigin = { latitude: 4.09, longitude: 9.75 };
+    // Coin opposé de la zone d'exploitation (config.ts, OPERATIONAL_BOUNDS_*) : aucun chauffeur
+    // n'y sera jamais trouvé, quel que soit le palier.
+    const staleOrigin = { latitude: 3.96, longitude: 9.61 };
+    const config = configWith({
+      NEARBY_BROADCAST_INTERVAL_SECONDS: '0.05',
+      NEARBY_MAX_RADIUS_METERS: '2000',
+      NEARBY_EXPAND_RADIUS_STEP_METERS: '500',
+      NEARBY_EXPAND_MAX_RADIUS_METERS: '2500',
+    });
+    const manager = new NearbyManager(config, redis);
+    const context = clientContext('l320-client');
+    const freshDriverId = await freshDriver('l320-driver', freshOrigin);
+    const { socket, messages } = fakeSocket();
+
+    // La demande "stale" est appelée EN PREMIER, mais porte un excludeDriverIds non vide : elle
+    // emprunte nearby/expand.ts, qui essaie séquentiellement 5 paliers (500 à 2500 m) avant de
+    // renvoyer une liste vide -- 5 allers-retours Redis, contre 1 seul pour la découverte libre
+    // "fresh" appelée juste après. "stale" est donc garantie de répondre après "fresh", peu
+    // importe la machine qui exécute ce test.
+    const stalePromise = manager.subscribe(context, socket, {
+      position: staleOrigin,
+      radiusMeters: 500,
+      excludeDriverIds: ['someone-else-entirely'],
+    });
+    const freshPromise = manager.subscribe(context, socket, { position: freshOrigin, radiusMeters: 3_000, excludeDriverIds: [] });
+    await Promise.all([stalePromise, freshPromise]);
+
+    // Laisse au moins un intervalle de diffusion s'écouler.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    manager.unsubscribe(context);
+    const countAtUnsubscribe = messages.length;
+
+    // La dernière diffusion périodique doit porter le résultat de la demande la plus récemment
+    // APPELÉE (fresh), jamais celui de la demande la plus ancienne simplement parce qu'elle a
+    // fini par répondre en dernier.
+    const driverMessages = driverListMessages(messages);
+    assert.ok(driverMessages.length >= 2, 'au moins une diffusion périodique après les deux réponses immédiates');
+    assert.ok(
+      driverMessages.at(-1)!.payload.drivers.some((d) => d.driverId === freshDriverId),
+      'la dernière diffusion doit porter le chauffeur de la demande la plus récente, pas celui de la demande périmée'
+    );
+
+    // Et surtout : après unsubscribe(), plus AUCUN message ne doit continuer d'arriver -- un
+    // minuteur orphelin (celui de la demande perdante, si elle avait quand même posé le sien)
+    // continuerait sinon à interroger Redis indéfiniment pour un client qui ne l'a plus demandé.
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    assert.equal(
+      messages.length,
+      countAtUnsubscribe,
+      'aucun minuteur ne doit survivre à unsubscribe() -- ni celui de la demande périmée ni un second orphelin'
+    );
+  });
 });

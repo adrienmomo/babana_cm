@@ -28,6 +28,20 @@ interface Subscription {
 export class NearbyManager {
   private readonly subscriptions = new Map<string, Subscription>();
   private readonly rateLimitHits = new Map<string, number[]>();
+  // Jeton de fraîcheur (L3-20, cause racine du silence du 30 août --
+  // amoa/questions/L3-05-nearby-list-goes-silently-empty.md). Posé de façon SYNCHRONE, avant
+  // tout `await`, pour que l'ORDRE D'APPEL -- pas l'ordre de résolution de push() -- décide quel
+  // abonnement l'emporte. Sans lui, deux `nearby.subscribe` reçus presque simultanément pour le
+  // même client (ex. l'un rejoué depuis une file hors connexion avec des coordonnées périmées,
+  // l'autre réémis à l'ouverture d'une connexion avec les coordonnées réelles -- corrigé
+  // également à la source côté @babana/api-client/realtime/connection.ts) font courir deux
+  // minuteurs pour le même client : `this.subscriptions.set()` en bas de `subscribe()` écrase
+  // simplement l'entrée précédente avec celle qui a fini de répondre en DERNIER, pas
+  // nécessairement celle appelée en dernier -- si la requête la plus ancienne met plus longtemps
+  // à revenir de Redis, elle gagne la carte alors qu'elle ne devrait plus exister, et l'autre
+  // devient un minuteur orphelin que plus personne ne peut arrêter.
+  private readonly latestRequestSequence = new Map<string, number>();
+  private sequenceCounter = 0;
 
   constructor(
     private readonly config: Config,
@@ -48,6 +62,9 @@ export class NearbyManager {
       return;
     }
     socket.send(JSON.stringify(buildNearbySubscribeAckMessage({ accepted: true })));
+
+    const mySequence = ++this.sequenceCounter;
+    this.latestRequestSequence.set(context.userId, mySequence);
 
     this.clearSubscription(context.userId);
 
@@ -81,6 +98,14 @@ export class NearbyManager {
 
     await push();
 
+    if (this.latestRequestSequence.get(context.userId) !== mySequence) {
+      // Une demande plus récente (ou une désinscription explicite) est arrivée pendant qu'on
+      // attendait Redis -- cette réponse est déjà obsolète. N'installe jamais son propre
+      // minuteur : il continuerait à tourner indéfiniment, invisible, puisque plus rien ne le
+      // référence pour l'arrêter (voir le commentaire sur latestRequestSequence ci-dessus).
+      return;
+    }
+
     const timer = setInterval(() => {
       push().catch(() => {
         // Filet défensif, même politique que ws/connection.ts pour position.update : une panne
@@ -94,6 +119,11 @@ export class NearbyManager {
   }
 
   unsubscribe(context: ConnectionContext): void {
+    // Invalide aussi toute demande de subscribe() encore en vol pour ce client (même mécanisme
+    // que ci-dessus) : sans ça, une désinscription explicite pourrait être suivie, quelques
+    // millisecondes plus tard, par l'installation tardive d'un minuteur pour une demande que le
+    // client avait déjà annulée.
+    this.latestRequestSequence.set(context.userId, ++this.sequenceCounter);
     this.clearSubscription(context.userId);
   }
 

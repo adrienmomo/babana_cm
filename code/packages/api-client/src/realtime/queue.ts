@@ -9,11 +9,18 @@ import { realtime } from '@babana/contracts';
  * **Les positions n'y entrent jamais** (critère 4) : `connection.ts` les traite à part (seule la
  * dernière compte, jamais une file qui grandit). Ce module ne connaît que les autres types de
  * message -- il n'a même pas besoin de savoir que `position.update` existe.
+ *
+ * **Les déclarations d'intérêt courant non plus** (L3-20, 24 août) : `nearby.subscribe`,
+ * `nearby.unsubscribe`, `ride.track` sont déjà réémises par l'écran appelant à chaque `connected`
+ * -- les mettre en file les rejouait une seconde fois, avec des paramètres capturés à l'émission
+ * d'origine, potentiellement périmés au moment du rejeu (cause racine du silence de diffusion du
+ * 30 août, `amoa/questions/L3-05-nearby-list-goes-silently-empty.md`). Voir `connection.ts`,
+ * `NEVER_QUEUED_MESSAGE_TYPES`.
  */
 export interface QueuedAction {
   /** Même valeur que `id` dans l'enveloppe WebSocket envoyée -- l'identité du rejeu. */
   id: string;
-  type: Exclude<realtime.ClientToServerMessage['type'], 'position.update'>;
+  type: Exclude<realtime.ClientToServerMessage['type'], 'position.update' | 'nearby.subscribe' | 'nearby.unsubscribe' | 'ride.track'>;
   payload: unknown;
   queuedAt: string;
 }

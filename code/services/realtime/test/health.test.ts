@@ -39,6 +39,7 @@ const config: Config = {
   SHARE_RATE_LIMIT_MAX_REQUESTS: 30,
   SHARE_RATE_LIMIT_WINDOW_SECONDS: 60,
   SHARE_POLL_INTERVAL_SECONDS: 10,
+  WS_HEARTBEAT_INTERVAL_SECONDS: 3600,
 };
 
 describe('critère 1 — /health reflète l\'état de chaque dépendance', () => {

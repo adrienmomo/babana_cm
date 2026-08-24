@@ -73,6 +73,7 @@ afterEach(async () => {
   await act(async () => {
     for (const root of renderedRoots.splice(0)) root.unmount();
   });
+  jest.useRealTimers();
 });
 
 async function renderTracking(
@@ -223,6 +224,48 @@ describe('TrackingScreen (L6-09)', () => {
 
     expect(root.root.findByProps({ testID: 'tracking-connection-banner' })).toBeTruthy();
     expect(texts(root)).toContain('Connexion perdue');
+  });
+
+  // L3-20 (30 août) -- le risque explicitement nommé par l'écart : `connectionState` reste
+  // `connected` pendant qu'un flux applicatif (ici driver.position) s'est tu, sans fermeture ni
+  // erreur. Distinct du test "critère 3" ci-dessus, qui couvre la connexion réellement tombée.
+  it('L3-20 -- un silence prolongé de driver.position sur une connexion par ailleurs vivante est signalé distinctement, et déclenche un réabonnement', async () => {
+    jest.useFakeTimers();
+    const { root } = await renderTracking();
+    await act(async () => {
+      emitPosition();
+    });
+    expect(root.root.findAllByProps({ testID: 'tracking-connection-banner' })).toHaveLength(0);
+    mockSend.mockClear();
+
+    // Silence au-delà du seuil par défaut (3 x TRACKING_BROADCAST_EXPECTED_INTERVAL_MS = 10 s,
+    // TrackingScreen.tsx) -- connectionStateListener ne bouge jamais dans ce test : la connexion
+    // reste `connected` tout du long, exactement le scénario du 30 août.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(30_000);
+    });
+
+    // Jamais le bandeau "Connexion perdue" -- la connexion, elle, va bien.
+    expect(root.root.findAllByProps({ testID: 'tracking-connection-banner' })).toHaveLength(0);
+    expect(root.root.findByProps({ testID: 'tracking-stale-banner' })).toBeTruthy();
+    expect(texts(root)).toMatch(/non mise à jour depuis/);
+    // Réabonnement automatique, sur la connexion existante -- pas une reconnexion.
+    expect(mockSend).toHaveBeenCalledWith('ride.track', { rideId: RIDE_ID });
+  });
+
+  it('L3-20 -- la reprise de driver.position efface le bandeau de silence', async () => {
+    jest.useFakeTimers();
+    const { root } = await renderTracking();
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(30_000);
+    });
+    expect(root.root.findByProps({ testID: 'tracking-stale-banner' })).toBeTruthy();
+
+    await act(async () => {
+      emitPosition();
+    });
+
+    expect(root.root.findAllByProps({ testID: 'tracking-stale-banner' })).toHaveLength(0);
   });
 
   it('une reconnexion réémet ride.track', async () => {
