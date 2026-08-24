@@ -142,7 +142,10 @@ describe('HomeScreen (L6-11)', () => {
       emitProposal('ride-42');
     });
 
-    expect(navigation.navigate).toHaveBeenCalledWith('Proposal', { rideId: 'ride-42' });
+    expect(navigation.navigate).toHaveBeenCalledWith(
+      'Proposal',
+      expect.objectContaining({ rideId: 'ride-42', amount: 1200, distanceMeters: 3000 })
+    );
   });
 
   it("critère 5 (L6-12) -- une seconde proposition n'est pas ouverte par-dessus une déjà affichée", async () => {

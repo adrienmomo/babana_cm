@@ -1,4 +1,5 @@
 import type { RideId } from '@babana/navigation';
+import type { LatLng } from '@babana/maps';
 
 /**
  * Arborescence de l'app Chauffeur (L6-00) : un écran permanent (Home) qu'interrompent des
@@ -11,7 +12,22 @@ import type { RideId } from '@babana/navigation';
  */
 export type DriverParamList = {
   Home: undefined;
-  Proposal: { rideId: RideId };
+  /**
+   * Portée directement par la navigation plutôt que relue depuis un nouvel abonnement (L6-12) :
+   * `proposal.new` (C-02) n'arrive qu'une fois, diffusé aux abonnés déjà en écoute au moment de
+   * sa réception (`onRealtimeMessage`, `@babana/api-client`) -- un abonnement posé après coup, au
+   * montage de `Proposal`, ne le recevrait jamais une seconde fois. `HomeScreen` (seul appelant)
+   * transmet donc tout ce que `proposal.new` a porté.
+   */
+  Proposal: {
+    rideId: RideId;
+    origin: LatLng;
+    destination: LatLng;
+    amount: number;
+    distanceMeters: number;
+    /** ISO 8601 -- le serveur seul est juge de l'expiration (L3-07), ce champ n'est qu'indicatif. */
+    expiresAt: string;
+  };
   ActiveRide: { rideId: RideId };
   Settlement: { rideId: RideId };
   /** Déclaration de remise (L5-07, écran pas encore construit -- `amoa/questions/L6-11.md`) :
