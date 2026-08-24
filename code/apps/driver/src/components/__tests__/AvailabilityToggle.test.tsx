@@ -8,6 +8,11 @@ jest.mock('../../auth', () => ({
   apiClient: { request: (...args: unknown[]) => mockRequest(...args) },
 }));
 
+const mockSend = jest.fn();
+jest.mock('../../realtime', () => ({
+  realtimeClient: { send: (...args: unknown[]) => mockSend(...args) },
+}));
+
 import { AvailabilityToggle } from '../AvailabilityToggle';
 
 function texts(root: ReactTestRenderer): string {
@@ -47,6 +52,29 @@ describe('AvailabilityToggle (L6-11, D7)', () => {
 
     expect(mockRequest).toHaveBeenCalledWith('setAvailability', { body: { online: true } });
     expect(texts(root)).toContain('En ligne');
+  });
+
+  it("applique réellement l'état côté service temps réel une fois Odoo autorisé -- deux appels, pas un", async () => {
+    mockRequest.mockResolvedValue({ online: true });
+    const root = await renderToggle();
+
+    await press(root);
+
+    // L'appel HTTP (autorisation) doit précéder l'envoi WebSocket (application) -- un chauffeur
+    // refusé ne doit jamais apparaître disponible, même un instant.
+    const requestOrder = mockRequest.mock.invocationCallOrder[0]!;
+    const sendOrder = mockSend.mock.invocationCallOrder[0]!;
+    expect(requestOrder).toBeLessThan(sendOrder);
+    expect(mockSend).toHaveBeenCalledWith('availability.set', { online: true });
+  });
+
+  it("un refus n'envoie jamais availability.set -- rien n'est appliqué côté service temps réel", async () => {
+    mockRequest.mockRejectedValue(new ApiError('DRIVER_NOT_APPROVED', 'x', 403));
+    const root = await renderToggle();
+
+    await press(root);
+
+    expect(mockSend).not.toHaveBeenCalled();
   });
 
   it('critère 1 -- chaque motif de refus affiche un message distinct', async () => {

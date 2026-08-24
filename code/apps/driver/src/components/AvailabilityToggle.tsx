@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ApiError, translateApiError } from '@babana/api-client';
 import type { http } from '@babana/contracts';
 import { apiClient } from '../auth';
+import { realtimeClient } from '../realtime';
 
 /**
  * Bascule en ligne / hors ligne (L6-11, D7). Cible tactile large (D20, exigence non esthétique) :
@@ -13,6 +14,15 @@ import { apiClient } from '../auth';
  * **Aucune décision ici, seulement l'application de celle du serveur** (invariant 3) : Odoo
  * reste seul juge de l'éligibilité (L3-04) -- ce composant se contente d'afficher le motif exact
  * que le serveur renvoie (`translateApiError`, un code -> une phrase, catalogue C-01).
+ *
+ * **Deux appels, pas un** (constaté en vérifiant cet écran dans un navigateur, contre la vraie
+ * pile) : `POST /drivers/me/availability` (Odoo) ne décide que de l'autorisation -- ni
+ * `services/odoo/addons/babana/controllers/driver.py` ni `ws/dispatch.ts` (service temps réel)
+ * n'appliquent seuls l'un sans l'autre. L'insertion réelle dans le géo-index (le drapeau
+ * `is_online` côté Redis, `driver/availability.ts::setOnline`) n'a lieu qu'au message
+ * `availability.set` (C-02), envoyé ici une fois l'autorisation d'Odoo obtenue -- jamais avant
+ * (un chauffeur refusé ne doit jamais apparaître disponible, même un instant), jamais à sa place
+ * (l'appel HTTP seul ne fait rien apparaître dans le pool).
  */
 export interface AvailabilityToggleProps {
   /**
@@ -49,6 +59,9 @@ export function AvailabilityToggle({ inCourse, onNavigateToRemittance }: Availab
     setNetworkError(false);
     try {
       const response = (await apiClient.request('setAvailability', { body: { online: next } })) as http.SetAvailabilityResponse;
+      // Odoo a autorisé -- applique réellement l'état côté service temps réel (voir le
+      // commentaire de tête). Toujours après l'autorisation, jamais avant.
+      realtimeClient.send('availability.set', { online: response.online });
       setOnline(response.online);
     } catch (error) {
       if (error instanceof ApiError) {

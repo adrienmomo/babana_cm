@@ -10,6 +10,7 @@ jest.mock('../../auth', () => ({
 let realtimeListener: ((message: unknown) => void) | null = null;
 let connectionStateListener: ((state: string) => void) | null = null;
 const mockEnsureConnected = jest.fn();
+const mockSend = jest.fn();
 let mockConnectionState: 'offline' | 'connecting' | 'connected' = 'offline';
 jest.mock('../../realtime', () => ({
   ensureRealtimeConnected: () => mockEnsureConnected(),
@@ -25,7 +26,9 @@ jest.mock('../../realtime', () => ({
       connectionStateListener = null;
     };
   },
-  realtimeClient: { getState: () => mockConnectionState },
+  // getState/send : AvailabilityToggle.tsx (montée par cet écran) en a besoin aussi -- même
+  // module, même mock (jest.mock s'applique une fois par chemin de module).
+  realtimeClient: { getState: () => mockConnectionState, send: (...args: unknown[]) => mockSend(...args) },
 }));
 
 import { HomeScreen } from '../HomeScreen';
