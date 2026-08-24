@@ -14,6 +14,10 @@ export type DriverParamList = {
   Proposal: { rideId: RideId };
   ActiveRide: { rideId: RideId };
   Settlement: { rideId: RideId };
+  /** Déclaration de remise (L5-07, écran pas encore construit -- `amoa/questions/L6-11.md`) :
+   * réservée dès L6-11, qui doit déjà pouvoir y proposer un accès direct quand le motif de refus
+   * de passage en ligne est le plafond d'encaisse (L3-04). */
+  Remittance: undefined;
 };
 
 /**

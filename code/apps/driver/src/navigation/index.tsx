@@ -6,6 +6,7 @@ import { ApiError, type AuthState, type AuthUser } from '@babana/api-client';
 import { apiClient, authClient, onSessionLost } from '../auth';
 import { bootstrap } from '../bootstrap';
 import { SignInScreen } from '../screens/SignInScreen';
+import { HomeScreen } from '../screens/HomeScreen';
 import type { AuthParamList, DriverParamList, DriverPendingParamList } from './types';
 
 const AuthStack = createNativeStackNavigator<AuthParamList>();
@@ -102,9 +103,7 @@ function PendingNavigator() {
 function DriverNavigator() {
   return (
     <DriverStack.Navigator initialRouteName="Home">
-      <DriverStack.Screen name="Home">
-        {() => <PlaceholderScreen title="Accueil chauffeur" task="L6-11" />}
-      </DriverStack.Screen>
+      <DriverStack.Screen name="Home" component={HomeScreen} />
       <DriverStack.Screen name="Proposal" options={{ presentation: 'fullScreenModal' }}>
         {() => <PlaceholderScreen title="Proposition de course" task="L6-12" />}
       </DriverStack.Screen>
@@ -113,6 +112,9 @@ function DriverNavigator() {
       </DriverStack.Screen>
       <DriverStack.Screen name="Settlement">
         {() => <PlaceholderScreen title="Encaissement" task="L6-14" />}
+      </DriverStack.Screen>
+      <DriverStack.Screen name="Remittance">
+        {() => <PlaceholderScreen title="Déclaration de remise" task="L5-07" />}
       </DriverStack.Screen>
     </DriverStack.Navigator>
   );

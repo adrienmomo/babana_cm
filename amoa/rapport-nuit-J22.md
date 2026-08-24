@@ -155,3 +155,74 @@ seuil trop court déclencherait des fausses alertes, un seuil trop long masquera
 plus longtemps que nécessaire. Pas un défaut de cette nuit (le même statut que
 `NEARBY_SUBSCRIBE_RADIUS_METERS`, déjà provisoire avant ce soir), mais qui grandit avec chaque
 constante de ce genre.
+
+---
+
+## L6-11 — Bascule en ligne / hors ligne
+
+Premier écran métier réel de l'app Chauffeur — comme `HomeScreen.tsx` l'a été côté Client (L6-06),
+il pose l'infrastructure que L6-12 (cette nuit) puis L6-13/L6-14 réutiliseront telle quelle :
+`apps/driver/src/realtime.ts`, calqué sur son équivalent Client (même patron, un seul WebSocket
+par session, `onRealtimeMessage`/`onRealtimeConnectionStateChange` diffusés).
+
+### L'interrupteur n'invente jamais l'éligibilité, il l'affiche (invariant 3)
+
+`AvailabilityToggle.tsx` n'a aucune règle métier : `POST /drivers/me/availability` reste seul juge
+(L3-04, Odoo). Chaque refus (`DRIVER_NOT_APPROVED`, `MOTORCYCLE_NOT_ASSIGNED`,
+`INSURANCE_EXPIRED`, `LICENSE_EXPIRED`, `CASH_LIMIT_REACHED`, `DRIVER_HAS_ACTIVE_RIDE`) passe par
+`translateApiError` (catalogue C-01, déjà écrit — rien à ajouter côté message). Le motif plafond
+propose un accès direct à L5-07 via une route `Remittance` réservée par `PlaceholderScreen`, même
+discipline que `ActiveRide`/`Settlement` déjà en place pour L6-13/L6-14 — écart détaillé
+(`amoa/questions/L6-11.md`) : l'écran réel n'existe pas encore, la route si.
+
+### « En course » : lu depuis le serveur, jamais deviné
+
+Critère 2 (« un chauffeur en course ne peut pas se mettre hors ligne ») exigeait un signal
+proactif, pas seulement une erreur après coup. Rien ne le portait encore côté app — mais
+`session.synced` (C-02, `activeRideState`) l'a toujours fait côté fil : envoyé automatiquement à
+chaque connexion établie (`session.resync`, déjà câblé dans `connection.ts` avant ce soir, jamais
+consommé par aucun écran jusqu'ici). `HomeScreen.tsx` s'y abonne et désactive l'interrupteur
+quand `activeRideState` vaut `assigned` ou `in_progress` — aucune supposition locale, uniquement
+ce que le serveur a déjà dit.
+
+### Le point d'entrée de L6-12, posé ici plutôt que laissé en suspens
+
+`Home` est l'écran permanent que les événements interrompent (`navigation/types.ts`) : rien
+d'autre ne pouvait écouter `proposal.new` et naviguer vers `Proposal`. Laisser ce câblage à L6-12
+aurait reproduit le manque de découpage déjà nommé trois fois ce mois-ci (L6-00, L3-18, L3-19) --
+posé ici, avec sa garde contre une seconde proposition affichée par-dessus la première (critère 5
+de L6-12, vérifié via `navigation.getState()` plutôt qu'une référence de navigation globale, pour
+éviter la dépendance circulaire `navigation/index.tsx` <-> `HomeScreen.tsx`).
+
+### Effet de bord trouvé et corrigé, même famille que la nuit du 21 août côté Client
+
+`apps/driver/jest.config.js` ne listait pas encore `@react-native-async-storage/async-storage`
+dans `transformIgnorePatterns` — `createRealtimeClient` le requiert dès sa construction (avant
+même toute connexion), et jusqu'à cette tâche, aucun écran chauffeur n'appelait
+`createRealtimeClient`. Corrigé par le même patch que `apps/client/jest.config.js` porte déjà.
+
+### Tests
+
+`apps/driver/src/components/__tests__/AvailabilityToggle.test.tsx` (6, dont les 6 codes de refus
+distincts, la proposition de remise, la désactivation en course, la panne réseau générique) ;
+`apps/driver/src/screens/__tests__/HomeScreen.test.tsx` (5, dont la distinction connexion/en
+ligne, `session.synced` → désactivation, `proposal.new` → navigation, garde anti-double-proposition).
+`apps/driver/src/navigation/__tests__/AppNavigator.test.tsx` mis à jour (`HomeScreen` mocké, même
+patron que côté Client) pour ne pas ouvrir de vraie connexion temps réel dans ce fichier.
+
+### Fichiers
+
+`apps/driver/src/realtime.ts` (nouveau), `apps/driver/src/screens/HomeScreen.tsx` (nouveau),
+`apps/driver/src/components/AvailabilityToggle.tsx` (nouveau), `apps/driver/src/navigation/
+{index.tsx,types.ts}`, `apps/driver/jest.config.js`, tests associés.
+
+### Doute pour un chauffeur réel
+
+**Le défaut-refus sur l'état de connexion.** `HomeScreen` initialise `connectionState` à
+`realtimeClient.getState()`, qui vaut `'offline'` avant tout `connect()` — un chauffeur qui ouvre
+l'app voit donc « Hors connexion » pendant la fraction de seconde où `ensureRealtimeConnected()`
+établit la connexion. C'est honnête (l'app n'est effectivement pas encore connectée), mais un
+chauffeur pressé pourrait taper l'interrupteur avant que la connexion ne soit prête -- ce n'est
+pas un problème (l'appel HTTP `setAvailability` ne dépend pas du WebSocket, seul le passage dans
+le pool en dépend, via L3-04), mais rien à l'écran ne le distingue d'un vrai problème de réseau.
+À observer au pilote plutôt qu'à deviner ce soir.
