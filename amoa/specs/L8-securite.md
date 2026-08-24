@@ -181,8 +181,8 @@ Le déclenchement fonctionne hors connexion : mis en file et envoyé dès que po
 
 1. Le bouton est atteignable en un geste depuis l'écran de course.
 2. Le déclenchement enregistre la position exacte.
-3. L'alerte apparaît au back-office sans délai.
-4. Le contact d'urgence est notifié s'il existe.
+3. **L'alerte apparaît au back-office sans délai — c'est la notification qui compte** (D48, 30 août). Le superviseur peut appeler, voir la position, alerter ; un proche ne peut que s'inquiéter. Le canal qui produit une action passe donc en premier, et il ne dépend d'aucun fournisseur externe.
+4. **Le contact d'urgence est notifié quand une passerelle existe**, et l'enregistrement distingue toujours **l'intention de la livraison** : un indicateur qui dirait « notifié » sans qu'aucun message ne soit parti serait un mensonge sur la seule fonction du produit où mentir coûte le plus cher. Tant qu'aucune passerelle n'est choisie — la même que celle dont L1-09 a besoin pour l'OTP —, l'intention est enregistrée et le reste explicitement non tenu.
 5. La course n'est pas interrompue automatiquement.
 6. Le déclenchement hors connexion est mis en file avec sa position d'origine.
 

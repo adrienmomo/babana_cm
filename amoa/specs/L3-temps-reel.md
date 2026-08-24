@@ -733,6 +733,48 @@ La règle vaut au-delà de cette tâche : **un état réparé doit être indisce
 
 ---
 
+## L3-20 — Détection de silence par flux
+
+### Objectif
+
+Qu'un flux qui se tait le dise, au lieu de laisser un écran mentir.
+
+### Contexte
+
+**Créée le 30 août, après un défaut observé en navigateur.** La liste des chauffeurs se vidait quelques secondes après un abonnement réussi : le premier envoi arrivait, la diffusion périodique suivante n'atteignait jamais la connexion de longue durée. Ni fermeture, ni erreur — l'état de connexion restait « connecté », et l'écran affichait « aucun chauffeur disponible » comme un fait.
+
+L'écran de suivi de course utilise exactement le même patron. La conséquence, si rien ne change : **la position d'un chauffeur se fige en pleine course, sans bannière de déconnexion**, parce que la connexion n'est jamais tombée.
+
+### Fichiers
+
+```
+packages/api-client/src/realtime/liveness.ts
+services/realtime/src/ws/liveness.ts
+packages/api-client/test/realtime/liveness.test.ts
+```
+
+### Spécification
+
+**Le diagnostic passe avant le mécanisme.** Trouver d'abord pourquoi la diffusion s'est arrêtée. Installer la surveillance sans avoir compris reviendrait à poser une alarme pour ne pas réparer la serrure — et si la cause est une boucle de diffusion qui cesse de se réarmer, la surveillance la rendrait simplement moins visible.
+
+**La surveillance est par abonnement, pas par connexion (D47).** Deux pannes produisent le même silence : une connexion à moitié fermée — le cas courant sur un réseau mobile — et un flux mort sur une connexion vivante. Un battement de cœur sur la connexion ne couvre que la première ; dans la seconde il arriverait normalement et confirmerait que tout va bien pendant qu'un flux est mort.
+
+Un flux périodique connaît sa propre cadence, donc il sait ce que son silence signifie. Passé un multiple configurable de cette cadence sans rien recevoir, l'application **le dit à l'utilisateur** et se réabonne.
+
+**Le dire compte autant que se réabonner.** « Position datée de N secondes » pendant qu'on retente vaut mieux qu'un marqueur figé et qu'un silence, et c'est la même règle que pour la limitation de débit : un silence est le pire des retours.
+
+**Côté serveur, symétriquement** : une connexion qui ne répond plus doit être détectée et ses abonnements libérés, sinon le service diffuse indéfiniment vers personne et son registre grossit.
+
+### Critères d'acceptation
+
+1. La cause du défaut observé le 30 août est identifiée et corrigée, et un test la couvre.
+2. Un flux périodique interrompu au-delà du seuil est signalé à l'utilisateur, puis réabonné.
+3. Le réabonnement respecte la limitation de débit — il ne doit jamais devenir le comportement qui l'aggrave.
+4. Une connexion à moitié fermée est détectée des deux côtés, et ses abonnements libérés côté serveur.
+5. Un flux qui reprend efface le signalement.
+
+---
+
 ## L3-19 — Émetteur du cycle de vie de course vers le client
 
 ### Objectif

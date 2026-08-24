@@ -51,6 +51,8 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D44 | **Un état réparé est indiscernable d'un état produit normalement.** Une réconciliation restaure l'état complet, jamais un fragment | Réparer le marqueur qui manque | Un état partiel qu'aucune transition ne pourrait produire est un quatrième cas que personne n'a prévu. Voir §2 ter |
 | D45 | **Tout compte reçoit son fuseau à la création** (`Africa/Douala`, paramétrable), et toute requête bornée par un jour calendaire convertit ses bornes en UTC | Laisser courir le fuseau par défaut d'Odoo | Sans lui, tout chauffeur camerounais est à Bruxelles, et sa recette du jour tombe à zéro plusieurs heures par jour. Voir §5 bis |
 | D46 | **Le banc de vérification reproduit la topologie de production** : même origine pour le bundle web et l'API, donc aucun CORS | Ajouter des en-têtes CORS à l'API authentifiée | On n'ajoute pas une surface d'attaque à une API qui porte des jetons pour accommoder une erreur de banc d'essai. Voir §9 ter |
+| D47 | **Un flux périodique surveille son propre silence**, abonnement par abonnement — pas seulement la connexion qui le porte | Battement de cœur sur la connexion | Une connexion vivante dont un flux est mort reste « connectée ». Un battement de cœur arriverait quand même, et masquerait le défaut. Voir §3 bis |
+| D48 | **En cas d'urgence, le superviseur est prévenu en premier** — c'est le canal qui produit une action. Le proche vient ensuite | Notifier le contact d'urgence en premier | Un superviseur peut appeler, voir la position, alerter. Un proche ne peut que s'inquiéter. Voir §9 |
 
 ---
 
@@ -153,6 +155,23 @@ Pour choisir, le client doit voir la position, la photo, la note et le type de m
 Les chauffeurs bien notés seront choisis, les nouveaux ne démarreront jamais. Sur un modèle à la commission, ce serait le problème du chauffeur ; avec D5, c'est l'entreprise qui paie des salariés que personne ne sélectionne. Le back-office doit donc exposer un **indicateur de courses par chauffeur** dès le pilote — c'est la donnée qui dira s'il faut réintroduire une attribution automatique.
 
 Combiné à D11, l'enchaînement de refus n'a aucun filet : le client rechoisit à la main autant de fois que nécessaire. Le **taux d'abandon après refus** est à instrumenter dès le pilote, c'est l'indicateur qui déclenchera la réouverture de D11.
+
+---
+
+## 3 bis. Une connexion vivante ne prouve rien (D47)
+
+La liste des chauffeurs se vidait après quelques secondes : le premier envoi arrivait, la diffusion périodique suivante n'atteignait jamais la connexion de longue durée de l'application. Aucune fermeture, aucune erreur, aucun rejet — l'état de connexion restait « connecté », et l'écran affichait « aucun chauffeur disponible » avec l'aplomb d'un fait.
+
+**Une connexion ouverte n'est pas une connexion qui livre.** Deux pannes distinctes produisent le même silence, et il faut les traiter séparément :
+
+- **La connexion meurt sans le dire.** Sur un réseau mobile — c'est le cas courant ici, pas l'exception — une connexion à moitié fermée reste ouverte des minutes du côté qui n'émet pas. Rien n'arrive, `onclose` ne se déclenche jamais.
+- **Un flux meurt sur une connexion qui vit.** Une boucle de diffusion qui cesse de se réarmer, un abonnement perdu côté serveur : la connexion transporte encore tout le reste.
+
+**Un battement de cœur sur la connexion ne couvre que la première.** Dans le second cas il arriverait normalement, et confirmerait que tout va bien pendant qu'un flux est mort — il masquerait le défaut au lieu de le révéler.
+
+La surveillance se fait donc **par abonnement** : un flux périodique connaît sa propre cadence, donc il sait ce que son silence signifie. Passé un multiple de cette cadence sans rien recevoir, l'application le dit et se réabonne — elle n'attend pas qu'une couche plus basse s'en aperçoive.
+
+**Et le diagnostic passe avant le mécanisme.** Ajouter la surveillance sans avoir compris pourquoi la diffusion s'est arrêtée reviendrait à installer une alarme pour ne pas avoir à réparer la serrure.
 
 ---
 
