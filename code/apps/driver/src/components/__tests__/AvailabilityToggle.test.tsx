@@ -60,9 +60,7 @@ describe('AvailabilityToggle (L6-11, D7)', () => {
 
     for (const [code, expectedMessage] of cases) {
       mockRequest.mockRejectedValueOnce(new ApiError(code as never, 'x', 403));
-      // eslint-disable-next-line no-await-in-loop -- chaque cas doit être rendu et pressé séquentiellement
       const root = await renderToggle();
-      // eslint-disable-next-line no-await-in-loop
       await press(root);
       expect(texts(root)).toContain(expectedMessage);
     }
