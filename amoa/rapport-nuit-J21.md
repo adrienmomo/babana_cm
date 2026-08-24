@@ -223,4 +223,84 @@ Apps : `apps/client/src/components/{EmergencyButton,ShareTripButton}.tsx`,
 `apps/client/src/incidentQueue.ts`, `apps/client/src/screens/TrackingScreen.tsx`,
 `apps/driver/src/components/EmergencyButton.tsx`, `apps/driver/src/incidentQueue.ts`.
 
+### Vérification navigateur -- ce qui a marché, ce qui a buté, et pourquoi ce n'est pas pareil
+
+**D45/D46 vérifiés de bout en bout** : session client réelle restaurée sur le banc à même origine
+(`http://verify.localhost:8888`, D46), `GET /api/v1/me` à 200 sans préflight, aucune erreur
+console. C'est le même banc, corrigé comme prévu, qui a servi toute la suite de la nuit.
+
+**L8-03/L8-04 -- prouvés en direct jusqu'à un point précis, puis bloqués par un défaut réel,
+préexistant, trouvé et documenté (pas contourné).** Chauffeur réellement mis en ligne et positionné
+par le chemin réel (WebSocket) ; côté client, `HomeScreen` a affiché ce chauffeur réel, une vraie
+sélection a déclenché une vraie réservation atomique, et **une vraie proposition a été reçue côté
+chauffeur en temps réel** (montant, distance, compte à rebours réels) -- `WaitingScreen` affichée
+avec ce compte à rebours. Au-delà de ce point, un défaut préexistant et sans lien avec les tâches
+de ce soir (`amoa/questions/L3-05-nearby-list-goes-silently-empty.md`, commité séparément sur
+`master`) a empêché de boucler jusqu'à `TrackingScreen` de façon fiable : la diffusion périodique
+`nearby.drivers` (toutes les 5 s) cesse d'atteindre la connexion de longue durée de l'app sans
+fermeture ni erreur, alors qu'une connexion neuve retrouve systématiquement le bon résultat au
+même instant -- vérifié à répétition, root-causé avant d'être signalé, jamais juste observé.
+
+**Ce que ça ne remet pas en cause** : L8-03 et L8-04 sont prouvés de bout en bout contre le
+**vrai** Odoo par `test/http-contract/endpoint-coverage.test.ts` (critère 6 de C-01 -- un vrai
+`fetch`, une vraie réponse, validée par son propre schéma, jamais fabriquée par le test) --
+`triggerIncident`, `createRideShare`, `revokeRideShare` y sont exercés ce soir pour la première
+fois, tous verts. Les composants `EmergencyButton`/`ShareTripButton` sont prouvés par appui long
+réel, rejeu hors connexion réel, révocation réelle (React Test Renderer, pas des mocks de haut
+niveau). Ce qui manque ce soir est la dernière jointure -- **voir ce défaut, dans un navigateur,
+depuis `TrackingScreen`** -- pas la logique elle-même.
+
 ---
+
+## Passe finale
+
+`make reset && make up` puis toute la suite sur base fraîche, dans cet ordre :
+
+- **Odoo** : `-i babana --test-enable`, **2255 tests, 0 échec, 0 erreur** (base entièrement neuve,
+  modules standard compris -- pas seulement le sous-lot `babana`).
+- **`npm run build/typecheck/lint --workspaces`** : propres sur tout l'arbre.
+- **Suites par paquet** : `api-client` 58, `contracts` 70, `maps` 19, `navigation` 4, `realtime`
+  167, `client` 96, `driver` 19 -- toutes vertes.
+- **`test/` (concurrence, authentification, contrat HTTP)**, rejoué **seul**, jamais en parallèle
+  d'une autre charge lourde (le faux échec de contention documenté cette nuit dans la première
+  tentative, ressources partagées, pas un vrai défaut -- même mécanisme que J20) : **28 tests, 0
+  échec**, y compris les 20 itérations x 8 appels simultanés des trois scénarios de concurrence et
+  les trois nouveaux exercices `triggerIncident`/`createRideShare`/`revokeRideShare`.
+- **`make verify`** : vert (santé Odoo, santé temps réel, back-office, `.well-known` à l'apex,
+  objet MinIO refusé sans URL signée).
+- **`make secrets-scan`** : même faux positif préexistant (`react-native-keychain.web.js`),
+  toujours pas corrigé, toujours hors du périmètre d'une nuit qui ne le nomme pas -- vérifié que
+  je n'en ai introduit aucun nouveau (le jeton d'exemple de `ShareTripButton.test.tsx` a été
+  raccourci sous le seuil de détection pour cette raison précise, `git log` de ce soir).
+
+---
+
+## Ce qui reste ouvert
+
+- **`amoa/questions/L3-05-nearby-list-goes-silently-empty.md`** (nouveau, ce soir) -- la
+  diffusion périodique `nearby.drivers` meurt silencieusement sur une connexion de longue durée.
+  Touche potentiellement `ride.track` (L3-09, même patron de connexion continue) : à traiter
+  avant de considérer le suivi de course robuste sur un vrai réseau mobile intermittent.
+- **`amoa/questions/L8-04-emergency-contact-relay.md`** (nouveau) -- aucun relais SMS réel pour le
+  contact d'urgence, journalisé seulement. La limite la plus sérieuse du lot L8-04.
+- **`amoa/questions/L8-04-driver-screen-gap.md`** (nouveau) -- le bouton d'urgence chauffeur n'a
+  pas d'écran où vivre (L6-11 à L6-14 jamais construites).
+- **`amoa/questions/L6-18-cors-api-web-quote.md`** -- toujours ouvert, hors périmètre de ce soir.
+- Le lot Chauffeur, L3-12, L4-06, `make secrets-scan` (le faux positif à traiter proprement), la
+  validation du plan comptable, la vérification développeur Android -- inchangés depuis J20.
+
+## Doute pour un client réel
+
+**Le même que celui qui a bloqué la vérification ce soir, et c'est le plus important de la nuit.**
+Si la diffusion périodique `nearby.drivers` peut mourir silencieusement sur une connexion longue,
+rien ne dit que `ride.track` (L3-09) -- le flux qui montre au client où est son chauffeur pendant
+une vraie course -- ne fait pas exactement la même chose. `TrackingScreen` n'affiche une bannière
+de déconnexion que si `connectionState !== 'connected'` : si la connexion reste *déclarée* ouverte
+pendant que ses diffusions s'arrêtent, l'écran ne dirait rien du tout -- un client verrait son
+chauffeur figé sur la carte, sans le moindre signal que quelque chose ne va pas. C'est précisément
+le genre de défaut que ce dépôt existe pour attraper avant qu'il n'atteigne un vrai chauffeur, sur
+un vrai réseau intermittent, avec un vrai client qui attend.
+
+**Un doute secondaire, plus classique** : le contact d'urgence n'est aujourd'hui que journalisé,
+jamais réellement notifié -- si un client renseigne ce champ en pensant qu'un proche sera prévenu
+en cas de coup dur, c'est faux ce soir, et rien dans l'app ne le dit.
