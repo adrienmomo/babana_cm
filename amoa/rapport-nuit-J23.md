@@ -313,3 +313,110 @@ le `GET /drivers/me/cash` (fenêtre de quelques ms), ou si le `GET` échoue, l'�
 « sous le plafond » alors que le serveur a mis le chauffeur hors ligne — il découvrirait alors le
 blocage sur `HomeScreen` (L6-11 affiche le motif `CASH_LIMIT_REACHED`), pas ici. Rare, sans risque
 financier, mais c'est une inférence de plus à retirer.
+
+---
+
+## Passe finale — `make reset`, suite complète, vérification navigateur des deux côtés
+
+### `make reset` + `make up` + `make test`
+
+Base jetée et reconstruite. **`npm test` (hôte) : vert en entier sur base fraîche** —
+`@babana/contracts` 71, `@babana/realtime` 175, `@babana/api-client` 66, `@babana/maps` 19,
+`@babana/navigation` 4, `@babana/client` 102, `@babana/driver` 76, `@babana/concurrency-tests` 28
+(dont la boucle e2e contre la vraie pile), plus `verify-realtime-message-map.js` et
+`verify-ride-state-machine.js`. `make lint`, `tsc --noEmit` (tous les paquets), `make secrets-scan`
+(seul le faux positif préexistant `react-native-keychain.web.js`, aucun nouveau) : verts.
+
+**Un test Odoo rouge, hors périmètre, à signaler.** Sous `-i babana --test-enable` avec la suite
+Odoo entière (2255 tests), `TestRealtimeCommitHook.test_clear_engagement_does_nothing_if_the_
+transaction_rolls_back` échoue **une fois**. Le même test, isolé (`--test-tags=/babana:TestRealtimeCommitHook`,
+10/10) et dans la suite `babana` seule (`--test-tags=/babana`, 455/455), passe. C'est une
+**pollution inter-modules** (un autre module laisse de l'état de transaction/registre), sur le
+point d'accroche au commit D32/D33 — **aucun fichier de cette nuit ne touche cette zone**
+(`babana_ride_state.py`, `realtime_client.py`, la plomberie commit-hook, tous inchangés depuis
+J22). Instabilité préexistante révélée par la première passe `make reset` de la semaine (J22 ne
+l'avait pas faite), pas une régression. À traiter comme le demande `CLAUDE.md` (« un test instable
+est un défaut ») — mais c'est un défaut d'isolation de test dans du code non modifié ce soir, pas
+un blocage de ce lot.
+
+### Vérification navigateur — les deux côtés, jusqu'au bout
+
+Banc jetable en **même origine** (D46, méthode J21/J22) : `dist-web` construit pointé sur
+`http://verify.localhost:8888`, un Caddy `docker run` séparé (jamais commité, retiré en fin de
+session) sert le bundle et relaie `/api/*` → Odoo, `/rt/*` → temps réel, `/maps/*` → mock-maps.
+Session client réelle injectée (jeton par vrai `POST /auth/google`).
+
+**Client, dans le navigateur (vrai bundle web) :**
+
+- `SignIn` s'affiche, puis `Home` après restauration de session — **aucune page blanche, aucune
+  erreur console** malgré les ajouts au contrat (D49/D50/D51).
+- `Home` : la carte, le rappel « le point sur la carte fait foi », et **un chauffeur réel dans la
+  liste, mis à jour en direct** — la restructuration D50 du `StreamLivenessWatchdog` (créé à la
+  réception de `nearby.subscribe.ack`, recréé à chaque réabonnement) fonctionne : liste qui se
+  vide proprement quand le départ passe hors rayon, qui revient quand un chauffeur rentre dans le
+  rayon, jamais de bandeau de silence parasite.
+- Recherche de lieu (Akwa, Bonapriso via le proxy `/maps`), `Suivant` → `Quote` : **estimation
+  réelle 550 FCFA, détail décomposé 200 / 344 / 6, 3.4 km · ≈ 8 min**, la liste des chauffeurs
+  reste vivante pendant la comparaison (L6-07).
+- Sélection du chauffeur → `Waiting` → `Tracking` → **`RideSummary` atteint avec exactement les
+  données du serveur** (550 FCFA, même détail décomposé, 3.4 km · 8 min, notation proposée).
+
+**Chauffeur, contre la même pile (sonde fidèle : vrai WebSocket, vrai jeton, vrais endpoints HTTP
+— l'app Chauffeur est React Native, pas de build web, L6-18) :**
+
+- `proposal.new` reçu **avec `distanceToOriginMeters`** (D51, valeur réelle plausible — 175 m puis
+  0 m selon la position).
+- `proposal.accept` → **`proposal.accepted` reçu** (D49, plus aucun délai deviné).
+- `POST /rides/{id}/start` → 200, `ride.started` poussé **au client ET au chauffeur** (L3-19) — le
+  navigateur passe en phase « Course en cours ».
+- `POST /rides/{id}/complete` → 200, `ride.completed` avec le détail décomposé → le navigateur
+  atteint `RideSummary`.
+- `POST /rides/{id}/settle` → 200 (`settled`, nouveau solde), **renvoi à clé d'idempotence
+  identique : solde inchangé** (L6-14 critère 5), `GET /drivers/me/cash` renvoie solde / plafond /
+  marge.
+- `nearby.subscribe.ack` **et** `ride.track.ack` portent `broadcastIntervalMs` (D50), vérifié sur
+  le fil réel.
+
+Une course a donc été menée de bout en bout par les deux côtés, contre la vraie pile, **jusqu'à
+l'encaissement** — et il ne reste plus une seule constante de cadence recopiée du serveur.
+
+Rien de ce banc n'est commité : `infra/` jamais touché (conteneur séparé), `dist-web/`, les
+scripts sondes et le conteneur de vérification supprimés, `git status` propre.
+
+---
+
+## Qu'est-ce qui me laisse un doute pour quelqu'un de réel
+
+**Le corps de `POST /rides/{id}/complete` (écart L6-13), et la même famille d'inférence que cette
+nuit visait.** Les trois correctifs de contrat ont retiré trois endroits où une app devinait —
+mais L6-13 en a révélé un quatrième, plus profond : l'app Chauffeur doit envoyer un *relevé de
+trajet* (distance, tracé) qu'elle n'a aucun moyen de mesurer (L6-05 et L3-10 absentes). Le
+stopgap ne corrompt pas l'argent (le montant se calcule sur la distance de référence, vérifié),
+mais il envoie une distance « réelle » qui est en fait la référence — donc **aucune détection de
+détour abusif n'est possible** tant que L3-10 n'existe pas. Un chauffeur qui allonge
+systématiquement le trajet ne serait pas repéré. C'est un angle mort de contrôle, pas un bug, et
+il est nommé dans l'écart avec sa proposition de résolution.
+
+**Deuxième doute, plus concret pour un pilote proche :** L6-13 câble le bouton d'urgence à une
+lecture GPS ponctuelle (`apps/driver/src/location.ts`), mais **son comportement natif réel**
+(permission Android au bon moment, délai de 10 s tenu sur un terminal d'entrée de gamme, retour
+`null` propre si le GPS est froid) n'a pas pu être vérifié — pas de build mobile dans cet
+environnement. Le jour où le bouton d'urgence doit servir, c'est ce chemin qui doit fonctionner du
+premier coup.
+
+---
+
+## Ce qui reste ouvert
+
+- **`amoa/questions/L6-13.md`** (nouveau) — `complete` exige un relevé de trajet que l'app n'a
+  pas ; pas de numéro client au contrat → pas de bouton d'appel côté chauffeur.
+- **`amoa/questions/L6-14.md`** (nouveau) — « passé hors ligne » inféré ; marge via un second
+  appel ; file hors connexion persistante = L6-16.
+- **`TestRealtimeCommitHook.test_clear_engagement_does_nothing_if_the_transaction_rolls_back`** —
+  instable sous la suite Odoo complète, vert isolé. Défaut d'isolation, hors périmètre.
+- **L6-05** (capture GPS chauffeur) — la plus sensible du lot restant ; L6-13 en a posé le besoin
+  minimal (lecture ponctuelle) sans la construire.
+- **L3-10** (accumulation distance/durée/tracé côté service) + son point d'accroche fin-de-course
+  vers Odoo — ce qui débloquerait proprement le corps de `complete`.
+- **L6-15** (inscription chauffeur), **L3-12** (file persistante), **L4-06** (facture), la
+  passerelle SMS, la validation du plan comptable, la vérification développeur Android — inchangés.
