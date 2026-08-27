@@ -122,3 +122,53 @@ qu'un seuil faux (le battement de cœur de connexion de J22 attrape toujours une
 mais un flux qui se fige sur une connexion vivante ne serait alors pas détecté jusqu'au prochain
 réabonnement. En pratique le service envoie l'accusé en synchrone, avant tout `await`, donc avant
 la première diffusion — le cas ne devrait pas se produire sans perte de message pure.
+
+---
+
+## D51 — `proposal.new` porte la distance à parcourir à vide jusqu'au client
+
+### Le manque
+
+`proposal.new` portait `distanceMeters` = distance de la **course** (départ → arrivée, celle du
+tarif). Rien ne disait au chauffeur combien il doit rouler **à vide** pour rejoindre le client —
+or pour décider en trente secondes c'est souvent le chiffre le plus déterminant : une course à
+500 FCFA qui demande trois kilomètres à vide n'est pas la même affaire. Sans lui, un refus par
+précaution coûte trente secondes au client et un chauffeur à sa liste (écart
+`amoa/questions/L6-11.md`, second point).
+
+### Ce qui a été fait
+
+- **Contrat** : `distanceToOriginMeters: number | null` ajouté à `ProposalNewPayloadSchema`.
+  `null` — jamais absent — si la position du chauffeur n'est plus lisible au moment de la
+  réservation (le pool et la clé de position ont des durées de vie distinctes) : même patron que
+  D30 pour le profil chauffeur, la proposition part quand même.
+- **Service** (`proposal/lifecycle.ts::propose`) : lit `getPosition(driverId)` (le même geo-index
+  qui vient de faire apparaître ce chauffeur dans `nearby.drivers`) et calcule
+  `haversineDistanceMeters(position, details.origin)`, arrondi à l'entier. Calculé **côté serveur**,
+  pas recalculé côté app depuis une position GPS locale qui aurait pu bouger entre la sélection et
+  l'affichage — et de toute façon L6-05 (capture GPS chauffeur) n'existe pas encore. Approximation
+  à vol d'oiseau assumée (É8, aucun routage deux-roues au Cameroun), même honnêteté que la
+  distance de `nearby.drivers` et l'ETA de `driver.position`.
+- **App** : `DriverParamList['Proposal']` porte le champ ; `HomeScreen` le transmet ;
+  `ProposalScreen` l'affiche — « ≈ 1.4 km pour rejoindre le client », ou « Distance jusqu'au
+  client indisponible » quand `null`.
+
+### Tests
+
+- `packages/contracts/test/realtime.test.ts` : valeur, `null`, et champ absent (rejeté).
+- `services/realtime/test/proposal.test.ts` : chauffeur repositionné à ~1,1 km → distance à vide
+  plausible et entière ; position supprimée → `distanceToOriginMeters === null`, proposition émise
+  quand même.
+- `apps/driver/.../ProposalScreen.test.tsx` : affichage de la distance et de son indisponibilité ;
+  `HomeScreen.test.tsx` : le champ traverse la navigation.
+
+`amoa/questions/L6-11.md` (second écart) et `amoa/questions/L6-12.md` (second écart, qui y
+renvoyait) : **résolus** par D51.
+
+### Doute pour un chauffeur réel
+
+La distance est à vol d'oiseau. À Douala, avec le trafic et les sens uniques, la distance routière
+réelle peut être bien plus grande — un chauffeur qui prend l'habitude de s'y fier pourrait
+sous-estimer son temps d'approche. Le préfixe « ≈ » et la cohérence avec l'ETA (déjà corrigé par
+un facteur en L10-03 côté client) limitent le risque, mais c'est le genre d'approximation qui se
+vérifie au pilote.

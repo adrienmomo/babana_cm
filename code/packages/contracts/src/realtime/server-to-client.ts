@@ -13,12 +13,26 @@ import { FareBreakdownSchema, VehicleClassSchema } from '../http/quote';
 // --- Serveur vers chauffeur ----------------------------------------------------------------
 
 /** Destinataire : chauffeur. Nouvelle proposition (transition requested/rejected -> proposed). */
+/**
+ * `distanceMeters` est la distance de la **course** (départ -> arrivée, celle qui sert au tarif,
+ * D15/L2-05). `distanceToOriginMeters` (D51, 31 août -- amoa/questions/REPONSES-2026-08-31.md §3 ;
+ * écart d'origine `amoa/questions/L6-11.md`) est la distance à vol d'oiseau que le chauffeur doit
+ * parcourir **à vide** pour rejoindre le client -- le serveur la connaît, il vient de trier les
+ * cinq plus proches. Pour quelqu'un qui décide en trente secondes c'est souvent le chiffre le plus
+ * déterminant : une course à 500 FCFA qui demande trois kilomètres à vide n'est pas la même
+ * affaire. Approximation présentée comme telle (Haversine, jamais un itinéraire -- É8, aucun
+ * routage deux-roues au Cameroun), même honnêteté que la distance de `nearby.drivers` et l'ETA de
+ * `driver.position`. `null` si la position du chauffeur n'est pas lisible à cet instant précis
+ * (TTL expiré entre la sélection et la réservation) -- ne bloque jamais l'envoi de la proposition
+ * (même raisonnement que D30 pour le profil chauffeur).
+ */
 export const ProposalNewPayloadSchema = z.object({
   rideId: RideIdSchema,
   origin: LatLngSchema,
   destination: LatLngSchema,
   amount: MoneyAmountSchema,
   distanceMeters: z.number().int().nonnegative(),
+  distanceToOriginMeters: z.number().int().nonnegative().nullable(),
   expiresAt: IsoDateTimeSchema,
 });
 export const ProposalNewMessageSchema = envelopeSchema('proposal.new', ProposalNewPayloadSchema);

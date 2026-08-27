@@ -54,7 +54,7 @@ function remainingSeconds(expiresAt: string): number {
 }
 
 export function ProposalScreen({ route, navigation }: Props) {
-  const { rideId, origin, destination, amount, distanceMeters, expiresAt } = route.params;
+  const { rideId, origin, destination, amount, distanceMeters, distanceToOriginMeters, expiresAt } = route.params;
 
   const [originLabel, setOriginLabel] = useState<string | null>(null);
   const [destinationLabel, setDestinationLabel] = useState<string | null>(null);
@@ -183,7 +183,14 @@ export function ProposalScreen({ route, navigation }: Props) {
         {formatMoney(amount)}
       </Text>
       <Text style={styles.distance} testID="proposal-distance">
-        {formatDistance(distanceMeters)}
+        Course : {formatDistance(distanceMeters)}
+      </Text>
+      {/* D51 -- distance à vide jusqu'au client, souvent le chiffre le plus déterminant pour
+          décider en trente secondes. Approximation à vol d'oiseau (É8), pas un itinéraire. */}
+      <Text style={styles.approachDistance} testID="proposal-approach-distance">
+        {distanceToOriginMeters === null
+          ? 'Distance jusqu’au client indisponible'
+          : `≈ ${formatDistance(distanceToOriginMeters)} pour rejoindre le client`}
       </Text>
 
       <CountdownRing remainingSeconds={remainingSeconds(expiresAt)} />
@@ -253,6 +260,10 @@ const styles = StyleSheet.create({
   },
   distance: {
     color: '#6B7280',
+  },
+  approachDistance: {
+    color: '#0A7D3D',
+    fontWeight: '600',
   },
   actionsRow: {
     flexDirection: 'row',

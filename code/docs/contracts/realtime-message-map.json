@@ -62,8 +62,8 @@
       "name": "proposal.new",
       "direction": "server-to-client",
       "status": "wired",
-      "emitter": "réel et testé : services/realtime/src/proposal/lifecycle.ts (après réservation), services/realtime/test/proposal.test.ts.",
-      "consumer": "apps/driver/src/screens/HomeScreen.tsx (L6-12, 24 août) -- reçoit le message, navigue vers ProposalScreen en lui transmettant tout le contenu (le message n'est diffusé qu'une fois, un abonnement posé au montage de ProposalScreen ne le recevrait jamais une seconde fois). apps/driver/src/screens/__tests__/HomeScreen.test.tsx."
+      "emitter": "réel et testé : services/realtime/src/proposal/lifecycle.ts (après réservation) -- porte distanceToOriginMeters depuis la position Redis du chauffeur (D51, 31 août). services/realtime/test/proposal.test.ts.",
+      "consumer": "apps/driver/src/screens/HomeScreen.tsx (L6-12) -- reçoit le message, navigue vers ProposalScreen en lui transmettant tout le contenu (dont distanceToOriginMeters, affiché par ProposalScreen). apps/driver/src/screens/__tests__/HomeScreen.test.tsx, ProposalScreen.test.tsx."
     },
     {
       "name": "proposal.expired",

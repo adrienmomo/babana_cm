@@ -83,6 +83,7 @@ function emitProposal(rideId = 'r1') {
       destination: { latitude: 4.06, longitude: 9.71 },
       amount: 1200,
       distanceMeters: 3000,
+      distanceToOriginMeters: 1200,
       expiresAt: new Date(Date.now() + 30_000).toISOString(),
     },
   });
@@ -147,7 +148,7 @@ describe('HomeScreen (L6-11)', () => {
 
     expect(navigation.navigate).toHaveBeenCalledWith(
       'Proposal',
-      expect.objectContaining({ rideId: 'ride-42', amount: 1200, distanceMeters: 3000 })
+      expect.objectContaining({ rideId: 'ride-42', amount: 1200, distanceMeters: 3000, distanceToOriginMeters: 1200 })
     );
   });
 

@@ -75,7 +75,7 @@ liste vide — que L6-08 traduit en `NO_DRIVER_AVAILABLE`.
 
 | Message | Destinataire | Payload | Rôle |
 |---|---|---|---|
-| `proposal.new` | Chauffeur | `{ rideId, origin, destination, amount, distanceMeters, expiresAt }` | Nouvelle proposition |
+| `proposal.new` | Chauffeur | `{ rideId, origin, destination, amount, distanceMeters, distanceToOriginMeters, expiresAt }` | Nouvelle proposition — `distanceToOriginMeters` = distance à vide jusqu'au client, Haversine, `null` si position illisible (D51) |
 | `proposal.expired` | Chauffeur | `{ rideId }` | Délai d'acceptation dépassé |
 | `proposal.accepted` | Chauffeur | `{ rideId }` | Son `proposal.accept` a été résolu en sa faveur (transition `proposed → assigned`) — symétrique de `ride.assigned` (D49) |
 | `ride.cancelled` | Chauffeur et/ou client, selon `cancelledBy` (L4-12) | `{ rideId, cancelledBy, reason? }` | La course a été annulée |

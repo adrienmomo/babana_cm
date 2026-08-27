@@ -11,6 +11,8 @@ import { ProposalTimeoutTimers } from './timeout';
 import { reportDriverAccepted, reportDriverRejected } from '../odoo/rides';
 import { getDriverProfiles } from '../redis/driver-profiles';
 import { startRideSession } from '../tracking/session';
+import { getPosition } from '../redis/positions';
+import { haversineDistanceMeters } from '../tracking/validation';
 
 /**
  * Cycle de proposition (L3-07) : après une réservation réussie (L3-06), notifier le chauffeur,
@@ -74,6 +76,16 @@ export class ProposalLifecycle {
 
     const expiresAt = new Date(Date.now() + this.config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS * 1000).toISOString();
 
+    // D51 (31 août) : distance à vide jusqu'au client -- calculée ici depuis la position du
+    // chauffeur (le même geo-index qui vient de le faire apparaître dans nearby.drivers), pas
+    // recalculée côté app depuis une position GPS locale qui aurait pu bouger entre la sélection
+    // et l'affichage. `null` si la position n'est plus lisible à cet instant : la proposition
+    // part quand même (même raisonnement que le profil chauffeur pour `ride.assigned`, D30).
+    const driverPosition = await getPosition(this.redis, driverId);
+    const distanceToOriginMeters = driverPosition
+      ? Math.round(haversineDistanceMeters(driverPosition, details.origin))
+      : null;
+
     await Promise.all([
       this.redis.set(proposalRideIdKey(driverId), details.rideId, 'EX', this.config.RESERVATION_TTL_SECONDS),
       this.redis.set(proposalRecordKey(driverId), JSON.stringify(details), 'EX', this.config.RESERVATION_TTL_SECONDS),
@@ -89,6 +101,7 @@ export class ProposalLifecycle {
         destination: details.destination,
         amount: details.amount,
         distanceMeters: details.distanceMeters,
+        distanceToOriginMeters,
         expiresAt,
       },
     });

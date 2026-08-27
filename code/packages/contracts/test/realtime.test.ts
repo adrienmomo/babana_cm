@@ -126,6 +126,40 @@ describe('exemples valides — serveur vers chauffeur', () => {
           destination: { latitude: 4.06, longitude: 9.78 },
           amount: 1200,
           distanceMeters: 4200,
+          distanceToOriginMeters: 850,
+          expiresAt: now,
+        },
+      })
+    );
+    // D51 : la distance à vide peut être null (position du chauffeur non lisible au moment de la
+    // réservation), mais le champ lui-même n'est jamais absent.
+    assert.doesNotThrow(() =>
+      ProposalNewMessageSchema.parse({
+        type: 'proposal.new',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: {
+          rideId,
+          origin: { latitude: 4.05, longitude: 9.76 },
+          destination: { latitude: 4.06, longitude: 9.78 },
+          amount: 1200,
+          distanceMeters: 4200,
+          distanceToOriginMeters: null,
+          expiresAt: now,
+        },
+      })
+    );
+    assert.throws(() =>
+      ProposalNewMessageSchema.parse({
+        type: 'proposal.new',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: {
+          rideId,
+          origin: { latitude: 4.05, longitude: 9.76 },
+          destination: { latitude: 4.06, longitude: 9.78 },
+          amount: 1200,
+          distanceMeters: 4200,
           expiresAt: now,
         },
       })

@@ -42,6 +42,7 @@ const PARAMS = {
   destination: { latitude: 4.06, longitude: 9.71 },
   amount: 1200,
   distanceMeters: 3200,
+  distanceToOriginMeters: 1400 as number | null,
   expiresAt: new Date(Date.now() + 30_000).toISOString(),
 };
 
@@ -128,6 +129,15 @@ describe('ProposalScreen (L6-12)', () => {
     expect(texts(root)).toContain(formatMoney(1200));
     expect(texts(root)).toContain('3.2 km');
     expect(root.root.findByProps({ testID: 'countdown-value' }).props.children).toBe(30);
+  });
+
+  it('D51 -- affiche la distance à vide jusqu’au client, et son indisponibilité quand elle est nulle', async () => {
+    const { root } = await renderProposal();
+    expect(texts(root)).toContain('pour rejoindre le client');
+    expect(root.root.findByProps({ testID: 'proposal-approach-distance' }).props.children).toContain('1.4 km');
+
+    const { root: root2 } = await renderProposal({ ...PARAMS, distanceToOriginMeters: null });
+    expect(texts(root2)).toContain('Distance jusqu’au client indisponible');
   });
 
   it('critère 2 -- accepter et refuser respectent une taille minimale de cible tactile', async () => {
