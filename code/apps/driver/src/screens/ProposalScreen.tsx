@@ -24,26 +24,29 @@ type Props = NativeStackScreenProps<DriverParamList, 'Proposal'>;
 
 type Decision = 'idle' | 'accepting' | 'rejecting' | 'resolved';
 
-/**
- * Délai de grâce après l'envoi d'une acceptation (critère 3). Aucun accusé de réception dédié
- * n'existe côté fil (C-02) pour `proposal.accept` -- le seul signal disponible est
- * `proposal.expired`, poussé si le serveur a résolu la proposition autrement entre-temps (le cas
- * le plus probable, L3-07 : « le chauffeur appuie à temps, le message arrive en retard »). Passé
- * ce délai sans rien recevoir, l'acceptation est traitée comme réussie -- écart documenté,
- * `amoa/questions/L6-12.md`, avec la proposition d'un accusé dédié pour une prochaine tâche.
- * PROVISOIRE au sens de D21 : valeur plausible (temps d'un aller-retour réseau, avec marge), pas
- * une règle métier.
- */
-const ACCEPT_CONFIRMATION_GRACE_MS = 1500;
-
 /** Durée d'affichage du message de résolution avant le retour automatique (critère 4) -- assez
  * long pour être lu, pas assez pour que le chauffeur se demande si l'écran est figé. */
 const RESOLUTION_DISPLAY_MS = 2500;
 
 const TICK_MS = 1000;
 
+// États de course qui confirment que cette proposition est bien devenue la course du chauffeur --
+// mêmes valeurs que `ACTIVE_RIDE_STATES` dans HomeScreen.tsx, lues depuis session.synced.
+const ASSIGNED_RIDE_STATES: ReadonlySet<realtime.SessionSyncedMessage['payload']['activeRideState']> = new Set([
+  'assigned',
+  'in_progress',
+]);
+
 function isProposalExpiredMessage(message: realtime.ServerToClientMessage): message is realtime.ProposalExpiredMessage {
   return message.type === 'proposal.expired';
+}
+
+function isProposalAcceptedMessage(message: realtime.ServerToClientMessage): message is realtime.ProposalAcceptedMessage {
+  return message.type === 'proposal.accepted';
+}
+
+function isSessionSyncedMessage(message: realtime.ServerToClientMessage): message is realtime.SessionSyncedMessage {
+  return message.type === 'session.synced';
 }
 
 function remainingSeconds(expiresAt: string): number {
@@ -103,20 +106,41 @@ export function ProposalScreen({ route, navigation }: Props) {
     return () => clearInterval(timer);
   }, []);
 
-  // Seule source de vérité pour une expiration réelle (critère 4) et pour une acceptation
-  // tardive (critère 3, quand ce message arrive pendant que decision === 'accepting').
+  // Toutes les issues d'une proposition passent par le fil (D49) -- plus aucun délai deviné :
+  //  - `proposal.accepted` : l'acceptation a été résolue en faveur du chauffeur -> ActiveRide ;
+  //  - `proposal.expired` : expiration simple, ou acceptation arrivée trop tard (critère 3) ;
+  //  - `session.synced` : filet de sécurité si `proposal.accepted` s'est perdu sans que la
+  //    connexion tombe puis se rétablisse -- la resynchronisation automatique
+  //    (`@babana/api-client`, à chaque `connected`) rapporte alors l'état réel de la course.
   useEffect(() => {
     return onRealtimeMessage((message) => {
-      if (!isProposalExpiredMessage(message) || message.payload.rideId !== rideId) return;
-      const wasAccepting = decisionRef.current === 'accepting';
-      setResolutionMessage(
-        wasAccepting
-          ? 'Cette course a été attribuée -- votre acceptation est arrivée trop tard.'
-          : 'Le délai de réponse est dépassé.'
-      );
-      updateDecision('resolved');
+      if (isProposalAcceptedMessage(message) && message.payload.rideId === rideId) {
+        if (decisionRef.current === 'rejecting' || decisionRef.current === 'resolved') return;
+        updateDecision('resolved');
+        replaceWithActiveRide(navigation, { rideId });
+        return;
+      }
+      if (
+        isSessionSyncedMessage(message) &&
+        decisionRef.current === 'accepting' &&
+        message.payload.activeRideId === rideId &&
+        ASSIGNED_RIDE_STATES.has(message.payload.activeRideState)
+      ) {
+        updateDecision('resolved');
+        replaceWithActiveRide(navigation, { rideId });
+        return;
+      }
+      if (isProposalExpiredMessage(message) && message.payload.rideId === rideId) {
+        const wasAccepting = decisionRef.current === 'accepting';
+        setResolutionMessage(
+          wasAccepting
+            ? 'Cette course a été attribuée -- votre acceptation est arrivée trop tard.'
+            : 'Le délai de réponse est dépassé.'
+        );
+        updateDecision('resolved');
+      }
     });
-  }, [rideId]);
+  }, [rideId, navigation]);
 
   // Retour automatique, sans action requise (critère 4) -- le message reste lisible un instant
   // avant de disparaître, l'un n'empêche pas l'autre.
@@ -126,17 +150,13 @@ export function ProposalScreen({ route, navigation }: Props) {
     return () => clearTimeout(timer);
   }, [resolutionMessage, navigation]);
 
-  async function handleAccept() {
+  function handleAccept() {
     if (decision !== 'idle') return;
     updateDecision('accepting');
     realtimeClient.send('proposal.accept', { rideId });
-
-    await new Promise<void>((resolve) => setTimeout(resolve, ACCEPT_CONFIRMATION_GRACE_MS));
-    // Si proposal.expired est arrivé entre-temps, le gestionnaire ci-dessus a déjà pris la main
-    // (decision vaut désormais 'resolved') -- ne jamais basculer vers une course qui n'est plus
-    // la sienne.
-    if (decisionRef.current !== 'accepting') return;
-    replaceWithActiveRide(navigation, { rideId });
+    // Aucune bascule optimiste : la navigation vers ActiveRide n'a lieu qu'à la réception de
+    // `proposal.accepted` (ou de `session.synced` en filet), jamais après un délai deviné (D49).
+    // Le compte à rebours affiché reste purement indicatif -- le serveur seul tranche (L3-07).
   }
 
   function handleReject() {

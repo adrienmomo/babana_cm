@@ -133,6 +133,18 @@ export class ProposalLifecycle {
     const resolved = await resolveProposal(this.redis, driverId, rideId, 'accepted');
     if (!resolved) return false;
 
+    // D49 (31 août) : accusé de réception au chauffeur, symétrique de `ride.assigned` au client
+    // ci-dessous. Émis dès que la résolution atomique a réussi -- avant tout `await` sur Odoo ou
+    // le cache de profils -- pour que `ProposalScreen` n'ait plus à inférer le succès d'un
+    // silence (écart `amoa/questions/L6-12.md`). Ne dépend pas de `consumeRecord` : la certitude
+    // du chauffeur ne doit pas tenir à un enregistrement Redis qui pourrait manquer.
+    this.sendToDriver(driverId, {
+      type: 'proposal.accepted',
+      id: randomUUID(),
+      emittedAt: new Date().toISOString(),
+      payload: { rideId },
+    });
+
     // Sens temps réel -> Odoo (L3-17) : écrit la transition proposed -> assigned. Volontairement
     // non attendu -- voir odoo/rides.ts pour le raisonnement complet -- la résolution Redis
     // ci-dessus fait déjà foi pour les deux parties connectées.

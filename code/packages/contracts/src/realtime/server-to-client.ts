@@ -32,6 +32,22 @@ export const ProposalExpiredMessageSchema = envelopeSchema('proposal.expired', P
 export type ProposalExpiredMessage = z.infer<typeof ProposalExpiredMessageSchema>;
 
 /**
+ * Destinataire : chauffeur. Son `proposal.accept` a été résolu atomiquement en sa faveur
+ * (transition proposed -> assigned) -- symétrique de `ride.assigned` côté client (D49, 31 août,
+ * amoa/questions/REPONSES-2026-08-31.md §2 ; écart d'origine `amoa/questions/L6-12.md`). Avant
+ * ce message, `ProposalScreen` ne connaissait que les issues négatives (`proposal.expired`) et
+ * devait inférer le succès d'un silence -- un délai de grâce deviné (1500 ms), jamais calibré,
+ * toujours trop court ou trop long sur un réseau de Douala. Émis au même point que
+ * `ride.assigned` (`proposal/lifecycle.ts::accept`, juste après le succès de `resolveProposal`) :
+ * toute action émise sur le fil reçoit une réponse, positive ou négative.
+ */
+export const ProposalAcceptedPayloadSchema = z.object({
+  rideId: RideIdSchema,
+});
+export const ProposalAcceptedMessageSchema = envelopeSchema('proposal.accepted', ProposalAcceptedPayloadSchema);
+export type ProposalAcceptedMessage = z.infer<typeof ProposalAcceptedMessageSchema>;
+
+/**
  * Destinataire : chauffeur ou client, selon la connexion à laquelle le serveur choisit de le
  * pousser — un seul type de message, un seul émetteur (le serveur), simplement délivré aux
  * rôles concernés par la course annulée. Le critère d'acceptation 1 de C-02 porte sur
@@ -208,6 +224,7 @@ export type SessionSyncedMessage = z.infer<typeof SessionSyncedMessageSchema>;
 export const ServerToClientMessageSchema = z.discriminatedUnion('type', [
   ProposalNewMessageSchema,
   ProposalExpiredMessageSchema,
+  ProposalAcceptedMessageSchema,
   RideCancelledMessageSchema,
   NearbyDriversMessageSchema,
   NearbySubscribeAckMessageSchema,

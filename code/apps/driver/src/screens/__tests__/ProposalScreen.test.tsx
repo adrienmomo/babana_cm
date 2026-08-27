@@ -90,6 +90,19 @@ function emitExpired(rideId = RIDE_ID) {
   realtimeListener?.({ type: 'proposal.expired', id: 'e1', emittedAt: new Date().toISOString(), payload: { rideId } });
 }
 
+function emitAccepted(rideId = RIDE_ID) {
+  realtimeListener?.({ type: 'proposal.accepted', id: 'a1', emittedAt: new Date().toISOString(), payload: { rideId } });
+}
+
+function emitSynced(activeRideId: string | null, activeRideState: string | null) {
+  realtimeListener?.({
+    type: 'session.synced',
+    id: 's1',
+    emittedAt: new Date().toISOString(),
+    payload: { activeRideId, activeRideState, serverTime: new Date().toISOString() },
+  });
+}
+
 describe('ProposalScreen (L6-12)', () => {
   it('critère 1 -- réveille l’appareil au montage, efface l’alerte au démontage', async () => {
     const { root } = await renderProposal();
@@ -128,7 +141,7 @@ describe('ProposalScreen (L6-12)', () => {
     expect(flatten(reject.props.style({ pressed: false })).minHeight).toBeGreaterThanOrEqual(56);
   });
 
-  it('accepter -- envoie proposal.accept puis, sans nouvelle réponse, bascule vers ActiveRide après le délai de grâce', async () => {
+  it('D49 -- accepter n’envoie que proposal.accept ; la bascule vers ActiveRide attend proposal.accepted, jamais un délai', async () => {
     const { root, navigation } = await renderProposal();
 
     await act(async () => {
@@ -136,14 +149,48 @@ describe('ProposalScreen (L6-12)', () => {
     });
     expect(mockSend).toHaveBeenCalledWith('proposal.accept', { rideId: RIDE_ID });
     expect(texts(root)).toContain('Envoi de votre acceptation…');
+
+    // Aucun délai deviné : même après une longue attente, sans accusé de réception, aucune bascule.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(60_000);
+    });
     expect(mockReplaceWithActiveRide).not.toHaveBeenCalled();
 
     await act(async () => {
-      await jest.advanceTimersByTimeAsync(1500);
+      emitAccepted();
     });
-
     expect(mockReplaceWithActiveRide).toHaveBeenCalledWith(navigation, { rideId: RIDE_ID });
     expect(navigation.goBack).not.toHaveBeenCalled();
+  });
+
+  it('D49 -- proposal.accepted pour une autre course est ignoré', async () => {
+    const { root } = await renderProposal();
+    await act(async () => {
+      root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
+    });
+    await act(async () => {
+      emitAccepted(asRideId('another-ride'));
+    });
+    expect(mockReplaceWithActiveRide).not.toHaveBeenCalled();
+  });
+
+  it('D49 -- filet : session.synced confirmant la course bascule vers ActiveRide si proposal.accepted s’est perdu', async () => {
+    const { navigation, root } = await renderProposal();
+    await act(async () => {
+      root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
+    });
+
+    // Un session.synced qui ne concerne pas cette course, ou dont l'état n'est pas affecté, ne fait rien.
+    await act(async () => {
+      emitSynced(asRideId('another-ride'), 'in_progress');
+      emitSynced(RIDE_ID, 'requested');
+    });
+    expect(mockReplaceWithActiveRide).not.toHaveBeenCalled();
+
+    await act(async () => {
+      emitSynced(RIDE_ID, 'assigned');
+    });
+    expect(mockReplaceWithActiveRide).toHaveBeenCalledWith(navigation, { rideId: RIDE_ID });
   });
 
   it('critère 3 -- une acceptation tardive (proposal.expired reçu après l’envoi) affiche un message compréhensible, jamais ActiveRide', async () => {
@@ -159,11 +206,11 @@ describe('ProposalScreen (L6-12)', () => {
 
     expect(texts(root)).toContain('Cette course a été attribuée -- votre acceptation est arrivée trop tard.');
     expect(root.root.findAllByProps({ testID: 'proposal-accept' })).toHaveLength(0);
+    expect(mockReplaceWithActiveRide).not.toHaveBeenCalled();
 
-    // Même après le délai de grâce complet, ActiveRide ne doit jamais être atteint pour une
-    // proposition qui n'est plus la sienne.
+    // Un proposal.accepted qui arriverait après coup (course déjà attribuée à un autre) ne rouvre rien.
     await act(async () => {
-      await jest.advanceTimersByTimeAsync(1500);
+      emitAccepted();
     });
     expect(mockReplaceWithActiveRide).not.toHaveBeenCalled();
 

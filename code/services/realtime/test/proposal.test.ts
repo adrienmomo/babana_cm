@@ -138,6 +138,14 @@ describe('ProposalLifecycle (L3-07)', () => {
     const accepted = await lifecycle.accept(driverId, rideId);
     assert.equal(accepted, true);
 
+    // D49 (31 août) : le chauffeur reçoit un accusé de réception dédié, symétrique de
+    // `ride.assigned` -- plus aucun délai deviné côté ProposalScreen.
+    assert.deepEqual(
+      driverSocket.messages.map((m) => m.type),
+      ['proposal.new', 'proposal.accepted']
+    );
+    assert.deepEqual(driverSocket.messages[1]!.payload, { rideId });
+
     assert.equal(await isReserved(redis, driverId), false, 'la réservation doit avoir été remplacée');
     assert.equal(await isEngaged(redis, driverId), true, 'critère 1 -- engagement posé à l\'acceptation');
     assert.equal(await isInPool(redis, driverId), false, 'un chauffeur engagé ne doit jamais réapparaître dans le pool');
@@ -302,6 +310,11 @@ describe('ProposalLifecycle (L3-07)', () => {
       clientSocket.messages.filter((m) => m.type === 'ride.assigned').length,
       1,
       'une seule transition, un seul message ride.assigned'
+    );
+    assert.equal(
+      driverSocket.messages.filter((m) => m.type === 'proposal.accepted').length,
+      1,
+      'D49 -- un seul accusé de réception, celui de l\'acceptation qui a gagné la résolution atomique'
     );
   });
 

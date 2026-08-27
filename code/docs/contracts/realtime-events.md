@@ -77,6 +77,7 @@ liste vide — que L6-08 traduit en `NO_DRIVER_AVAILABLE`.
 |---|---|---|---|
 | `proposal.new` | Chauffeur | `{ rideId, origin, destination, amount, distanceMeters, expiresAt }` | Nouvelle proposition |
 | `proposal.expired` | Chauffeur | `{ rideId }` | Délai d'acceptation dépassé |
+| `proposal.accepted` | Chauffeur | `{ rideId }` | Son `proposal.accept` a été résolu en sa faveur (transition `proposed → assigned`) — symétrique de `ride.assigned` (D49) |
 | `ride.cancelled` | Chauffeur et/ou client, selon `cancelledBy` (L4-12) | `{ rideId, cancelledBy, reason? }` | La course a été annulée |
 | `nearby.drivers` | Client | `{ drivers: NearbyDriver[] }` (max 5) | Réponse à `nearby.subscribe`, puis mises à jour |
 | `nearby.subscribe.ack` | Client | `{ accepted: true }` ou `{ accepted: false, retryAfterMs }` | Accusé de réception de `nearby.subscribe` |
