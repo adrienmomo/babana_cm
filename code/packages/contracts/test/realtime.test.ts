@@ -19,6 +19,7 @@ import {
   RideCancelledMessageSchema,
   NearbyDriversMessageSchema,
   NearbySubscribeAckMessageSchema,
+  RideTrackAckMessageSchema,
   RideProposedMessageSchema,
   RideAssignedMessageSchema,
   RideRejectedMessageSchema,
@@ -251,8 +252,17 @@ describe('exemples valides — serveur vers client', () => {
     );
   });
 
-  test('nearby.subscribe.ack -- accepté, ou refusé avec un délai avant nouvelle tentative', () => {
+  test('nearby.subscribe.ack -- accepté (avec la cadence, D50), ou refusé avec un délai avant nouvelle tentative', () => {
     assert.doesNotThrow(() =>
+      NearbySubscribeAckMessageSchema.parse({
+        type: 'nearby.subscribe.ack',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: { accepted: true, broadcastIntervalMs: 5000 },
+      })
+    );
+    // D50 : un accusé accepté sans cadence est inexploitable pour la surveillance de silence (L3-20).
+    assert.throws(() =>
       NearbySubscribeAckMessageSchema.parse({
         type: 'nearby.subscribe.ack',
         id: randomUUID(),
@@ -275,6 +285,25 @@ describe('exemples valides — serveur vers client', () => {
         id: randomUUID(),
         emittedAt: now,
         payload: { accepted: false },
+      })
+    );
+  });
+
+  test('ride.track.ack -- porte la cadence réelle de driver.position (D50)', () => {
+    assert.doesNotThrow(() =>
+      RideTrackAckMessageSchema.parse({
+        type: 'ride.track.ack',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: { broadcastIntervalMs: 10_000 },
+      })
+    );
+    assert.throws(() =>
+      RideTrackAckMessageSchema.parse({
+        type: 'ride.track.ack',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: {},
       })
     );
   });

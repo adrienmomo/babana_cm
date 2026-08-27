@@ -86,7 +86,7 @@ function clientContext(label: string): ConnectionContext {
 }
 
 type FakeMessage =
-  | { type: 'nearby.subscribe.ack'; payload: { accepted: true } | { accepted: false; retryAfterMs: number } }
+  | { type: 'nearby.subscribe.ack'; payload: { accepted: true; broadcastIntervalMs: number } | { accepted: false; retryAfterMs: number } }
   | { type: 'nearby.drivers'; payload: { drivers: { driverId: string }[] } };
 
 /** Faux WebSocket : NearbyManager ne lit que `readyState`/`OPEN` et écrit via `send`, aucune
@@ -219,6 +219,9 @@ describe('NearbyManager (L3-05, D14)', () => {
 
     assert.equal(messages.length, 2, 'accusé de réception puis liste de chauffeurs');
     assert.equal(messages[0]!.type, 'nearby.subscribe.ack');
+    // D50 : l'accusé accepté porte la cadence réelle de la diffusion (NEARBY_BROADCAST_INTERVAL_SECONDS).
+    const ack = messages[0]!;
+    assert.ok(ack.type === 'nearby.subscribe.ack' && ack.payload.accepted && ack.payload.broadcastIntervalMs === config.NEARBY_BROADCAST_INTERVAL_SECONDS * 1000);
     const [driversMessage] = driverListMessages(messages);
     assert.equal(
       driversMessage!.payload.drivers.some((d) => d.driverId === farDriverId),

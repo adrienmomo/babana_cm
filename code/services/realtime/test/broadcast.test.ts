@@ -45,7 +45,11 @@ function clientContext(label: string): ConnectionContext {
   return Object.freeze({ userId: id(label), role: 'client', driverId: null });
 }
 
-type FakeMessage = { type: 'driver.position'; payload: { rideId: string; position: { latitude: number; longitude: number }; etaSeconds: number } };
+type PositionMessage = {
+  type: 'driver.position';
+  payload: { rideId: string; position: { latitude: number; longitude: number }; etaSeconds: number };
+};
+type FakeMessage = PositionMessage | { type: 'ride.track.ack'; payload: { broadcastIntervalMs: number } };
 
 /** Faux WebSocket : TrackingManager ne lit que `readyState`/`OPEN` et écrit via `send`, même
  * patron que nearby.test.ts -- aucune connexion réseau réelle nécessaire. */
@@ -57,6 +61,13 @@ function fakeSocket() {
     send: (data: string) => messages.push(JSON.parse(data)),
   };
   return { socket: socket as unknown as WebSocket, messages };
+}
+
+// D50 : chaque abonnement produit d'abord un ride.track.ack (cadence réelle de la diffusion),
+// puis, le cas échéant, les driver.position eux-mêmes -- ce filtre isole les seconds pour les
+// assertions écrites avant ce changement.
+function positionMessages(messages: FakeMessage[]): PositionMessage[] {
+  return messages.filter((m): m is PositionMessage => m.type === 'driver.position');
 }
 
 async function positionedDriver(label: string, position: { latitude: number; longitude: number }): Promise<string> {
@@ -87,9 +98,13 @@ describe('TrackingManager (L3-09)', () => {
     await new Promise((resolve) => setTimeout(resolve, 160));
     manager.unsubscribe(clientCtx);
 
-    assert.ok(messages.length >= 2, 'au moins la diffusion immédiate plus une périodique');
-    for (const message of messages) {
-      assert.equal(message.type, 'driver.position');
+    // D50 : l'accusé de réception précède toute diffusion et porte la cadence réelle.
+    assert.equal(messages[0]!.type, 'ride.track.ack');
+    assert.ok(messages[0]!.type === 'ride.track.ack' && messages[0]!.payload.broadcastIntervalMs === Math.round(config.TRACKING_BROADCAST_INTERVAL_SECONDS * 1000));
+
+    const positions = positionMessages(messages);
+    assert.ok(positions.length >= 2, 'au moins la diffusion immédiate plus une périodique');
+    for (const message of positions) {
       assert.equal(message.payload.rideId, rideId);
     }
   });
@@ -111,7 +126,9 @@ describe('TrackingManager (L3-09)', () => {
     await new Promise((resolve) => setTimeout(resolve, 160));
     manager.unsubscribe(strangerCtx);
 
-    assert.equal(messages.length, 0, "aucun message, même l'immédiat, pour un client qui n'est pas le sien");
+    // L'accusé de réception (D50) ne porte que la cadence, aucune donnée de course -- mais aucun
+    // driver.position ne doit jamais partir vers un client qui n'est pas le sien.
+    assert.equal(positionMessages(messages).length, 0, "aucune position, même l'immédiate, pour un client qui n'est pas le sien");
   });
 
   test('critère 3 -- la position diffusée est en précision réelle, contrairement à nearby.drivers (L3-05)', async () => {
@@ -130,8 +147,9 @@ describe('TrackingManager (L3-09)', () => {
     await manager.subscribe(clientCtx, socket, { rideId });
     manager.unsubscribe(clientCtx);
 
-    assert.equal(messages.length, 1);
-    assert.deepEqual(messages[0]!.payload.position, exactPosition);
+    const positions = positionMessages(messages);
+    assert.equal(positions.length, 1);
+    assert.deepEqual(positions[0]!.payload.position, exactPosition);
   });
 
   test('critère 4 -- le suivi cesse à la fin de la course, vérifié à chaque diffusion (pas seulement à l\'abonnement)', async () => {
@@ -145,17 +163,17 @@ describe('TrackingManager (L3-09)', () => {
 
     const { socket, messages } = fakeSocket();
     await manager.subscribe(clientCtx, socket, { rideId });
-    assert.equal(messages.length, 1, 'la diffusion immédiate a eu lieu pendant que la course était active');
+    assert.equal(positionMessages(messages).length, 1, 'la diffusion immédiate a eu lieu pendant que la course était active');
 
     // Fin de course : même geste que handleClearEngagement (http/internal.ts), appelé par Odoo
     // au complete/cancel réel -- pas un raccourci de test qui contournerait le mécanisme.
     await endRideSessionForDriver(redis, driverId);
 
-    const countAtEnd = messages.length;
+    const countAtEnd = positionMessages(messages).length;
     await new Promise((resolve) => setTimeout(resolve, 160));
     manager.unsubscribe(clientCtx);
 
-    assert.equal(messages.length, countAtEnd, 'aucune diffusion après la fin de la session de course, sans que le client ne fasse rien');
+    assert.equal(positionMessages(messages).length, countAtEnd, 'aucune diffusion après la fin de la session de course, sans que le client ne fasse rien');
   });
 
   test('critère 5 -- la fréquence de diffusion est indépendante de la fréquence d\'ingestion', async () => {
@@ -176,7 +194,7 @@ describe('TrackingManager (L3-09)', () => {
     await new Promise((resolve) => setTimeout(resolve, 120));
     manager.unsubscribe(clientCtx);
 
-    assert.equal(messages.length, 1, "un seul message (l'immédiat) sur un intervalle de diffusion d'une heure");
+    assert.equal(positionMessages(messages).length, 1, "une seule diffusion (l'immédiate) sur un intervalle de diffusion d'une heure");
   });
 
   test('un second abonnement du même client remplace le premier (même patron que nearby.drivers, L3-05)', async () => {
@@ -195,18 +213,18 @@ describe('TrackingManager (L3-09)', () => {
 
     const { socket, messages } = fakeSocket();
     await manager.subscribe(clientCtx, socket, { rideId: rideIdA });
-    const countAfterFirstImmediate = messages.length;
+    const countAfterFirstImmediate = positionMessages(messages).length;
     await manager.subscribe(clientCtx, socket, { rideId: rideIdB });
     await new Promise((resolve) => setTimeout(resolve, 120));
     manager.unsubscribe(clientCtx);
 
     // Seule la réponse immédiate du premier abonnement porte rideIdA (nearby.test.ts, même
-    // patron) -- tout ce qui suit le second subscribe() doit porter rideIdB, jamais un minuteur
-    // orphelin du premier abonnement encore actif.
-    for (const message of messages.slice(countAfterFirstImmediate)) {
-      assert.equal(message.payload.rideId, rideIdB, 'plus aucun message pour la première course, remplacée par la seconde');
+    // patron) -- toute position qui suit le second subscribe() doit porter rideIdB, jamais un
+    // minuteur orphelin du premier abonnement encore actif.
+    for (const message of positionMessages(messages).slice(countAfterFirstImmediate)) {
+      assert.equal(message.payload.rideId, rideIdB, 'plus aucune position pour la première course, remplacée par la seconde');
     }
-    assert.ok(messages.length > countAfterFirstImmediate, 'le second abonnement a bien produit sa propre diffusion');
+    assert.ok(positionMessages(messages).length > countAfterFirstImmediate, 'le second abonnement a bien produit sa propre diffusion');
   });
 
   test('etaSeconds décroît avec la distance au point de prise en charge', async () => {
@@ -223,8 +241,9 @@ describe('TrackingManager (L3-09)', () => {
     await manager.subscribe(clientCtx, socket, { rideId });
     manager.unsubscribe(clientCtx);
 
-    assert.equal(messages.length, 1);
-    assert.ok(messages[0]!.payload.etaSeconds > 0, 'un chauffeur loin du point de départ a un ETA strictement positif');
+    const positions = positionMessages(messages);
+    assert.equal(positions.length, 1);
+    assert.ok(positions[0]!.payload.etaSeconds > 0, 'un chauffeur loin du point de départ a un ETA strictement positif');
   });
 
   // L3-20 (30 août) -- même cause racine que nearby.test.ts (amoa/questions/
@@ -259,11 +278,11 @@ describe('TrackingManager (L3-09)', () => {
     manager.unsubscribe(clientCtx);
     await subscribing;
 
-    const countAfterSubscribeSettled = messages.length;
+    const countAfterSubscribeSettled = positionMessages(messages).length;
     await new Promise((resolve) => setTimeout(resolve, 150));
 
     assert.equal(
-      messages.length,
+      positionMessages(messages).length,
       countAfterSubscribeSettled,
       'aucun minuteur ne doit apparaître après une désinscription reçue pendant que le subscribe() était encore en vol'
     );

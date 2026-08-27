@@ -69,3 +69,56 @@ optimiste (qui, avec un `ActiveRide` désormais réel, afficherait une course en
 pas), mais un chauffeur pressé pourrait quitter l'app entre-temps. À observer au pilote.
 
 `amoa/questions/L6-12.md` (premier écart) : **résolu** par D49.
+
+---
+
+## D50 — l'accusé d'abonnement porte la cadence réelle du flux
+
+### Le même motif, appliqué plus largement que le cas trouvé
+
+Deux copies locales de constantes serveur restaient côté app : `NEARBY_BROADCAST_EXPECTED_INTERVAL_MS`
+(HomeScreen) et `TRACKING_BROADCAST_EXPECTED_INTERVAL_MS` (TrackingScreen), toutes deux recopiées
+de `config.ts` du service, sans aucun mécanisme pour les tenir d'accord. Un opérateur qui change
+`NEARBY_BROADCAST_INTERVAL_SECONDS` en base désynchronise silencieusement le seuil de silence de
+la surveillance L3-20 — trop court : fausses alertes ; trop long : un vrai silence masqué. C'est
+D23 sous un autre costume (« ça grandit avec chaque constante de ce genre », rapport J22).
+
+### Ce qui a été fait
+
+- **Contrat** : `nearby.subscribe.ack` (branche `accepted: true`) gagne `broadcastIntervalMs` ;
+  **nouveau `ride.track.ack`** (`{ broadcastIntervalMs }`), le suivi n'avait aucun accusé jusqu'ici.
+  Les deux au `ServerToClientMessageSchema`, `realtime-events.md` et `realtime-message-map.json`
+  mis à jour.
+- **Service** : `nearby/handler.ts` met `NEARBY_BROADCAST_INTERVAL_SECONDS * 1000` dans l'accusé
+  accepté ; `tracking/broadcast.ts::TrackingManager.subscribe` émet `ride.track.ack`
+  (`TRACKING_BROADCAST_INTERVAL_SECONDS * 1000`) avant toute diffusion, à **chaque** abonnement, y
+  compris un réabonnement après reconnexion — l'app relit la cadence courante plutôt que de la
+  supposer figée.
+- **App** : les deux constantes supprimées. Le `StreamLivenessWatchdog` n'est plus créé dans le
+  corps de l'effet mais **à la réception de l'accusé**, avec `expectedIntervalMs =
+  message.payload.broadcastIntervalMs`. Un nouvel accusé (réabonnement) recrée le watchdog à la
+  cadence à jour. `recordActivity()` est gardé (`watchdog?.`) tant que l'accusé n'est pas arrivé —
+  ce qui, en pratique, précède toujours la première diffusion (le service envoie l'accusé en
+  premier).
+
+### Tests
+
+- `packages/contracts/test/realtime.test.ts` : accusé accepté sans `broadcastIntervalMs` rejeté ;
+  `ride.track.ack` validé.
+- `services/realtime/test/nearby.test.ts` : l'accusé accepté porte
+  `NEARBY_BROADCAST_INTERVAL_SECONDS * 1000`.
+- `services/realtime/test/broadcast.test.ts` : `ride.track.ack` précède toute diffusion et porte
+  la cadence ; assertions de contenu isolées via un filtre `positionMessages` (l'accusé n'est pas
+  un `driver.position`). Aucun `driver.position` vers un client non affecté — inchangé.
+- `apps/client/.../HomeScreen.test.tsx`, `TrackingScreen.test.tsx` : nouveau test « le seuil de
+  silence suit la cadence annoncée » (accusé à 8 s → silence à 24 s, pas 15 ; accusé à 4 s →
+  silence à 12 s, pas 30). Les tests L3-20 existants émettent désormais l'accusé d'abord.
+
+### Doute pour un utilisateur réel
+
+Si l'accusé se perd (première diffusion arrivée sans lui, réseau très dégradé), la surveillance de
+silence ne démarre pas du tout pour cet abonnement — dégradation silencieuse. C'est moins grave
+qu'un seuil faux (le battement de cœur de connexion de J22 attrape toujours une connexion morte),
+mais un flux qui se fige sur une connexion vivante ne serait alors pas détecté jusqu'au prochain
+réabonnement. En pratique le service envoie l'accusé en synchrone, avant tout `await`, donc avant
+la première diffusion — le cas ne devrait pas se produire sans perte de message pure.

@@ -92,12 +92,35 @@ export type NearbyDriversMessage = z.infer<typeof NearbyDriversMessageSchema>;
  * qu'aucun élément ne le lui dise -- un silence est le pire retour possible pour une limitation
  * de débit, il pousse exactement au comportement qui l'aggrave.
  */
+/**
+ * `broadcastIntervalMs` (D50, 31 août -- amoa/questions/REPONSES-2026-08-31.md §2) : la cadence
+ * réelle de la diffusion `nearby.drivers` qui va suivre, annoncée par le serveur au moment où il
+ * l'accepte. L'application n'a plus de copie locale de `NEARBY_BROADCAST_INTERVAL_SECONDS` à tenir
+ * d'accord avec la base -- elle apprend du serveur à quel rythme les messages arrivent, donc à
+ * partir de quand un silence est anormal (surveillance L3-20). Deux copies d'une même valeur sans
+ * mécanisme pour les tenir d'accord finissent par diverger en silence (D23 sous un autre costume).
+ * Absent d'un refus : sans diffusion à venir, il n'y a pas de cadence à annoncer.
+ */
 export const NearbySubscribeAckPayloadSchema = z.discriminatedUnion('accepted', [
-  z.object({ accepted: z.literal(true) }),
+  z.object({ accepted: z.literal(true), broadcastIntervalMs: z.number().int().positive() }),
   z.object({ accepted: z.literal(false), retryAfterMs: z.number().int().positive() }),
 ]);
 export const NearbySubscribeAckMessageSchema = envelopeSchema('nearby.subscribe.ack', NearbySubscribeAckPayloadSchema);
 export type NearbySubscribeAckMessage = z.infer<typeof NearbySubscribeAckMessageSchema>;
+
+/**
+ * Destinataire : client. Accusé de réception de `ride.track` (D50, 31 août) -- porte la cadence
+ * réelle de la diffusion `driver.position` qui va suivre, même rôle que `broadcastIntervalMs`
+ * dans `nearby.subscribe.ack` ci-dessus. Avant ce message, `TrackingScreen` tenait une copie
+ * locale de `TRACKING_BROADCAST_INTERVAL_SECONDS`, sans aucun moyen de la garder d'accord avec la
+ * valeur serveur. Émis à chaque `ride.track` accepté, y compris un réabonnement après reconnexion
+ * -- l'application relit alors la cadence courante plutôt que de supposer qu'elle n'a pas changé.
+ */
+export const RideTrackAckPayloadSchema = z.object({
+  broadcastIntervalMs: z.number().int().positive(),
+});
+export const RideTrackAckMessageSchema = envelopeSchema('ride.track.ack', RideTrackAckPayloadSchema);
+export type RideTrackAckMessage = z.infer<typeof RideTrackAckMessageSchema>;
 
 /**
  * Destinataire : client. Le chauffeur sélectionné a été réservé (transition -> proposed).
@@ -228,6 +251,7 @@ export const ServerToClientMessageSchema = z.discriminatedUnion('type', [
   RideCancelledMessageSchema,
   NearbyDriversMessageSchema,
   NearbySubscribeAckMessageSchema,
+  RideTrackAckMessageSchema,
   RideProposedMessageSchema,
   RideAssignedMessageSchema,
   RideRejectedMessageSchema,

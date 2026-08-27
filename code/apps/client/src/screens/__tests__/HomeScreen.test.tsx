@@ -70,8 +70,11 @@ function emitNearbyDrivers(drivers: http.NearbyDriver[]) {
   realtimeListener?.({ type: 'nearby.drivers', id: 'm1', emittedAt: new Date().toISOString(), payload: { drivers } });
 }
 
-function emitSubscribeAck(payload: { accepted: true } | { accepted: false; retryAfterMs: number }) {
-  realtimeListener?.({ type: 'nearby.subscribe.ack', id: 'ack-1', emittedAt: new Date().toISOString(), payload });
+function emitSubscribeAck(
+  payload: { accepted: true; broadcastIntervalMs?: number } | { accepted: false; retryAfterMs: number }
+) {
+  const resolved = payload.accepted ? { accepted: true as const, broadcastIntervalMs: payload.broadcastIntervalMs ?? 5000 } : payload;
+  realtimeListener?.({ type: 'nearby.subscribe.ack', id: 'ack-1', emittedAt: new Date().toISOString(), payload: resolved });
 }
 
 function fakeNavigation() {
@@ -216,14 +219,15 @@ describe('HomeScreen (L6-06)', () => {
     jest.useFakeTimers();
     const root = await renderHome();
     await act(async () => {
+      // D50 : la surveillance de silence ne démarre qu'à l'accusé, qui porte la cadence (5 s ici).
+      emitSubscribeAck({ accepted: true, broadcastIntervalMs: 5000 });
       emitNearbyDrivers([driver({ driverId: 'a', firstName: 'Paul' })]);
     });
     expect(texts(root)).toContain('Paul');
     mockSend.mockClear();
 
-    // Aucun nearby.drivers pendant 3 x NEARBY_BROADCAST_EXPECTED_INTERVAL_MS (5 s, le seuil par
-    // défaut) : exactement le silence du 30 août -- la diffusion périodique n'atteint plus la
-    // connexion, sans fermeture ni erreur.
+    // Aucun nearby.drivers pendant 3 x la cadence annoncée (5 s) : exactement le silence du
+    // 30 août -- la diffusion périodique n'atteint plus la connexion, sans fermeture ni erreur.
     await act(async () => {
       await jest.advanceTimersByTimeAsync(15_000);
     });
@@ -240,6 +244,9 @@ describe('HomeScreen (L6-06)', () => {
     jest.useFakeTimers();
     const root = await renderHome();
     await act(async () => {
+      emitSubscribeAck({ accepted: true, broadcastIntervalMs: 5000 });
+    });
+    await act(async () => {
       await jest.advanceTimersByTimeAsync(15_000);
     });
     expect(texts(root)).toMatch(/non mise à jour depuis/);
@@ -249,6 +256,26 @@ describe('HomeScreen (L6-06)', () => {
     });
 
     expect(texts(root)).not.toMatch(/non mise à jour depuis/);
+  });
+
+  it('D50 -- le seuil de silence suit la cadence annoncée par le serveur, pas une constante locale', async () => {
+    jest.useFakeTimers();
+    const root = await renderHome();
+    await act(async () => {
+      // Le serveur annonce une cadence de 8 s -> silence anormal seulement au-delà de 24 s.
+      emitSubscribeAck({ accepted: true, broadcastIntervalMs: 8000 });
+      emitNearbyDrivers([driver({ driverId: 'a', firstName: 'Paul' })]);
+    });
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(15_000);
+    });
+    expect(texts(root)).not.toMatch(/non mise à jour depuis/);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(12_000);
+    });
+    expect(texts(root)).toMatch(/non mise à jour depuis/);
   });
 
   it("une reconnexion (coupure réseau puis retour) réémet l'abonnement -- la liste ne se fige jamais", async () => {

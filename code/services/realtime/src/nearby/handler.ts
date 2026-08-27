@@ -61,7 +61,16 @@ export class NearbyManager {
       socket.send(JSON.stringify(buildNearbySubscribeAckMessage({ accepted: false, retryAfterMs: allowance.retryAfterMs })));
       return;
     }
-    socket.send(JSON.stringify(buildNearbySubscribeAckMessage({ accepted: true })));
+    // D50 (31 août) : l'accusé porte la cadence réelle de la diffusion à venir -- l'app ne tient
+    // plus de copie locale de NEARBY_BROADCAST_INTERVAL_SECONDS pour sa surveillance de silence.
+    socket.send(
+      JSON.stringify(
+        buildNearbySubscribeAckMessage({
+          accepted: true,
+          broadcastIntervalMs: Math.round(this.config.NEARBY_BROADCAST_INTERVAL_SECONDS * 1000),
+        })
+      )
+    );
 
     const mySequence = ++this.sequenceCounter;
     this.latestRequestSequence.set(context.userId, mySequence);

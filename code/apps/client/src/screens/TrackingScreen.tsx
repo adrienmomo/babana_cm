@@ -44,14 +44,13 @@ function isRideCompletedMessage(message: realtime.ServerToClientMessage): messag
   return message.type === 'ride.completed';
 }
 
+function isRideTrackAckMessage(message: realtime.ServerToClientMessage): message is realtime.RideTrackAckMessage {
+  return message.type === 'ride.track.ack';
+}
+
 function secondsSince(at: number): number {
   return Math.max(0, Math.round((Date.now() - at) / 1000));
 }
-
-// Cadence attendue de driver.position (L3-09) -- PROVISOIRE au sens de D21, même statut que la
-// constante équivalente de HomeScreen.tsx (NEARBY_BROADCAST_EXPECTED_INTERVAL_MS) : aucun canal
-// Odoo -> app ne transmet la vraie valeur serveur (TRACKING_BROADCAST_INTERVAL_SECONDS).
-const TRACKING_BROADCAST_EXPECTED_INTERVAL_MS = 10_000;
 
 export function TrackingScreen({ route, navigation }: Props) {
   const { rideId, origin, destination, driver } = route.params;
@@ -76,20 +75,32 @@ export function TrackingScreen({ route, navigation }: Props) {
     const subscribe = () => realtimeClient.send('ride.track', { rideId });
     subscribe();
 
-    const watchdog = new StreamLivenessWatchdog({
-      expectedIntervalMs: TRACKING_BROADCAST_EXPECTED_INTERVAL_MS,
-      onStale: () => setPositionStreamStale(true),
-      onRecovered: () => setPositionStreamStale(false),
-      // Réabonne sur la connexion existante -- un battement de cœur sur la connexion
-      // confirmerait que tout va bien pendant qu'un flux applicatif est mort (D47), c'est
-      // pourquoi la surveillance porte ici sur l'abonnement, pas sur `connectionState`.
-      resubscribe: subscribe,
-    });
-    watchdog.start();
+    // La cadence attendue de `driver.position` n'est plus une copie locale (D50) : le watchdog
+    // n'est créé qu'à la réception de `ride.track.ack`, qui porte `broadcastIntervalMs`. Un
+    // réabonnement (reconnexion, `resubscribe`) produit un nouvel accusé, donc une cadence à jour.
+    let watchdog: StreamLivenessWatchdog | null = null;
+    const stopWatchdog = () => {
+      watchdog?.stop();
+      watchdog = null;
+    };
 
     const unsubscribeMessages = onRealtimeMessage((message) => {
+      if (isRideTrackAckMessage(message)) {
+        stopWatchdog();
+        watchdog = new StreamLivenessWatchdog({
+          expectedIntervalMs: message.payload.broadcastIntervalMs,
+          onStale: () => setPositionStreamStale(true),
+          onRecovered: () => setPositionStreamStale(false),
+          // Réabonne sur la connexion existante -- un battement de cœur sur la connexion
+          // confirmerait que tout va bien pendant qu'un flux applicatif est mort (D47), c'est
+          // pourquoi la surveillance porte ici sur l'abonnement, pas sur `connectionState`.
+          resubscribe: subscribe,
+        });
+        watchdog.start();
+        return;
+      }
       if (isDriverPositionMessage(message) && message.payload.rideId === rideId) {
-        watchdog.recordActivity();
+        watchdog?.recordActivity();
         setDriverPosition(message.payload.position);
         setEtaSeconds(message.payload.etaSeconds);
         setLastPositionAt(new Date(message.emittedAt).getTime());
@@ -125,7 +136,7 @@ export function TrackingScreen({ route, navigation }: Props) {
     });
 
     return () => {
-      watchdog.stop();
+      stopWatchdog();
       unsubscribeMessages();
       unsubscribeConnectionState();
     };
