@@ -84,8 +84,8 @@
       "direction": "server-to-client",
       "status": "pending",
       "emitter": "réel et testé (L4-12, amoa/questions/REPONSES-2026-08-28.md §2) : babana_ride_state.py::action_cancel calcule le destinataire depuis actor_role et appelle realtime_client.notify_ride_cancelled (postcommit, D32/D33) ; services/realtime/src/http/internal.ts (POST /internal/rides/cancelled) -> tracking/broadcast.ts::broadcastRideCancelled. Testé par test_ride_state_machine.py, test_realtime_commit_hook.py et services/realtime/test/internal.test.ts (les trois preuves composées, même patron que L3-19).",
-      "consumer": "AUCUN, ni côté client ni côté chauffeur -- aucun écran ne lit encore ce type de message.",
-      "reason": "Consommateur manquant -- même situation que proposal.new/proposal.expired (L6-12) : l'émetteur est fait, aucun écran (WaitingScreen, TrackingScreen, apps/driver) ne réagit encore à ride.cancelled. Candidat naturel : la tâche qui affiche l'annulation à l'écran, non commencée."
+      "consumer": "partiel : apps/driver/src/screens/ActiveRideScreen.tsx (L6-13) affiche l'annulation pendant une course et revient à l'accueil. apps/driver/src/screens/__tests__/ActiveRideScreen.test.tsx. Côté client, aucun écran (WaitingScreen, TrackingScreen) ne réagit encore.",
+      "reason": "Consommateur client manquant -- côté chauffeur ActiveRideScreen le lit (L6-13), mais un client dont la course est annulée par supervision ou par le chauffeur ne voit encore rien. Candidat naturel : la tâche qui affiche l'annulation côté client (WaitingScreen/TrackingScreen), non commencée."
     },
     {
       "name": "nearby.drivers",
@@ -142,21 +142,21 @@
       "direction": "server-to-client",
       "status": "wired",
       "emitter": "services/realtime/src/tracking/broadcast.ts::broadcastRideStarted, appelé par http/internal.ts (POST /internal/rides/started, L3-19) depuis services/odoo/addons/babana/services/realtime_client.py::notify_ride_started (accroché à action_start, D32). Testé par services/realtime/test/internal.test.ts.",
-      "consumer": "apps/client/src/screens/TrackingScreen.tsx (côté chauffeur : livré au même titre, aucun écran apps/driver ne le lit encore -- L6-13, non commencée)."
+      "consumer": "apps/client/src/screens/TrackingScreen.tsx ; apps/driver/src/screens/ActiveRideScreen.tsx (L6-13) -- bascule en phase trajet si le démarrage a été déclenché ailleurs / après reprise. apps/driver/src/screens/__tests__/ActiveRideScreen.test.tsx."
     },
     {
       "name": "ride.completed",
       "direction": "server-to-client",
       "status": "wired",
       "emitter": "services/realtime/src/tracking/broadcast.ts::broadcastRideCompleted, appelé par http/internal.ts (POST /internal/rides/completed, L3-19) depuis realtime_client.py::notify_ride_completed (accroché à action_complete, D32). Testé par services/realtime/test/internal.test.ts.",
-      "consumer": "apps/client/src/screens/TrackingScreen.tsx puis RideSummaryScreen (L6-09) (côté chauffeur : livré au même titre, aucun écran apps/driver ne le lit encore -- L6-14, non commencée)."
+      "consumer": "apps/client/src/screens/TrackingScreen.tsx puis RideSummaryScreen (L6-09) ; apps/driver/src/screens/ActiveRideScreen.tsx (L6-13) -- remplace la pile vers Settlement avec le montant du serveur, garde anti-double-navigation avec la réponse HTTP de completeRide. apps/driver/src/screens/__tests__/ActiveRideScreen.test.tsx."
     },
     {
       "name": "session.synced",
       "direction": "server-to-client",
       "status": "pending",
       "emitter": "réel et testé : services/realtime/src/ws/resync.ts, services/realtime/test/resync.test.ts.",
-      "consumer": "partiel : apps/driver/src/screens/HomeScreen.tsx lit activeRideState pour désactiver la bascule en ligne/hors ligne pendant une course (L6-11, L3-04 critère 2) ; apps/driver/src/screens/ProposalScreen.tsx s'en sert comme filet quand proposal.accepted (D49) s'est perdu sans coupure de connexion (bascule vers ActiveRide si activeRideId correspond et activeRideState vaut assigned/in_progress). Mais aucun écran n'applique encore activeRideId pour reprendre la navigation après reconnexion dans le cas général (le cas que cette entrée nommait à l'origine).",
+      "consumer": "partiel : apps/driver/src/screens/HomeScreen.tsx lit activeRideState pour désactiver la bascule en ligne/hors ligne pendant une course (L6-11, L3-04 critère 2) ; ProposalScreen.tsx s'en sert comme filet si proposal.accepted (D49) s'est perdu ; ActiveRideScreen.tsx (L6-13) s'en sert pour reprendre en phase trajet si l'app a été tuée puis relancée en pleine course (activeRideState == in_progress). Mais aucun écran n'applique encore activeRideId pour reprendre la navigation depuis zéro après reconnexion dans le cas général (le cas que cette entrée nommait à l'origine).",
       "reason": "Reprise de navigation après reconnexion toujours non câblée -- candidat naturel : L6-16 (mode dégradé réseau, apps/client), non commencée. Voir amoa/questions/C-02R.md."
     }
   ]

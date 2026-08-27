@@ -117,7 +117,7 @@ export function ProposalScreen({ route, navigation }: Props) {
       if (isProposalAcceptedMessage(message) && message.payload.rideId === rideId) {
         if (decisionRef.current === 'rejecting' || decisionRef.current === 'resolved') return;
         updateDecision('resolved');
-        replaceWithActiveRide(navigation, { rideId });
+        replaceWithActiveRide(navigation, { rideId, origin, destination, amount, distanceMeters });
         return;
       }
       if (
@@ -127,7 +127,7 @@ export function ProposalScreen({ route, navigation }: Props) {
         ASSIGNED_RIDE_STATES.has(message.payload.activeRideState)
       ) {
         updateDecision('resolved');
-        replaceWithActiveRide(navigation, { rideId });
+        replaceWithActiveRide(navigation, { rideId, origin, destination, amount, distanceMeters });
         return;
       }
       if (isProposalExpiredMessage(message) && message.payload.rideId === rideId) {
@@ -140,6 +140,9 @@ export function ProposalScreen({ route, navigation }: Props) {
         updateDecision('resolved');
       }
     });
+    // origin/destination/amount/distanceMeters viennent de route.params, stables pour la vie de
+    // l'écran -- transmis tels quels à ActiveRide (L6-13), jamais une raison de se réabonner.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rideId, navigation]);
 
   // Retour automatique, sans action requise (critère 4) -- le message reste lisible un instant

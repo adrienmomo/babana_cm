@@ -172,3 +172,87 @@ réelle peut être bien plus grande — un chauffeur qui prend l'habitude de s'y
 sous-estimer son temps d'approche. Le préfixe « ≈ » et la cohérence avec l'ETA (déjà corrigé par
 un facteur en L10-03 côté client) limitent le risque, mais c'est le genre d'approximation qui se
 vérifie au pilote.
+
+---
+
+## L6-13 — course en cours côté chauffeur
+
+### L'écran que le bouton d'urgence attendait
+
+`ActiveRideScreen.tsx` remplace le `PlaceholderScreen` réservé depuis le 24 août. Deux phases —
+approche vers le client, puis trajet — le passage de l'une à l'autre étant **une décision**
+(bouton « Démarrer la course »), jamais déduite d'une position (invariant 1). Idem pour la fin.
+`session.synced` (`activeRideState == in_progress`) sert de filet si l'app a été tuée puis
+relancée en pleine course.
+
+### Le GPS de l'urgence : rappelé à l'instant
+
+`EmergencyButton` (écrit et testé le 24 août, `getPosition` injecté « pour que cette tâche
+décide ») reçoit `() => getCurrentPosition()` de `apps/driver/src/location.ts` — **nouveau**, une
+lecture unique du GPS. Décision : **rappeler le GPS maintenant**, pas réutiliser une dernière
+position, parce qu'il n'existe aujourd'hui aucune « dernière position en vol » (L6-05 non
+construite, l'app n'émet encore aucun `position.update`), et parce qu'au moment d'une urgence la
+position la plus fraîche vaut mieux qu'une position d'il y a quelques minutes issue d'une cadence
+ralentie pour la batterie. La capture **continue** (fréquence adaptative, arrière-plan) reste
+L6-05 : `location.ts` ne fait qu'un relevé ponctuel, c'est écrit dans son en-tête.
+
+Dépendance nouvelle signalée : `@react-native-community/geolocation` (`^3.4.0`) — la même que
+`apps/client` utilise déjà, hoistée à la racine, `__mocks__` copié depuis le client.
+
+### Le lien profond, l'app vivante derrière (D12)
+
+`navigation/launch.ts::launchRideNavigation(phase, points, onReturn)` choisit le point visé selon
+la phase et appelle `openNavigation` de `@babana/maps` (L6-01) — jamais un SDK de carte en direct,
+signature identique à la v2 embarquée. Google Maps s'ouvre par-dessus ; React Navigation ne
+démonte pas l'écran, `phase`/`startedAt` sont préservés, le retour retrouve la course.
+`gestureEnabled: false` sur la route : on ne « swipe » pas hors d'une course en cours.
+
+### Le bouton de fin, difficile à toucher par accident
+
+Pas un dialogue à lire (spécification) : **maintien prolongé** (`onLongPress`, 900 ms, aucun
+`onPress` qui termine), et placé tout en bas de l'écran, séparé du bouton de guidage qu'on touche
+en roulant. Garde anti-double-navigation entre la réponse HTTP de `completeRide` et le message
+`ride.completed` (L3-19, poussé aussi au chauffeur) — un seul navigue vers `Settlement`.
+
+### Écart déposé — `amoa/questions/L6-13.md` (sur master)
+
+`POST /rides/{id}/complete` exige `{ distanceMeters, durationSeconds, polyline }` : un relevé du
+trajet réel. L'app Chauffeur n'en a aucune source (L6-05 et L3-10 non construites ; L4-04 dit que
+c'est au service temps réel de fournir ces valeurs). Stopgap assumé et testé
+(`apps/driver/src/ride/completion.ts`) : `durationSeconds` mesuré à l'horloge depuis le démarrage
+observé ; `distanceMeters` = distance de référence (le montant se calcule de toute façon sur elle,
+`actual ≈ référence` n'arme pas l'alerte d'écart L4-04) ; `polyline` = ligne droite départ →
+arrivée. **Le montant encaissé et le compte courant ne sont pas affectés.** Proposition dans
+l'écart : `complete` ne devrait pas exiger ce relevé de l'app.
+
+Second écart, connexe : **aucun bouton d'appel du client** — aucun message du contrat ne porte son
+numéro (symétrique de `amoa/questions/L6-09.md`). Absent, jamais inerte.
+
+### Tests
+
+- `apps/driver/src/navigation/__tests__/launch.test.ts` (3) : cible selon la phase, toujours via
+  `@babana/maps`.
+- `apps/driver/src/ride/__tests__/completion.test.ts` (6) : encodeur polyline (exemple canonique
+  Google), `durationSeconds` à l'horloge, `distanceMeters` = référence, durée négative → 0.
+- `apps/driver/src/screens/__tests__/ActiveRideScreen.test.tsx` (13) : les 5 critères numérotés
+  (lien profond selon la phase ; état préservé après guidage ; fin par maintien prolongé →
+  `completeRide` → `Settlement` ; pas de bouton d'appel client), plus `start`/`ride.started`/
+  `ride.completed`/`ride.cancelled`/`session.synced`, message pour une autre course ignoré, échec
+  de démarrage affiché.
+- `transitions.test.ts`, `types.test.ts`, `ProposalScreen.test.tsx` mis à jour (params
+  `ActiveRide`/`Settlement` élargis, `replaceWithActiveRide` transmet origine/arrivée/montant).
+
+### Non vérifiable ce soir
+
+Critère 2 (« la capture GPS continue quand l'app est en arrière-plan ») : c'est L6-05, non
+construite — l'app n'émet encore aucune position, en avant-plan comme en arrière-plan. La
+structure (l'app reste vivante, l'état de course est préservé, le retour retrouve l'écran) est en
+place et testée ; la capture elle-même reprend la liste des tâches ouvertes.
+
+### Doute pour un chauffeur réel
+
+Le stopgap de `completeRide`. Un chauffeur qui prend un vrai raccourci verra le client facturé (à
+juste titre, D15/L4-04) sur la distance de référence, mais le `actual_distance_km` enregistré sera
+lui aussi la référence — donc aucune détection de détour abusif possible tant que L3-10 n'existe
+pas. Ce n'est pas un risque financier, c'est un angle mort de contrôle, et il est nommé dans
+l'écart.

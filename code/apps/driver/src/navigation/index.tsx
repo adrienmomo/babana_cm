@@ -8,6 +8,7 @@ import { bootstrap } from '../bootstrap';
 import { SignInScreen } from '../screens/SignInScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { ProposalScreen } from '../screens/ProposalScreen';
+import { ActiveRideScreen } from '../screens/ActiveRideScreen';
 import type { AuthParamList, DriverParamList, DriverPendingParamList } from './types';
 
 const AuthStack = createNativeStackNavigator<AuthParamList>();
@@ -106,9 +107,7 @@ function DriverNavigator() {
     <DriverStack.Navigator initialRouteName="Home">
       <DriverStack.Screen name="Home" component={HomeScreen} />
       <DriverStack.Screen name="Proposal" component={ProposalScreen} options={{ presentation: 'fullScreenModal' }} />
-      <DriverStack.Screen name="ActiveRide">
-        {() => <PlaceholderScreen title="Course en cours" task="L6-13" />}
-      </DriverStack.Screen>
+      <DriverStack.Screen name="ActiveRide" component={ActiveRideScreen} options={{ headerShown: false, gestureEnabled: false }} />
       <DriverStack.Screen name="Settlement">
         {() => <PlaceholderScreen title="Encaissement" task="L6-14" />}
       </DriverStack.Screen>
