@@ -16,9 +16,11 @@ import type { DriverParamList } from '../navigation/types';
  * champ de saisie** -- autoriser une saisie ouvrirait la sous-déclaration. Un écart réel (le
  * client n'a pas l'appoint) se traite en remise de caisse (L5-06), pas ici.
  *
- * Après confirmation : nouveau solde et marge restante avant plafond, lus du serveur
- * (`GET /drivers/me/cash`), jamais dérivés localement. Si l'encaissement franchit le plafond,
- * l'écran le dit tout de suite et propose la remise (L5-07) -- plutôt que de laisser le chauffeur
+ * Après confirmation : nouveau solde, plafond, marge restante et **franchissement du plafond**,
+ * tous portés par la réponse de `settle` elle-même (J24, `amoa/questions/L6-14.md`). L'écran
+ * n'infère plus rien -- avant, il comparait le solde à un plafond qu'il allait chercher par un
+ * second `GET /drivers/me/cash`. Si l'encaissement franchit le plafond, `cashLimitReached` le dit
+ * et l'écran propose la remise (L5-07) tout de suite -- plutôt que de laisser le chauffeur
  * découvrir qu'il ne reçoit plus de courses sans savoir pourquoi.
  *
  * Hors connexion : la même clé d'idempotence est réutilisée à chaque nouvelle tentative de CETTE
@@ -33,8 +35,8 @@ type Phase = 'idle' | 'confirming' | 'settled' | 'queued' | 'error';
 
 interface CashState {
   balance: number;
-  /** `null` si `GET /drivers/me/cash` n'a pas répondu -- le solde reste affiché, pas la marge. */
-  limit: number | null;
+  marginRemaining: number;
+  cashLimitReached: boolean;
 }
 
 export function SettlementScreen({ route, navigation }: Props) {
@@ -59,17 +61,12 @@ export function SettlementScreen({ route, navigation }: Props) {
         idempotencyKey: idempotencyKeyRef.current,
       })) as http.SettleRideResponse;
 
-      // Marge = plafond - solde, sur deux valeurs serveur (L5-07 : le solde n'est jamais dérivé
-      // localement ; la marge est un simple affichage de « ce qui reste »). Si la lecture du
-      // plafond échoue, on montre au moins le nouveau solde.
-      let limit: number | null = null;
-      try {
-        const c = (await apiClient.request('driverCash')) as http.DriverCashResponse;
-        limit = c.limit;
-      } catch {
-        limit = null;
-      }
-      setCash({ balance: settled.driverCashBalance, limit });
+      // Tout vient de la réponse de `settle` (J24) : plus de second appel, plus d'inférence.
+      setCash({
+        balance: settled.driverCashBalance,
+        marginRemaining: settled.marginRemaining,
+        cashLimitReached: settled.cashLimitReached,
+      });
       setPhase('settled');
     } catch (error) {
       if (error instanceof ApiError) {
@@ -84,8 +81,7 @@ export function SettlementScreen({ route, navigation }: Props) {
     }
   }
 
-  const capReached = cash !== null && cash.limit !== null && cash.balance >= cash.limit;
-  const margin = cash !== null && cash.limit !== null ? Math.max(0, cash.limit - cash.balance) : null;
+  const capReached = cash?.cashLimitReached ?? false;
 
   return (
     <View style={styles.container} testID="settlement-screen">
@@ -104,9 +100,9 @@ export function SettlementScreen({ route, navigation }: Props) {
           <Text style={styles.resultLine} testID="settlement-balance">
             Nouveau solde à remettre : {formatMoney(cash.balance)}
           </Text>
-          {margin !== null ? (
+          {!capReached ? (
             <Text style={styles.resultLine} testID="settlement-margin">
-              Marge avant plafond : {formatMoney(margin)}
+              Marge avant plafond : {formatMoney(cash.marginRemaining)}
             </Text>
           ) : null}
 

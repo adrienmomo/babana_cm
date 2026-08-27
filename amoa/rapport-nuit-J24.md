@@ -68,3 +68,50 @@ course réelle se termine avec `measured: false` — le client voit « Trajet no
 résumé. C'est honnête, mais c'est un état transitoire d'une seule tâche : si la session s'arrête
 ici, une course jouée de bout en bout n'a pas de trajet enregistré du tout. C'est exactement ce que
 L3-10 comble.
+
+---
+
+## Correctif de contrat 2 — la réponse d'encaissement dit ce qui s'est passé
+
+### L'écart de L6-14, tranché
+
+Franchir le plafond d'encaisse n'est pas une erreur : `action_settle` réussit, le chauffeur passe
+hors ligne dans la même transaction (L5-02), et `SettleRideResponse` ne le disait pas. L'écran
+`SettlementScreen` devait donc **comparer** le nouveau solde à un plafond qu'il allait chercher par
+un **second `GET /drivers/me/cash`**. Troisième application de D49 en trois jours : là où l'app
+devine, il manque un champ.
+
+### Ce qui a été fait
+
+- **Contrat** : `SettleRideResponseSchema` gagne `cashLimit` (MoneyAmount), `cashLimitReached`
+  (bool) et `marginRemaining` (`max(0, cashLimit − driverCashBalance)`).
+- **Odoo** : `action_settle` renvoie désormais `{"ride": self, "cash_limit_crossed": bool}` — la
+  valeur **réelle** calculée par `_babana_apply_cash_limit`, jamais une reconstitution.
+  `_settle_ride` la porte dans la réponse, avec le plafond et la marge lus dans la même
+  transaction. Le `driverCash` (`GET /drivers/me/cash`) disparaît du chemin d'encaissement de
+  l'app.
+- **App** : `SettlementScreen` lit `settled.cashLimitReached` / `.marginRemaining` directement.
+  Plus aucun second appel, plus aucune inférence. La bannière « vous êtes passé hors ligne » +
+  accès remise s'affiche sur `cashLimitReached`, pas sur une comparaison locale.
+
+### Tests
+
+- `packages/contracts/test/http.test.ts` : l'exemple de réponse valide le nouveau schéma.
+- Odoo : `test_settlement.py` (`action_settle` renvoie `cash_limit_crossed` juste, franchi /
+  sous le plafond) ; `test_ride_controller.py` (`test_full_happy_path_up_to_settled` assert les
+  trois nouveaux champs ; `test_settle_response_announces_crossing_the_cash_limit` — 200,
+  `cashLimitReached: true`, `marginRemaining: 0`, chauffeur hors ligne).
+- App : `SettlementScreen.test.tsx` — solde et marge viennent de la réponse de `settle` sans
+  second appel ; `cashLimitReached` annonce le hors-ligne ; sous le plafond, marge affichée,
+  bouton « Terminé ».
+- e2e : `endpoint-coverage.test.ts` — `settleRide` valide la réponse contre son schéma.
+
+`amoa/questions/L6-14.md` : **points 1 et 2 résolus** (arbitrage REPONSES-2026-09-01 §2). Point 3
+(file hors connexion persistante) reste L6-16, non commencée.
+
+### Doute pour quelqu'un de réel
+
+`marginRemaining` est plafonné à 0 quand le plafond est franchi — l'écran affiche alors la
+bannière, pas la marge. Un chauffeur qui voudrait savoir de *combien* il a dépassé ne l'apprend
+pas ici (il le verrait à la remise). C'est un choix : « marge restante » négative se lit mal. À
+revoir si le terrain montre que le chiffre exact du dépassement manque.

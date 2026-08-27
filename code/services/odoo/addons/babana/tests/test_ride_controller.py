@@ -588,10 +588,36 @@ class TestRideController(HttpCase):
         self.assertEqual(body["state"], "settled")
         self.assertEqual(body["amountCollected"], quote.amount)
         self.assertEqual(body["driverCashBalance"], quote.amount)
+        # J24 (amoa/questions/L6-14.md) : la réponse dit ce qui s'est passé -- l'app n'infère plus.
+        self.assertFalse(body["cashLimitReached"])
+        self.assertGreater(body["cashLimit"], 0)
+        self.assertEqual(body["marginRemaining"], body["cashLimit"] - body["driverCashBalance"])
 
         ride = self.env["babana.ride"].sudo().search([("public_id", "=", ride_id)])
         self.assertEqual(ride.state, "settled")
         self.assertTrue(ride.settled_at)
+
+    def test_settle_response_announces_crossing_the_cash_limit(self):
+        # J24 : franchir le plafond n'est pas une erreur -- la transition réussit (200), mais la
+        # réponse porte cashLimitReached=true et marginRemaining=0, sans que l'app ait à comparer
+        # le solde à un plafond qu'elle irait chercher ailleurs.
+        # Plafond bien en dessous de n'importe quel tarif : cet encaissement le franchit à coup sûr.
+        self.env["ir.config_parameter"].sudo().set_param("babana.cash_limit", "100")
+        ride_id, driver_token, driver, quote = self._ride_ready_to_settle("cross-limit")
+        driver.write({"is_online": True})
+
+        response = self._post(
+            f"/api/v1/rides/{ride_id}/settle", driver_token, {"amountCollected": quote.amount}
+        )
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["state"], "settled")
+        self.assertTrue(body["cashLimitReached"])
+        self.assertEqual(body["cashLimit"], 100)
+        self.assertEqual(body["marginRemaining"], 0)
+        driver.invalidate_recordset()
+        self.assertFalse(driver.is_online)
 
     # --- Critère 4 : le chauffeur ne peut pas saisir un montant différent --------------------
 

@@ -198,8 +198,14 @@ test (`test/http.test.ts`) valide chaque exemple contre son schéma à chaque ex
 Transition `completed → settled`. Espèces uniquement (D9).
 
 - Requête : `{ amountCollected: MoneyAmount }`
-- Réponse : `{ rideId, state: "settled", amountCollected, driverCashBalance }`
+- Réponse : `{ rideId, state: "settled", amountCollected, driverCashBalance, cashLimit, cashLimitReached, marginRemaining }`
 - Erreurs : `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL`, `SETTLEMENT_AMOUNT_MISMATCH`, `CASH_LIMIT_REACHED`
+
+La réponse **dit ce qui s'est passé** (J24, `amoa/questions/L6-14.md`) : `cashLimitReached` est
+vrai si cet encaissement a franchi le plafond (le chauffeur passe hors ligne dans la même
+transaction, L5-02) — l'écran n'a plus à le déduire en comparant le solde à un plafond qu'il
+allait chercher par un second `GET /drivers/me/cash`. `cashLimit` et `marginRemaining`
+(`max(0, cashLimit − driverCashBalance)`) sont portés ici pour la même raison.
 
 ### `GET /drivers/me/cash`
 
