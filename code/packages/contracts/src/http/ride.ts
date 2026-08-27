@@ -132,34 +132,47 @@ export const startRideResponseExample: StartRideResponse = {
 
 /**
  * POST /rides/{id}/complete
- * Transition in_progress -> completed. Consolidation distance, durée, montant.
+ * Transition in_progress -> completed.
+ *
+ * **La fin de course ne porte que la décision** (J24, amoa/questions/L6-13.md). L'app dit
+ * « terminée », rien d'autre : le corps est vide. Le relevé du trajet -- distance parcourue,
+ * durée, tracé -- est fourni par le service temps réel qui l'a accumulé pendant la course
+ * (L3-10), jamais par l'app, qui n'a aucun moyen de le mesurer honnêtement. C'était déjà ce que
+ * L4-04 disait ; `CompleteRideRequestSchema` le contredisait en exigeant `distanceMeters` /
+ * `polyline` de l'app -- deux documents en désaccord sur qui possède la donnée.
  */
-export const CompleteRideRequestSchema = z.object({
-  distanceMeters: z.number().int().nonnegative(),
-  durationSeconds: z.number().int().nonnegative(),
-  polyline: z.string().min(1).describe('polyline encodée du trajet effectivement parcouru'),
-});
+export const CompleteRideRequestSchema = z.object({});
 export type CompleteRideRequest = z.infer<typeof CompleteRideRequestSchema>;
 
+/**
+ * `distanceMeters` / `durationSeconds` sont `null` -- jamais 0, jamais une valeur plausible --
+ * quand la course s'est terminée sans accumulation temps réel disponible. `measured` le dit
+ * explicitement : une absence assumée plutôt qu'un chiffre faux (D30, D43). Quand
+ * `measured === false`, aucun tracé n'est enregistré côté serveur non plus, et l'écart de
+ * distance de L4-04 n'est pas calculé.
+ */
 export const CompleteRideResponseSchema = RideSummarySchema.extend({
-  distanceMeters: z.number().int().nonnegative(),
-  durationSeconds: z.number().int().nonnegative(),
+  distanceMeters: z.number().int().nonnegative().nullable(),
+  durationSeconds: z.number().int().nonnegative().nullable(),
+  measured: z
+    .boolean()
+    .describe(
+      'true si le service temps réel a fourni un relevé de trajet accumulé (L3-10) ; false = ' +
+        'course terminée sans accumulation, aucune distance ni tracé enregistrés (D30/D43)'
+    ),
 });
 export type CompleteRideResponse = z.infer<typeof CompleteRideResponseSchema>;
 
 export const CompleteRideErrors = ['RIDE_NOT_FOUND', 'RIDE_INVALID_TRANSITION', 'DRIVER_NOT_IN_PROPOSAL'] as const;
 
-export const completeRideRequestExample: CompleteRideRequest = {
-  distanceMeters: 4350,
-  durationSeconds: 820,
-  polyline: 'a~l~Fjk~uOwHJy@P',
-};
+export const completeRideRequestExample: CompleteRideRequest = {};
 
 export const completeRideResponseExample: CompleteRideResponse = {
   ...startRideResponseExample,
   state: 'completed',
   distanceMeters: 4350,
   durationSeconds: 820,
+  measured: true,
 };
 
 /**

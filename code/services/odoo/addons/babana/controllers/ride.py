@@ -248,22 +248,24 @@ class RideController(http.Controller):
         if error:
             return error
 
-        body = _common.parse_json_body() or {}
-        distance_meters, duration_seconds, polyline, error = self._validate_complete_body(body)
-        if error:
-            return error
+        # La fin de course ne porte que la décision (J24, amoa/questions/L6-13.md) : le corps est
+        # vide, l'app dit « terminée » et rien d'autre. Aucune lecture de body ici.
+        #
+        # `measurement` = le relevé de trajet accumulé par le service temps réel pendant la course
+        # (L3-10). `None` pour l'instant : L3-10 (tâche suivante) branchera ici la lecture
+        # synchrone de l'accumulation -- une lecture, jamais une écriture Redis, donc sans risque
+        # D25/D32 (une transaction rejouée ou annulée n'aura rien modifié côté temps réel), même
+        # exception assumée que `reserve_and_propose`. Tant que rien n'est mesuré, `trip_measured`
+        # reste faux et l'écart de distance de L4-04 n'est pas armé (D30, D43).
+        measurement = None
 
-        # Consolidation (L4-04) : le montant final se calcule sur la distance de référence
-        # (gelée à la création, L2-04), jamais sur la distance parcourue transmise ici -- voir
-        # babana.ride._babana_compute_final_amount. Le tracé, la distance et la durée parcourues
-        # sont écrits en une seule opération par action_complete (L4-02), pas recalculés ici.
+        # Le montant final se calcule sur la distance de référence (gelée à la création, L2-04),
+        # jamais sur la distance parcourue -- voir babana.ride._babana_compute_final_amount.
         final_amount = ride._babana_compute_final_amount()
         ride.sudo().action_complete(
             by_driver=driver,
-            actual_distance_km=distance_meters / 1000.0,
-            actual_duration_minutes=duration_seconds / 60.0,
-            track_polyline=polyline,
             final_amount=final_amount,
+            measurement=measurement,
         )
         # Sens Odoo -> temps réel (L3-17, critère 6) : efface le marqueur d'engagement -- sans
         # lui, le chauffeur ne revient jamais dans le pool (D26). Après la transition, jamais
@@ -274,8 +276,13 @@ class RideController(http.Controller):
         # clear_engagement (services/realtime_client.py) pour le raisonnement complet.
         realtime_client.clear_engagement(env, driver_public_id=driver.public_id)
         payload = _summary(ride)
-        payload["distanceMeters"] = round(ride.actual_distance_km * 1000)
-        payload["durationSeconds"] = round(ride.actual_duration_minutes * 60)
+        payload["measured"] = ride.trip_measured
+        payload["distanceMeters"] = (
+            round(ride.actual_distance_km * 1000) if ride.trip_measured else None
+        )
+        payload["durationSeconds"] = (
+            round(ride.actual_duration_minutes * 60) if ride.trip_measured else None
+        )
         return payload, 200
 
     # --- POST /rides/{id}/settle (L4-05) --------------------------------------------------------
@@ -311,25 +318,6 @@ class RideController(http.Controller):
             "amountCollected": amount_collected,
             "driverCashBalance": driver.cash_balance,
         }, 200
-
-    @staticmethod
-    def _validate_complete_body(body):
-        distance_meters = body.get("distanceMeters")
-        duration_seconds = body.get("durationSeconds")
-        polyline = body.get("polyline")
-        if (
-            not isinstance(distance_meters, (int, float)) or distance_meters < 0
-            or not isinstance(duration_seconds, (int, float)) or duration_seconds < 0
-            or not isinstance(polyline, str) or not polyline
-        ):
-            return None, None, None, (
-                _common.error_payload(
-                    "VALIDATION_ERROR",
-                    "distanceMeters, durationSeconds (entiers positifs) et polyline (non vide) "
-                    "sont requis",
-                ), 400,
-            )
-        return distance_meters, duration_seconds, polyline, None
 
     def _find_ride_and_assigned_driver(self, env, user, ride_id):
         """Commun à start/complete (D31 a retiré accept/reject d'ici -- StartRideErrors/

@@ -236,8 +236,12 @@ export type RideStartedMessage = z.infer<typeof RideStartedMessageSchema>;
  */
 export const RideCompletedPayloadSchema = z.object({
   rideId: RideIdSchema,
-  distanceMeters: z.number().int().nonnegative(),
-  durationSeconds: z.number().int().nonnegative(),
+  // `null` -- jamais 0, jamais une valeur plausible -- quand la course s'est terminée sans
+  // accumulation temps réel (L3-10). `measured` le dit ; le résumé de fin affiche alors « non
+  // relevé » plutôt qu'un chiffre faux (D30, D43, J24 -- amoa/questions/L6-13.md).
+  distanceMeters: z.number().int().nonnegative().nullable(),
+  durationSeconds: z.number().int().nonnegative().nullable(),
+  measured: z.boolean(),
   amount: MoneyAmountSchema,
   breakdown: FareBreakdownSchema,
 });

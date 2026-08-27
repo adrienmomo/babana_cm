@@ -48,11 +48,17 @@ class TestPartitionInvariant(TransactionCase):
         ride.action_propose(by_partner=client, driver=driver)
         ride.action_accept(by_driver=driver)
         ride.action_start(by_driver=driver)
+        # Le relevé de trajet vient du service temps réel (L3-10) -- ici un `measurement` explicite
+        # pour prouver que malgré des distances/durées bien différentes, le NOMBRE d'écritures
+        # reste identique (c'est tout ce que l'invariant affirme).
         ride.action_complete(
             by_driver=driver,
-            actual_distance_km=actual_distance_km,
-            actual_duration_minutes=actual_duration_minutes,
             final_amount=1500,
+            measurement={
+                "distance_meters": round(actual_distance_km * 1000),
+                "duration_seconds": round(actual_duration_minutes * 60),
+                "polyline": "abc123",
+            },
         )
         ride.action_settle(by_driver=driver, amount_collected=ride.final_amount)
         return ride

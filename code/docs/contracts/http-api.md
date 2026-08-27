@@ -152,6 +152,14 @@ doute, le code (`packages/contracts/src/http/`) a raison, pas cette colonne.
 | `POST /rides/{id}/select-driver` | `requested → proposed` ou `rejected → proposed` | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_INVALID_TRANSITION`, `DRIVER_ALREADY_TAKEN`, `DRIVER_NOT_APPROVED` | Oui |
 | `POST /rides/{id}/start` | `assigned → in_progress` | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui |
 | `POST /rides/{id}/complete` | `in_progress → completed` | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui |
+
+`POST /rides/{id}/complete` ne porte **que la décision** (J24, `amoa/questions/L6-13.md`) : le
+corps est vide, l'app dit « terminée » et rien d'autre. Le relevé du trajet (distance parcourue,
+durée, tracé) vient du service temps réel qui l'a accumulé pendant la course (L3-10), jamais de
+l'app. La réponse porte `{ ..., distanceMeters, durationSeconds, measured }` : `distanceMeters` /
+`durationSeconds` sont **`null`** quand `measured` est faux — course terminée sans accumulation
+disponible, aucune distance ni tracé enregistrés, écart de distance de L4-04 non calculé
+(D30, D43).
 | `POST /rides/{id}/cancel` | `{requested,proposed,assigned,rejected} → cancelled` | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_INVALID_TRANSITION` | Oui |
 | `POST /rides/{id}/rate` | (aucune — ride déjà `settled`) | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RATING_NOT_ALLOWED`, `RATING_ALREADY_SUBMITTED` | Non — attend L4-09 |
 

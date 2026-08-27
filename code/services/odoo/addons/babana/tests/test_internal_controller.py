@@ -266,7 +266,7 @@ class TestInternalController(HttpCase):
         ride.sudo().action_propose(by_partner=client.partner_id, driver=driver)
         ride.sudo().action_accept(by_driver=driver)
         ride.sudo().action_start(by_driver=driver)
-        ride.sudo().action_complete(by_driver=driver, actual_distance_km=1.0, actual_duration_minutes=5, final_amount=1200)
+        ride.sudo().action_complete(by_driver=driver, final_amount=1200)
 
         response = self._post(
             "/session/active-ride",
@@ -287,7 +287,7 @@ class TestInternalController(HttpCase):
         ride.sudo().action_propose(by_partner=victim.partner_id, driver=driver)
         ride.sudo().action_accept(by_driver=driver)
         ride.sudo().action_start(by_driver=driver)
-        ride.sudo().action_complete(by_driver=driver, actual_distance_km=1.0, actual_duration_minutes=5, final_amount=1200)
+        ride.sudo().action_complete(by_driver=driver, final_amount=1200)
 
         response = self._post(
             "/session/active-ride",

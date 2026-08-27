@@ -124,11 +124,8 @@ async function completedRide(actors: Actors, debugLabel = ''): Promise<string> {
   assert.equal(acceptedState, 'assigned', `accept a échoué en préparation (${debugLabel}) : état ${acceptedState}`);
   const start = await callRideEndpoint(`/rides/${ridePublicId}/start`, actors.driverSession);
   assert.equal(start.status, 200, `start a échoué en préparation (${debugLabel}) : ${JSON.stringify(start.body)}`);
-  const complete = await callRideEndpoint(`/rides/${ridePublicId}/complete`, actors.driverSession, {
-    distanceMeters: 4200,
-    durationSeconds: 600,
-    polyline: 'abc123',
-  });
+  // J24 (amoa/questions/L6-13.md) : la fin de course ne porte que la décision -- corps vide.
+  const complete = await callRideEndpoint(`/rides/${ridePublicId}/complete`, actors.driverSession, {});
   assert.equal(
     complete.status,
     200,

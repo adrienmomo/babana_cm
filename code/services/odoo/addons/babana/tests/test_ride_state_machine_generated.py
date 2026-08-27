@@ -113,12 +113,7 @@ class _GeneratedTransitionMatrixBase(TransactionCase):
         if action == "action_start":
             return ride.action_start(by_driver=driver)
         if action == "action_complete":
-            return ride.action_complete(
-                by_driver=driver,
-                actual_distance_km=5.0,
-                actual_duration_minutes=15,
-                final_amount=1200,
-            )
+            return ride.action_complete(by_driver=driver, final_amount=1200)
         if action == "action_settle":
             expected_amount = ride.final_amount or ride.estimated_amount or 0
             return ride.action_settle(by_driver=driver, amount_collected=expected_amount)

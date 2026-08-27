@@ -357,6 +357,7 @@ describe('POST /internal/rides/started|completed (sens Odoo -> temps réel, L3-1
           rideId,
           clientUserId,
           driverId,
+          measured: true,
           distanceMeters: 4200,
           durationSeconds: 720,
           amount: 1200,
@@ -366,6 +367,7 @@ describe('POST /internal/rides/started|completed (sens Odoo -> temps réel, L3-1
       for (const message of [clientMessage, driverMessage]) {
         const payload = message.payload as Record<string, unknown>;
         assert.equal(payload.rideId, rideId);
+        assert.equal(payload.measured, true);
         assert.equal(payload.distanceMeters, 4200);
         assert.equal(payload.durationSeconds, 720);
         assert.equal(payload.amount, 1200);
@@ -374,6 +376,48 @@ describe('POST /internal/rides/started|completed (sens Odoo -> temps réel, L3-1
     } finally {
       clientWs.close();
       driverWs.close();
+    }
+  });
+
+  // J24 (amoa/questions/L6-13.md) : course terminée sans accumulation temps réel -- `ride.completed`
+  // porte `distanceMeters` / `durationSeconds` à `null` et `measured: false`, jamais un chiffre
+  // plausible et faux (D30, D43).
+  test('ride.completed non mesurée : distance et durée à null, measured faux', async () => {
+    const rideId = randomUUID();
+    const clientUserId = randomUUID();
+    const driverId = randomUUID();
+    const breakdown = {
+      baseFare: 200,
+      distanceFare: 1000,
+      surgeAmount: 0,
+      discountAmount: 0,
+      floorAmount: 0,
+      roundingAmount: 0,
+      minimumFareApplied: false,
+    };
+
+    const clientWs = await connectWs(tokenFor('client', clientUserId));
+    try {
+      const [clientMessage] = await Promise.all([
+        waitForMessage(clientWs, 'ride.completed'),
+        post('/internal/rides/completed', {
+          rideId,
+          clientUserId,
+          driverId,
+          measured: false,
+          distanceMeters: null,
+          durationSeconds: null,
+          amount: 1200,
+          breakdown,
+        }),
+      ]);
+      const payload = clientMessage.payload as Record<string, unknown>;
+      assert.equal(payload.measured, false);
+      assert.equal(payload.distanceMeters, null);
+      assert.equal(payload.durationSeconds, null);
+      assert.equal(payload.amount, 1200);
+    } finally {
+      clientWs.close();
     }
   });
 });

@@ -30,6 +30,7 @@ _FROZEN_AFTER_COMPLETED_FIELDS = {
     "actual_distance_km",
     "actual_duration_minutes",
     "track_polyline",
+    "trip_measured",
     "final_amount",
 }
 
@@ -312,12 +313,17 @@ class BabanaRideState(models.Model):
 
     # --- 7. in_progress -> completed ----------------------------------------------------------
 
-    def action_complete(
-        self, *, by_driver, actual_distance_km, actual_duration_minutes, track_polyline=None,
-        final_amount,
-    ):
-        """Consolidation minimale (L4-04, hors de ce lot, apportera le calcul complet et le
-        seuil de signalement d'écart) : reçoit les valeurs déjà consolidées côté appelant."""
+    def action_complete(self, *, by_driver, final_amount, measurement=None):
+        """Fin de course (in_progress -> completed). L'app ne porte que la décision (J24,
+        amoa/questions/L6-13.md) ; `measurement` est le relevé de trajet fourni par le service
+        temps réel qui l'a accumulé pendant la course (L3-10), ou `None` quand aucune accumulation
+        n'est disponible.
+
+        `measurement`, quand il est fourni : dict `{"distance_meters": int, "duration_seconds":
+        int, "polyline": str}`. Quand il vaut `None` : rien n'est écrit sur `actual_distance_km` /
+        `actual_duration_minutes` / `track_polyline` -- pas une ligne droite, pas la distance de
+        référence déguisée -- et `trip_measured` reste faux, ce qui désarme l'écart de distance de
+        L4-04 (une absence explicite plutôt qu'une valeur plausible et fausse, D30/D43)."""
         self.ensure_one()
         self._lock_for_update()
 
@@ -326,17 +332,22 @@ class BabanaRideState(models.Model):
         if by_driver != self.driver_id:
             raise RideInvalidTransition("Ce chauffeur n'est pas celui affecté à cette course.")
 
-        self._babana_write_transition(
-            {
-                "state": "completed",
-                "completed_at": fields.Datetime.now(),
-                "actual_distance_km": actual_distance_km,
-                "actual_duration_minutes": actual_duration_minutes,
-                "track_polyline": track_polyline,
-                "final_amount": final_amount,
-            }
-        )
-        self._babana_journalize("ride_completion")
+        vals = {
+            "state": "completed",
+            "completed_at": fields.Datetime.now(),
+            "final_amount": final_amount,
+        }
+        if measurement is not None:
+            vals.update(
+                {
+                    "actual_distance_km": measurement["distance_meters"] / 1000.0,
+                    "actual_duration_minutes": measurement["duration_seconds"] / 60.0,
+                    "track_polyline": measurement["polyline"],
+                    "trip_measured": True,
+                }
+            )
+        self._babana_write_transition(vals)
+        self._babana_journalize("ride_completion", measured=bool(measurement))
 
         # L3-19 (D31, D32) : pousse ride.completed au client suivi et au chauffeur, avec le
         # détail décomposé GELÉ à la création (fare_rule_snapshot, D41) -- jamais recalculé, le
@@ -357,8 +368,11 @@ class BabanaRideState(models.Model):
                 ride_public_id=self.public_id,
                 client_user_public_id=client_public_id,
                 driver_public_id=by_driver.public_id,
-                distance_meters=round(actual_distance_km * 1000),
-                duration_seconds=round(actual_duration_minutes * 60),
+                # `null` -- jamais 0, jamais la distance de référence -- quand rien n'a été mesuré
+                # (J24). Le résumé de fin affiche « non relevé » plutôt qu'un chiffre faux.
+                measured=bool(measurement),
+                distance_meters=round(measurement["distance_meters"]) if measurement else None,
+                duration_seconds=round(measurement["duration_seconds"]) if measurement else None,
                 amount=round(final_amount),
                 breakdown=round_breakdown_for_wire(breakdown),
             )

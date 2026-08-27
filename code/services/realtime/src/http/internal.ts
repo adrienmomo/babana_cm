@@ -91,8 +91,12 @@ const RideCompletedRequestSchema = z.object({
   rideId: z.string().min(1),
   clientUserId: z.string().min(1),
   driverId: z.string().min(1),
-  distanceMeters: z.number().int().nonnegative(),
-  durationSeconds: z.number().int().nonnegative(),
+  // J24 (amoa/questions/L6-13.md) : `null` -- jamais 0 -- quand la course s'est terminée sans
+  // accumulation temps réel (L3-10). `measured` le dit ; `ride.completed` le transmet tel quel
+  // au résumé de fin (D30, D43).
+  measured: z.boolean(),
+  distanceMeters: z.number().int().nonnegative().nullable(),
+  durationSeconds: z.number().int().nonnegative().nullable(),
   amount: z.number(),
   // Réutilise le schéma du contrat (D17) -- une seule définition du détail décomposé, celle que
   // `ride.completed` (server-to-client.ts) exporte déjà.
