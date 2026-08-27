@@ -55,6 +55,8 @@ const RIDE_ID = asRideId('ride-1');
 const ORIGIN = { latitude: 4.05, longitude: 9.7 };
 const DESTINATION = { latitude: 4.061, longitude: 9.71 };
 const PARAMS = { rideId: RIDE_ID, origin: ORIGIN, destination: DESTINATION, amount: 1500, distanceMeters: 3200 };
+// distanceMeters reste dans les params de navigation (Proposal -> ActiveRide), mais n'est plus
+// transmis à `complete` : la fin de course ne porte que la décision (J24, amoa/questions/L6-13.md).
 
 function fakeNavigation() {
   return { reset: jest.fn(), navigate: jest.fn(), goBack: jest.fn() };
@@ -172,9 +174,10 @@ describe('ActiveRideScreen (L6-13)', () => {
     await act(async () => {
       finish.props.onLongPress();
     });
+    // La fin de course ne porte que la décision (J24) : corps vide, aucun relevé de trajet.
     expect(mockRequest).toHaveBeenCalledWith('completeRide', {
       pathParams: { id: RIDE_ID },
-      body: expect.objectContaining({ distanceMeters: 3200, polyline: expect.any(String) }),
+      body: {},
     });
     expect(mockReplaceWithSettlement).toHaveBeenCalledWith(expect.anything(), { rideId: RIDE_ID, amount: 1500 });
   });
@@ -205,7 +208,7 @@ describe('ActiveRideScreen (L6-13)', () => {
     await act(async () => {
       emit({
         type: 'ride.completed',
-        payload: { rideId: RIDE_ID, distanceMeters: 3300, durationSeconds: 700, amount: 1450, breakdown: {} },
+        payload: { rideId: RIDE_ID, distanceMeters: 3300, durationSeconds: 700, measured: true, amount: 1450, breakdown: {} },
       });
     });
     expect(mockReplaceWithSettlement).toHaveBeenCalledWith(navigation, { rideId: RIDE_ID, amount: 1450 });
@@ -228,7 +231,7 @@ describe('ActiveRideScreen (L6-13)', () => {
     const { root } = await renderActiveRide();
     await act(async () => {
       emit({ type: 'ride.started', payload: { rideId: 'autre' } });
-      emit({ type: 'ride.completed', payload: { rideId: 'autre', distanceMeters: 1, durationSeconds: 1, amount: 1, breakdown: {} } });
+      emit({ type: 'ride.completed', payload: { rideId: 'autre', distanceMeters: 1, durationSeconds: 1, measured: true, amount: 1, breakdown: {} } });
     });
     expect(texts(root)).toContain('En route vers le client');
     expect(mockReplaceWithSettlement).not.toHaveBeenCalled();

@@ -36,12 +36,16 @@ afterEach(async () => {
 });
 
 async function renderSummary(
-  navigation = fakeNavigation()
+  navigation = fakeNavigation(),
+  params: { distanceMeters: number | null; durationSeconds: number | null } = {
+    distanceMeters: 4200,
+    durationSeconds: 780,
+  }
 ): Promise<{ root: ReactTestRenderer; navigation: ReturnType<typeof fakeNavigation> }> {
   const route = {
     key: 'RideSummary',
     name: 'RideSummary' as const,
-    params: { rideId: RIDE_ID, distanceMeters: 4200, durationSeconds: 780, amount: 1450, breakdown: BREAKDOWN },
+    params: { rideId: RIDE_ID, amount: 1450, breakdown: BREAKDOWN, ...params },
   };
   let root!: ReactTestRenderer;
   await act(async () => {
@@ -82,6 +86,13 @@ describe('RideSummaryScreen (L6-09)', () => {
     expect(texts(root)).not.toContain('Ajustement plancher');
     expect(texts(root)).toContain('4.2 km');
     expect(texts(root)).toContain('13 min');
+  });
+
+  it('J24 (amoa/questions/L6-13.md) : trajet non relevé -> « Trajet non relevé », jamais un chiffre faux', async () => {
+    const { root } = await renderSummary(fakeNavigation(), { distanceMeters: null, durationSeconds: null });
+    expect(root.root.findByProps({ testID: 'ride-summary-trip-meta' }).props.children).toBe('Trajet non relevé');
+    // Le montant, lui, reste affiché : la décision financière existe toujours (distance de référence).
+    expect(texts(root)).toContain(fcfa(1450));
   });
 
   it("aucune immatriculation ni identité du chauffeur n'est affichée -- décidé explicitement (doute du 26 août)", async () => {

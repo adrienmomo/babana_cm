@@ -490,23 +490,24 @@ class TestRideController(HttpCase):
         self._accept_via_internal_channel(ride_id, driver.public_id)
         self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
 
-        complete_response = self._post(
-            f"/api/v1/rides/{ride_id}/complete",
-            driver_token,
-            {"distanceMeters": 5200, "durationSeconds": 900, "polyline": "abc123"},
-        )
+        # J24 (amoa/questions/L6-13.md) : la fin de course ne porte que la décision -- corps vide.
+        # Le service temps réel n'a rien accumulé dans cet environnement de test (pas de course
+        # démarrée côté realtime) : la réponse le dit explicitement.
+        complete_response = self._post(f"/api/v1/rides/{ride_id}/complete", driver_token, {})
 
         self.assertEqual(complete_response.status_code, 200)
         body = complete_response.json()
         self.assertEqual(body["state"], "completed")
-        self.assertEqual(body["distanceMeters"], 5200)
-        self.assertEqual(body["durationSeconds"], 900)
-        # Le montant final est celui de la distance de référence (L4-04), pas recalculé sur les
-        # 5200 m parcourus transmis ci-dessus.
+        self.assertFalse(body["measured"])
+        self.assertIsNone(body["distanceMeters"])
+        self.assertIsNone(body["durationSeconds"])
+        # Le montant final est celui de la distance de référence (L4-04) : la décision financière
+        # existe même sans relevé de trajet.
         self.assertEqual(body["amount"], quote.amount)
 
         ride = self.env["babana.ride"].sudo().search([("public_id", "=", ride_id)])
-        self.assertEqual(ride.track_polyline, "abc123")
+        self.assertFalse(ride.trip_measured)
+        self.assertFalse(ride.track_polyline)
         self.assertEqual(ride.final_amount, quote.amount)
 
     def test_complete_by_unassigned_driver_is_rejected(self):
@@ -523,16 +524,15 @@ class TestRideController(HttpCase):
         self._accept_via_internal_channel(ride_id, driver.public_id)
         self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
 
-        response = self._post(
-            f"/api/v1/rides/{ride_id}/complete",
-            stranger_token,
-            {"distanceMeters": 100, "durationSeconds": 60, "polyline": "x"},
-        )
+        response = self._post(f"/api/v1/rides/{ride_id}/complete", stranger_token, {})
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["error"]["code"], "DRIVER_NOT_IN_PROPOSAL")
 
-    def test_complete_with_missing_fields_is_a_validation_error(self):
+    def test_complete_ignores_any_body_it_receives(self):
+        # J24 : la fin de course ne porte que la décision. Un corps -- même l'ancien
+        # `{distanceMeters, durationSeconds, polyline}` d'une vieille app -- est simplement ignoré,
+        # jamais honoré : le relevé de trajet vient du service temps réel (L3-10), pas de l'app.
         client_token, _ = self._sign_in("sub-complete-client-3", "client")
         driver_token, driver = self._make_selectable_driver("sub-complete-driver-3", client_token)
         quote_id = self._make_quote(client_token)
@@ -545,10 +545,19 @@ class TestRideController(HttpCase):
         self._accept_via_internal_channel(ride_id, driver.public_id)
         self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
 
-        response = self._post(f"/api/v1/rides/{ride_id}/complete", driver_token, {})
+        response = self._post(
+            f"/api/v1/rides/{ride_id}/complete",
+            driver_token,
+            {"distanceMeters": 99999, "durationSeconds": 1, "polyline": "menteur"},
+        )
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.json()["error"]["code"], "VALIDATION_ERROR")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["state"], "completed")
+        self.assertFalse(body["measured"])
+        self.assertIsNone(body["distanceMeters"])
+        ride = self.env["babana.ride"].sudo().search([("public_id", "=", ride_id)])
+        self.assertFalse(ride.track_polyline)
 
     # --- POST /rides/{id}/settle (L4-05) --------------------------------------------------------
 
@@ -563,11 +572,7 @@ class TestRideController(HttpCase):
         )
         self._accept_via_internal_channel(ride_id, driver.public_id)
         self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
-        self._post(
-            f"/api/v1/rides/{ride_id}/complete",
-            driver_token,
-            {"distanceMeters": 5200, "durationSeconds": 900, "polyline": "abc123"},
-        )
+        self._post(f"/api/v1/rides/{ride_id}/complete", driver_token, {})
         return ride_id, driver_token, driver, quote
 
     def test_full_happy_path_up_to_settled(self):

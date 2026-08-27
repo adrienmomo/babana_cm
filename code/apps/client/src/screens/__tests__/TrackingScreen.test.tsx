@@ -195,7 +195,7 @@ describe('TrackingScreen (L6-09)', () => {
         type: 'ride.completed',
         id: 'm3',
         emittedAt: new Date().toISOString(),
-        payload: { rideId: RIDE_ID, distanceMeters: 4200, durationSeconds: 780, amount: 1200, breakdown },
+        payload: { rideId: RIDE_ID, distanceMeters: 4200, durationSeconds: 780, measured: true, amount: 1200, breakdown },
       });
     });
 
@@ -203,6 +203,35 @@ describe('TrackingScreen (L6-09)', () => {
       rideId: RIDE_ID,
       distanceMeters: 4200,
       durationSeconds: 780,
+      amount: 1200,
+      breakdown,
+    });
+  });
+
+  it('ride.completed non mesurée (J24) : distance et durée à null sont transmises telles quelles au résumé', async () => {
+    const { navigation } = await renderTracking();
+    const breakdown = {
+      baseFare: 200,
+      distanceFare: 1000,
+      surgeAmount: 0,
+      discountAmount: 0,
+      floorAmount: 0,
+      roundingAmount: 0,
+      minimumFareApplied: false,
+    };
+    await act(async () => {
+      realtimeListener?.({
+        type: 'ride.completed',
+        id: 'm3-null',
+        emittedAt: new Date().toISOString(),
+        payload: { rideId: RIDE_ID, distanceMeters: null, durationSeconds: null, measured: false, amount: 1200, breakdown },
+      });
+    });
+
+    expect(navigation.replace).toHaveBeenCalledWith('RideSummary', {
+      rideId: RIDE_ID,
+      distanceMeters: null,
+      durationSeconds: null,
       amount: 1200,
       breakdown,
     });

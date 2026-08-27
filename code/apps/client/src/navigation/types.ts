@@ -71,8 +71,10 @@ export type ClientParamList = {
   };
   RideSummary: {
     rideId: RideId;
-    distanceMeters: number;
-    durationSeconds: number;
+    // `null` quand la course s'est terminée sans relevé de trajet accumulé (J24, `measured` faux
+    // dans `ride.completed`) -- le résumé affiche « Trajet non relevé », jamais un chiffre faux.
+    distanceMeters: number | null;
+    durationSeconds: number | null;
     amount: number;
     breakdown: http.FareBreakdown;
   };

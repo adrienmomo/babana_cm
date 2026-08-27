@@ -87,7 +87,7 @@ liste vide — que L6-08 traduit en `NO_DRIVER_AVAILABLE`.
 | `ride.rejected` | Client | `{ rideId, driverId, reason }` | Le chauffeur a refusé ou le délai a expiré |
 | `driver.position` | Client | `{ rideId, position, etaSeconds }` | Suivi pendant une course affectée ou en cours |
 | `ride.started` | Client | `{ rideId }` | Transition `→ in_progress` |
-| `ride.completed` | Client | `{ rideId, distanceMeters, durationSeconds, amount, breakdown }` | Transition `→ completed` |
+| `ride.completed` | Client | `{ rideId, distanceMeters, durationSeconds, measured, amount, breakdown }` | Transition `→ completed` — `distanceMeters` / `durationSeconds` à `null` quand `measured` est faux (course terminée sans accumulation temps réel, L3-10 / `amoa/questions/L6-13.md`) |
 | `session.synced` | Client ou chauffeur | `{ activeRideId, activeRideState, serverTime }` | Voir « Politique de reconnexion » |
 
 `ride.cancelled` a un seul émetteur (le serveur) mais deux destinataires possibles selon qui est
@@ -121,7 +121,11 @@ jamais retarder l'envoi de `ride.assigned` lui-même.
 
 `ride.completed` porte `breakdown` (même `FareBreakdown` que `POST /quote`, C-01) depuis le
 25 août — le résumé de fin est ce qu'un client relira en cas de litige, il doit être ce que le
-serveur a écrit, pas seulement le montant total.
+serveur a écrit, pas seulement le montant total. `distanceMeters` / `durationSeconds` sont
+**`null`** — jamais 0, jamais une valeur plausible — quand `measured` est faux : la course s'est
+terminée sans que le service temps réel n'ait accumulé de trajet (L3-10 absente ou injoignable).
+Une absence assumée plutôt qu'un chiffre faux (D30, D43, J24 — `amoa/questions/L6-13.md`) : le
+résumé affiche alors « non relevé », et l'écart de distance de L4-04 n'est pas calculé.
 
 `driver.position` (L3-09) diffuse `position` en **précision réelle** — l'arrondi de C2b
 (`nearby.drivers`) ne s'applique qu'à la découverte, jamais au suivi d'une course affectée : le

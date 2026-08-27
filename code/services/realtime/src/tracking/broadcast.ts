@@ -210,8 +210,9 @@ export function broadcastRideCompleted(
     rideId: string;
     clientUserId: string;
     driverId: string;
-    distanceMeters: number;
-    durationSeconds: number;
+    measured: boolean;
+    distanceMeters: number | null;
+    durationSeconds: number | null;
     amount: number;
     breakdown: http.FareBreakdown;
   }
@@ -250,8 +251,9 @@ function buildRideStartedMessage(rideId: string): realtime.RideStartedMessage {
 
 function buildRideCompletedMessage(params: {
   rideId: string;
-  distanceMeters: number;
-  durationSeconds: number;
+  measured: boolean;
+  distanceMeters: number | null;
+  durationSeconds: number | null;
   amount: number;
   breakdown: http.FareBreakdown;
 }): realtime.RideCompletedMessage {
@@ -263,6 +265,7 @@ function buildRideCompletedMessage(params: {
       rideId: params.rideId,
       distanceMeters: params.distanceMeters,
       durationSeconds: params.durationSeconds,
+      measured: params.measured,
       amount: params.amount,
       breakdown: params.breakdown,
     },

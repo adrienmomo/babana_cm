@@ -185,9 +185,10 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     const rig = await setupAssignedRide('complete-ride');
     const driverClient = clientFor(rig.driverSession.accessToken);
     await driverClient.request('startRide', { pathParams: { id: rig.ride.id } });
+    // J24 (amoa/questions/L6-13.md) : la fin de course ne porte que la décision -- corps vide.
     const completed = (await driverClient.request('completeRide', {
       pathParams: { id: rig.ride.id },
-      body: { distanceMeters: 2042, durationSeconds: 300, polyline: 'a~l~Fjk~uOwHJy@P' },
+      body: {},
     })) as http.CompleteRideResponse;
     assert.equal(completed.state, 'completed');
   },
@@ -198,7 +199,7 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     await driverClient.request('startRide', { pathParams: { id: rig.ride.id } });
     const completed = (await driverClient.request('completeRide', {
       pathParams: { id: rig.ride.id },
-      body: { distanceMeters: 2042, durationSeconds: 300, polyline: 'a~l~Fjk~uOwHJy@P' },
+      body: {},
     })) as http.CompleteRideResponse;
     const settled = (await driverClient.request('settleRide', {
       pathParams: { id: rig.ride.id },

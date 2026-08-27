@@ -28,6 +28,17 @@ function formatDuration(durationSeconds: number): string {
   return `${Math.max(1, Math.round(durationSeconds / 60))} min`;
 }
 
+/**
+ * Trajet non relevé (J24, amoa/questions/L6-13.md) : `distanceMeters` / `durationSeconds` sont
+ * `null` quand le service temps réel n'a pas accumulé le trajet (`measured === false`). On
+ * l'affiche comme tel -- « Trajet non relevé » -- plutôt qu'un « 0 m · 1 min » qui aurait
+ * l'aplomb d'un fait sur le résumé qu'un client relira en cas de litige (D30, D43).
+ */
+function formatTripMeta(distanceMeters: number | null, durationSeconds: number | null): string {
+  if (distanceMeters === null || durationSeconds === null) return 'Trajet non relevé';
+  return `${formatDistance(distanceMeters)} · ${formatDuration(durationSeconds)}`;
+}
+
 export function RideSummaryScreen({ route, navigation }: Props) {
   const { rideId, distanceMeters, durationSeconds, amount, breakdown } = route.params;
 
@@ -74,8 +85,8 @@ export function RideSummaryScreen({ route, navigation }: Props) {
             </View>
           ))}
         </View>
-        <Text style={styles.tripMeta}>
-          {formatDistance(distanceMeters)} · {formatDuration(durationSeconds)}
+        <Text style={styles.tripMeta} testID="ride-summary-trip-meta">
+          {formatTripMeta(distanceMeters, durationSeconds)}
         </Text>
       </View>
 

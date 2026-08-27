@@ -296,7 +296,7 @@ class TestRealtimeCommitHook(HttpCase):
         with patch.object(realtime_client, "_post") as mock_post:
             realtime_client.notify_ride_completed(
                 env, ride_public_id="ride-1", client_user_public_id="client-1", driver_public_id="driver-1",
-                distance_meters=2000, duration_seconds=300, amount=1200, breakdown=breakdown,
+                measured=True, distance_meters=2000, duration_seconds=300, amount=1200, breakdown=breakdown,
             )
             env.cr.rollback()
         mock_post.assert_not_called()
@@ -310,14 +310,37 @@ class TestRealtimeCommitHook(HttpCase):
         with patch.object(realtime_client, "_post") as mock_post:
             realtime_client.notify_ride_completed(
                 env, ride_public_id="ride-1", client_user_public_id="client-1", driver_public_id="driver-1",
-                distance_meters=2000, duration_seconds=300, amount=1200, breakdown=breakdown,
+                measured=True, distance_meters=2000, duration_seconds=300, amount=1200, breakdown=breakdown,
             )
             env.cr.commit()
         mock_post.assert_called_once_with(
             "/internal/rides/completed",
             {
                 "rideId": "ride-1", "clientUserId": "client-1", "driverId": "driver-1",
-                "distanceMeters": 2000, "durationSeconds": 300, "amount": 1200, "breakdown": breakdown,
+                "measured": True, "distanceMeters": 2000, "durationSeconds": 300, "amount": 1200,
+                "breakdown": breakdown,
+            },
+        )
+
+    def test_notify_ride_completed_carries_nulls_when_unmeasured(self):
+        # J24 (amoa/questions/L6-13.md) : course terminée sans accumulation temps réel.
+        env = _FakeEnv()
+        breakdown = {
+            "baseFare": 200, "distanceFare": 1000, "surgeAmount": 0, "discountAmount": 0,
+            "floorAmount": 0, "roundingAmount": 0, "minimumFareApplied": False,
+        }
+        with patch.object(realtime_client, "_post") as mock_post:
+            realtime_client.notify_ride_completed(
+                env, ride_public_id="ride-1", client_user_public_id="client-1", driver_public_id="driver-1",
+                measured=False, distance_meters=None, duration_seconds=None, amount=1200, breakdown=breakdown,
+            )
+            env.cr.commit()
+        mock_post.assert_called_once_with(
+            "/internal/rides/completed",
+            {
+                "rideId": "ride-1", "clientUserId": "client-1", "driverId": "driver-1",
+                "measured": False, "distanceMeters": None, "durationSeconds": None, "amount": 1200,
+                "breakdown": breakdown,
             },
         )
 

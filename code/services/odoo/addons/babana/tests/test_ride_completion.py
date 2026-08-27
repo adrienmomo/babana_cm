@@ -1,8 +1,10 @@
-# Tests de la consolidation de fin de course (L4-04). action_complete lui-même (L4-02) reste
-# inchangé -- il écrit déjà l'ensemble des champs de fin de course en une seule opération
-# (_babana_write_transition). Ce que L4-04 ajoute vit dans babana.ride : le calcul du montant
-# final sur la distance de référence (_babana_compute_final_amount) et le signalement d'écart
-# (distance_deviation_flagged).
+# Tests de la consolidation de fin de course (L4-04). Ce que L4-04 ajoute vit dans babana.ride :
+# le calcul du montant final sur la distance de référence (_babana_compute_final_amount) et le
+# signalement d'écart (distance_deviation_flagged).
+#
+# J24 (amoa/questions/L6-13.md) : action_complete reçoit désormais `measurement` (le relevé de
+# trajet accumulé par le service temps réel, L3-10) ou `None` -- l'app ne porte plus que la
+# décision. Sans mesure, `trip_measured` reste faux et l'écart de distance n'est pas calculé.
 from __future__ import annotations
 
 from odoo.exceptions import UserError
@@ -37,16 +39,20 @@ class TestRideCompletion(TransactionCase):
         ride.action_start(by_driver=driver)
         return ride, client, driver
 
-    def _complete(self, ride, driver, *, actual_distance_km, actual_duration_minutes=15,
+    def _complete(self, ride, driver, *, actual_distance_km=None, actual_duration_minutes=15,
                   track_polyline="abc123"):
+        """`actual_distance_km=None` : fin de course sans relevé de trajet (J24) -- `measurement`
+        vaut None, `trip_measured` reste faux. Sinon, un relevé mesuré est passé au format que le
+        service temps réel produira (L3-10)."""
         final_amount = ride._babana_compute_final_amount()
-        ride.action_complete(
-            by_driver=driver,
-            actual_distance_km=actual_distance_km,
-            actual_duration_minutes=actual_duration_minutes,
-            track_polyline=track_polyline,
-            final_amount=final_amount,
-        )
+        measurement = None
+        if actual_distance_km is not None:
+            measurement = {
+                "distance_meters": round(actual_distance_km * 1000),
+                "duration_seconds": round(actual_duration_minutes * 60),
+                "polyline": track_polyline,
+            }
+        ride.action_complete(by_driver=driver, final_amount=final_amount, measurement=measurement)
         return final_amount
 
     # --- Critère 1 : le tracé est écrit en une seule opération ---------------------------------
@@ -103,6 +109,36 @@ class TestRideCompletion(TransactionCase):
             ride.write({"actual_distance_km": 42.0})
 
     # --- Critère 5 : toute différence entre estimé et final est explicitée dans le détail -----
+
+    # --- J24 (amoa/questions/L6-13.md) : fin de course sans relevé de trajet -------------------
+
+    def test_completion_without_measurement_records_no_trip_and_arms_no_deviation(self):
+        self.env["ir.config_parameter"].sudo().set_param(
+            "babana.distance_deviation_threshold_km", "2.0"
+        )
+        ride, _client, driver = self._ride_in_progress(reference_distance_km=5.0)
+        # Aucune accumulation temps réel disponible (L3-10 absente ou injoignable) : l'app n'a dit
+        # que « terminée ».
+        self._complete(ride, driver, actual_distance_km=None)
+
+        self.assertEqual(ride.state, "completed")
+        self.assertFalse(ride.trip_measured)
+        self.assertFalse(ride.track_polyline)
+        self.assertEqual(ride.actual_distance_km, 0.0)
+        # L'écart n'est PAS calculé sur une distance parcourue absente -- sinon 0 - 5 km armerait
+        # l'alerte de L4-04 sur chaque course non mesurée (D30, D43).
+        self.assertEqual(ride.distance_deviation_km, 0.0)
+        self.assertFalse(ride.distance_deviation_flagged)
+
+    def test_final_amount_still_computed_without_measurement(self):
+        ride, _client, driver = self._ride_in_progress(
+            reference_distance_km=5.0, estimated_amount=1200
+        )
+        final_amount = self._complete(ride, driver, actual_distance_km=None)
+        # La décision financière existe toujours : le montant se calcule sur la distance de
+        # référence, jamais sur la distance parcourue (L4-04).
+        self.assertEqual(final_amount, 1200)
+        self.assertEqual(ride.final_amount, 1200)
 
     def test_final_amount_matches_estimated_when_no_promotion_mechanism_exists(self):
         # babana.promotion (L2-06) n'existe pas encore (amoa/questions/L2-04.md) : le montant

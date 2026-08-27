@@ -32,12 +32,7 @@ class TestCashRemittanceModel(TransactionCase):
         ride.action_propose(by_partner=client, driver=driver)
         ride.action_accept(by_driver=driver)
         ride.action_start(by_driver=driver)
-        ride.action_complete(
-            by_driver=driver,
-            actual_distance_km=5.0,
-            actual_duration_minutes=15,
-            final_amount=final_amount,
-        )
+        ride.action_complete(by_driver=driver, final_amount=final_amount)
         ride.action_settle(by_driver=driver, amount_collected=final_amount)
         return ride
 

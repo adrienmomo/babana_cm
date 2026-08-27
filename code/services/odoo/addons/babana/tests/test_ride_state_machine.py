@@ -50,12 +50,7 @@ class TestRideStateMachine(TransactionCase):
     def _ride_completed(self):
         ride, client, driver = self._ride_at_assigned()
         ride.action_start(by_driver=driver)
-        ride.action_complete(
-            by_driver=driver,
-            actual_distance_km=5.0,
-            actual_duration_minutes=15,
-            final_amount=1000,
-        )
+        ride.action_complete(by_driver=driver, final_amount=1000)
         return ride, client, driver
 
     # === Critère 1 : chaque transition valide de C-03 passe =================================
@@ -108,12 +103,24 @@ class TestRideStateMachine(TransactionCase):
         ride.action_start(by_driver=driver)
         ride.action_complete(
             by_driver=driver,
-            actual_distance_km=5.2,
-            actual_duration_minutes=18,
             final_amount=1200,
+            measurement={"distance_meters": 5200, "duration_seconds": 1080, "polyline": "abc"},
         )
         self.assertEqual(ride.state, "completed")
         self.assertEqual(ride.final_amount, 1200)
+        self.assertTrue(ride.trip_measured)
+        self.assertAlmostEqual(ride.actual_distance_km, 5.2)
+        self.assertEqual(ride.track_polyline, "abc")
+
+    def test_action_complete_without_measurement_records_no_trip(self):
+        # J24 (amoa/questions/L6-13.md) : l'app ne porte que la décision -- sans relevé, rien
+        # n'est écrit sur actual_* et `trip_measured` reste faux.
+        ride, _client, driver = self._ride_at_assigned()
+        ride.action_start(by_driver=driver)
+        ride.action_complete(by_driver=driver, final_amount=1200)
+        self.assertEqual(ride.state, "completed")
+        self.assertFalse(ride.trip_measured)
+        self.assertFalse(ride.track_polyline)
 
     def test_action_settle(self):
         ride, _client, driver = self._ride_completed()
@@ -447,9 +454,8 @@ class TestRideStateMachine(TransactionCase):
         with patch.object(realtime_client, "notify_ride_completed") as mock_notify:
             ride.action_complete(
                 by_driver=driver,
-                actual_distance_km=5.2,
-                actual_duration_minutes=18,
                 final_amount=1200,
+                measurement={"distance_meters": 5200, "duration_seconds": 1080, "polyline": "abc"},
             )
 
         mock_notify.assert_called_once_with(
@@ -457,6 +463,7 @@ class TestRideStateMachine(TransactionCase):
             ride_public_id=ride.public_id,
             client_user_public_id=client_user.babana_public_id,
             driver_public_id=driver.public_id,
+            measured=True,
             distance_meters=5200,
             duration_seconds=1080,
             amount=1200,
@@ -479,9 +486,7 @@ class TestRideStateMachine(TransactionCase):
         ride.action_start(by_driver=driver)
 
         with patch.object(realtime_client, "notify_ride_completed") as mock_notify:
-            ride.action_complete(
-                by_driver=driver, actual_distance_km=5.0, actual_duration_minutes=15, final_amount=1000,
-            )
+            ride.action_complete(by_driver=driver, final_amount=1000)
 
         mock_notify.assert_not_called()
 

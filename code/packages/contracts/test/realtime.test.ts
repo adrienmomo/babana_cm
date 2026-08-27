@@ -251,6 +251,15 @@ describe('exemples valides — serveur vers client', () => {
     assert.doesNotThrow(() =>
       RideStartedMessageSchema.parse({ type: 'ride.started', id: randomUUID(), emittedAt: now, payload: { rideId } })
     );
+    const completedBreakdown = {
+      baseFare: 200,
+      distanceFare: 900,
+      surgeAmount: 0,
+      discountAmount: 0,
+      floorAmount: 0,
+      roundingAmount: 100,
+      minimumFareApplied: false,
+    };
     assert.doesNotThrow(() =>
       RideCompletedMessageSchema.parse({
         type: 'ride.completed',
@@ -260,17 +269,35 @@ describe('exemples valides — serveur vers client', () => {
           rideId,
           distanceMeters: 4300,
           durationSeconds: 800,
+          measured: true,
           amount: 1200,
-          breakdown: {
-            baseFare: 200,
-            distanceFare: 900,
-            surgeAmount: 0,
-            discountAmount: 0,
-            floorAmount: 0,
-            roundingAmount: 100,
-            minimumFareApplied: false,
-          },
+          breakdown: completedBreakdown,
         },
+      })
+    );
+    // J24 (amoa/questions/L6-13.md) : course terminée sans accumulation temps réel -- distance
+    // et durée à `null`, `measured: false`. Une absence assumée, jamais un chiffre plausible.
+    assert.doesNotThrow(() =>
+      RideCompletedMessageSchema.parse({
+        type: 'ride.completed',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: {
+          rideId,
+          distanceMeters: null,
+          durationSeconds: null,
+          measured: false,
+          amount: 1200,
+          breakdown: completedBreakdown,
+        },
+      })
+    );
+    assert.throws(() =>
+      RideCompletedMessageSchema.parse({
+        type: 'ride.completed',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: { rideId, distanceMeters: 4300, durationSeconds: 800, amount: 1200, breakdown: completedBreakdown },
       })
     );
   });

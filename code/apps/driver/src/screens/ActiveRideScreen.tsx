@@ -8,7 +8,6 @@ import { apiClient } from '../auth';
 import { getCurrentPosition } from '../location';
 import { EmergencyButton } from '../components/EmergencyButton';
 import { launchRideNavigation, type RidePhase } from '../navigation/launch';
-import { buildCompletionBody } from '../ride/completion';
 import { onRealtimeMessage } from '../realtime';
 import { replaceWithSettlement } from '../navigation/transitions';
 import type { DriverParamList } from '../navigation/types';
@@ -27,6 +26,11 @@ import type { DriverParamList } from '../navigation/types';
  *
  * **Pas de bouton d'appel du client** : aucun message du contrat ne porte son numéro (même écart
  * que côté client, `amoa/questions/L6-09.md`). Absent, jamais inerte -- voir `amoa/questions/L6-13.md`.
+ *
+ * **La fin de course ne porte que la décision** (J24, `amoa/questions/L6-13.md`) : « Terminer la
+ * course » envoie `POST /rides/{id}/complete` **avec un corps vide**. Le relevé du trajet
+ * (distance, durée, tracé) vient du service temps réel qui l'a accumulé (L3-10), jamais de l'app
+ * -- le stopgap `ride/completion.ts` (ligne droite départ -> arrivée) a disparu avec cet arbitrage.
  */
 
 type Props = NativeStackScreenProps<DriverParamList, 'ActiveRide'>;
@@ -47,7 +51,7 @@ function isSessionSyncedMessage(m: realtime.ServerToClientMessage): m is realtim
 }
 
 export function ActiveRideScreen({ route, navigation }: Props) {
-  const { rideId, origin, destination, amount, distanceMeters } = route.params;
+  const { rideId, origin, destination, amount } = route.params;
 
   const [phase, setPhase] = useState<RidePhase>('approach');
   const [originLabel, setOriginLabel] = useState<string | null>(null);
@@ -56,18 +60,16 @@ export function ActiveRideScreen({ route, navigation }: Props) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [endedNotice, setEndedNotice] = useState<string | null>(null);
 
-  // Lu de façon synchrone par les gestionnaires de messages -- `phase`/`startedAtMs` (état React)
-  // y seraient périmés (l'effet d'abonnement ne s'exécute qu'une fois, dépendances [rideId]).
+  // Lu de façon synchrone par les gestionnaires de messages -- `phase` (état React) y serait
+  // périmé (l'effet d'abonnement ne s'exécute qu'une fois, dépendances [rideId]).
   const phaseRef = useRef<RidePhase>('approach');
-  const startedAtRef = useRef<number | null>(null);
   // La fin de course peut arriver par deux chemins presque simultanés -- la réponse HTTP à
   // `completeRide`, et le message `ride.completed` (L3-19, poussé aussi au chauffeur). Un seul
   // doit naviguer.
   const resolvedRef = useRef(false);
 
-  const enterTransit = useCallback((at: number) => {
+  const enterTransit = useCallback(() => {
     phaseRef.current = 'transit';
-    startedAtRef.current = at;
     setPhase('transit');
   }, []);
 
@@ -83,7 +85,7 @@ export function ActiveRideScreen({ route, navigation }: Props) {
   useEffect(() => {
     return onRealtimeMessage((message) => {
       if (isRideStartedMessage(message) && message.payload.rideId === rideId) {
-        if (phaseRef.current === 'approach') enterTransit(new Date(message.emittedAt).getTime());
+        if (phaseRef.current === 'approach') enterTransit();
       } else if (isRideCompletedMessage(message) && message.payload.rideId === rideId) {
         if (resolvedRef.current) return;
         resolvedRef.current = true;
@@ -101,9 +103,9 @@ export function ActiveRideScreen({ route, navigation }: Props) {
         phaseRef.current === 'approach'
       ) {
         // Filet : app tuée puis relancée pendant la course -- reprendre en phase trajet plutôt
-        // que de reproposer « Démarrer ». `startedAt` inconnu ici : approché par maintenant, la
-        // durée transmise à `complete` est de toute façon un pis-aller (voir amoa/questions/L6-13.md).
-        enterTransit(Date.now());
+        // que de reproposer « Démarrer ». `startedAt` n'a plus d'incidence sur `complete` (J24 :
+        // la fin de course ne porte que la décision, le relevé vient du service temps réel).
+        enterTransit();
       }
     });
   }, [rideId, amount, navigation, enterTransit]);
@@ -126,7 +128,7 @@ export function ActiveRideScreen({ route, navigation }: Props) {
     setErrorMessage(null);
     try {
       await apiClient.request('startRide', { pathParams: { id: rideId }, body: {} });
-      enterTransit(Date.now());
+      enterTransit();
     } catch (error) {
       setErrorMessage(error instanceof ApiError ? translateApiError(error) : 'Impossible de démarrer la course. Réessayez.');
     } finally {
@@ -139,13 +141,8 @@ export function ActiveRideScreen({ route, navigation }: Props) {
     setBusy('finishing');
     setErrorMessage(null);
     try {
-      const body = buildCompletionBody({
-        referenceDistanceMeters: distanceMeters,
-        startedAtMs: startedAtRef.current ?? Date.now(),
-        origin,
-        destination,
-      });
-      await apiClient.request('completeRide', { pathParams: { id: rideId }, body });
+      // La fin de course ne porte que la décision (J24) : corps vide.
+      await apiClient.request('completeRide', { pathParams: { id: rideId }, body: {} });
       if (resolvedRef.current) return;
       resolvedRef.current = true;
       replaceWithSettlement(navigation, { rideId, amount });

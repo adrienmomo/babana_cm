@@ -115,6 +115,14 @@ class BabanaRide(models.Model):
     actual_distance_km = fields.Float()
     actual_duration_minutes = fields.Float()
     track_polyline = fields.Text(help="Tracé complet, archivé en une seule écriture (L4-04).")
+    trip_measured = fields.Boolean(
+        default=False,
+        help="Vrai si le service temps réel a fourni un relevé de trajet réel (distance, durée, "
+        "tracé accumulés pendant la course, L3-10). Faux : la course s'est terminée sans "
+        "accumulation disponible -- aucune distance parcourue, aucun tracé n'est enregistré, et "
+        "l'écart de distance (L4-04) n'est pas calculé. Une absence explicite plutôt qu'une "
+        "valeur plausible et fausse (D30, D43, J24 -- amoa/questions/L6-13.md).",
+    )
     distance_deviation_km = fields.Float(
         compute="_compute_distance_deviation",
         store=True,
@@ -180,14 +188,20 @@ class BabanaRide(models.Model):
         ("babana_ride_public_id_unique", "unique(public_id)", "Collision d'identifiant public de course -- ne devrait jamais se produire (UUID)."),
     ]
 
-    @api.depends("actual_distance_km", "reference_distance_km")
+    @api.depends("actual_distance_km", "reference_distance_km", "trip_measured")
     def _compute_distance_deviation(self):
         for record in self:
+            # Pas de mesure réelle (L3-10 absente ou injoignable à la fin de course) : aucun écart
+            # n'a de sens -- `actual_distance_km` vaut 0.0 par défaut, un `0 - reference` donnerait
+            # un écart énorme et armerait l'alerte de L4-04 sur *chaque* course non mesurée
+            # (J24, amoa/questions/L6-13.md). L'écart reste à 0 jusqu'à une mesure réelle.
             record.distance_deviation_km = (
-                record.actual_distance_km - record.reference_distance_km
+                (record.actual_distance_km - record.reference_distance_km)
+                if record.trip_measured
+                else 0.0
             )
 
-    @api.depends("distance_deviation_km", "state")
+    @api.depends("distance_deviation_km", "state", "trip_measured")
     def _compute_distance_deviation_flagged(self):
         threshold = float(
             self.env["ir.config_parameter"].sudo().get_param(
@@ -195,8 +209,10 @@ class BabanaRide(models.Model):
             )
         )
         for record in self:
-            flagged = record.state in ("completed", "settled") and (
-                abs(record.distance_deviation_km) > threshold
+            flagged = (
+                record.trip_measured
+                and record.state in ("completed", "settled")
+                and abs(record.distance_deviation_km) > threshold
             )
             record.distance_deviation_flagged = flagged
             if flagged:
