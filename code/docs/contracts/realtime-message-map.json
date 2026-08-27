@@ -73,6 +73,13 @@
       "consumer": "apps/driver/src/screens/ProposalScreen.tsx (L6-12, 24 août) -- distingue une expiration simple d'une acceptation tardive (critère 3), retour automatique à l'accueil (critère 4). apps/driver/src/screens/__tests__/ProposalScreen.test.tsx."
     },
     {
+      "name": "proposal.accepted",
+      "direction": "server-to-client",
+      "status": "wired",
+      "emitter": "réel et testé (D49, 31 août) : services/realtime/src/proposal/lifecycle.ts::accept, émis dès le succès de resolveProposal (avant tout await Odoo), symétrique de ride.assigned au client. services/realtime/test/proposal.test.ts.",
+      "consumer": "apps/driver/src/screens/ProposalScreen.tsx -- seule bascule vers ActiveRide (plus aucun délai de grâce deviné). apps/driver/src/screens/__tests__/ProposalScreen.test.tsx."
+    },
+    {
       "name": "ride.cancelled",
       "direction": "server-to-client",
       "status": "pending",
@@ -142,7 +149,7 @@
       "direction": "server-to-client",
       "status": "pending",
       "emitter": "réel et testé : services/realtime/src/ws/resync.ts, services/realtime/test/resync.test.ts.",
-      "consumer": "partiel depuis L6-11 (24 août) : apps/driver/src/screens/HomeScreen.tsx lit activeRideState pour désactiver la bascule en ligne/hors ligne pendant une course (L3-04, critère 2) -- mais aucun écran, ni côté Client ni côté Chauffeur, n'applique encore activeRideId pour reprendre la navigation après reconnexion (le cas que cette entrée nommait à l'origine).",
+      "consumer": "partiel : apps/driver/src/screens/HomeScreen.tsx lit activeRideState pour désactiver la bascule en ligne/hors ligne pendant une course (L6-11, L3-04 critère 2) ; apps/driver/src/screens/ProposalScreen.tsx s'en sert comme filet quand proposal.accepted (D49) s'est perdu sans coupure de connexion (bascule vers ActiveRide si activeRideId correspond et activeRideState vaut assigned/in_progress). Mais aucun écran n'applique encore activeRideId pour reprendre la navigation après reconnexion dans le cas général (le cas que cette entrée nommait à l'origine).",
       "reason": "Reprise de navigation après reconnexion toujours non câblée -- candidat naturel : L6-16 (mode dégradé réseau, apps/client), non commencée. Voir amoa/questions/C-02R.md."
     }
   ]

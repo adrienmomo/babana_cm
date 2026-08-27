@@ -15,6 +15,7 @@ import {
 import {
   ProposalNewMessageSchema,
   ProposalExpiredMessageSchema,
+  ProposalAcceptedMessageSchema,
   RideCancelledMessageSchema,
   NearbyDriversMessageSchema,
   NearbySubscribeAckMessageSchema,
@@ -130,6 +131,9 @@ describe('exemples valides — serveur vers chauffeur', () => {
     );
     assert.doesNotThrow(() =>
       ProposalExpiredMessageSchema.parse({ type: 'proposal.expired', id: randomUUID(), emittedAt: now, payload: { rideId } })
+    );
+    assert.doesNotThrow(() =>
+      ProposalAcceptedMessageSchema.parse({ type: 'proposal.accepted', id: randomUUID(), emittedAt: now, payload: { rideId } })
     );
     assert.doesNotThrow(() =>
       RideCancelledMessageSchema.parse({
