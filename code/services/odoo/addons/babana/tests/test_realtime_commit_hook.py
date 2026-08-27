@@ -344,6 +344,37 @@ class TestRealtimeCommitHook(HttpCase):
             },
         )
 
+    # --- fetch_ride_measurement (L3-10) ---------------------------------------------------------
+    #
+    # Lecture PURE, appelée par _complete_ride AVANT la transition in_progress -> completed --
+    # pas un point d'accroche au commit (elle ne modifie aucune clé Redis, donc D25/D32 ne
+    # s'y appliquent pas), même exception assumée que reserve_and_propose.
+
+    def test_fetch_ride_measurement_returns_the_parsed_measurement_when_one_is_available(self):
+        with patch.object(
+            realtime_client,
+            "_post",
+            return_value={"measured": True, "distanceMeters": 4200, "durationSeconds": 615, "polyline": "abc"},
+        ) as mock_post:
+            result = realtime_client.fetch_ride_measurement(driver_public_id="driver-1")
+        mock_post.assert_called_once_with("/internal/rides/measurement", {"driverId": "driver-1"})
+        self.assertEqual(result, {"distance_meters": 4200, "duration_seconds": 615, "polyline": "abc"})
+
+    def test_fetch_ride_measurement_returns_none_when_nothing_was_measured(self):
+        with patch.object(
+            realtime_client,
+            "_post",
+            return_value={"measured": False, "distanceMeters": None, "durationSeconds": None, "polyline": None},
+        ):
+            self.assertIsNone(realtime_client.fetch_ride_measurement(driver_public_id="driver-1"))
+
+    def test_fetch_ride_measurement_returns_none_when_the_realtime_service_is_unreachable(self):
+        with patch.object(
+            realtime_client, "_post", side_effect=realtime_client.RealtimeUnavailable("boom")
+        ):
+            # La fin de course ne doit jamais échouer parce que le service temps réel est tombé.
+            self.assertIsNone(realtime_client.fetch_ride_measurement(driver_public_id="driver-1"))
+
     # --- notify_ride_cancelled (L4-12) -------------------------------------------------------
     #
     # Même raisonnement que notify_ride_started/notify_ride_completed ci-dessus : ne touche

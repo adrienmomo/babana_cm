@@ -252,12 +252,13 @@ class RideController(http.Controller):
         # vide, l'app dit « terminée » et rien d'autre. Aucune lecture de body ici.
         #
         # `measurement` = le relevé de trajet accumulé par le service temps réel pendant la course
-        # (L3-10). `None` pour l'instant : L3-10 (tâche suivante) branchera ici la lecture
-        # synchrone de l'accumulation -- une lecture, jamais une écriture Redis, donc sans risque
-        # D25/D32 (une transaction rejouée ou annulée n'aura rien modifié côté temps réel), même
-        # exception assumée que `reserve_and_propose`. Tant que rien n'est mesuré, `trip_measured`
-        # reste faux et l'écart de distance de L4-04 n'est pas armé (D30, D43).
-        measurement = None
+        # (L3-10), lu ICI, avant la transition -- une lecture, jamais une écriture Redis, donc
+        # sans risque D25/D32 (une transaction rejouée ou annulée n'aura rien modifié côté temps
+        # réel), même exception assumée que `reserve_and_propose`. `None` si le service est
+        # injoignable ou si aucune accumulation n'était active : la course se termine alors sans
+        # distance ni tracé (trip_measured faux), et l'écart de distance de L4-04 n'est pas armé
+        # (D30, D43).
+        measurement = realtime_client.fetch_ride_measurement(driver_public_id=driver.public_id)
 
         # Le montant final se calcule sur la distance de référence (gelée à la création, L2-04),
         # jamais sur la distance parcourue -- voir babana.ride._babana_compute_final_amount.

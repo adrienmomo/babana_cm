@@ -22,6 +22,7 @@ import { isReserved } from '../src/reservation/reserve';
 import { isEngaged, setEngaged, clearEngaged } from '../src/driver/engagement';
 import { storePosition } from '../src/redis/positions';
 import { recordLastSent } from '../src/nearby/last-sent';
+import { accumulatePosition, accumulationKey } from '../src/tracking/accumulator';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const RUN_ID = randomUUID().slice(0, 8);
@@ -64,6 +65,7 @@ after(async () => {
       redis.del(`babana:driver:proposal:rideId:${driverId}`),
       redis.del(`babana:driver:proposal:record:${driverId}`),
       redis.del(`babana:driver:position:${driverId}`),
+      redis.del(accumulationKey(driverId)),
     ])
   );
   redis.disconnect();
@@ -296,6 +298,56 @@ describe('POST /internal/engagement/clear (fin de course, critère 6)', () => {
     assert.equal(body.cleared, true);
     assert.equal(await isEngaged(redis, driverId), false);
     assert.equal(await isInPool(redis, driverId), true, 'redevient disponible immédiatement, sans attendre la position suivante');
+  });
+});
+
+describe('POST /internal/rides/started + /internal/rides/measurement (accumulation, L3-10)', () => {
+  test('started démarre l\'accumulation ; measurement la renvoie ; clear l\'efface', async () => {
+    const driverId = randomUUID();
+    usedDriverIds.add(driverId);
+
+    // Avant ride.start : aucune accumulation.
+    const before = await post('/internal/rides/measurement', { driverId });
+    assert.equal(before.status, 200);
+    assert.equal(before.body.measured, false);
+    assert.equal(before.body.distanceMeters, null);
+
+    // ride.start (au commit de action_start côté Odoo, D32) démarre l'accumulation.
+    const started = await post('/internal/rides/started', {
+      rideId: randomUUID(),
+      clientUserId: randomUUID(),
+      driverId,
+    });
+    assert.equal(started.status, 200);
+
+    const empty = await post('/internal/rides/measurement', { driverId });
+    assert.equal(empty.body.measured, true);
+    assert.equal(empty.body.distanceMeters, 0);
+    assert.equal(typeof empty.body.polyline, 'string');
+
+    // Quelques positions accumulées (comme le ferait ingest.ts à chaque position acceptée).
+    const config = configWith();
+    const accumConfig = {
+      minSegmentMeters: config.ACCUMULATION_MIN_SEGMENT_METERS,
+      simplifyToleranceMeters: config.ACCUMULATION_SIMPLIFY_TOLERANCE_METERS,
+      maxTrackPoints: config.ACCUMULATION_MAX_TRACK_POINTS,
+      ttlSeconds: config.ACCUMULATION_TTL_SECONDS,
+    };
+    for (let i = 0; i <= 5; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await accumulatePosition(redis, driverId, { latitude: 4.05, longitude: 9.7 + i * 0.001 }, accumConfig);
+    }
+
+    const measured = await post('/internal/rides/measurement', { driverId });
+    assert.equal(measured.body.measured, true);
+    assert.ok((measured.body.distanceMeters as number) > 400, `distance accumulée attendue, obtenu ${measured.body.distanceMeters}`);
+    assert.ok((measured.body.polyline as string).length > 0);
+
+    // Fin de course (ou annulation) : l'accumulation disparaît.
+    const cleared = await post('/internal/engagement/clear', { driverId });
+    assert.equal(cleared.status, 200);
+    const after = await post('/internal/rides/measurement', { driverId });
+    assert.equal(after.body.measured, false);
   });
 });
 

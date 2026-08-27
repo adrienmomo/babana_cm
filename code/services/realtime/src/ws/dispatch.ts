@@ -3,7 +3,7 @@ import type { WebSocket } from 'ws';
 import { realtime } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ConnectionContext } from './auth';
-import { ingestPosition, plausibilityConfigFrom } from '../tracking/ingest';
+import { ingestPosition, plausibilityConfigFrom, accumulationConfigFrom } from '../tracking/ingest';
 import { setOnline, setOffline } from '../driver/availability';
 import { isCashBlocked } from '../driver/cash-guard';
 import type { NearbyManager } from '../nearby/handler';
@@ -37,6 +37,7 @@ export function createMessageDispatcher(
   tracking: TrackingManager
 ): MessageDispatcher {
   const plausibility = plausibilityConfigFrom(config);
+  const accumulation = accumulationConfigFrom(config);
 
   return async function dispatch(context, socket, raw) {
     let parsed: unknown;
@@ -52,7 +53,7 @@ export function createMessageDispatcher(
 
     switch (message.type) {
       case 'position.update':
-        await ingestPosition(redis, context, message, plausibility, config.POSITION_TTL_SECONDS);
+        await ingestPosition(redis, context, message, plausibility, config.POSITION_TTL_SECONDS, Date.now(), accumulation);
         return;
       case 'availability.set':
         // L'identité vient du contexte de connexion (invariant L3-01) : un client ne peut jamais
