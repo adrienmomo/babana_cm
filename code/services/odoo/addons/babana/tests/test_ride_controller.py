@@ -15,12 +15,14 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from unittest.mock import patch
 
 import requests
 
 from odoo.tests.common import HttpCase, tagged
 
 from ._realtime_ws import bring_driver_online, make_driver_visible_to_client
+from ..services import realtime_client
 
 
 def _mock_google_base_url() -> str:
@@ -528,6 +530,37 @@ class TestRideController(HttpCase):
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["error"]["code"], "DRIVER_NOT_IN_PROPOSAL")
+
+    def test_complete_records_the_realtime_measurement_when_one_is_available(self):
+        # L3-10 : quand le service temps réel a accumulé un trajet, _complete_ride le lit AVANT la
+        # transition (une lecture, jamais une écriture Redis -- sans risque D25/D32) et Odoo
+        # l'enregistre. Ici on simule l'accumulation par un patch de fetch_ride_measurement ;
+        # la vraie accumulation contre Redis est prouvée côté service (accumulator.test.ts).
+        client_token, _ = self._sign_in("sub-complete-measured", "client")
+        driver_token, driver = self._make_selectable_driver("sub-complete-measured-drv", client_token)
+        quote_id = self._make_quote(client_token)
+        ride_id = self._post("/api/v1/rides", client_token, {"quoteId": quote_id}).json()["id"]
+        self._post(
+            f"/api/v1/rides/{ride_id}/select-driver", client_token, {"driverId": driver.public_id}
+        )
+        self._accept_via_internal_channel(ride_id, driver.public_id)
+        self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
+
+        measurement = {"distance_meters": 4200, "duration_seconds": 615, "polyline": "abc123def"}
+        with patch.object(realtime_client, "fetch_ride_measurement", return_value=measurement):
+            response = self._post(f"/api/v1/rides/{ride_id}/complete", driver_token, {})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertTrue(body["measured"])
+        self.assertEqual(body["distanceMeters"], 4200)
+        self.assertEqual(body["durationSeconds"], 615)
+
+        ride = self.env["babana.ride"].sudo().search([("public_id", "=", ride_id)])
+        self.assertTrue(ride.trip_measured)
+        self.assertAlmostEqual(ride.actual_distance_km, 4.2)
+        self.assertAlmostEqual(ride.actual_duration_minutes, 615 / 60.0)
+        self.assertEqual(ride.track_polyline, "abc123def")
 
     def test_complete_ignores_any_body_it_receives(self):
         # J24 : la fin de course ne porte que la décision. Un corps -- même l'ancien

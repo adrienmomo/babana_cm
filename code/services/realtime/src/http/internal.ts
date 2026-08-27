@@ -12,6 +12,7 @@ import { endRideSessionForDriver } from '../tracking/session';
 import { reintegrateIfEligible } from '../redis/pool-eligibility';
 import { blockForCash, unblockForCash } from '../driver/cash-guard';
 import { broadcastRideStarted, broadcastRideCompleted, broadcastRideCancelled } from '../tracking/broadcast';
+import { startAccumulation, getAccumulation, endAccumulation } from '../tracking/accumulator';
 
 /**
  * Endpoint HTTP interne, sens Odoo -> temps réel (L3-17). Authentifié par `REALTIME_SHARED_SECRET`
@@ -35,8 +36,12 @@ import { broadcastRideStarted, broadcastRideCompleted, broadcastRideCancelled } 
  *   jamais en ligne lui-même -- symétrique de `cash-blocked`, jamais un ajout inconditionnel.
  * - `POST /internal/rides/started` / `/internal/rides/completed` (L3-19) : pousse
  *   `ride.started`/`ride.completed` (C-02) au client suivi ET au chauffeur -- déclenché au
- *   COMMIT (D32) par `action_start`/`action_complete`. Ne touche aucun état Redis : notifie,
- *   ne transitionne rien (D31).
+ *   COMMIT (D32) par `action_start`/`action_complete`. `started` démarre en plus l'accumulation
+ *   distance/durée/tracé (L3-10).
+ * - `POST /internal/rides/measurement` (L3-10) : renvoie le relevé de trajet accumulé pour un
+ *   chauffeur -- LU par Odoo AVANT la transition `in_progress -> completed` (une lecture, jamais
+ *   une écriture Redis : sans risque D25/D32, même exception assumée que `reserve_and_propose`).
+ *   `{ measured: false }` si aucune accumulation n'est active.
  * - `POST /internal/rides/cancelled` (L4-12) : pousse `ride.cancelled` (C-02) aux destinataires
  *   qu'Odoo désigne (`notifyClientUserId`/`notifyDriverId`, chacun optionnel -- le destinataire
  *   dépend de l'acteur, jamais celui qui vient de décider). Déclenché au COMMIT (D32) par
@@ -86,6 +91,8 @@ const RideStartedRequestSchema = z.object({
   clientUserId: z.string().min(1),
   driverId: z.string().min(1),
 });
+
+const RideMeasurementRequestSchema = z.object({ driverId: z.string().min(1) });
 
 const RideCompletedRequestSchema = z.object({
   rideId: z.string().min(1),
@@ -187,6 +194,10 @@ async function handleClearEngagement(deps: InternalRouterDeps, rawBody: unknown,
   // l'effacement de l'engagement, appelé pour la même raison (fin de course OU annulation,
   // notify_cancellation_async côté Odoo appelle aussi ce point).
   await endRideSessionForDriver(deps.redis, driverId);
+  // L3-10 : l'accumulation a déjà été lue par Odoo (POST /internal/rides/measurement, avant la
+  // transition) -- ici elle n'a plus de raison d'être. Même signal pour fin de course ET
+  // annulation : dans les deux cas le trajet est clos.
+  await endAccumulation(deps.redis, driverId);
   await reintegrateIfEligible(deps.redis, driverId);
   sendJson(res, 200, { cleared: true });
 }
@@ -220,7 +231,25 @@ async function handleRideStarted(deps: InternalRouterDeps, rawBody: unknown, res
     return;
   }
   broadcastRideStarted(deps.registry, parsed.data);
+  // L3-10 : « Depuis ride.start, accumuler dans Redis » -- l'accumulation distance/durée/tracé
+  // commence ici, au commit de action_start (D32). Restart-safe : tout l'état vit dans Redis.
+  await startAccumulation(deps.redis, parsed.data.driverId, deps.config.ACCUMULATION_TTL_SECONDS);
   sendJson(res, 200, { notified: true });
+}
+
+async function handleRideMeasurement(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
+  const parsed = RideMeasurementRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    sendJson(res, 400, { error: 'VALIDATION_ERROR', details: parsed.error.issues });
+    return;
+  }
+  const measurement = await getAccumulation(deps.redis, parsed.data.driverId);
+  sendJson(res, 200, {
+    measured: measurement !== null,
+    distanceMeters: measurement?.distanceMeters ?? null,
+    durationSeconds: measurement?.durationSeconds ?? null,
+    polyline: measurement?.polyline ?? null,
+  });
 }
 
 async function handleRideCompleted(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
@@ -281,6 +310,9 @@ export function createInternalHandler(deps: InternalRouterDeps) {
         return;
       case '/internal/rides/started':
         await handleRideStarted(deps, body, res);
+        return;
+      case '/internal/rides/measurement':
+        await handleRideMeasurement(deps, body, res);
         return;
       case '/internal/rides/completed':
         await handleRideCompleted(deps, body, res);

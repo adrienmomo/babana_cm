@@ -133,6 +133,24 @@ const ConfigSchema = z.object({
    * forfait de données compté n'a pas besoin d'une fraîcheur supérieure à celle du client lui-même. */
   SHARE_POLL_INTERVAL_SECONDS: z.coerce.number().positive().default(10),
 
+  /** Accumulation distance / durée / tracé d'une course (L3-10). PROVISOIRE au sens de D21, même
+   * écart que les valeurs de L3-02/L3-03/L3-04 (amoa/questions/L3-02.md) : devraient vivre en base
+   * (L3-15), qui n'existe pas encore. Valeurs plausibles, pas arbitraires. */
+  /** En dessous, un déplacement depuis le dernier point retenu est du bruit GPS à l'arrêt : ni
+   * accumulé, ni avancé (critère 1 -- une moto à l'arrêt n'accumule pas de distance). */
+  ACCUMULATION_MIN_SEGMENT_METERS: z.coerce.number().positive().default(5),
+  /** Tolérance de colinéarité de la simplification du tracé au fil de l'eau (critère 3 --
+   * « conserve la forme ») : un sommet dont la distance perpendiculaire est en dessous est un
+   * point de ligne droite redondant, remplacé plutôt qu'empilé. */
+  ACCUMULATION_SIMPLIFY_TOLERANCE_METERS: z.coerce.number().positive().default(8),
+  /** Plafond dur du nombre de sommets du tracé -- au-delà, la queue se grossit plutôt que
+   * d'empiler des milliers de points (L3-10 : « éviter de stocker des milliers de points »). */
+  ACCUMULATION_MAX_TRACK_POINTS: z.coerce.number().int().positive().default(500),
+  /** Filet de sécurité : une accumulation sans nouvelle position depuis ce délai expire -- une
+   * course orpheline (notification de fin perdue, service tué avant `clear_engagement`) ne fuit
+   * pas indéfiniment. Volontairement plus long que n'importe quelle course plausible. */
+  ACCUMULATION_TTL_SECONDS: z.coerce.number().int().positive().default(21_600),
+
   /** Cadence du battement de cœur WebSocket (L3-20, ws/liveness.ts) -- détecte une connexion à
    * moitié fermée (le cas courant sur un réseau mobile), symétrique de la surveillance par
    * abonnement côté application. Une connexion qui n'a pas répondu à un ping avant le battement

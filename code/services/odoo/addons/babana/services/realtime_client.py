@@ -5,10 +5,12 @@
 #
 # D32 (amoa/questions/REPONSES-2026-08-18.md §4) : tout appel d'ici déclenché APRÈS une transition
 # Odoo (clear_engagement, notify_cancellation_async, notify_cash_limit_reached) part au commit de
-# la transaction appelante, jamais pendant -- voir leurs docstrings. Seul reserve_and_propose fait
-# exception, et le reste : il PRÉCÈDE délibérément la transition, puisque c'est son résultat qui
-# l'autorise (controllers/ride.py::_select_driver) ; c'est pour cela que son idempotence (D25) a
-# été construite.
+# la transaction appelante, jamais pendant -- voir leurs docstrings. Deux fonctions font exception :
+# `reserve_and_propose` PRÉCÈDE délibérément la transition, puisque c'est son résultat qui
+# l'autorise (et c'est pour cela que son idempotence D25 a été construite) ; `fetch_ride_measurement`
+# (L3-10) est une **lecture pure** appelée avant `in_progress -> completed` -- elle ne modifie
+# aucune clé Redis, donc une transaction rejouée ou annulée (D25) n'a rien laissé derrière elle, et
+# D32 ne s'y applique pas. Ni l'une ni l'autre n'attend un commit.
 #
 # Sens temps réel -> Odoo (acceptation, refus, expiration) : PAS ici. Ce module ne porte que les
 # appels dont Odoo est l'INITIATEUR -- voir controllers/internal.py pour l'autre sens, reçu plutôt
@@ -86,6 +88,38 @@ def reserve_and_propose(*, ride, driver, client_user, idempotency_key: str | Non
             "distanceMeters": round((ride.reference_distance_km or 0.0) * 1000),
         },
     )
+
+
+def fetch_ride_measurement(*, driver_public_id: str) -> dict | None:
+    """Relevé de trajet accumulé par le service temps réel pendant la course (L3-10) -- lu par
+    `controllers/ride.py::_complete_ride` AVANT la transition `in_progress -> completed`.
+
+    C'est ce que L4-04 dit depuis toujours : « le service temps réel fournit distance parcourue,
+    durée écoulée et tracé ». La lecture précède la transition parce que ses valeurs l'alimentent
+    (`action_complete(..., measurement=...)`), exactement comme `reserve_and_propose` précède
+    `action_propose`. Une lecture, jamais une écriture Redis : sans risque D25/D32.
+
+    Renvoie `{"distance_meters": int, "duration_seconds": int, "polyline": str}` si une
+    accumulation était active, sinon `None` -- service injoignable OU aucune accumulation
+    (`measured: false`). Dans les deux cas la fin de course reste possible : Odoo enregistre alors
+    « aucun tracé », explicitement (`trip_measured` faux), plutôt qu'une valeur plausible et fausse
+    (D30, D43, J24 -- amoa/questions/L6-13.md)."""
+    try:
+        body = _post("/internal/rides/measurement", {"driverId": driver_public_id})
+    except RealtimeUnavailable:
+        _logger.warning(
+            "relevé de trajet injoignable pour le chauffeur %s -- la course se termine sans "
+            "distance ni tracé enregistrés (L3-10).",
+            driver_public_id,
+        )
+        return None
+    if not body.get("measured"):
+        return None
+    return {
+        "distance_meters": int(body["distanceMeters"]),
+        "duration_seconds": int(body["durationSeconds"]),
+        "polyline": body.get("polyline") or "",
+    }
 
 
 def release_reservation(*, driver_public_id: str) -> None:

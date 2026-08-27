@@ -5,6 +5,7 @@ import type { ConnectionContext } from '../ws/auth';
 import { getPosition, storePosition } from '../redis/positions';
 import { addEligibleToPool } from '../redis/pool-eligibility';
 import { checkPlausibility, type PlausibilityConfig, type PlausibilityFailureReason } from './validation';
+import { accumulatePosition, type AccumulationConfig } from './accumulator';
 
 /**
  * Ingestion d'une position chauffeur (L3-02) : `position.update` (C-02) n'est traité que pour
@@ -59,6 +60,15 @@ class IngestMetrics {
 
 export const ingestMetrics = new IngestMetrics();
 
+export function accumulationConfigFrom(config: Config): AccumulationConfig {
+  return {
+    minSegmentMeters: config.ACCUMULATION_MIN_SEGMENT_METERS,
+    simplifyToleranceMeters: config.ACCUMULATION_SIMPLIFY_TOLERANCE_METERS,
+    maxTrackPoints: config.ACCUMULATION_MAX_TRACK_POINTS,
+    ttlSeconds: config.ACCUMULATION_TTL_SECONDS,
+  };
+}
+
 export function plausibilityConfigFrom(config: Config): PlausibilityConfig {
   return {
     bounds: {
@@ -80,7 +90,11 @@ export async function ingestPosition(
   message: realtime.PositionUpdateMessage,
   plausibility: PlausibilityConfig,
   ttlSeconds: number,
-  nowMs: number = Date.now()
+  nowMs: number = Date.now(),
+  // L3-10 : optionnel -- seul `ws/dispatch.ts` le fournit en production. Absent, l'accumulation
+  // n'est simplement pas alimentée (les tests d'ingestion qui ne s'y intéressent pas le laissent
+  // vide).
+  accumulation?: AccumulationConfig
 ): Promise<IngestOutcome> {
   if (context.role !== 'driver' || !context.driverId) {
     // Un client n'émet jamais position.update (émetteur unique, C-02) -- défensif : rejeté sans
@@ -141,6 +155,20 @@ export async function ingestPosition(
   // revient donc jamais dans le pool, quelle que soit la fréquence de ses positions (L3-06R,
   // critères 3 bis et 3 ter).
   await addEligibleToPool(redis, context.driverId, sample.latitude, sample.longitude);
+
+  // L3-10 : accumule distance / durée / tracé si une course est en cours pour ce chauffeur
+  // (l'accumulation elle-même vérifie qu'elle est active -- rien ici ne le sait). N'alimente
+  // l'accumulation qu'avec des positions DÉJÀ acceptées : une position rejetée n'arrive jamais
+  // ici (critère 2). Filet : une panne d'accumulation ne doit jamais faire tomber une position
+  // ni fermer la connexion (même politique que le reste du service).
+  if (accumulation) {
+    try {
+      await accumulatePosition(redis, context.driverId, { latitude: sample.latitude, longitude: sample.longitude }, accumulation);
+    } catch {
+      // L'accumulation sert au contrôle et à la calibration, jamais au tarif -- un tick manqué
+      // n'est pas un incident.
+    }
+  }
 
   ingestMetrics.recordAccepted();
   return { accepted: true };

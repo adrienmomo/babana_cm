@@ -115,3 +115,95 @@ devine, il manque un champ.
 bannière, pas la marge. Un chauffeur qui voudrait savoir de *combien* il a dépassé ne l'apprend
 pas ici (il le verrait à la remise). C'est un choix : « marge restante » négative se lit mal. À
 revoir si le terrain montre que le chiffre exact du dépassement manque.
+
+---
+
+## L3-10 — accumulation distance / durée / tracé dans Redis
+
+### L'invariant 1, tenu là où on serait tenté de le perdre
+
+**Rien de ce qui est accumulé ici n'écrit dans Odoo.** Distance, durée et tracé vivent dans un
+seul HASH Redis (`babana:ride:accumulation:<driverId>`) pendant la course, et ne rejoignent Odoo
+qu'à la fin de course — une écriture, à une décision humaine (le chauffeur qui appuie sur
+« Terminer »). Aucune écriture ne dépend du temps écoulé ni de la distance parcourue.
+
+### Le mécanisme
+
+- **`startAccumulation`** — appelé par `POST /internal/rides/started` (au commit de `action_start`,
+  D32). Depuis `ride.start`, pas depuis l'acceptation.
+- **`accumulatePosition`** — appelé par `tracking/ingest.ts` après **chaque position déjà
+  acceptée** par la plausibilité (L3-02) : une position rejetée n'y arrive jamais (critère 2).
+  - **Distance** : somme des segments, avec un filtre par **distance radiale** — un déplacement
+    sous `ACCUMULATION_MIN_SEGMENT_METERS` (5 m) depuis le dernier point retenu n'accumule pas et
+    n'avance pas ce point. Le bruit GPS à l'arrêt tourne autour du même point sans jamais s'en
+    éloigner assez → distance 0 (critère 1) ; une moto qui rampe dans les embouteillages finit
+    par franchir le seuil et accumule alors le saut entier.
+  - **Tracé** : simplification au fil de l'eau, fenêtre glissante de trois points. Un sommet
+    quasi colinéaire avec ses voisins est remplacé, pas empilé — une ligne droite se réduit à ses
+    extrémités, une forme en L garde son coin (critère 3). Plafond dur à
+    `ACCUMULATION_MAX_TRACK_POINTS` (500).
+  - **Durée** : temps d'horloge depuis `ride.start` (une coupure réseau ne raccourcit pas la
+    course), calculée à la lecture.
+- **`GET`-sémantique `POST /internal/rides/measurement`** — lu par Odoo (`_complete_ride`)
+  **avant** la transition `in_progress → completed`. `realtime_client.fetch_ride_measurement` :
+  une **lecture pure**, ne modifie aucune clé Redis, donc sans risque D25/D32 — même exception
+  assumée et documentée que `reserve_and_propose`. Service injoignable ou aucune accumulation →
+  `None` → la course se termine quand même, `trip_measured` faux (le correctif de contrat 1).
+- **`endAccumulation`** — appelé par `POST /internal/engagement/clear` (fin de course **ou**
+  annulation). Un TTL de sécurité (`ACCUMULATION_TTL_SECONDS`, 6 h, rafraîchi à chaque position)
+  fait expirer une accumulation orpheline.
+
+### Restart-safe (L3-14)
+
+Tout l'état vit dans Redis, **aucun état en mémoire du processus**. Le service temps réel peut
+tomber en pleine course : au redémarrage, les positions reprennent, `accumulatePosition` relit le
+HASH et continue là où il en était. Prouvé par `accumulator.test.ts` (« une coupure suivie d'une
+reprise ne perd pas l'accumulation »). Un seul écrivain par nature — les positions d'un chauffeur
+arrivent sur une seule connexion, traitées séquentiellement — donc pas de script Lua : ce module
+n'est pas dans la liste des modules à couverture exhaustive.
+
+### Valeurs de configuration
+
+`ACCUMULATION_MIN_SEGMENT_METERS`, `_SIMPLIFY_TOLERANCE_METERS`, `_MAX_TRACK_POINTS`, `_TTL_SECONDS`
+dans `config.ts` — PROVISOIRE au sens de D21, même écart déjà assumé que les seuils de
+L3-02/L3-03/L3-04 (`amoa/questions/L3-02.md`) : devraient vivre en base (L3-15), qui n'existe pas.
+Valeurs plausibles, pas arbitraires.
+
+### Tests
+
+- `services/realtime/test/accumulator.test.ts` (contre Redis réel) : les 4 critères numérotés
+  (arrêt → distance 0 ; position rejetée jamais accumulée ; ligne droite → 2 sommets, L → 3
+  sommets ; coupure/reprise), plus distance par sommation, durée d'horloge, `endAccumulation`,
+  aller-retour d'encodage polyline sur l'exemple canonique Google.
+- `services/realtime/test/internal.test.ts` : `started` démarre l'accumulation, `measurement` la
+  renvoie, `clear` l'efface ; `measurement` d'un chauffeur inconnu → `measured: false`.
+- Odoo : `test_ride_controller.py` (`_complete_ride` enregistre le relevé quand il y en a un →
+  `trip_measured`, `actual_distance_km`, `track_polyline`) ; `test_realtime_commit_hook.py`
+  (`fetch_ride_measurement` parse le relevé ; `None` si `measured` faux ; `None` si le service est
+  injoignable — la fin de course ne doit jamais échouer pour ça).
+
+### La fin de course honnête, bout en bout
+
+Avec L3-10 branché, `_complete_ride` lit l'accumulation réelle. Une course dont le chauffeur a
+émis des positions pendant le trajet enregistre **la distance et le tracé parcourus**. Une course
+sans accumulation (service tombé au démarrage, app qui n'émet pas encore de position — L6-05
+n'existe pas encore) enregistre **rien, explicitement** (`trip_measured` faux). C'est ce que la
+nuit devait produire : « une course dont le trajet enregistré est celui qui a été parcouru — ou
+rien, explicitement ».
+
+### Doute pour quelqu'un de réel
+
+**L6-05 n'existe pas encore** : l'app Chauffeur n'émet aujourd'hui **aucune** `position.update`.
+Donc en pratique, jusqu'à L6-05, l'accumulation démarre à `ride.start` mais ne reçoit jamais de
+position → toute course réelle se termine avec `distanceMeters = 0` et un tracé vide, `measured:
+true` mais vide. Ce n'est pas faux (0 m réellement mesurés, honnêtement), mais c'est trompeur : un
+résumé « 0 m » a l'aplomb d'un fait. **Faut-il, tant que L6-05 n'émet rien, renvoyer `measured:
+false` quand le tracé est vide ?** Je ne l'ai pas fait — une accumulation active *est* une mesure,
+même à zéro, et L6-05 est la tâche d'après. Mais c'est un cas à surveiller à la vérification
+navigateur (côté chauffeur, pas de build web → l'app Chauffeur n'émet pas depuis le banc non
+plus).
+
+La simplification du tracé est réglée sur des seuils plausibles jamais mesurés sur de vraies
+traces GPS de Douala (bruit, tunnels urbains, multipath). `SIMPLIFY_TOLERANCE_METERS = 8` peut se
+révéler trop agressif (coins arrondis) ou trop lâche (tracé lourd) — c'est de la calibration de
+pilote, comme l'ETA (L10-03).
