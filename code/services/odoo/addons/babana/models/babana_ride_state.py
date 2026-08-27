@@ -385,7 +385,13 @@ class BabanaRideState(models.Model):
         transition elle-même, l'incrément du compte courant (L5-01), le contrôle de plafond
         (L5-02). **La génération de facture (L4-06) n'est pas ici** -- hors du lot qui a construit
         cette méthode, voir amoa/questions/L4-05.md ; `invoice_id` reste vide jusqu'à cette tâche,
-        le champ existe déjà (babana_ride.py) précisément pour l'accueillir sans migration."""
+        le champ existe déjà (babana_ride.py) précisément pour l'accueillir sans migration.
+
+        **Renvoie un dict `{"ride": self, "cash_limit_crossed": bool}`** plutôt que `self` seul
+        (J24, amoa/questions/L6-14.md) : franchir le plafond n'est pas une erreur, la transition
+        réussit, mais la réponse d'encaissement doit le dire pour que l'app n'ait pas à l'inférer
+        en comparant le solde à un plafond qu'elle irait chercher ailleurs. `cash_limit_crossed`
+        est la valeur réelle calculée par `_babana_apply_cash_limit`, jamais une reconstitution."""
         self.ensure_one()
         self._lock_for_update()
 
@@ -442,7 +448,7 @@ class BabanaRideState(models.Model):
             realtime_client.notify_cash_limit_reached(self.env, driver_public_id=by_driver.public_id)
 
         self._babana_journalize("settlement")
-        return self
+        return {"ride": self, "cash_limit_crossed": cash_limit_crossed}
 
     # --- 9-13. * -> cancelled -------------------------------------------------------------------
 

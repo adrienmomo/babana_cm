@@ -309,14 +309,22 @@ class RideController(http.Controller):
         # qui ne correspond pas au dû lève SETTLEMENT_AMOUNT_MISMATCH, traduite ci-dessous
         # (_map_user_error ne la connaît pas : c'est un message littéral, pas une UserError
         # générique -- même patron que DRIVER_ALREADY_TAKEN).
-        ride.sudo().action_settle(by_driver=driver, amount_collected=amount_collected)
+        result = ride.sudo().action_settle(by_driver=driver, amount_collected=amount_collected)
 
         driver.invalidate_recordset()
+        # J24 (amoa/questions/L6-14.md) : la réponse dit ce qui s'est passé -- l'écran n'infère
+        # plus. `cash_limit_crossed` est la valeur réelle calculée par action_settle, pas une
+        # comparaison refaite ici. `cash_limit` et la marge évitent un second GET /drivers/me/cash.
+        cash_balance = round(driver.cash_balance)
+        cash_limit = round(driver.cash_limit)
         return {
             "rideId": ride.public_id,
             "state": "settled",
             "amountCollected": amount_collected,
-            "driverCashBalance": driver.cash_balance,
+            "driverCashBalance": cash_balance,
+            "cashLimit": cash_limit,
+            "cashLimitReached": result["cash_limit_crossed"],
+            "marginRemaining": max(0, cash_limit - cash_balance),
         }, 200
 
     def _find_ride_and_assigned_driver(self, env, user, ride_id):

@@ -97,8 +97,12 @@ class TestSettlement(TransactionCase):
         motorcycle.write({"driver_id": driver.id})
         driver.write({"is_online": True})
 
-        ride.action_settle(by_driver=driver, amount_collected=1200)
+        result = ride.action_settle(by_driver=driver, amount_collected=1200)
 
+        # J24 (amoa/questions/L6-14.md) : action_settle renvoie le franchissement réel, pas
+        # seulement `self` -- la réponse d'encaissement le porte pour que l'app n'infère rien.
+        self.assertTrue(result["cash_limit_crossed"])
+        self.assertEqual(result["ride"], ride)
         driver.invalidate_recordset()
         self.assertEqual(driver.cash_balance, 1200)
         self.assertFalse(
@@ -112,8 +116,9 @@ class TestSettlement(TransactionCase):
         motorcycle.write({"driver_id": driver.id})
         driver.write({"is_online": True})
 
-        ride.action_settle(by_driver=driver, amount_collected=1200)
+        result = ride.action_settle(by_driver=driver, amount_collected=1200)
 
+        self.assertFalse(result["cash_limit_crossed"])
         driver.invalidate_recordset()
         self.assertTrue(driver.is_online, "bien en dessous du plafond, rien ne doit changer")
 

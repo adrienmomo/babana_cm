@@ -51,12 +51,19 @@ function texts(root: ReactTestRenderer): string {
   return root.root.findAllByType(Text).map((n) => JSON.stringify(n.props.children)).join(' ');
 }
 
+// J24 (amoa/questions/L6-14.md) : la réponse de `settle` porte désormais le plafond, la marge et
+// le franchissement -- l'écran n'infère plus rien et ne fait plus de second GET /drivers/me/cash.
 function settleResponse(overrides: Partial<Record<string, unknown>> = {}) {
-  return { rideId: RIDE_ID, state: 'settled', amountCollected: 1500, driverCashBalance: 9000, ...overrides };
-}
-
-function cashResponse(overrides: Partial<Record<string, unknown>> = {}) {
-  return { balance: 9000, limit: 15000, collectedToday: 9000, ...overrides };
+  return {
+    rideId: RIDE_ID,
+    state: 'settled',
+    amountCollected: 1500,
+    driverCashBalance: 9000,
+    cashLimit: 15000,
+    cashLimitReached: false,
+    marginRemaining: 6000,
+    ...overrides,
+  };
 }
 
 describe('SettlementScreen (L6-14)', () => {
@@ -67,7 +74,7 @@ describe('SettlementScreen (L6-14)', () => {
   });
 
   it('confirmer -- envoie POST /rides/{id}/settle avec le montant dû (jamais une saisie)', async () => {
-    mockRequest.mockResolvedValueOnce(settleResponse()).mockResolvedValueOnce(cashResponse());
+    mockRequest.mockResolvedValueOnce(settleResponse());
     const { root } = await renderSettlement();
 
     await act(async () => {
@@ -80,8 +87,10 @@ describe('SettlementScreen (L6-14)', () => {
     );
   });
 
-  it('critère 2 -- après confirmation, le nouveau solde et la marge avant plafond s’affichent (lus du serveur)', async () => {
-    mockRequest.mockResolvedValueOnce(settleResponse({ driverCashBalance: 9000 })).mockResolvedValueOnce(cashResponse({ balance: 9000, limit: 15000 }));
+  it('critère 2 -- solde et marge viennent de la réponse de settle, sans second appel (J24)', async () => {
+    mockRequest.mockResolvedValueOnce(
+      settleResponse({ driverCashBalance: 9000, marginRemaining: 6000 })
+    );
     const { root } = await renderSettlement();
 
     await act(async () => {
@@ -90,13 +99,15 @@ describe('SettlementScreen (L6-14)', () => {
 
     expect(root.root.findByProps({ testID: 'settlement-balance' }).props.children).toContain(formatMoney(9000));
     expect(root.root.findByProps({ testID: 'settlement-margin' }).props.children).toContain(formatMoney(6000));
-    expect(mockRequest).toHaveBeenCalledWith('driverCash');
+    // Aucun GET /drivers/me/cash : la réponse de settle porte déjà tout.
+    expect(mockRequest.mock.calls.filter((c) => c[0] === 'driverCash')).toHaveLength(0);
+    expect(mockRequest.mock.calls.filter((c) => c[0] === 'settleRide')).toHaveLength(1);
   });
 
-  it('critère 3 -- un encaissement qui franchit le plafond est annoncé, avec un accès à la remise', async () => {
-    mockRequest
-      .mockResolvedValueOnce(settleResponse({ driverCashBalance: 15500 }))
-      .mockResolvedValueOnce(cashResponse({ balance: 15500, limit: 15000 }));
+  it('critère 3 -- cashLimitReached annonce le passage hors ligne, avec un accès à la remise (J24)', async () => {
+    mockRequest.mockResolvedValueOnce(
+      settleResponse({ driverCashBalance: 15500, cashLimitReached: true, marginRemaining: 0 })
+    );
     const { root, navigation } = await renderSettlement();
 
     await act(async () => {
@@ -105,6 +116,8 @@ describe('SettlementScreen (L6-14)', () => {
 
     expect(root.root.findByProps({ testID: 'settlement-cap-reached' })).toBeTruthy();
     expect(texts(root)).toContain('hors ligne');
+    // Pas de marge affichée quand le plafond est franchi.
+    expect(root.root.findAllByProps({ testID: 'settlement-margin' })).toHaveLength(0);
 
     await act(async () => {
       root.root.findByProps({ testID: 'settlement-go-to-remittance' }).props.onPress();
@@ -113,7 +126,7 @@ describe('SettlementScreen (L6-14)', () => {
   });
 
   it('sous le plafond -- pas de bannière hors ligne, un bouton « Terminé » ramène à l’accueil', async () => {
-    mockRequest.mockResolvedValueOnce(settleResponse({ driverCashBalance: 9000 })).mockResolvedValueOnce(cashResponse({ balance: 9000, limit: 15000 }));
+    mockRequest.mockResolvedValueOnce(settleResponse({ cashLimitReached: false }));
     const { root, navigation } = await renderSettlement();
 
     await act(async () => {
@@ -130,8 +143,7 @@ describe('SettlementScreen (L6-14)', () => {
   it('critère 4 -- hors connexion, la confirmation est mise en attente puis renvoyée avec succès', async () => {
     mockRequest
       .mockRejectedValueOnce(new Error('network down'))
-      .mockResolvedValueOnce(settleResponse())
-      .mockResolvedValueOnce(cashResponse());
+      .mockResolvedValueOnce(settleResponse());
     const { root } = await renderSettlement();
 
     await act(async () => {
@@ -146,7 +158,7 @@ describe('SettlementScreen (L6-14)', () => {
   });
 
   it('critère 5 -- un renvoi réutilise la même clé d’idempotence : pas de double encaissement', async () => {
-    mockRequest.mockRejectedValueOnce(new Error('network down')).mockResolvedValueOnce(settleResponse()).mockResolvedValueOnce(cashResponse());
+    mockRequest.mockRejectedValueOnce(new Error('network down')).mockResolvedValueOnce(settleResponse());
     const { root } = await renderSettlement();
 
     await act(async () => {
@@ -171,17 +183,5 @@ describe('SettlementScreen (L6-14)', () => {
 
     expect(root.root.findByProps({ testID: 'settlement-error' })).toBeTruthy();
     expect(root.root.findAllByProps({ testID: 'settlement-queued' })).toHaveLength(0);
-  });
-
-  it('si GET /drivers/me/cash échoue, le nouveau solde reste affiché, sans la marge', async () => {
-    mockRequest.mockResolvedValueOnce(settleResponse({ driverCashBalance: 9000 })).mockRejectedValueOnce(new Error('offline'));
-    const { root } = await renderSettlement();
-
-    await act(async () => {
-      root.root.findByProps({ testID: 'settlement-confirm' }).props.onPress();
-    });
-
-    expect(root.root.findByProps({ testID: 'settlement-balance' }).props.children).toContain(formatMoney(9000));
-    expect(root.root.findAllByProps({ testID: 'settlement-margin' })).toHaveLength(0);
   });
 });
