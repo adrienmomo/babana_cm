@@ -26,11 +26,10 @@ import { computeReconnectDelayMs, type ReconnectPolicyConfig } from './reconnect
  * croissant tant que le flux ne reprend pas -- jamais une tentative à chaque vérification.
  */
 export interface StreamLivenessConfig {
-  /** Cadence attendue du flux, en ms (ex. la valeur par défaut connue côté app de
-   * NEARBY_BROADCAST_INTERVAL_SECONDS/TRACKING_BROADCAST_INTERVAL_SECONDS -- PROVISOIRE au sens
-   * de D21, comme NEARBY_SUBSCRIBE_RADIUS_METERS dans HomeScreen : aucun canal de configuration
-   * Odoo -> app n'existe pour transmettre la vraie valeur serveur, L3-15 ne couvre que Odoo ->
-   * temps réel). */
+  /** Cadence attendue du flux, en ms -- fournie par le serveur (D50) : `broadcastIntervalMs` de
+   * `nearby.subscribe.ack` / `ride.track.ack`, relu à chaque abonnement. L'appelant ne tient plus
+   * de copie locale de NEARBY_BROADCAST_INTERVAL_SECONDS / TRACKING_BROADCAST_INTERVAL_SECONDS ;
+   * ce module attend donc que l'accusé soit arrivé avant d'être instancié. */
   expectedIntervalMs: number;
   /** Multiple de la cadence toléré avant de déclarer le flux silencieux (spécification : "un
    * multiple configurable de cette cadence"). Défaut 3 : assez de marge pour absorber la gigue
