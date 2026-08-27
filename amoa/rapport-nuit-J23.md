@@ -256,3 +256,60 @@ juste titre, D15/L4-04) sur la distance de référence, mais le `actual_distance
 lui aussi la référence — donc aucune détection de détour abusif possible tant que L3-10 n'existe
 pas. Ce n'est pas un risque financier, c'est un angle mort de contrôle, et il est nommé dans
 l'écart.
+
+---
+
+## L6-14 — confirmation d'encaissement espèces
+
+### Le chauffeur confirme, il ne saisit pas (L4-05)
+
+`SettlementScreen.tsx` affiche le montant dû (transmis par la navigation depuis la course
+terminée) et **aucun champ de saisie** — vérifié par un test qui compte les `TextInput` (0).
+« Confirmer l'encaissement » envoie `POST /rides/{id}/settle` avec `amountCollected` = le montant
+affiché, jamais autre chose. Un écart réel (le client n'a pas l'appoint) se traite en remise de
+caisse (L5-06), pas ici — rappelé sous le montant.
+
+### Après confirmation : solde et marge, lus du serveur
+
+La réponse de `settle` donne le nouveau `driverCashBalance`. La marge avant plafond demande le
+plafond, absent de cette réponse → second appel `GET /drivers/me/cash` (`driverCash`, déjà au
+contrat). Marge = `plafond - solde`, affichage de deux valeurs serveur (L5-07 : le solde n'est
+jamais dérivé localement). Si `driverCash` échoue, le solde reste affiché, pas la marge.
+
+### Plafond franchi → la remise, tout de suite
+
+Si `solde >= plafond`, bannière explicite « vous êtes passé hors ligne » + bouton « Déclarer une
+remise » → route `Remittance` (réservée depuis L6-11, `PlaceholderScreen` jusqu'à L5-07). C'est le
+scénario du contexte terrain : la flotte se vide et personne ne comprend — ici le chauffeur sait
+pourquoi et quoi faire, dans le même écran.
+
+### Hors connexion
+
+Sur échec réseau : état « en attente », **même clé d'idempotence** conservée
+(`generateIdempotencyKey`, une fois par montage), bouton « Réessayer maintenant ». Un renvoi ne
+produit jamais de double encaissement (clé stable + `babana.idempotency.record` côté Odoo). La
+file persistante qui survit à un redémarrage de l'app est L6-16 (non construite) — voir l'écart.
+
+### Écart déposé — `amoa/questions/L6-14.md` (sur master)
+
+Trois points : (1) « passé hors ligne » est **inféré** en comparant le solde au plafond —
+`action_settle` connaît `cash_limit_crossed` mais ne le renvoie pas ; proposition : un
+`wentOffline` dans `SettleRideResponse`. (2) le plafond/la marge ne sont pas dans la réponse de
+`settle` → second `GET /drivers/me/cash` ; proposition : `cashLimit` dans la réponse. (3) la file
+hors connexion persistante est L6-16.
+
+### Tests
+
+`apps/driver/src/screens/__tests__/SettlementScreen.test.tsx` (9) : les 5 critères numérotés
+(aucun champ de saisie ; solde + marge après confirmation ; franchissement du plafond annoncé avec
+accès remise ; mise en attente puis renvoi hors connexion ; renvoi à clé d'idempotence identique),
+plus l'erreur métier non rejouée, `driverCash` en échec, le chemin « sous le plafond → Terminé ».
+
+### Doute pour un chauffeur réel
+
+Le point (1) de l'écart : tant que la réponse de `settle` ne dit pas explicitement « tu es passé
+hors ligne », l'app le déduit d'une comparaison. Si le plafond change en base entre le `settle` et
+le `GET /drivers/me/cash` (fenêtre de quelques ms), ou si le `GET` échoue, l'écran peut afficher
+« sous le plafond » alors que le serveur a mis le chauffeur hors ligne — il découvrirait alors le
+blocage sur `HomeScreen` (L6-11 affiche le motif `CASH_LIMIT_REACHED`), pas ici. Rare, sans risque
+financier, mais c'est une inférence de plus à retirer.
