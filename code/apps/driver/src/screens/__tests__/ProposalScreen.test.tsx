@@ -169,7 +169,7 @@ describe('ProposalScreen (L6-12)', () => {
     await act(async () => {
       emitAccepted();
     });
-    expect(mockReplaceWithActiveRide).toHaveBeenCalledWith(navigation, { rideId: RIDE_ID });
+    expect(mockReplaceWithActiveRide).toHaveBeenCalledWith(navigation, expect.objectContaining({ rideId: RIDE_ID, origin: PARAMS.origin, destination: PARAMS.destination, amount: PARAMS.amount }));
     expect(navigation.goBack).not.toHaveBeenCalled();
   });
 
@@ -200,7 +200,7 @@ describe('ProposalScreen (L6-12)', () => {
     await act(async () => {
       emitSynced(RIDE_ID, 'assigned');
     });
-    expect(mockReplaceWithActiveRide).toHaveBeenCalledWith(navigation, { rideId: RIDE_ID });
+    expect(mockReplaceWithActiveRide).toHaveBeenCalledWith(navigation, expect.objectContaining({ rideId: RIDE_ID, origin: PARAMS.origin, destination: PARAMS.destination, amount: PARAMS.amount }));
   });
 
   it('critère 3 -- une acceptation tardive (proposal.expired reçu après l’envoi) affiche un message compréhensible, jamais ActiveRide', async () => {

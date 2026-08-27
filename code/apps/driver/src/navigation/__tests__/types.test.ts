@@ -7,10 +7,16 @@ import type { DriverParamList } from '../types';
  */
 const rideId = asRideId('r1');
 
-const valid: DriverParamList['ActiveRide'] = { rideId };
+const valid: DriverParamList['ActiveRide'] = {
+  rideId,
+  origin: { latitude: 4.05, longitude: 9.7 },
+  destination: { latitude: 4.061, longitude: 9.71 },
+  amount: 1500,
+  distanceMeters: 3200,
+};
 
 // @ts-expect-error -- un identifiant numérique n'est pas un RideId : doit casser la compilation.
-const wrongType: DriverParamList['ActiveRide'] = { rideId: 42 };
+const wrongType: DriverParamList['ActiveRide'] = { ...valid, rideId: 42 };
 
 // @ts-expect-error -- Home ne prend aucun paramètre.
 const extraParam: DriverParamList['Home'] = { rideId };

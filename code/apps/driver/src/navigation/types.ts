@@ -32,8 +32,21 @@ export type DriverParamList = {
     /** ISO 8601 -- le serveur seul est juge de l'expiration (L3-07), ce champ n'est qu'indicatif. */
     expiresAt: string;
   };
-  ActiveRide: { rideId: RideId };
-  Settlement: { rideId: RideId };
+  /**
+   * Portée par la navigation depuis `Proposal` (L6-13) : la course en cours a besoin des points
+   * (guidage, phases) et du montant (transmis ensuite à `Settlement`). Rien n'est relu depuis un
+   * abonnement -- `proposal.new` a déjà tout porté, `ProposalScreen` le fait suivre.
+   */
+  ActiveRide: {
+    rideId: RideId;
+    origin: LatLng;
+    destination: LatLng;
+    /** Montant dû, transmis tel quel à `Settlement` -- l'app ne le recalcule jamais (invariant 3). */
+    amount: number;
+    /** Distance de référence de la course (celle du tarif) -- voir `apps/driver/src/ride/completion.ts`. */
+    distanceMeters: number;
+  };
+  Settlement: { rideId: RideId; amount: number };
   /** Déclaration de remise (L5-07, écran pas encore construit -- `amoa/questions/L6-11.md`) :
    * réservée dès L6-11, qui doit déjà pouvoir y proposer un accès direct quand le motif de refus
    * de passage en ligne est le plafond d'encaisse (L3-04). */
