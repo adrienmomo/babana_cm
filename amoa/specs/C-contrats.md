@@ -242,7 +242,15 @@ docs/contracts/realtime-events.md
 
 **Client vers serveur** : `nearby.subscribe` (position, rayon), `nearby.unsubscribe`, `ride.track` (abonnement au suivi d'une course).
 
-**Serveur vers chauffeur** : `proposal.new` (course, départ, arrivée, montant, distance, délai restant), `proposal.expired`, `ride.cancelled`.
+**Serveur vers chauffeur** : `proposal.new` (course, départ, arrivée, montant, distance de la course, **distance à parcourir jusqu'au client**, délai restant), `proposal.expired`, `proposal.accepted`, `ride.cancelled`.
+
+**`proposal.new` porte la distance à vide (D51, 31 août).** Le serveur la connaît — il vient de trier les cinq plus proches — et c'est le chiffre le plus déterminant pour un chauffeur qui décide en trente secondes : une course à 500 FCFA qui demande trois kilomètres à vide n'est pas la même affaire. Sans elle, il accepte à l'aveugle ou refuse par précaution, et un refus par précaution coûte trente secondes au client et un chauffeur à sa liste.
+
+**`proposal.accepted` existe parce que son absence faisait deviner un délai (D49).** Le contrat ne portait que les issues négatives : l'écran du chauffeur attendait 1500 millisecondes inventées avant de conclure qu'une acceptation avait réussi. Une application qui n'apprend que les échecs doit inférer les succès du silence — et sur un réseau de Douala, aucune durée n'est assez longue pour que cette inférence soit sûre.
+
+La règle générale : **toute action émise sur le fil reçoit une réponse, positive ou négative.** Là où une application devine, il manque un message.
+
+**`nearby.subscribe.ack` et l'accusé de `ride.track` portent la cadence réelle du flux (D50).** L'application n'a pas de constante à tenir à jour : elle apprend du serveur à quel rythme les messages arrivent, donc à partir de quand le silence est anormal. Deux copies d'une même valeur, sans mécanisme pour les tenir d'accord, finissent par diverger sans que rien ne le signale — c'est D23, dans un autre costume.
 
 **Serveur vers client** : `nearby.drivers` (les 5 plus proches, position arrondie), `ride.proposed`, `ride.assigned`, `ride.rejected`, `driver.position` (suivi), `ride.started`, `ride.completed`.
 

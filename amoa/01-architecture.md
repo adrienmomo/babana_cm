@@ -53,6 +53,9 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D46 | **Le banc de vérification reproduit la topologie de production** : même origine pour le bundle web et l'API, donc aucun CORS | Ajouter des en-têtes CORS à l'API authentifiée | On n'ajoute pas une surface d'attaque à une API qui porte des jetons pour accommoder une erreur de banc d'essai. Voir §9 ter |
 | D47 | **Un flux périodique surveille son propre silence**, abonnement par abonnement — pas seulement la connexion qui le porte | Battement de cœur sur la connexion | Une connexion vivante dont un flux est mort reste « connectée ». Un battement de cœur arriverait quand même, et masquerait le défaut. Voir §3 bis |
 | D48 | **En cas d'urgence, le superviseur est prévenu en premier** — c'est le canal qui produit une action. Le proche vient ensuite | Notifier le contact d'urgence en premier | Un superviseur peut appeler, voir la position, alerter. Un proche ne peut que s'inquiéter. Voir §9 |
+| D49 | **Toute action émise sur le fil reçoit une réponse, positive ou négative.** Un succès ne s'infère jamais d'un silence | Ne répondre qu'en cas d'échec | Une app qui n'apprend que les échecs doit deviner les succès — et deviner veut dire attendre un délai inventé. Voir §3 ter |
+| D50 | **Un flux annonce sa propre cadence** dans son accusé d'abonnement ; l'application ne recopie jamais une valeur du serveur | Constante locale alignée à la main | Deux copies d'une même valeur, sans mécanisme pour les tenir d'accord, finissent par diverger en silence — D23, une fois de plus. Voir §3 ter |
+| D51 | **Une proposition porte la distance à parcourir à vide** jusqu'au client, pas seulement celle de la course | La distance de la course seule | C'est le chiffre le plus déterminant pour un chauffeur qui décide en trente secondes, et le serveur le connaît déjà |
 
 ---
 
@@ -172,6 +175,20 @@ La liste des chauffeurs se vidait après quelques secondes : le premier envoi ar
 La surveillance se fait donc **par abonnement** : un flux périodique connaît sa propre cadence, donc il sait ce que son silence signifie. Passé un multiple de cette cadence sans rien recevoir, l'application le dit et se réabonne — elle n'attend pas qu'une couche plus basse s'en aperçoive.
 
 **Et le diagnostic passe avant le mécanisme.** Ajouter la surveillance sans avoir compris pourquoi la diffusion s'est arrêtée reviendrait à installer une alarme pour ne pas avoir à réparer la serrure.
+
+---
+
+## 3 ter. Ce qu'on devine faute d'un message qui le porte (D49, D50)
+
+Deux défauts trouvés le même soir avaient la même forme, et elle mérite d'être nommée.
+
+L'écran de proposition attendait **1500 millisecondes devinées** avant de conclure qu'une acceptation avait réussi. Non par négligence : le contrat ne porte aucun accusé de réception positif pour `proposal.accept`. Il porte les échecs — `proposal.expired` — et rien d'autre. Une application qui n'apprend que les échecs doit donc inférer le succès du silence, c'est-à-dire attendre assez longtemps pour être raisonnablement sûre. Sur un réseau de Douala, « assez longtemps » n'existe pas.
+
+Le détecteur de silence, lui, comparait le temps écoulé à une **copie locale** de la cadence du serveur. Deux exemplaires d'une même valeur, dans deux dépôts de code, sans rien pour les tenir d'accord : changer la cadence en base désynchronise le seuil sans qu'aucune alarme ne se déclenche. C'est D23 dans un autre costume.
+
+**Deux règles, une seule idée.** Toute action émise sur le fil reçoit une réponse, positive ou négative — un succès ne s'infère jamais d'un silence. Et un flux annonce sa propre cadence dans son accusé d'abonnement — l'application ne recopie jamais une valeur que le serveur peut lui dire.
+
+Ce qu'elles ont en commun : **là où une application devine, il manque un message.** Un délai deviné est toujours le symptôme d'une information qu'on n'a pas envoyée, et il finit par être trop court ou trop long — jamais juste, puisque rien ne le calibre.
 
 ---
 
