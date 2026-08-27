@@ -62,6 +62,7 @@ export function HomeScreen({ navigation }: Props) {
           destination: message.payload.destination,
           amount: message.payload.amount,
           distanceMeters: message.payload.distanceMeters,
+          distanceToOriginMeters: message.payload.distanceToOriginMeters,
           expiresAt: message.payload.expiresAt,
         });
       }

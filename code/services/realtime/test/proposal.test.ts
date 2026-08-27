@@ -14,7 +14,7 @@ import { isInPool, removeFromPool } from '../src/redis/geo-index';
 import { isReserved } from '../src/reservation/reserve';
 import { isEngaged, clearEngaged } from '../src/driver/engagement';
 import { setOnline, setOffline } from '../src/driver/availability';
-import { storePosition } from '../src/redis/positions';
+import { storePosition, positionKey } from '../src/redis/positions';
 import { addEligibleToPool } from '../src/redis/pool-eligibility';
 import { parseConfig, type Config } from '../src/config';
 import { setDriverProfile, type DriverProfile } from '../src/redis/driver-profiles';
@@ -335,6 +335,53 @@ describe('ProposalLifecycle (L3-07)', () => {
 
     assert.equal(await isReserved(redis, driverShort), false, 'expiré : le délai court doit avoir déclenché la libération');
     assert.equal(await isReserved(redis, driverLong), true, 'pas expiré : le délai long ne doit pas encore avoir déclenché');
+  });
+
+  test('D51 -- proposal.new porte la distance à vide (Haversine) jusqu\'au point de prise en charge', async () => {
+    const config = configWith();
+    const registry = new ConnectionRegistry();
+    const lifecycle = new ProposalLifecycle(config, redis, registry);
+
+    const driverId = await availableDriver('d51-driver');
+    // Repositionne le chauffeur à ~1,1 km à l'est de SOMEWHERE (0,01 deg de longitude).
+    await storePosition(
+      redis,
+      driverId,
+      { latitude: SOMEWHERE.latitude, longitude: SOMEWHERE.longitude + 0.01, accuracyMeters: 10, speedMetersPerSecond: 0, headingDegrees: 0, capturedAtMs: Date.now() },
+      60
+    );
+    const clientUserId = id('d51-client');
+    const rideId = randomUUID();
+    const driverSocket = fakeSocket();
+    registry.add(driverContext(driverId), driverSocket.socket);
+
+    // proposalDetails.origin == SOMEWHERE : la distance à vide est celle position -> origin.
+    await lifecycle.propose(driverId, proposalDetails(rideId, clientUserId));
+
+    const proposalNew = driverSocket.messages.find((m) => m.type === 'proposal.new');
+    assert.ok(proposalNew, 'proposal.new doit avoir été émis');
+    const approach = (proposalNew!.payload as { distanceToOriginMeters: number }).distanceToOriginMeters;
+    // ~1,1 km à cette latitude -- large fourchette, on vérifie l'ordre de grandeur, pas une valeur exacte.
+    assert.ok(approach > 900 && approach < 1_300, `distance à vide plausible attendue, obtenu ${approach}`);
+    assert.equal(Number.isInteger(approach), true, 'distance arrondie à l\'entier');
+  });
+
+  test('D51 -- distanceToOriginMeters vaut null si la position du chauffeur n\'est plus lisible', async () => {
+    const config = configWith();
+    const registry = new ConnectionRegistry();
+    const lifecycle = new ProposalLifecycle(config, redis, registry);
+
+    const driverId = await availableDriver('d51-noposition-driver');
+    // La position expire (ou disparaît) entre la sélection et la réservation -- le pool et la
+    // clé de position ont des durées de vie distinctes.
+    await redis.del(positionKey(driverId));
+    const driverSocket = fakeSocket();
+    registry.add(driverContext(driverId), driverSocket.socket);
+
+    const outcome = await lifecycle.propose(driverId, proposalDetails(randomUUID(), id('d51-noposition-client')));
+    assert.equal(outcome.proposed, true, 'la proposition part malgré la position manquante');
+    const proposalNew = driverSocket.messages.find((m) => m.type === 'proposal.new');
+    assert.equal((proposalNew!.payload as { distanceToOriginMeters: number | null }).distanceToOriginMeters, null);
   });
 
   test('échoue proprement (aucune réservation) si le chauffeur n\'est pas disponible', async () => {

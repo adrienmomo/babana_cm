@@ -24,7 +24,11 @@ export type DriverParamList = {
     origin: LatLng;
     destination: LatLng;
     amount: number;
+    /** Distance de la course (départ -> arrivée), celle qui sert au tarif. */
     distanceMeters: number;
+    /** Distance à vide jusqu'au client (D51), à vol d'oiseau -- `null` si le serveur n'a pas pu
+     * lire la position du chauffeur au moment de la réservation. */
+    distanceToOriginMeters: number | null;
     /** ISO 8601 -- le serveur seul est juge de l'expiration (L3-07), ce champ n'est qu'indicatif. */
     expiresAt: string;
   };
