@@ -98,8 +98,15 @@
       "name": "nearby.subscribe.ack",
       "direction": "server-to-client",
       "status": "wired",
-      "emitter": "services/realtime/src/nearby/handler.ts (23 août, limitation de débit).",
-      "consumer": "apps/client/src/screens/HomeScreen.tsx."
+      "emitter": "services/realtime/src/nearby/handler.ts (23 août limitation de débit ; 31 août D50 -- porte broadcastIntervalMs quand accepté).",
+      "consumer": "apps/client/src/screens/HomeScreen.tsx -- l'accusé accepté crée/redémarre le StreamLivenessWatchdog à la cadence annoncée (plus aucune constante locale)."
+    },
+    {
+      "name": "ride.track.ack",
+      "direction": "server-to-client",
+      "status": "wired",
+      "emitter": "réel et testé (D50, 31 août) : services/realtime/src/tracking/broadcast.ts::TrackingManager.subscribe, émis à chaque ride.track, portant TRACKING_BROADCAST_INTERVAL_SECONDS en ms. services/realtime/test/broadcast.test.ts.",
+      "consumer": "apps/client/src/screens/TrackingScreen.tsx -- crée/redémarre le StreamLivenessWatchdog de driver.position à la cadence annoncée. apps/client/src/screens/__tests__/TrackingScreen.test.tsx."
     },
     {
       "name": "ride.proposed",

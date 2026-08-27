@@ -80,7 +80,8 @@ liste vide — que L6-08 traduit en `NO_DRIVER_AVAILABLE`.
 | `proposal.accepted` | Chauffeur | `{ rideId }` | Son `proposal.accept` a été résolu en sa faveur (transition `proposed → assigned`) — symétrique de `ride.assigned` (D49) |
 | `ride.cancelled` | Chauffeur et/ou client, selon `cancelledBy` (L4-12) | `{ rideId, cancelledBy, reason? }` | La course a été annulée |
 | `nearby.drivers` | Client | `{ drivers: NearbyDriver[] }` (max 5) | Réponse à `nearby.subscribe`, puis mises à jour |
-| `nearby.subscribe.ack` | Client | `{ accepted: true }` ou `{ accepted: false, retryAfterMs }` | Accusé de réception de `nearby.subscribe` |
+| `nearby.subscribe.ack` | Client | `{ accepted: true, broadcastIntervalMs }` ou `{ accepted: false, retryAfterMs }` | Accusé de réception de `nearby.subscribe` — `broadcastIntervalMs` = cadence réelle de `nearby.drivers` (D50) |
+| `ride.track.ack` | Client | `{ broadcastIntervalMs }` | Accusé de réception de `ride.track` — cadence réelle de `driver.position` (D50) |
 | `ride.proposed` | Client | `{ rideId, driverId, proposalExpiresAt }` | Le chauffeur choisi a été réservé (redondant pour l'appareil qui a fait la demande, gardé pour un second appareil du même client — `amoa/questions/REPONSES-2026-08-28.md` §1) |
 | `ride.assigned` | Client | `{ rideId, driverId, firstName, photoUrl, motorcycleClass, licensePlate }` | Le chauffeur a accepté |
 | `ride.rejected` | Client | `{ rideId, driverId, reason }` | Le chauffeur a refusé ou le délai a expiré |
@@ -146,6 +147,15 @@ l'équateur), constante `NEARBY_POSITION_PRECISION_DECIMALS` dans
 refusé ne produisait rien : un client qui insistait sur « Réessayer » pouvait cesser d'être servi
 sans qu'aucun élément ne le lui dise. Un refus porte toujours `retryAfterMs` — un refus sans délai
 serait inexploitable côté client.
+
+**Cadence portée par l'accusé (D50, 31 août — amoa/questions/REPONSES-2026-08-31.md §2).** Un
+accusé accepté (`nearby.subscribe.ack` avec `accepted: true`, et `ride.track.ack` pour le suivi)
+porte `broadcastIntervalMs` : la cadence réelle de la diffusion périodique qui va suivre. L'app
+ne tient plus de copie locale de `NEARBY_BROADCAST_INTERVAL_SECONDS` /
+`TRACKING_BROADCAST_INTERVAL_SECONDS` pour sa surveillance de silence (L3-20) — elle apprend du
+serveur à partir de quand le silence est anormal. Deux copies d'une même valeur sans mécanisme
+pour les tenir d'accord finissent par diverger en silence (D23). L'accusé est réémis à chaque
+réabonnement, y compris après reconnexion : la cadence relue est toujours la valeur courante.
 
 ---
 

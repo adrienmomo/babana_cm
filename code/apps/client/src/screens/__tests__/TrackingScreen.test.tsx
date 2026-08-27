@@ -106,6 +106,15 @@ function texts(root: ReactTestRenderer): string {
     .join(' ');
 }
 
+function emitTrackAck(broadcastIntervalMs = 10_000) {
+  realtimeListener?.({
+    type: 'ride.track.ack',
+    id: 'ack-1',
+    emittedAt: new Date().toISOString(),
+    payload: { broadcastIntervalMs },
+  });
+}
+
 function emitPosition(overrides: Partial<{ rideId: string; latitude: number; longitude: number; etaSeconds: number }> = {}) {
   realtimeListener?.({
     type: 'driver.position',
@@ -233,14 +242,16 @@ describe('TrackingScreen (L6-09)', () => {
     jest.useFakeTimers();
     const { root } = await renderTracking();
     await act(async () => {
+      // D50 : la surveillance ne démarre qu'à l'accusé, qui porte la cadence (10 s ici).
+      emitTrackAck(10_000);
       emitPosition();
     });
     expect(root.root.findAllByProps({ testID: 'tracking-connection-banner' })).toHaveLength(0);
     mockSend.mockClear();
 
-    // Silence au-delà du seuil par défaut (3 x TRACKING_BROADCAST_EXPECTED_INTERVAL_MS = 10 s,
-    // TrackingScreen.tsx) -- connectionStateListener ne bouge jamais dans ce test : la connexion
-    // reste `connected` tout du long, exactement le scénario du 30 août.
+    // Silence au-delà du seuil (3 x la cadence annoncée = 30 s) -- connectionStateListener ne
+    // bouge jamais dans ce test : la connexion reste `connected` tout du long, exactement le
+    // scénario du 30 août.
     await act(async () => {
       await jest.advanceTimersByTimeAsync(30_000);
     });
@@ -257,6 +268,9 @@ describe('TrackingScreen (L6-09)', () => {
     jest.useFakeTimers();
     const { root } = await renderTracking();
     await act(async () => {
+      emitTrackAck(10_000);
+    });
+    await act(async () => {
       await jest.advanceTimersByTimeAsync(30_000);
     });
     expect(root.root.findByProps({ testID: 'tracking-stale-banner' })).toBeTruthy();
@@ -266,6 +280,26 @@ describe('TrackingScreen (L6-09)', () => {
     });
 
     expect(root.root.findAllByProps({ testID: 'tracking-stale-banner' })).toHaveLength(0);
+  });
+
+  it('D50 -- le seuil de silence suit la cadence annoncée par ride.track.ack, pas une constante locale', async () => {
+    jest.useFakeTimers();
+    const { root } = await renderTracking();
+    await act(async () => {
+      // Le serveur annonce 4 s -> silence anormal au-delà de 12 s (et non 30 s).
+      emitTrackAck(4000);
+      emitPosition();
+    });
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10_000);
+    });
+    expect(root.root.findAllByProps({ testID: 'tracking-stale-banner' })).toHaveLength(0);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(4_000);
+    });
+    expect(root.root.findByProps({ testID: 'tracking-stale-banner' })).toBeTruthy();
   });
 
   it('une reconnexion réémet ride.track', async () => {

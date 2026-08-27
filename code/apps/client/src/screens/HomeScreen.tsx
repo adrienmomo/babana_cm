@@ -27,12 +27,6 @@ const DOUALA_DEFAULT_CENTER: LatLng = { latitude: 4.0511, longitude: 9.7679 };
 // large.
 const NEARBY_SUBSCRIBE_RADIUS_METERS = 5000;
 
-// Cadence attendue de la diffusion périodique nearby.drivers (L3-05) -- PROVISOIRE au sens de
-// D21, même statut que NEARBY_SUBSCRIBE_RADIUS_METERS ci-dessus : aucun canal Odoo -> app ne
-// transmet la vraie valeur serveur (NEARBY_BROADCAST_INTERVAL_SECONDS, L3-15 ne couvre que
-// Odoo -> temps réel), donc reprise ici comme valeur plausible plutôt que lue dynamiquement.
-const NEARBY_BROADCAST_EXPECTED_INTERVAL_MS = 5000;
-
 function formatSilentDuration(silentForMs: number): string {
   return `${Math.max(1, Math.round(silentForMs / 1000))} s`;
 }
@@ -147,33 +141,47 @@ export function HomeScreen({ navigation }: Props) {
 
     // Surveillance de silence (L3-20) : par abonnement, pas par connexion (D47) -- un battement
     // de cœur sur la connexion arriverait normalement pendant qu'un flux applicatif est mort,
-    // exactement la cause racine du 30 août. Recréée à chaque nouvel abonnement (même portée que
-    // `thisRequest`), jamais partagée entre deux centres différents.
+    // exactement la cause racine du 30 août. La cadence attendue n'est plus une copie locale
+    // (D50) : le watchdog n'est créé qu'à la réception de `nearby.subscribe.ack`, qui porte
+    // `broadcastIntervalMs` -- l'app apprend du serveur à quel rythme les messages arrivent.
     setNearbySilentForMs(null);
-    const watchdog = new StreamLivenessWatchdog({
-      expectedIntervalMs: NEARBY_BROADCAST_EXPECTED_INTERVAL_MS,
-      onStale: (silentForMs) => {
-        if (subscriptionRequest.current !== thisRequest) return;
-        setNearbySilentForMs(silentForMs);
-      },
-      onRecovered: () => {
-        if (subscriptionRequest.current !== thisRequest) return;
-        setNearbySilentForMs(null);
-      },
-      // Réabonne sur la connexion existante -- la cause racine du 30 août était un abonnement
-      // mort sur une connexion par ailleurs vivante, pas une connexion tombée.
-      resubscribe: subscribe,
-    });
-    watchdog.start();
+    let watchdog: StreamLivenessWatchdog | null = null;
+    const stopWatchdog = () => {
+      watchdog?.stop();
+      watchdog = null;
+    };
 
     const unsubscribeMessages = onRealtimeMessage((message) => {
       if (subscriptionRequest.current !== thisRequest) return;
       if (isNearbyDriversMessage(message)) {
-        watchdog.recordActivity();
+        watchdog?.recordActivity();
         setNearbyDrivers(message.payload.drivers);
         setSubscribeRefusal(null);
       } else if (isNearbySubscribeAckMessage(message)) {
-        setSubscribeRefusal(message.payload.accepted ? null : { retryAfterMs: message.payload.retryAfterMs });
+        if (!message.payload.accepted) {
+          setSubscribeRefusal({ retryAfterMs: message.payload.retryAfterMs });
+          return;
+        }
+        setSubscribeRefusal(null);
+        // (Re)démarre la surveillance à la cadence que le serveur vient d'annoncer -- un
+        // réabonnement (reconnexion, bouton « Réessayer ») produit un nouvel accusé, donc une
+        // cadence à jour, jamais une valeur supposée figée.
+        stopWatchdog();
+        watchdog = new StreamLivenessWatchdog({
+          expectedIntervalMs: message.payload.broadcastIntervalMs,
+          onStale: (silentForMs) => {
+            if (subscriptionRequest.current !== thisRequest) return;
+            setNearbySilentForMs(silentForMs);
+          },
+          onRecovered: () => {
+            if (subscriptionRequest.current !== thisRequest) return;
+            setNearbySilentForMs(null);
+          },
+          // Réabonne sur la connexion existante -- la cause racine du 30 août était un abonnement
+          // mort sur une connexion par ailleurs vivante, pas une connexion tombée.
+          resubscribe: subscribe,
+        });
+        watchdog.start();
       }
     });
     // Une reconnexion (coupure réseau, le cas courant) rouvre le socket sans mémoire de cet
@@ -184,7 +192,7 @@ export function HomeScreen({ navigation }: Props) {
     });
 
     return () => {
-      watchdog.stop();
+      stopWatchdog();
       unsubscribeMessages();
       unsubscribeConnectionState();
       realtimeClient.send('nearby.unsubscribe', {});

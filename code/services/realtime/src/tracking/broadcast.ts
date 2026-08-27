@@ -46,6 +46,12 @@ export class TrackingManager {
 
     this.clearSubscription(context.userId);
 
+    // D50 (31 août) : accusé de réception portant la cadence réelle de la diffusion à venir --
+    // même rôle que `nearby.subscribe.ack` (nearby/handler.ts). Émis à chaque `ride.track`,
+    // y compris un réabonnement après reconnexion : l'app relit la cadence courante plutôt que
+    // d'en garder une copie locale (`TRACKING_BROADCAST_INTERVAL_SECONDS`).
+    socket.send(JSON.stringify(buildRideTrackAckMessage(Math.round(this.config.TRACKING_BROADCAST_INTERVAL_SECONDS * 1000))));
+
     const push = async (): Promise<void> => {
       if (socket.readyState !== socket.OPEN) {
         this.clearSubscription(context.userId);
@@ -121,6 +127,15 @@ function buildDriverPositionMessage(
     id: randomUUID(),
     emittedAt: new Date().toISOString(),
     payload: { rideId, position, etaSeconds },
+  };
+}
+
+function buildRideTrackAckMessage(broadcastIntervalMs: number): realtime.RideTrackAckMessage {
+  return {
+    type: 'ride.track.ack',
+    id: randomUUID(),
+    emittedAt: new Date().toISOString(),
+    payload: { broadcastIntervalMs },
   };
 }
 
