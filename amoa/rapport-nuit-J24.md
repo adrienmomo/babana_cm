@@ -207,3 +207,144 @@ La simplification du tracé est réglée sur des seuils plausibles jamais mesur�
 traces GPS de Douala (bruit, tunnels urbains, multipath). `SIMPLIFY_TOLERANCE_METERS = 8` peut se
 révéler trop agressif (coins arrondis) ou trop lâche (tracé lourd) — c'est de la calibration de
 pilote, comme l'ETA (L10-03).
+
+---
+
+## L6-05 — non entamée : arrêt après L3-10, comme prévu
+
+Le périmètre confié autorisait explicitement l'arrêt après L3-10 si le lot ne passait pas en
+entier. Je m'arrête là, en connaissance de cause :
+
+- **L6-05 est la tâche la plus sensible du lot mobile** (« celle qui décide si un chauffeur garde
+  l'application »), taille L, et son enjeu — batterie, forfait de données, service d'arrière-plan
+  Android, permissions — est une **contrainte d'ingénierie native** qui ne se vérifie sur aucun
+  banc de cet environnement (pas de build mobile ; L6-18 exclut explicitement l'app Chauffeur du
+  web). La faire vite et sans mesure serait exactement le « tronquer en silence » que `CLAUDE.md`
+  proscrit.
+- Les trois tâches livrées répondent directement à ce qui était attendu ce matin : **une course
+  dont le trajet enregistré est celui qui a été parcouru — ou rien, explicitement.** C'est fait,
+  et vérifié contre la pile réelle (voir la passe finale). Le coût de la capture GPS (« une
+  capture dont tu peux me dire ce qu'elle coûte ») est L6-05 **+** L6-17 (mesure batterie/données
+  sur terminaux réels) — il ne peut pas être chiffré sans le terminal.
+
+Ce que L6-05 devra tenir, relu dans sa spécification et dans L6-17/L6-16 : fréquence adaptative
+selon la vitesse (hors ligne / immobile / en mouvement / en course), agrégation des positions
+avant envoi, arrière-plan comme cas normal (service de premier plan + notification honnête), refus
+de permission non bloquant, arrêt immédiat au passage hors ligne — et les points de mesure que
+L6-17 exigera (elle ne mesurera que ce que L6-05 aura instrumenté).
+
+---
+
+## Passe finale — `make reset`, suite complète, vérification pile réelle
+
+### `make reset` + `make up` + suites
+
+Base jetée et reconstruite (volumes supprimés), pile rebâtie (`make up --build`, le conteneur
+temps réel embarque donc le code L3-10). Sur base fraîche :
+
+- **Suite Odoo `babana` : 464 tests, 0 échec, 0 erreur** (`-u babana --test-tags=/babana` sur la
+  base fraîche installée par le premier passage). J23 était à 455 ; +9 (fin de course non
+  mesurée, `fetch_ride_measurement`, réponse d'encaissement, relevé enregistré).
+- **`npm test` par paquet, tous verts** : `@babana/contracts` 71, `@babana/maps` 19,
+  `@babana/navigation` 4, `@babana/api-client` 66, `@babana/realtime` **187** (dont
+  `accumulator.test.ts` 10 + le bloc L3-10 d'`internal.test.ts`), `@babana/client` 104,
+  `@babana/driver` 69.
+- **`@babana/concurrency-tests` : 28/28** contre la pile réelle — scénarios de concurrence 1/2/3,
+  rejeu `select-driver`, et **C-01 critère 6** (chaque endpoint appelé contre le vrai Odoo, sa
+  réponse validée par son propre schéma : `completeRide` corps vide → `measured`/nullable,
+  `settleRide` → `cashLimit`/`cashLimitReached`/`marginRemaining`). Itérations réduites (6/4 au
+  lieu de 20/8) pour tenir dans la session interactive : la correction est binaire, le décompte
+  d'itérations sert la confiance statistique que l'intégration continue apporte.
+- `make lint`, `tsc --noEmit` (tous paquets), `verify-ride-state-machine.js`,
+  `verify-realtime-message-map.js` : verts.
+- `make secrets-scan` : **seul le faux positif préexistant** `apps/client/webpack-stubs/react-native-keychain.web.js`
+  (`babana-dev-keychain-stub`, entropie), identique à J23 — **aucun nouveau**.
+
+### Un flake trouvé et corrigé
+
+Sous la suite `@babana/realtime` complète, `reservation.test.ts` critère 5 (D26, « l'engagement
+n'expire jamais tout seul ») échouait ~1 fois sur 3 : test sensible à l'expiration, avec un TTL de
+1 s, sur la liste de validation humaine (L3-06), **non modifié cette nuit**. En isolation il passe
+100 %. Cause : `accumulator.test.ts` (fichier neuf) faisait beaucoup d'écritures Redis réelles sur
+le DB 0 partagé, décalant la fenêtre de course. Correctif (commit à part) : `accumulator.test.ts`
+utilise une DB Redis logique dédiée + `flushdb` par test — toujours un vrai Redis. **Suite
+complète relancée 5 fois : 5/5 vertes.**
+
+### Vérification pile réelle — les deux côtés, jusqu'à l'encaissement
+
+Sonde fidèle (jamais commitée, comme le banc de J23) contre la pile réelle : vrai `POST
+/auth/google`, vrai WebSocket `/rt/ws`, vrais endpoints `/api/v1/*`, vrai Odoo lu en JSON-RPC.
+**Client** (session + parcours d'estimation) et **chauffeur** (WebSocket réel : la précondition
+C-03 posée par un vrai `nearby.subscribe`).
+
+Une course jouée de bout en bout :
+
+- `quote` (550 FCFA, 3437 m de référence) → `createRide` → `select-driver` → `proposal.new` →
+  **`proposal.accept` → `proposal.accepted`** (D49) → `ride.assigned` (client).
+- `POST /start` → `ride.started` (client). Le chauffeur émet **23 `position.update` réelles** le
+  long d'un trajet en L (~308 m parcourus, pas 3437 m à vol d'oiseau).
+- **`POST /complete` avec un corps vide** → 200, `measured: true`, **`distanceMeters: 308`** —
+  le trajet en L réellement parcouru, **pas** la ligne droite de référence. `ride.completed`
+  (client) porte la même distance. Odoo : `trip_measured` vrai, `actual_distance_km = 0.308`,
+  `track_polyline` enregistré (l'accumulation a simplifié le L à ~3 sommets — correct).
+- **`POST /settle`** → 200, la réponse porte `cashLimit = 50000`, `cashLimitReached = false`,
+  `marginRemaining = 49450` — **aucun second `GET /drivers/me/cash`**.
+
+**Le trajet enregistré est celui qui a été parcouru.** C'est ce qui était attendu ce matin.
+
+### Ce qui n'a pas été fait en navigateur, dit franchement
+
+Le bundle web du Client **compile proprement** avec les changements de contrat (garde de
+non-régression — c'est ce qui masquait des pages blanches quatre nuits de suite en J21). Mais la
+session a été **interrompue** (limite atteinte en cours de route) et je n'ai pas monté le banc
+Caddy même-origine de J23 pour cliquer réellement les écrans Client dans un navigateur. Le
+parcours a été vérifié par la sonde fidèle contre la pile réelle (ci-dessus) et par les tests
+d'écran (`RideSummaryScreen` affiche « Trajet non relevé » sur `null` — testé unitairement ;
+`endpoint-coverage` valide la vraie réponse d'Odoo). Le rendu des écrans Client dans un vrai
+navigateur reste à refaire — c'est le seul point de la passe finale que je laisse ouvert.
+
+---
+
+## Qu'est-ce qui me laisse un doute pour quelqu'un de réel
+
+**Le `measured: true` mais vide, tant que L6-05 n'émet rien.** C'est le doute central. L3-10 est
+correct et vérifié avec de vraies positions — mais l'app Chauffeur n'en émet aucune aujourd'hui.
+Jusqu'à L6-05, toute course réelle se termine avec `distanceMeters = 0`, `measured: true`. Le
+client verrait « 0 m » sur son résumé, avec l'aplomb d'un fait. Ce n'est pas faux (0 m ont
+réellement été mesurés), mais c'est le genre d'honnêteté littérale qui trompe. La bonne réponse
+est L6-05 (la tâche d'après) ; en attendant, c'est un angle mort — nommé ici plutôt que masqué.
+
+**La simplification du tracé, jamais éprouvée sur du vrai GPS.** Sur ma sonde (positions
+synthétiques parfaites) le L se réduit proprement à 3 sommets. Sur une trace réelle de Douala —
+bruit, multipath entre les immeubles d'Akwa, tunnels — `SIMPLIFY_TOLERANCE_METERS = 8` et
+`MIN_SEGMENT_METERS = 5` peuvent lisser un vrai virage ou, à l'inverse, garder du bruit. C'est de
+la calibration de pilote (comme l'ETA, L10-03), pas un défaut à corriger à l'aveugle.
+
+**Le flake de `reservation.test.ts`.** Je l'ai contourné en isolant mon fichier neuf sur une autre
+DB Redis, et la suite est verte 5/5. Mais le test lui-même reste fragile : un TTL de 1 s suivi
+d'un `setTimeout(1500)` fixe perdra la course un jour ou l'autre sous une autre charge. Le vrai
+correctif (attente active jusqu'à expiration observée, au lieu d'un délai fixe) touche un test de
+la liste de validation humaine (L3-06) — je ne l'ai pas fait cette nuit, c'est signalé pour
+arbitrage.
+
+**La vérification navigateur du Client, non refaite** (voir ci-dessus) — la session a été
+interrompue et je n'ai pas voulu bâcler le banc.
+
+---
+
+## Ce qui reste ouvert
+
+- **L6-05** (capture GPS chauffeur) — non entamée, arrêt délibéré après L3-10. La plus sensible
+  du lot mobile ; sans elle, l'accumulation de L3-10 tourne à vide.
+- **`amoa/questions/L6-13.md`** — premier point résolu (fin de course = décision seule). **Second
+  point toujours ouvert** : pas de bouton d'appel du client faute d'un numéro au contrat (même
+  écart symétrique que `L6-09.md`).
+- **`amoa/questions/L6-14.md`** — points 1 et 2 résolus. **Point 3** (file hors connexion
+  persistante) reste L6-16, non commencée.
+- **`reservation.test.ts` critère 5** — fragile (TTL 1 s + délai fixe). Contourné, pas réparé —
+  le vrai correctif touche un test de validation humaine.
+- **Vérification navigateur du Client** — bundle web compile ; le clic-à-travers réel des écrans
+  reste à refaire.
+- **L6-15** (inscription chauffeur), **L3-12** (file de rejeu persistante), **L4-06** (facture),
+  la passerelle SMS, la validation du plan comptable, la vérification développeur Android —
+  inchangés.
