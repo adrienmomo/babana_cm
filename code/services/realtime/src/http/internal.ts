@@ -251,11 +251,17 @@ async function handleRideMeasurement(deps: InternalRouterDeps, rawBody: unknown,
     return;
   }
   const measurement = await getAccumulation(deps.redis, parsed.data.driverId);
+  // J25 (amoa/questions/REPONSES-2026-09-02.md §3) : une accumulation qui existe (ride.start a
+  // posé le HASH) mais n'a encore reçu aucune position n'est pas une mesure de zéro, c'est une
+  // absence de mesure -- `pointCount === 0` le distingue. `measurement !== null` seul disait
+  // "true" dès ride.start, avant la moindre position : `distanceMeters: 0` avec l'aplomb d'un
+  // fait mesuré, jamais démenti tant qu'aucun tracé n'existait vraiment.
+  const measured = measurement !== null && measurement.pointCount > 0;
   sendJson(res, 200, {
-    measured: measurement !== null,
-    distanceMeters: measurement?.distanceMeters ?? null,
-    durationSeconds: measurement?.durationSeconds ?? null,
-    polyline: measurement?.polyline ?? null,
+    measured,
+    distanceMeters: measured ? (measurement as NonNullable<typeof measurement>).distanceMeters : null,
+    durationSeconds: measured ? (measurement as NonNullable<typeof measurement>).durationSeconds : null,
+    polyline: measured ? (measurement as NonNullable<typeof measurement>).polyline : null,
   });
 }
 

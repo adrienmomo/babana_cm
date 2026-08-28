@@ -323,10 +323,13 @@ describe('POST /internal/rides/started + /internal/rides/measurement (accumulati
     });
     assert.equal(started.status, 200);
 
+    // J25 (amoa/questions/REPONSES-2026-09-02.md §3) : ride.start pose l'accumulation, mais
+    // aucune position n'est encore arrivée -- ce n'est pas une mesure de zéro, c'est une absence
+    // de mesure. measured doit rester faux tant qu'aucun point n'a été reçu.
     const empty = await post('/internal/rides/measurement', { driverId });
-    assert.equal(empty.body.measured, true);
-    assert.equal(empty.body.distanceMeters, 0);
-    assert.equal(typeof empty.body.polyline, 'string');
+    assert.equal(empty.body.measured, false);
+    assert.equal(empty.body.distanceMeters, null);
+    assert.equal(empty.body.polyline, null);
 
     // Quelques positions accumulées (comme le ferait ingest.ts à chaque position acceptée).
     const config = configWith();
