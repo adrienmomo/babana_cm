@@ -410,12 +410,21 @@ Simplifier le tracé au fil de l'eau pour éviter de stocker des milliers de poi
 
 À la fin de course, transmettre à Odoo : distance parcourue, durée écoulée, tracé. Odoo compare la distance parcourue à la distance de référence et enregistre l'écart (L4-04).
 
+**Ce qui compte comme « mesuré » — précision du 2 septembre.**
+
+Une accumulation qui n'a **jamais reçu de position** n'est pas une mesure de zéro : c'est une absence de mesure. La distinction paraît scolastique et ne l'est pas — tant que la capture GPS n'existe pas, toute course réelle se terminerait avec `distanceMeters: 0` et `measured: true`, et le client lirait « 0 m » sur son résumé avec l'aplomb d'un fait.
+
+Le rapport de nuit qui l'a signalé le formule mieux que je ne le ferais : *« ce n'est pas faux — zéro mètre ont réellement été mesurés — mais c'est le genre d'honnêteté littérale qui trompe. »*
+
+**`measured` est vrai si et seulement si au moins une position a été reçue.** Sans position, la course se termine non mesurée, et le résumé le dit — comme il le dit déjà pour un tracé absent. C'est la même règle que D30 et D43, appliquée à une mesure plutôt qu'à un profil ou à une configuration : une absence explicite plutôt qu'une valeur plausible et fausse.
+
 ### Critères d'acceptation
 
 1. Une moto à l'arrêt avec du bruit GPS n'accumule pas de distance.
 2. Les positions rejetées ne sont pas accumulées.
 3. Le tracé simplifié conserve la forme du trajet.
 4. Une coupure suivie d'une reconnexion ne perd pas l'accumulation en cours (voir L3-14).
+5. **Une course qui n'a reçu aucune position se termine non mesurée**, jamais mesurée à zéro — et le résumé du client le dit.
 
 ---
 

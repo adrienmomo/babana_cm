@@ -475,3 +475,25 @@ Le nombre de chauffeurs proposés est fixé (D14). Trois paramètres de dispatch
 | VIII Planning | Hors périmètre de ce document |
 | IX Budget | Hors périmètre de ce document |
 | X Diagrammes et scénario | Machine à états §6, cohérente avec le scénario §X.2 |
+
+---
+
+## 13. Décisions arbitrées, pas encore portées
+
+**Créé le 2 septembre, après avoir constaté que D42 n'avait jamais été implémentée.** Elle avait
+été arbitrée le 27 août, écrite dans la spécification du contrat, et aucun prompt de nuit ne l'a
+reprise — quatre nuits pendant lesquelles les spécifications décrivaient un contrat qui n'existait
+pas. C'est exactement le défaut que le retrait de `GET /drivers/nearby` avait corrigé, produit
+cette fois par le processus plutôt que par une rédaction ancienne.
+
+**Une décision sans porteur s'évapore.** Le débrief du lendemain rappelle ce qui reste à faire, et
+c'est précisément ce qui n'a pas suffi : le rappel vit dans un fichier qu'on ne relit pas, tandis
+que le prompt de la nuit vit dans l'action. Ce registre existe pour que l'écart entre les deux soit
+visible d'un coup, et il se vérifie chaque matin au même titre que la parité entre tâches et
+spécifications.
+
+| Décision | Arbitrée le | Portée par |
+|---|---|---|
+| D42 — numéros de téléphone révélés à l'affectation | 27 août | **J25** |
+
+Une ligne qui reste ici plus de deux nuits est un signal, pas une note.

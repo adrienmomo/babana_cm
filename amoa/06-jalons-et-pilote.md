@@ -61,6 +61,16 @@ peut même pas se faire avant, parce qu'elle se calibre sur les données du pilo
   tâches ne peuvent pas précéder le pilote, elles le suivent. C'est leur nature, pas un report.
 - **L6-17** mesure batterie — se fait **pendant** le pilote, sur de vrais terminaux.
 
+### La mesure batterie, et ce que « pendant le pilote » doit vouloir dire
+
+Décidé le 2 septembre : L6-05 sera écrite sans mesure préalable sur un vrai téléphone, et le coût réel sera relevé au pilote. C'est un choix défendable — mais il ne devient un plan qu'à trois conditions, sans lesquelles il n'est qu'un report.
+
+**La mesure se fait le premier jour, pas quand on y pensera.** Un chauffeur qui désinstalle au bout d'une semaine ne revient pas, et on ne saura même pas pourquoi. Une demi-journée d'observation sur deux ou trois terminaux, dès les premières courses.
+
+**Tous les réglages de capture sont paramétrables** (invariant 5) : fréquences, seuils de vitesse, taille des lots, périodicité d'envoi. Si la batterie ne tient pas, la réponse doit être un changement de valeurs le soir même, jamais une réécriture.
+
+**Un repli est prévu d'avance.** Le plus économe : ne capturer qu'en course, et se contenter d'une position rare hors course. On perd la fraîcheur du géo-index, on garde la flotte. Décider ce repli maintenant coûte dix minutes ; le décider en urgence avec des chauffeurs qui désinstallent coûte le pilote.
+
 ---
 
 ## 3. Les trois délais subis, et ils commandent tout
