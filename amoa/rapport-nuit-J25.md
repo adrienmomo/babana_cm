@@ -290,3 +290,62 @@ faire, et pour lequel ce soir a posé les compteurs à lire.
   L6-17 dépasse le seuil attendu sans explication évidente.
 
 ---
+
+## Passe finale — `make reset`, suite complète, pile réelle
+
+Base et volumes détruits (`make reset`), pile reconstruite avec les images à jour
+(`make up`, `--build` inclus). Sur cette base fraîche :
+
+- **Suite Odoo complète** (`-d babana --test-enable --stop-after-init -i babana`, première
+  installation depuis zéro donc l'ensemble des modules standard chargés avec) : **0 échec,
+  0 erreur sur 2264 tests**. Comprend le module `babana` en entier (`test_internal_profiles_
+  controller.py` avec ses six champs désormais dans la liste blanche, D42).
+- **`npm test` (toutes les briques TypeScript + les deux scripts de vérification)** : chaîne
+  entièrement verte (`&&` de bout en bout, jusqu'aux deux scripts de vérification qui closent la
+  chaîne) -- `@babana/contracts`, `@babana/api-client`, `@babana/maps`, `@babana/navigation`,
+  `@babana/ui`, `@babana/realtime`, `@babana/client` (18 suites/106 tests), `@babana/driver` (16
+  suites/99 tests, dont les trois nouveaux fichiers de `location/__tests__/`), et
+  `@babana/concurrency-tests` (28/28, contre la pile réelle : les trois scénarios de concurrence
+  L3-13, le rejeu `select-driver` contre un vrai conflit PostgreSQL, et le critère 6 de C-01 --
+  chaque endpoint appelé contre le vrai Odoo, réponse validée par son propre schéma).
+- **`verify-ride-state-machine.js`** : OK, 9 états, 13 transitions, 7 événements métier.
+- **`verify-realtime-message-map.js`** : 22 messages cartographiés, **19 câblés** (était 18 avant
+  ce soir -- `position.update` passe de `pending` à `wired`), 3 en attente (`ride.cancelled`,
+  `ride.proposed`, `session.synced` -- tous candidats de L6-16, non commencée, inchangé depuis
+  J24).
+- **`make lint`, `tsc --noEmit` (tous paquets)** : verts.
+- **`make secrets-scan`** : seul le faux positif préexistant
+  `apps/client/webpack-stubs/react-native-keychain.web.js` (`babana-dev-keychain-stub`, entropie),
+  identique à J23/J24 -- aucun nouveau.
+
+### Ce qui n'a pas été fait, dit franchement
+
+**Aucune vérification navigateur cette nuit.** Les trois tâches touchent exclusivement l'app
+Chauffeur (D42 y compris son volet client, mais vérifié par les suites automatisées et non par un
+clic-à-travers), et l'app Chauffeur n'a pas d'export web (D22, L6-18) -- il n'y a pas de banc
+possible pour L6-05 dans cet environnement, exactement la raison nommée dans
+`amoa/questions/L6-05.md`. Le parcours client (D42, numéro du chauffeur affiché et bouton d'appel)
+n'a pas non plus été cliqué dans un vrai navigateur ce soir -- couvert par les tests d'écran
+(`TrackingScreen.test.tsx`, `CallButton.test.tsx`) et par le critère 6 de C-01 (réponse réelle
+d'Odoo validée par son propre schéma), mais pas par un clic réel. La session n'a pas été
+interrompue cette fois ; c'est un choix de répartir le temps sur la largeur du lot (trois tâches)
+plutôt que sur la profondeur de vérification d'une seule.
+
+---
+
+## Ce qui reste ouvert
+
+- **La fiabilité réelle de la capture GPS en arrière-plan prolongé** (`amoa/questions/L6-05.md`)
+  -- ne peut être vérifiée que sur un vrai terminal (L6-17), pas dans cet environnement.
+- **Les dix-sept valeurs de configuration de L6-05** -- toutes plausibles, aucune calibrée. Voir
+  les réglages recommandés/risqués ci-dessus pour le premier jour du pilote.
+- **`ride.cancelled` côté client, `ride.proposed`, `session.synced`** -- toujours sans émetteur ou
+  consommateur réel, candidats L6-16 (mode dégradé réseau), non commencée.
+- **`reservation.test.ts` critère 5** -- fragile (TTL 1 s + délai fixe), contourné depuis J24 mais
+  pas réparé. N'a pas résisté à la nuit (pas rencontré ce soir), mais le vrai correctif reste à
+  faire.
+- **L6-15** (inscription chauffeur, aucun vrai chauffeur ne peut entrer aujourd'hui), **L3-12**
+  (file de rejeu persistante), **L4-06** (facture), la passerelle SMS -- inchangés depuis J24.
+- **Le relais d'appel côté serveur** (masquage de numéro, D42) reste hors v1 -- le numéro réel du
+  chauffeur et du client s'affichent tels quels aux deux parties après affectation, jamais avant,
+  jamais après la fin de course, mais sans intermédiaire.
