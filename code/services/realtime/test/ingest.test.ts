@@ -1,6 +1,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import type Redis from 'ioredis';
+import type { realtime } from '@babana/contracts';
 import { checkPlausibility, type PlausibilityConfig } from '../src/tracking/validation';
 import { ingestPosition, ingestMetrics } from '../src/tracking/ingest';
 import { getPosition, hasFreshPosition } from '../src/redis/positions';
@@ -85,6 +86,10 @@ function positionMessage(overrides: Partial<{
       accuracyMeters: overrides.accuracyMeters ?? 20,
       speedMetersPerSecond: overrides.speedMetersPerSecond ?? 8,
       headingDegrees: overrides.headingDegrees ?? 90,
+      // Ces fixtures construisent le message à la main, sans passer par
+      // PositionUpdatePayloadSchema.parse() (qui seul applique le défaut Zod) -- L6-05,
+      // agrégation avant envoi. Vide ici : un point isolé, même comportement qu'avant L6-05.
+      precedingSamples: [] as realtime.PositionSample[],
     },
   };
 }
@@ -196,6 +201,43 @@ describe('ingestPosition (L3-02)', () => {
     assert.ok(stored);
     assert.equal(stored?.latitude, AKWA.latitude);
     assert.equal(stored?.longitude, AKWA.longitude);
+  });
+
+  test('L6-05 -- un message agrégé (precedingSamples) traite chaque point dans l’ordre, la position stockée est la plus récente', async () => {
+    const redis = fakeRedis();
+    ingestMetrics.reset();
+    const message = positionMessage();
+    message.payload.precedingSamples = [
+      {
+        latitude: AKWA.latitude - 0.001,
+        longitude: AKWA.longitude - 0.001,
+        accuracyMeters: 15,
+        speedMetersPerSecond: 4,
+        headingDegrees: 90,
+        capturedAt: new Date(NOW - 20_000).toISOString(),
+      },
+      {
+        latitude: AKWA.latitude - 0.0005,
+        longitude: AKWA.longitude - 0.0005,
+        accuracyMeters: 15,
+        speedMetersPerSecond: 4,
+        headingDegrees: 90,
+        capturedAt: new Date(NOW - 10_000).toISOString(),
+      },
+    ];
+
+    const outcome = await ingestPosition(redis, driverContext('driver-batch'), message, CONFIG, 60, NOW);
+    assert.deepEqual(outcome, { accepted: true });
+
+    // La position stockée est celle du point le plus récent (dernier traité), pas la première du
+    // lot -- même comportement observable qu'avant L6-05, agrégation ou non.
+    const stored = await getPosition(redis, 'driver-batch');
+    assert.equal(stored?.latitude, AKWA.latitude);
+    assert.equal(stored?.longitude, AKWA.longitude);
+
+    // Les trois points (deux précédents + le plus récent) ont chacun été soumis à la validation
+    // de plausibilité -- pas seulement le dernier.
+    assert.equal(ingestMetrics.snapshot().accepted, 3);
   });
 
   test("critère 3 -- une position rejetée n'empêche pas un traitement normal ensuite (pas de fermeture de connexion à ce niveau)", async () => {

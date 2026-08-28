@@ -49,7 +49,16 @@ function positionUpdate(latitude: number, longitude: number, accuracyMeters: num
     type: 'position.update' as const,
     id: `msg-${Math.random().toString(36).slice(2)}`,
     emittedAt: new Date(atMs).toISOString(),
-    payload: { latitude, longitude, accuracyMeters, speedMetersPerSecond: 8, headingDegrees: 90 },
+    payload: {
+      latitude,
+      longitude,
+      accuracyMeters,
+      speedMetersPerSecond: 8,
+      headingDegrees: 90,
+      // Cette fixture construit le message à la main, sans passer par
+      // PositionUpdatePayloadSchema.parse() (seul à appliquer le défaut Zod) -- L6-05.
+      precedingSamples: [] as never[],
+    },
   };
 }
 

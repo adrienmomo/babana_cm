@@ -3,6 +3,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { ApiError, translateApiError } from '@babana/api-client';
 import type { http } from '@babana/contracts';
 import { apiClient } from '../auth';
+import { locationTracker } from '../location';
 import { realtimeClient } from '../realtime';
 
 /**
@@ -62,6 +63,10 @@ export function AvailabilityToggle({ inCourse, onNavigateToRemittance }: Availab
       // Odoo a autorisé -- applique réellement l'état côté service temps réel (voir le
       // commentaire de tête). Toujours après l'autorisation, jamais avant.
       realtimeClient.send('availability.set', { online: response.online });
+      // L6-05 : la capture GPS suit le même instant -- démarre ou s'arrête immédiatement avec la
+      // disponibilité, jamais avant (un chauffeur refusé ne doit jamais capturer sa position) ni
+      // en retard (arrêt immédiat au passage hors ligne, spécification).
+      locationTracker.setOnline(response.online);
       setOnline(response.online);
     } catch (error) {
       if (error instanceof ApiError) {

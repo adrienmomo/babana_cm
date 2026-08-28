@@ -60,6 +60,29 @@ describe('exemples valides — chauffeur vers serveur', () => {
       payload: { latitude: 4.05, longitude: 9.76, accuracyMeters: 8, speedMetersPerSecond: 6.2, headingDegrees: 180 },
     });
     assert.equal(msg.type, 'position.update');
+    // Forme additive (L6-05) : un message à un seul point (aucun `precedingSamples` fourni) reste
+    // valide, avec un tableau vide par défaut -- compatible avec tout appelant antérieur à L6-05.
+    assert.deepEqual(msg.payload.precedingSamples, []);
+  });
+
+  test('position.update -- agrégation (L6-05) : plusieurs relevés accumulés dans un seul message', () => {
+    const msg = PositionUpdateMessageSchema.parse({
+      type: 'position.update',
+      id: randomUUID(),
+      emittedAt: now,
+      payload: {
+        latitude: 4.05,
+        longitude: 9.76,
+        accuracyMeters: 8,
+        speedMetersPerSecond: 6.2,
+        headingDegrees: 180,
+        precedingSamples: [
+          { latitude: 4.049, longitude: 9.759, accuracyMeters: 10, speedMetersPerSecond: 5.8, headingDegrees: 178, capturedAt: now },
+          { latitude: 4.0495, longitude: 9.7595, accuracyMeters: 9, speedMetersPerSecond: 6.0, headingDegrees: 179, capturedAt: now },
+        ],
+      },
+    });
+    assert.equal(msg.payload.precedingSamples.length, 2);
   });
 
   test('availability.set', () => {

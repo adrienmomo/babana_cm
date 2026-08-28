@@ -169,8 +169,8 @@ describe('createRealtimeClient -- file d\'actions hors connexion (critères 2 et
     const { sockets, config } = baseConfig();
     const client = createRealtimeClient(config);
 
-    client.send('position.update', { latitude: 1, longitude: 1, accuracyMeters: 5, speedMetersPerSecond: null, headingDegrees: null });
-    client.send('position.update', { latitude: 2, longitude: 2, accuracyMeters: 5, speedMetersPerSecond: null, headingDegrees: null });
+    client.send('position.update', { latitude: 1, longitude: 1, accuracyMeters: 5, speedMetersPerSecond: null, headingDegrees: null, precedingSamples: [] });
+    client.send('position.update', { latitude: 2, longitude: 2, accuracyMeters: 5, speedMetersPerSecond: null, headingDegrees: null, precedingSamples: [] });
 
     await client.connect();
     sockets[0].simulateOpen();

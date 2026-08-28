@@ -13,6 +13,14 @@ jest.mock('../../realtime', () => ({
   realtimeClient: { send: (...args: unknown[]) => mockSend(...args) },
 }));
 
+// L6-05 : sans ce double, le singleton réel (`../../location`) programmerait de vrais minuteurs
+// GPS récursifs dès `setOnline(true)` -- voir tracker.test.ts pour les tests qui exercent
+// réellement LocationTracker, avec des dépendances injectées.
+const mockSetOnline = jest.fn();
+jest.mock('../../location', () => ({
+  locationTracker: { setOnline: (...args: unknown[]) => mockSetOnline(...args) },
+}));
+
 import { AvailabilityToggle } from '../AvailabilityToggle';
 
 function texts(root: ReactTestRenderer): string {
@@ -66,15 +74,18 @@ describe('AvailabilityToggle (L6-11, D7)', () => {
     const sendOrder = mockSend.mock.invocationCallOrder[0]!;
     expect(requestOrder).toBeLessThan(sendOrder);
     expect(mockSend).toHaveBeenCalledWith('availability.set', { online: true });
+    // L6-05 : la capture GPS suit le même instant que l'application côté service temps réel.
+    expect(mockSetOnline).toHaveBeenCalledWith(true);
   });
 
-  it("un refus n'envoie jamais availability.set -- rien n'est appliqué côté service temps réel", async () => {
+  it("un refus n'envoie jamais availability.set -- rien n'est appliqué côté service temps réel, ni la capture GPS", async () => {
     mockRequest.mockRejectedValue(new ApiError('DRIVER_NOT_APPROVED', 'x', 403));
     const root = await renderToggle();
 
     await press(root);
 
     expect(mockSend).not.toHaveBeenCalled();
+    expect(mockSetOnline).not.toHaveBeenCalled();
   });
 
   it('critère 1 -- chaque motif de refus affiche un message distinct', async () => {

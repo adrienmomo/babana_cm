@@ -4,10 +4,9 @@
     {
       "name": "position.update",
       "direction": "client-to-server",
-      "status": "pending",
-      "emitter": "aucune app réelle -- apps/driver/src ne contient aucun code temps réel (L6-05, capture GPS, non commencée : seuls SignInScreen et la navigation existent). Émis aujourd'hui uniquement par des clients WS de test (services/odoo/addons/babana/tests/_realtime_ws.py::bring_driver_online, test/concurrency/helpers).",
-      "consumer": "réel et testé : services/realtime/src/ws/dispatch.ts (case 'position.update') -> tracking/ingest.ts, services/realtime/test/ingest.test.ts.",
-      "reason": "Émetteur manquant -- tâche L6-05 (capture GPS, apps/driver), non commencée."
+      "status": "wired",
+      "emitter": "apps/driver/src/location/tracker.ts (L6-05, 2 septembre) -- fréquence adaptative selon l'état (hors ligne/immobile/en mouvement/en course), positions agrégées dans precedingSamples avant envoi. Démarré par bootstrap.ts, mis à jour par AvailabilityToggle.tsx (setOnline) et par le flux temps réel lui-même (proposal.accepted/ride.completed/ride.cancelled/session.synced). apps/driver/src/location/__tests__/tracker.test.ts.",
+      "consumer": "réel et testé : services/realtime/src/ws/dispatch.ts (case 'position.update') -> tracking/ingest.ts, services/realtime/test/ingest.test.ts."
     },
     {
       "name": "availability.set",

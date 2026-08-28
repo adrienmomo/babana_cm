@@ -127,3 +127,166 @@ de bout en bout se termine encore avec `measured: false` (au lieu de `true` avec
 tâche suivante de ce soir change cet état de fait.
 
 ---
+
+## L6-05 — capture GPS chauffeur : réglable et instrumentée, pas optimisée à l'aveugle
+
+### Le cadrage tenu
+
+« Cette nuit ne produit pas une capture optimisée — elle produit une capture réglable et
+instrumentée » : tenu au pied de la lettre. Aucune valeur codée en dur (invariant 5) — dix-sept
+paramètres dans `apps/driver/config.ts`, tous lus depuis l'environnement de build avec un défaut
+plausible, jamais calibré (même réserve que L2-05/L3-10). `position.update` avait un consommateur
+réel depuis L3-02 mais aucun émetteur réel (`realtime-message-map.json` le disait explicitement :
+« Émetteur manquant — tâche L6-05, non commencée ») — il en a un maintenant
+(`apps/driver/src/location/tracker.ts`), câblage vérifié par le script de cartographie.
+
+### Ce qui a été construit
+
+`apps/driver/src/location/` : `adaptive.ts` (fonctions pures), `permissions.ts`, `background.ts`,
+`tracker.ts` — plus `oneShot.ts`, l'ancien `location.ts` déplacé ici pour partager la même
+permission de premier plan que la capture continue (une seule implémentation, jamais deux qui
+pourraient diverger).
+
+**Fréquence adaptative, sur quatre états** (`DriverActivityState`) : `offline` (aucune capture),
+`online_idle` (très faible), `online_moving` (modérée), `in_ride` (élevée) — bascule immédiate à
+chaque changement d'état, jamais au bout de l'ancienne cadence. **L'immobilité se détecte sur la
+vitesse instantanée ET le déplacement cumulé sur une fenêtre glissante** (`MovementDetector`),
+jamais un compteur seul (spécification) : un bruit GPS à l'arrêt ne franchit jamais le seuil de
+déplacement cumulé, un déplacement lent et réel finit par le franchir.
+
+**Agrégation avant envoi, au niveau du contrat lui-même.** `position.update` (C-02) portait un
+point unique ; il porte désormais, en plus, `precedingSamples` — les points captés depuis le
+dernier envoi, chacun avec son propre horodatage. Forme **additive** (défaut `[]`), donc
+rétrocompatible avec tout appelant antérieur à ce soir. Le tampon se vide au premier des deux
+déclencheurs : taille (`LOCATION_BATCH_SIZE`) ou délai maximal (`LOCATION_BATCH_MAX_WAIT_MS`) — ce
+second seuil évite qu'un point capté juste avant un ralentissement de cadence reste en attente
+indéfiniment. Le service temps réel traite un lot dans l'ordre chronologique, chaque point soumis
+à la même validation de plausibilité (L3-02) qu'un point isolé (`tracking/ingest.ts`, refactoré en
+boucle plutôt qu'en traitement d'un point unique — coeur inchangé, comportement identique quand
+`precedingSamples` est vide).
+
+**Ce détour a changé le sujet, et vaut d'être expliqué** : la version initiale envisagée
+(reproduire l'agrégation uniquement côté application, sans toucher au contrat) s'est heurtée à un
+fait vérifié dans le dépôt, pas supposé — `packages/api-client/src/realtime/connection.ts::send()`
+traite `position.update` comme « la dernière position gagne », et l'envoie **immédiatement** dès
+que la connexion est ouverte, à chaque appel. Empiler plusieurs appels `send()` depuis le tampon
+n'aurait donc économisé aucun message sur le fil, seulement déplacé le problème — l'aggrégation
+n'existerait que dans le tampon local, jamais dans ce qui part réellement. Le champ
+`precedingSamples`, additif, résout ça sans casser ce que `connection.ts` faisait déjà (le
+cache "dernière position" continue de fonctionner tel quel, sur l'enveloppe entière, lot compris).
+
+**Permissions, arrière-plan, refus non bloquant.** Premier plan et arrière-plan
+(`ACCESS_BACKGROUND_LOCATION`) demandées séparément — Android l'exige depuis la version 10 : une
+demande groupée est refusée par le système sur les versions récentes. Un refus, quel qu'il soit,
+ne lève jamais et ne bloque jamais l'app (critère 5) — seule la capture reste inactive, réessayée
+à la cadence normale (jamais en boucle serrée) au cas où la permission serait accordée plus tard
+depuis les réglages du téléphone. Notification persistante honnête (`background.ts`) posée dès
+qu'un état non `offline` est atteint, effacée à l'instant du retour hors ligne.
+
+**Le repli, décidé d'avance, atteignable par un réglage.** `LOCATION_DEGRADED_MODE` (booléen) :
+vrai, `online_idle`/`online_moving` convergent vers une cadence unique très espacée
+(`LOCATION_DEGRADED_ONLINE_INTERVAL_MS`) — `in_ride` n'est jamais affecté. On perd la fraîcheur du
+géo-index hors course, on garde la flotte. Un changement de valeur, jamais un développement.
+
+**Arrêt immédiat au passage hors ligne**, et à la perte de session (déconnexion, jeton de
+renouvellement révoqué — ajouté en écrivant `tracker.ts`, `AuthClient.onSessionLost` n'était
+abonné par aucun code de capture avant ce soir) : le tampon en attente est **jeté, pas envoyé** —
+un chauffeur qui vient de finir sa journée ne doit plus émettre une seule position, y compris
+celles captées dans les secondes précédentes.
+
+**Instrumentation, ce que L6-17 mesurera** (`tracker.ts::getMetrics()`) : `positionsCaptured`,
+`positionsSent`, `bytesSent` (taille JSON réelle des lots envoyés), `gpsActiveMs` (temps cumulé
+d'un appel GPS en vol). Rien de plus ce soir — L6-17 est la tâche qui branchera un point de lecture
+et un protocole de mesure sur un vrai terminal ; ces compteurs sont ce qu'elle lira, pas une
+optimisation faite à l'aveugle à leur place.
+
+### Un vrai bug de minuterie, trouvé en écrivant les tests
+
+`scheduleNextCapture(delayMs)` utilisait `delayMs || interval` pour décider du délai réel —
+en JavaScript, `0 || interval` vaut `interval`, pas `0`. Le seul appelant qui passait `0` en
+voulant dire « immédiatement » (`recomputeState()`, à chaque changement d'état) programmait donc
+en réalité le prochain relevé à la cadence de l'ANCIEN état, pas une capture immédiate. Trouvé en
+écrivant `tracker.test.ts` (le test « en course… immédiatement » aurait échoué avec le code
+d'origine), pas en relisant le code a posteriori — exactement ce que la suite de tests est censée
+attraper avant qu'un humain n'ait à le faire. Corrigé : le paramètre est désormais un délai
+littéral, jamais mélangé avec la cadence de l'état (`explicitDelayMs`, undefined = cadence
+normale, toute valeur fournie — y compris 0 — utilisée telle quelle).
+
+### L'écart, signalé plutôt que contourné
+
+**Aucun vrai service de premier plan Android n'est démarré** (`amoa/questions/L6-05.md`). La
+notification persistante donne l'apparence visuelle d'un tel service (non balayable, honnête sur
+ce qui est collecté) mais ne lie aucun `startForegroundService` natif — aucune bibliothèque de ce
+type n'est une dépendance de ce paquet aujourd'hui, et en ajouter une à l'aveugle (sans terminal
+pour la calibrer) serait exactement le genre de choix à signaler plutôt qu'à trancher seul
+(CLAUDE.md, « pas de dépendance nouvelle sans nécessité »). Conséquence concrète : Android peut
+throttler les minuteurs JS de `tracker.ts` une fois l'app reléguée en arrière-plan prolongé,
+au-delà de ce qu'aucun test ici ne peut prouver ni infirmer. Trois options posées dans l'écart,
+aucune tranchée — la première (mesurer avant de décider) est un préalable aux deux autres.
+
+### Tests
+
+- `location/__tests__/adaptive.test.ts` (11 tests) : les quatre états et leurs cadences, le mode
+  dégradé, la détection de mouvement (vitesse et déplacement cumulé, séparément et ensemble),
+  fenêtre glissante, `reset()`.
+- `location/__tests__/permissions.test.ts` (6 tests) : premier plan et arrière-plan, Android et
+  iOS, accordée et refusée -- jamais d'exception.
+- `location/__tests__/tracker.test.ts` (11 tests) : les cinq critères d'acceptation de la
+  spécification (aucune capture hors ligne ; fréquence selon les quatre états ; agrégation par
+  taille ET par délai ; continuité -- notification affichée/effacée ; refus de permission non
+  bloquant), plus l'arrêt immédiat (hors ligne, perte de session), le repli, l'instrumentation.
+- `packages/contracts/test/realtime.test.ts` : forme additive de `position.update`
+  (`precedingSamples` par défaut vide, un lot valide avec plusieurs points).
+- `services/realtime/test/ingest.test.ts` : un message agrégé traite chaque point dans l'ordre,
+  la position stockée est la plus récente, chaque point compte dans les métriques de rejet/accept.
+- `components/__tests__/AvailabilityToggle.test.tsx`, `screens/__tests__/HomeScreen.test.tsx` :
+  double du singleton `locationTracker` -- sans lui, `setOnline(true)` dans un test démarrerait de
+  vrais minuteurs GPS récursifs sur le singleton réel (trouvé en lançant la suite complète pour la
+  première fois : `HomeScreen.test.tsx` faisait planter le worker Jest après son propre
+  achèvement -- exactement le genre de fuite que ces doubles existent pour éviter).
+- `docs/contracts/verify-realtime-message-map.js` : `position.update` passe de `pending` à
+  `wired`, émetteur nommé.
+
+### Doute pour quelqu'un de réel
+
+**Tout ce qui précède est vérifié en JavaScript pur, contre des dépendances doublées.** Rien n'a
+tourné sur un vrai téléphone, avec un vrai GPS, une vraie gestion de batterie de fabricant, un vrai
+Doze mode Android. Les quatre cadences, les deux seuils de mouvement, la taille et le délai du
+lot : dix-sept valeurs plausibles, aucune calibrée. C'est exactement le travail que L6-17 doit
+faire, et pour lequel ce soir a posé les compteurs à lire.
+
+### Réglages recommandés pour le premier jour du pilote, et les plus risqués
+
+**Recommandés au démarrage, sans y toucher :**
+
+- `LOCATION_CAPTURE_INTERVAL_RIDE_MS = 5000` et `LOCATION_BATCH_SIZE = 5` : en course, un lot part
+  environ toutes les 25 secondes. C'est la donnée qui alimente le tracé (L3-10) et le suivi client
+  (`driver.position`, diffusé à part, cadence propre) -- la moins risquée à laisser telle quelle,
+  parce que c'est la plus courte durée d'exposition (une course dure rarement plus d'une heure).
+- `LOCATION_DEGRADED_MODE = false` au premier jour, **mais l'interrupteur doit être vérifié
+  fonctionnel avant le départ** (un test manuel : bascule à `true`, `make client`/`make driver`,
+  observer la cadence hors course ralentir) -- c'est le levier à actionner en urgence si la
+  batterie ne tient pas, il ne doit pas être découvert cassé le jour où il sert.
+
+**Les plus risqués, à surveiller dès la première heure :**
+
+- `LOCATION_CAPTURE_INTERVAL_IDLE_MS = 90000` (immobile) et `LOCATION_CAPTURE_INTERVAL_MOVING_MS
+  = 15000` (en mouvement, hors course) : ce sont des suppositions pures, jamais mesurées contre un
+  vrai chauffeur qui attend une course sur le bord d'une route à Douala. Trop courtes, elles
+  videront la batterie avant la fin de la matinée -- c'est le risque nommé depuis le début de la
+  nuit (« un chauffeur dont la batterie tient trois heures désinstalle l'application »). Trop
+  longues, la position affichée aux clients (`nearby.drivers`) sera perçue comme périmée, et
+  `L3-05` ne peut rien y faire : la fraîcheur qu'il diffuse dépend entièrement de ce que ce module
+  lui fournit.
+- **La fiabilité de la capture en arrière-plan prolongé** (voir l'écart ci-dessus) : c'est le
+  risque qui ne se mesure pas en changeant une valeur, seulement en observant un vrai téléphone,
+  écran éteint ou Google Maps au premier plan, pendant une heure. Si L6-17 montre une perte de
+  capture significative, la première question à se poser est laquelle des trois options de
+  `amoa/questions/L6-05.md` -- pas un réglage à ajuster dans `config.ts`.
+- `LOCATION_IDLE_SPEED_THRESHOLD_MPS = 1.0` et `LOCATION_IDLE_DISPLACEMENT_THRESHOLD_METERS = 40` :
+  si la détection de mouvement se trompe dans un sens (un chauffeur réellement en attente classé
+  « en mouvement » en continu), la batterie en pâtit sans que personne ne comprenne pourquoi --
+  c'est un mode de défaillance silencieux, à chercher en premier si la consommation mesurée par
+  L6-17 dépasse le seuil attendu sans explication évidente.
+
+---

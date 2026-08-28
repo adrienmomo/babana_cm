@@ -68,6 +68,7 @@ function positionMessage(latitude: number, longitude: number) {
       accuracyMeters: 10,
       speedMetersPerSecond: 0,
       headingDegrees: 0,
+      precedingSamples: [],
     },
   };
 }
