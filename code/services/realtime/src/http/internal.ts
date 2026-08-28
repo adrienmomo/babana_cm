@@ -70,6 +70,12 @@ const ReservationRequestSchema = z.object({
   destination: z.object({ latitude: z.number(), longitude: z.number() }),
   amount: z.number(),
   distanceMeters: z.number(),
+  // D42 (2 septembre, amoa/questions/REPONSES-2026-09-02.md §1) : Odoo le connaît déjà
+  // (client_user.partner_id.phone), transmis ici au même titre qu'origin/destination/amount --
+  // évite un appel Odoo supplémentaire depuis ce service au moment de l'affectation (voir
+  // proposal/lifecycle.ts::accept). `.nullable()` : rien ne garantit qu'un client a un numéro
+  // renseigné.
+  clientPhoneNumber: z.string().nullable(),
 });
 
 export type ReservationOutcome =
@@ -160,6 +166,7 @@ async function handleReservation(deps: InternalRouterDeps, rawBody: unknown, res
         destination: body.destination,
         amount: body.amount,
         distanceMeters: body.distanceMeters,
+        clientPhoneNumber: body.clientPhoneNumber,
       };
       const proposeOutcome = await deps.proposals.propose(body.driverId, details);
       if (!proposeOutcome.proposed) {

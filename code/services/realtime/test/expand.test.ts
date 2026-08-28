@@ -37,6 +37,7 @@ const PROFILE: DriverProfile = {
   rating: 4.8,
   motorcycleClass: 'standard',
   licensePlate: 'LT-1234-BC',
+  phoneNumber: '+237655000111',
 };
 
 // Coin isolé de la zone d'exploitation (>6 km de tout point déjà utilisé par les autres fichiers

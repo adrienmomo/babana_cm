@@ -179,6 +179,9 @@ function reservationBody(overrides: Partial<Record<string, unknown>> = {}) {
     destination: { latitude: 4.06, longitude: 9.72 },
     amount: 1_200,
     distanceMeters: 3_400,
+    // D42 (amoa/questions/REPONSES-2026-09-02.md §1) : Odoo le transmet désormais dans le même
+    // appel qu'origin/destination/amount ci-dessus (services/realtime_client.py::reserve_and_propose).
+    clientPhoneNumber: '+237691234567',
     ...overrides,
   };
 }

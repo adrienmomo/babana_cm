@@ -61,6 +61,7 @@ const DRIVER = {
   photoUrl: null,
   motorcycleClass: 'standard' as const,
   licensePlate: 'LT-1234-AB',
+  phoneNumber: '+237691234567',
 };
 
 function fakeNavigation() {

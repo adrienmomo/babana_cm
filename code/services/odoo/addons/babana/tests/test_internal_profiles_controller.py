@@ -22,8 +22,8 @@ class TestInternalProfilesController(HttpCase):
     def _real_secret(self) -> str:
         return os.environ["REALTIME_SHARED_SECRET"]
 
-    def _make_approved_driver(self, name, *, vehicle_class="standard"):
-        employee = self.env["hr.employee"].create({"name": name})
+    def _make_approved_driver(self, name, *, vehicle_class="standard", mobile_phone="+237655000111"):
+        employee = self.env["hr.employee"].create({"name": name, "mobile_phone": mobile_phone})
         motorcycle = self.env["babana.motorcycle"].create(
             {"license_plate": f"LT-{employee.id:04d}-DP", "vehicle_class": vehicle_class}
         )
@@ -43,9 +43,9 @@ class TestInternalProfilesController(HttpCase):
         response = self._post({"driverIds": []}, secret="not-the-secret")
         self.assertEqual(response.status_code, 401)
 
-    # --- Critère 1 : les cinq champs viennent d'Odoo ------------------------------------------
+    # --- Critère 1 : les six champs viennent d'Odoo -------------------------------------------
 
-    def test_returns_the_five_whitelisted_fields(self):
+    def test_returns_the_six_whitelisted_fields(self):
         driver = self._make_approved_driver("Paul Ekwalla", vehicle_class="premium")
 
         response = self._post({"driverIds": [driver.public_id]}, secret=self._real_secret())
@@ -60,6 +60,8 @@ class TestInternalProfilesController(HttpCase):
         # jamais exposé par nearby.drivers (voir services/realtime/src/nearby/projection.ts, qui
         # ne le lit pas), seulement par ride.assigned une fois le chauffeur affecté.
         self.assertEqual(profile["licensePlate"], driver.motorcycle_id.license_plate)
+        # phoneNumber (D42, 2 septembre) : même discipline que licensePlate ci-dessus.
+        self.assertEqual(profile["phoneNumber"], driver.employee_id.mobile_phone)
 
     # --- Critère 3 : un seul appel gère tout un lot -------------------------------------------
 
@@ -78,17 +80,24 @@ class TestInternalProfilesController(HttpCase):
     # --- Critère 4 : liste blanche, jamais l'enregistrement projeté ---------------------------
 
     def test_no_field_beyond_the_whitelist_is_ever_served(self):
-        driver = self._make_approved_driver("Chauffeur Confidentiel")
+        # phone_number est délibérément None ici (D42 ajoute le champ à la liste blanche, mais ne
+        # garantit rien d'un numéro renseigné) -- utile aussi pour vérifier que la valeur réelle
+        # du numéro (mobile_phone par défaut de _make_approved_driver) ne fuit pas par accident
+        # quand elle n'est pas censée être là.
+        driver = self._make_approved_driver("Chauffeur Confidentiel", mobile_phone=False)
 
         response = self._post({"driverIds": [driver.public_id]}, secret=self._real_secret())
 
         profile = response.json()["profiles"][driver.public_id]
         self.assertEqual(
             set(profile.keys()),
-            {"firstName", "photoUrl", "rating", "motorcycleClass", "licensePlate"},
+            {"firstName", "photoUrl", "rating", "motorcycleClass", "licensePlate", "phoneNumber"},
         )
         serialized = json.dumps(profile)
-        for forbidden in ("Confidentiel", "license_plate", "employee_id", "phone"):
+        # "phone" seul n'est plus un motif valide (D42 l'introduit légitimement dans le nom du
+        # champ "phoneNumber") -- la forme snake_case (jamais celle du contrat, D17) reste un bon
+        # indicateur de fuite de l'enregistrement brut, comme license_plate/employee_id.
+        for forbidden in ("Confidentiel", "license_plate", "employee_id", "mobile_phone"):
             self.assertNotIn(forbidden, serialized)
 
     # --- Chauffeur inconnu : jamais inventé ---------------------------------------------------

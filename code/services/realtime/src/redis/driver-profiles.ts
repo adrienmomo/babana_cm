@@ -31,6 +31,13 @@ export interface DriverProfile {
    * Odoo, même fraîcheur, deux consommateurs qui ne projettent pas les mêmes champs.
    */
   licensePlate: string | null;
+  /**
+   * Ajouté le 2 septembre (D42, amoa/questions/REPONSES-2026-09-02.md §1) : le numéro du
+   * chauffeur, pour que le client puisse l'appeler pendant l'approche puis la course. Même
+   * discipline que `licensePlate` -- lu par `proposal/lifecycle.ts::accept` (`ride.assigned`)
+   * seulement, jamais par `nearby/projection.ts` (C2b).
+   */
+  phoneNumber: string | null;
 }
 
 const DRIVER_PROFILE_KEY_PREFIX = 'babana:driver:profile:';

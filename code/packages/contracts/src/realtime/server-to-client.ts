@@ -54,9 +54,19 @@ export type ProposalExpiredMessage = z.infer<typeof ProposalExpiredMessageSchema
  * toujours trop court ou trop long sur un réseau de Douala. Émis au même point que
  * `ride.assigned` (`proposal/lifecycle.ts::accept`, juste après le succès de `resolveProposal`) :
  * toute action émise sur le fil reçoit une réponse, positive ou négative.
+ *
+ * `clientPhoneNumber` (D42, 27 août -- amoa/questions/REPONSES-2026-09-02.md §1) : symétrique de
+ * `phoneNumber` sur `ride.assigned` ci-dessous -- même discipline que l'immatriculation, révélé à
+ * l'affectation, effacé à la fin de course, des deux côtés. Lu directement depuis
+ * `ProposalDetails` (posé par `propose()`, donc déjà en Redis au moment de `accept()` -- un GET
+ * local, jamais un appel Odoo) précisément pour rester disponible AVANT tout `await` sur Odoo ou
+ * le cache de profils, la contrainte D49 ci-dessus ne change pas avec ce champ. `null` si
+ * l'enregistrement de proposition a expiré entre la résolution atomique et sa lecture (filet déjà
+ * existant, `consumeRecord`) -- jamais bloquant, même raisonnement que D30.
  */
 export const ProposalAcceptedPayloadSchema = z.object({
   rideId: RideIdSchema,
+  clientPhoneNumber: z.string().nullable(),
 });
 export const ProposalAcceptedMessageSchema = envelopeSchema('proposal.accepted', ProposalAcceptedPayloadSchema);
 export type ProposalAcceptedMessage = z.infer<typeof ProposalAcceptedMessageSchema>;
@@ -168,7 +178,15 @@ export type RideProposedMessage = z.infer<typeof RideProposedMessageSchema>;
  *
  * Nullable, même raison que `NearbyDriverSchema` (D30) : un profil chauffeur qu'Odoo n'a jamais
  * fini de synchroniser ne doit jamais retarder ni bloquer l'envoi de `ride.assigned` — la
- * confirmation de l'affectation elle-même ne dépend d'aucun de ces quatre champs.
+ * confirmation de l'affectation elle-même ne dépend d'aucun de ces quatre champs (cinq avec
+ * `phoneNumber` ci-dessous, même discipline).
+ *
+ * `phoneNumber` (D42, 27 août — amoa/questions/REPONSES-2026-09-02.md §1) : le numéro du
+ * chauffeur, pour que le client puisse l'appeler pendant l'approche puis la course
+ * (`amoa/questions/L6-09.md`). Suit exactement la même discipline que `licensePlate` : délibérément
+ * exclu de `nearby.drivers` (C2b, la flotte ne doit pas être balayable par un client qui ne fait
+ * que regarder), révélé seulement ici — à l'affectation — et effacé à la fin de course des deux
+ * côtés (`RideSummary` ne le reçoit jamais, voir `apps/client/src/navigation/types.ts`).
  */
 export const RideAssignedPayloadSchema = z.object({
   rideId: RideIdSchema,
@@ -177,6 +195,7 @@ export const RideAssignedPayloadSchema = z.object({
   photoUrl: z.string().url().nullable(),
   motorcycleClass: VehicleClassSchema.nullable(),
   licensePlate: z.string().nullable(),
+  phoneNumber: z.string().nullable(),
 });
 export const RideAssignedMessageSchema = envelopeSchema('ride.assigned', RideAssignedPayloadSchema);
 export type RideAssignedMessage = z.infer<typeof RideAssignedMessageSchema>;

@@ -76,6 +76,12 @@ class InternalDriverProfilesController(http.Controller):
 
         motorcycle_class = driver.motorcycle_id.vehicle_class if driver.motorcycle_id else None
         license_plate = driver.motorcycle_id.license_plate if driver.motorcycle_id else None
+        # D42 (2 septembre, amoa/questions/REPONSES-2026-09-02.md §1) : le numéro du chauffeur,
+        # pour que le client puisse l'appeler à l'affectation. Même discipline que license_plate
+        # (décision explicite, pas le champ "pratique" que le paragraphe ci-dessus met en garde
+        # contre) -- hr.employee.mobile_phone, pas encore garanti renseigné (L1-06, validation du
+        # dossier, hors de ce lot).
+        phone_number = driver.employee_id.mobile_phone if driver.employee_id else None
 
         return {
             "firstName": first_name,
@@ -86,4 +92,5 @@ class InternalDriverProfilesController(http.Controller):
             "rating": rating,
             "motorcycleClass": motorcycle_class,
             "licensePlate": license_plate,
+            "phoneNumber": phone_number or None,
         }

@@ -103,6 +103,7 @@ describe('WaitingScreen (L6-08)', () => {
           photoUrl: null,
           motorcycleClass: 'standard',
           licensePlate: 'LT-1234-AB',
+          phoneNumber: '+237691234567',
         },
       });
     });
@@ -117,6 +118,7 @@ describe('WaitingScreen (L6-08)', () => {
         photoUrl: null,
         motorcycleClass: 'standard',
         licensePlate: 'LT-1234-AB',
+        phoneNumber: '+237691234567',
       },
     });
   });

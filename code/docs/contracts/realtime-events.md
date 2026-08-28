@@ -51,7 +51,7 @@ réel en commentaire au-dessus de son schéma.
 
 | Message | Émetteur | Payload | Rôle |
 |---|---|---|---|
-| `position.update` | Chauffeur | `{ latitude, longitude, accuracyMeters, speedMetersPerSecond, headingDegrees }` | Position GPS courante |
+| `position.update` | Chauffeur | `{ latitude, longitude, accuracyMeters, speedMetersPerSecond, headingDegrees, precedingSamples }` | Position GPS la plus récente, plus -- optionnellement -- les relevés accumulés avant elle (`precedingSamples`, défaut `[]`, L6-05) |
 | `availability.set` | Chauffeur | `{ online }` | Bascule en ligne / hors ligne (D7) |
 | `proposal.accept` | Chauffeur | `{ rideId }` | Transition `proposed → assigned` |
 | `proposal.reject` | Chauffeur | `{ rideId, reason? }` | Transition `proposed → rejected` |
@@ -71,19 +71,28 @@ les exclut de `nearby.drivers` et, si plus aucun candidat ne reste dans le rayon
 le rayon par paliers (`nearby/expand.ts`) jusqu'à un plafond configurable avant de renvoyer une
 liste vide — que L6-08 traduit en `NO_DRIVER_AVAILABLE`.
 
+`precedingSamples` (L6-05, `apps/driver/src/location/`) porte des `PositionSample` complets
+(mêmes champs que le point le plus récent, plus `capturedAt` individuel — un lot couvre plusieurs
+instants, contrairement à `emittedAt` de l'enveloppe qui est l'heure d'ENVOI du lot). Forme
+additive : un message à un seul point (`precedingSamples: []`) reste valide sans rien changer au
+comportement antérieur à L6-05 — chaque appelant existant continue de fonctionner tel quel. Le
+service temps réel (`tracking/ingest.ts::ingestPosition`) traite `[...precedingSamples, pointLePlusRécent]`
+dans l'ordre chronologique, chaque point passant la même validation de plausibilité (L3-02) que
+s'il était arrivé seul.
+
 ## Messages émis par le serveur (`server-to-client.ts`)
 
 | Message | Destinataire | Payload | Rôle |
 |---|---|---|---|
 | `proposal.new` | Chauffeur | `{ rideId, origin, destination, amount, distanceMeters, distanceToOriginMeters, expiresAt }` | Nouvelle proposition — `distanceToOriginMeters` = distance à vide jusqu'au client, Haversine, `null` si position illisible (D51) |
 | `proposal.expired` | Chauffeur | `{ rideId }` | Délai d'acceptation dépassé |
-| `proposal.accepted` | Chauffeur | `{ rideId }` | Son `proposal.accept` a été résolu en sa faveur (transition `proposed → assigned`) — symétrique de `ride.assigned` (D49) |
+| `proposal.accepted` | Chauffeur | `{ rideId, clientPhoneNumber }` | Son `proposal.accept` a été résolu en sa faveur (transition `proposed → assigned`) — symétrique de `ride.assigned` (D49) ; `clientPhoneNumber` : numéro du client, même discipline que `licensePlate` (D42) |
 | `ride.cancelled` | Chauffeur et/ou client, selon `cancelledBy` (L4-12) | `{ rideId, cancelledBy, reason? }` | La course a été annulée |
 | `nearby.drivers` | Client | `{ drivers: NearbyDriver[] }` (max 5) | Réponse à `nearby.subscribe`, puis mises à jour |
 | `nearby.subscribe.ack` | Client | `{ accepted: true, broadcastIntervalMs }` ou `{ accepted: false, retryAfterMs }` | Accusé de réception de `nearby.subscribe` — `broadcastIntervalMs` = cadence réelle de `nearby.drivers` (D50) |
 | `ride.track.ack` | Client | `{ broadcastIntervalMs }` | Accusé de réception de `ride.track` — cadence réelle de `driver.position` (D50) |
 | `ride.proposed` | Client | `{ rideId, driverId, proposalExpiresAt }` | Le chauffeur choisi a été réservé (redondant pour l'appareil qui a fait la demande, gardé pour un second appareil du même client — `amoa/questions/REPONSES-2026-08-28.md` §1) |
-| `ride.assigned` | Client | `{ rideId, driverId, firstName, photoUrl, motorcycleClass, licensePlate }` | Le chauffeur a accepté |
+| `ride.assigned` | Client | `{ rideId, driverId, firstName, photoUrl, motorcycleClass, licensePlate, phoneNumber }` | Le chauffeur a accepté |
 | `ride.rejected` | Client | `{ rideId, driverId, reason }` | Le chauffeur a refusé ou le délai a expiré |
 | `driver.position` | Client | `{ rideId, position, etaSeconds }` | Suivi pendant une course affectée ou en cours |
 | `ride.started` | Client | `{ rideId }` | Transition `→ in_progress` |
@@ -115,9 +124,20 @@ arrive. `licensePlate` est délibérément absent de tout ce qui précède l'aff
 (`nearby.drivers` ci-dessus, schéma inchangé) : la flotte ne doit pas être balayable par un
 client qui ne fait que regarder (C2b). C'est le choix qui fait basculer la sensibilité de la
 même donnée — ce client-là a choisi ce chauffeur-là, et il attend au bord d'une route de Douala,
-où une plaque se reconnaît mieux qu'un visage sous un casque. Les quatre champs sont nullables,
+où une plaque se reconnaît mieux qu'un visage sous un casque. Les cinq champs sont nullables,
 même raison que `NearbyDriver` (D30) : un profil qu'Odoo n'a pas fini de synchroniser ne doit
 jamais retarder l'envoi de `ride.assigned` lui-même.
+
+**`phoneNumber` (D42, 27 août — arbitrée le 27, portée le 2 septembre, `amoa/questions/
+REPONSES-2026-09-02.md` §1)** : le numéro du chauffeur, symétrique de `clientPhoneNumber` sur
+`proposal.accepted` ci-dessus. Même discipline que `licensePlate` : révélé à l'affectation,
+**effacé à la fin de course des deux côtés** — une donnée personnelle exposée sans qu'on décide
+quand elle cesse de l'être reste exposée par défaut. Côté client, l'effacement est structurel :
+`AssignedDriverInfo` (`apps/client/src/navigation/types.ts`) ne voyage que sur la route
+`Tracking`, et `navigation.replace('RideSummary', ...)` fait disparaître ces paramètres de la
+pile — `RideSummary` ne reçoit jamais `phoneNumber`. Côté chauffeur, même mécanique :
+`clientPhoneNumber` voyage jusqu'à `ActiveRide` (`DriverParamList`) et disparaît au
+`navigation.reset` vers `Settlement`.
 
 `ride.completed` porte `breakdown` (même `FareBreakdown` que `POST /quote`, C-01) depuis le
 25 août — le résumé de fin est ce qu'un client relira en cas de litige, il doit être ce que le

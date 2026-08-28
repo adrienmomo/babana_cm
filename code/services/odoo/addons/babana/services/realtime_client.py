@@ -86,6 +86,13 @@ def reserve_and_propose(*, ride, driver, client_user, idempotency_key: str | Non
             "destination": {"latitude": ride.dropoff_latitude, "longitude": ride.dropoff_longitude},
             "amount": ride.estimated_amount,
             "distanceMeters": round((ride.reference_distance_km or 0.0) * 1000),
+            # D42 (2 septembre, amoa/questions/REPONSES-2026-09-02.md §1) : transmis ici, au même
+            # titre qu'origin/destination/amount ci-dessus -- Odoo le connaît déjà, un aller-retour
+            # supplémentaire du service temps réel vers Odoo à l'acceptation n'apporterait rien
+            # (proposal/lifecycle.ts::accept le lit directement depuis le dépôt Redis posé par
+            # propose(), voir sa docstring). `None` si le client n'a pas de numéro renseigné --
+            # L1-09 (vérification) est hors de ce lot, ce champ n'est donc pas garanti aujourd'hui.
+            "clientPhoneNumber": client_user.partner_id.phone or None,
         },
     )
 

@@ -117,7 +117,14 @@ export function ProposalScreen({ route, navigation }: Props) {
       if (isProposalAcceptedMessage(message) && message.payload.rideId === rideId) {
         if (decisionRef.current === 'rejecting' || decisionRef.current === 'resolved') return;
         updateDecision('resolved');
-        replaceWithActiveRide(navigation, { rideId, origin, destination, amount, distanceMeters });
+        replaceWithActiveRide(navigation, {
+          rideId,
+          origin,
+          destination,
+          amount,
+          distanceMeters,
+          clientPhoneNumber: message.payload.clientPhoneNumber,
+        });
         return;
       }
       if (
@@ -127,7 +134,9 @@ export function ProposalScreen({ route, navigation }: Props) {
         ASSIGNED_RIDE_STATES.has(message.payload.activeRideState)
       ) {
         updateDecision('resolved');
-        replaceWithActiveRide(navigation, { rideId, origin, destination, amount, distanceMeters });
+        // Filet de resynchronisation (D30) : session.synced ne porte pas le numéro du client --
+        // absent, jamais inventé, plutôt qu'une valeur périmée ou devinée.
+        replaceWithActiveRide(navigation, { rideId, origin, destination, amount, distanceMeters, clientPhoneNumber: null });
         return;
       }
       if (isProposalExpiredMessage(message) && message.payload.rideId === rideId) {

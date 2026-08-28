@@ -7,6 +7,7 @@ const ACTIVE_RIDE_PARAMS = {
   destination: { latitude: 4.061, longitude: 9.71 },
   amount: 1500,
   distanceMeters: 3200,
+  clientPhoneNumber: '+237691234567',
 };
 
 describe('transitions (piège du bouton retour Android, spécification L6-00)', () => {

@@ -91,8 +91,13 @@ function emitExpired(rideId = RIDE_ID) {
   realtimeListener?.({ type: 'proposal.expired', id: 'e1', emittedAt: new Date().toISOString(), payload: { rideId } });
 }
 
-function emitAccepted(rideId = RIDE_ID) {
-  realtimeListener?.({ type: 'proposal.accepted', id: 'a1', emittedAt: new Date().toISOString(), payload: { rideId } });
+function emitAccepted(rideId = RIDE_ID, clientPhoneNumber: string | null = '+237691234567') {
+  realtimeListener?.({
+    type: 'proposal.accepted',
+    id: 'a1',
+    emittedAt: new Date().toISOString(),
+    payload: { rideId, clientPhoneNumber },
+  });
 }
 
 function emitSynced(activeRideId: string | null, activeRideState: string | null) {
@@ -169,7 +174,18 @@ describe('ProposalScreen (L6-12)', () => {
     await act(async () => {
       emitAccepted();
     });
-    expect(mockReplaceWithActiveRide).toHaveBeenCalledWith(navigation, expect.objectContaining({ rideId: RIDE_ID, origin: PARAMS.origin, destination: PARAMS.destination, amount: PARAMS.amount }));
+    // D42 (amoa/questions/REPONSES-2026-09-02.md §1) : le numéro du client, porté par
+    // proposal.accepted, voyage jusqu'à ActiveRide.
+    expect(mockReplaceWithActiveRide).toHaveBeenCalledWith(
+      navigation,
+      expect.objectContaining({
+        rideId: RIDE_ID,
+        origin: PARAMS.origin,
+        destination: PARAMS.destination,
+        amount: PARAMS.amount,
+        clientPhoneNumber: '+237691234567',
+      })
+    );
     expect(navigation.goBack).not.toHaveBeenCalled();
   });
 
@@ -200,7 +216,17 @@ describe('ProposalScreen (L6-12)', () => {
     await act(async () => {
       emitSynced(RIDE_ID, 'assigned');
     });
-    expect(mockReplaceWithActiveRide).toHaveBeenCalledWith(navigation, expect.objectContaining({ rideId: RIDE_ID, origin: PARAMS.origin, destination: PARAMS.destination, amount: PARAMS.amount }));
+    // D42 : le filet session.synced ne porte pas le numéro du client -- absent, jamais inventé.
+    expect(mockReplaceWithActiveRide).toHaveBeenCalledWith(
+      navigation,
+      expect.objectContaining({
+        rideId: RIDE_ID,
+        origin: PARAMS.origin,
+        destination: PARAMS.destination,
+        amount: PARAMS.amount,
+        clientPhoneNumber: null,
+      })
+    );
   });
 
   it('critère 3 -- une acceptation tardive (proposal.expired reçu après l’envoi) affiche un message compréhensible, jamais ActiveRide', async () => {

@@ -45,6 +45,15 @@ export type DriverParamList = {
     amount: number;
     /** Distance de référence de la course (celle du tarif) -- voir `apps/driver/src/ride/completion.ts`. */
     distanceMeters: number;
+    /**
+     * D42 (2 septembre, amoa/questions/REPONSES-2026-09-02.md §1, referme
+     * `amoa/questions/L6-13.md`) : le numéro du client, porté par `proposal.accepted` --
+     * `ProposalScreen` le fait suivre ici. `null` si l'enregistrement a expiré côté serveur
+     * entre la résolution atomique et sa lecture (filet D30), ou si la reprise passe par le
+     * filet `session.synced` plutôt que par `proposal.accepted` lui-même (rien à faire suivre
+     * dans ce cas -- absent, jamais inventé). Effacé à `Settlement` : n'y figure jamais.
+     */
+    clientPhoneNumber: string | null;
   };
   Settlement: { rideId: RideId; amount: number };
   /** Déclaration de remise (L5-07, écran pas encore construit -- `amoa/questions/L6-11.md`) :

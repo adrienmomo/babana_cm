@@ -13,6 +13,7 @@ describe('parseIncomingMessage (L6-04, critère 5)', () => {
         photoUrl: null,
         motorcycleClass: 'standard',
         licensePlate: 'LT-1234-BC',
+        phoneNumber: '+237691234567',
       },
     });
 

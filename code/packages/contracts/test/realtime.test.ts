@@ -168,6 +168,24 @@ describe('exemples valides — serveur vers chauffeur', () => {
       ProposalExpiredMessageSchema.parse({ type: 'proposal.expired', id: randomUUID(), emittedAt: now, payload: { rideId } })
     );
     assert.doesNotThrow(() =>
+      ProposalAcceptedMessageSchema.parse({
+        type: 'proposal.accepted',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: { rideId, clientPhoneNumber: '+237691234567' },
+      })
+    );
+    // D42 : nullable (pas absent) -- même filet que le reste de ride.assigned (D30), mais le champ
+    // lui-même est requis.
+    assert.doesNotThrow(() =>
+      ProposalAcceptedMessageSchema.parse({
+        type: 'proposal.accepted',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: { rideId, clientPhoneNumber: null },
+      })
+    );
+    assert.throws(() =>
       ProposalAcceptedMessageSchema.parse({ type: 'proposal.accepted', id: randomUUID(), emittedAt: now, payload: { rideId } })
     );
     assert.doesNotThrow(() =>
@@ -218,6 +236,24 @@ describe('exemples valides — serveur vers client', () => {
       })
     );
     assert.doesNotThrow(() =>
+      RideAssignedMessageSchema.parse({
+        type: 'ride.assigned',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: {
+          rideId,
+          driverId,
+          firstName: 'Paul',
+          photoUrl: null,
+          motorcycleClass: 'standard',
+          licensePlate: 'LT-1234-BC',
+          phoneNumber: '+237691234567',
+        },
+      })
+    );
+    // D42 : requis mais nullable -- absent doit échouer, null doit passer (même filet que les
+    // quatre autres champs de ride.assigned, D30).
+    assert.throws(() =>
       RideAssignedMessageSchema.parse({
         type: 'ride.assigned',
         id: randomUUID(),

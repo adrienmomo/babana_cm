@@ -6,6 +6,7 @@ import { ApiError, translateApiError } from '@babana/api-client';
 import type { realtime } from '@babana/contracts';
 import { apiClient } from '../auth';
 import { getCurrentPosition } from '../location';
+import { CallButton } from '../components/CallButton';
 import { EmergencyButton } from '../components/EmergencyButton';
 import { launchRideNavigation, type RidePhase } from '../navigation/launch';
 import { onRealtimeMessage } from '../realtime';
@@ -24,8 +25,9 @@ import type { DriverParamList } from '../navigation/types';
  * derrière, l'état de course est préservé, le retour retrouve cet écran (React Navigation ne le
  * démonte pas). `session.synced` sert de filet si l'app a été tuée puis relancée en pleine course.
  *
- * **Pas de bouton d'appel du client** : aucun message du contrat ne porte son numéro (même écart
- * que côté client, `amoa/questions/L6-09.md`). Absent, jamais inerte -- voir `amoa/questions/L6-13.md`.
+ * **Bouton d'appel du client** (D42, 2 septembre -- amoa/questions/REPONSES-2026-09-02.md §1,
+ * referme `amoa/questions/L6-13.md`) : `proposal.accepted` porte désormais `clientPhoneNumber`.
+ * Absent, jamais inerte (`CallButton`, même discipline qu'`EmergencyButton`).
  *
  * **La fin de course ne porte que la décision** (J24, `amoa/questions/L6-13.md`) : « Terminer la
  * course » envoie `POST /rides/{id}/complete` **avec un corps vide**. Le relevé du trajet
@@ -51,7 +53,7 @@ function isSessionSyncedMessage(m: realtime.ServerToClientMessage): m is realtim
 }
 
 export function ActiveRideScreen({ route, navigation }: Props) {
-  const { rideId, origin, destination, amount } = route.params;
+  const { rideId, origin, destination, amount, clientPhoneNumber } = route.params;
 
   const [phase, setPhase] = useState<RidePhase>('approach');
   const [originLabel, setOriginLabel] = useState<string | null>(null);
@@ -176,6 +178,8 @@ export function ActiveRideScreen({ route, navigation }: Props) {
           Arrivée : {destinationLabel ?? '…'}
         </Text>
       </View>
+
+      <CallButton clientPhoneNumber={clientPhoneNumber} />
 
       <Pressable
         testID="active-ride-navigate"

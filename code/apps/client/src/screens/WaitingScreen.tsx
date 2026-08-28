@@ -53,6 +53,7 @@ export function WaitingScreen({ route, navigation }: Props) {
             photoUrl: message.payload.photoUrl,
             motorcycleClass: message.payload.motorcycleClass,
             licensePlate: message.payload.licensePlate,
+            phoneNumber: message.payload.phoneNumber,
           },
         });
       } else if (isRideRejected(message) && message.payload.rideId === rideId) {

@@ -16,6 +16,7 @@ const driver: ClientParamList['Tracking']['driver'] = {
   photoUrl: null,
   motorcycleClass: 'standard',
   licensePlate: 'LT-1234-AB',
+  phoneNumber: '+237691234567',
 };
 
 const valid: ClientParamList['Tracking'] = { rideId, origin: point, destination: point, driver };

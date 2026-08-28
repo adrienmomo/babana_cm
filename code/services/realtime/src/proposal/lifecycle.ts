@@ -34,6 +34,15 @@ export interface ProposalDetails {
   destination: { latitude: number; longitude: number };
   amount: number;
   distanceMeters: number;
+  /**
+   * D42 (2 septembre, amoa/questions/REPONSES-2026-09-02.md §1) : le numéro du client, transmis
+   * par Odoo dès `reserve_and_propose` (`services/realtime_client.py`) -- Odoo le connaît déjà
+   * (`client_user.partner_id.phone`), au même titre qu'`origin`/`destination`/`amount` ci-dessus.
+   * Posé ici, dans le même enregistrement Redis que le reste de la proposition, précisément pour
+   * rester lisible sans appel Odoo au moment de `accept()` -- la contrainte D49 (`proposal.accepted`
+   * émis avant tout `await` sur Odoo ou le cache de profils) ne change pas avec ce champ.
+   */
+  clientPhoneNumber: string | null;
 }
 
 export type ProposeOutcome = { proposed: true; expiresAt: string } | { proposed: false };
@@ -146,16 +155,23 @@ export class ProposalLifecycle {
     const resolved = await resolveProposal(this.redis, driverId, rideId, 'accepted');
     if (!resolved) return false;
 
-    // D49 (31 août) : accusé de réception au chauffeur, symétrique de `ride.assigned` au client
-    // ci-dessous. Émis dès que la résolution atomique a réussi -- avant tout `await` sur Odoo ou
-    // le cache de profils -- pour que `ProposalScreen` n'ait plus à inférer le succès d'un
-    // silence (écart `amoa/questions/L6-12.md`). Ne dépend pas de `consumeRecord` : la certitude
-    // du chauffeur ne doit pas tenir à un enregistrement Redis qui pourrait manquer.
+    // D49 (31 août) + D42 (2 septembre, amoa/questions/REPONSES-2026-09-02.md §1) :
+    // `consumeRecord` AVANT l'accusé de réception, pas après -- ce n'est qu'une lecture/suppression
+    // Redis locale (déjà posée par `propose()`, jamais un appel Odoo), donc rester devant l'accusé
+    // ne rouvre pas la contrainte D49 ("avant tout await sur Odoo ou le cache de profils") : c'est
+    // précisément cette lecture Redis qui donne accès à `clientPhoneNumber` sans attendre Odoo.
+    const record = await this.consumeRecord(driverId);
+
+    // Accusé de réception au chauffeur, symétrique de `ride.assigned` au client ci-dessous. Émis
+    // dès que la résolution atomique a réussi -- avant tout `await` sur Odoo ou le cache de
+    // profils -- pour que `ProposalScreen` n'ait plus à inférer le succès d'un silence (écart
+    // `amoa/questions/L6-12.md`). `clientPhoneNumber` à `null` si l'enregistrement a expiré entre
+    // la résolution atomique et sa lecture (filet déjà existant) -- jamais bloquant (D30).
     this.sendToDriver(driverId, {
       type: 'proposal.accepted',
       id: randomUUID(),
       emittedAt: new Date().toISOString(),
-      payload: { rideId },
+      payload: { rideId, clientPhoneNumber: record?.clientPhoneNumber ?? null },
     });
 
     // Sens temps réel -> Odoo (L3-17) : écrit la transition proposed -> assigned. Volontairement
@@ -163,7 +179,6 @@ export class ProposalLifecycle {
     // ci-dessus fait déjà foi pour les deux parties connectées.
     reportDriverAccepted(this.config, rideId, driverId);
 
-    const record = await this.consumeRecord(driverId);
     if (record) {
       // L3-09 : pose l'association course/client/chauffeur que le suivi (`ride.track`) exige --
       // sans elle, rien ne permet de vérifier qu'un client suit une course qui est la sienne, ni
@@ -194,6 +209,7 @@ export class ProposalLifecycle {
           photoUrl: profile?.photoUrl ?? null,
           motorcycleClass: profile?.motorcycleClass ?? null,
           licensePlate: profile?.licensePlate ?? null,
+          phoneNumber: profile?.phoneNumber ?? null,
         },
       });
     }

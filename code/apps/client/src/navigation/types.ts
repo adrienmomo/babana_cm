@@ -96,6 +96,11 @@ export interface AssignedDriverInfo {
   photoUrl: string | null;
   motorcycleClass: http.VehicleClass | null;
   licensePlate: string | null;
+  /** D42 (2 septembre, amoa/questions/REPONSES-2026-09-02.md §1) : le numéro du chauffeur, pour
+   * l'appeler pendant l'approche puis la course (`amoa/questions/L6-09.md`). Même effacement que
+   * `licensePlate` -- absent de `RideSummary`, disparaît avec le reste de cette interface à
+   * `navigation.replace('RideSummary', ...)`. */
+  phoneNumber: string | null;
 }
 
 export type AuthParamList = {

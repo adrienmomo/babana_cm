@@ -54,7 +54,14 @@ import { ActiveRideScreen } from '../ActiveRideScreen';
 const RIDE_ID = asRideId('ride-1');
 const ORIGIN = { latitude: 4.05, longitude: 9.7 };
 const DESTINATION = { latitude: 4.061, longitude: 9.71 };
-const PARAMS = { rideId: RIDE_ID, origin: ORIGIN, destination: DESTINATION, amount: 1500, distanceMeters: 3200 };
+const PARAMS = {
+  rideId: RIDE_ID,
+  origin: ORIGIN,
+  destination: DESTINATION,
+  amount: 1500,
+  distanceMeters: 3200,
+  clientPhoneNumber: '+237691234567',
+};
 // distanceMeters reste dans les params de navigation (Proposal -> ActiveRide), mais n'est plus
 // transmis à `complete` : la fin de course ne porte que la décision (J24, amoa/questions/L6-13.md).
 

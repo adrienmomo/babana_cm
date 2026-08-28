@@ -91,7 +91,7 @@ function fakeSocket() {
   return { socket: socket as unknown as WebSocket, messages };
 }
 
-function proposalDetails(rideId: string, clientUserId: string): ProposalDetails {
+function proposalDetails(rideId: string, clientUserId: string, clientPhoneNumber: string | null = '+237691234567'): ProposalDetails {
   return {
     rideId,
     clientUserId,
@@ -99,6 +99,7 @@ function proposalDetails(rideId: string, clientUserId: string): ProposalDetails 
     destination: { latitude: 4.06, longitude: 9.72 },
     amount: 1_200,
     distanceMeters: 3_400,
+    clientPhoneNumber,
   };
 }
 
@@ -121,6 +122,7 @@ describe('ProposalLifecycle (L3-07)', () => {
       rating: 4.8,
       motorcycleClass: 'standard',
       licensePlate: 'LT-1234-BC',
+      phoneNumber: '+237655000111',
     };
     await setDriverProfile(redis, driverId, profile);
 
@@ -144,7 +146,10 @@ describe('ProposalLifecycle (L3-07)', () => {
       driverSocket.messages.map((m) => m.type),
       ['proposal.new', 'proposal.accepted']
     );
-    assert.deepEqual(driverSocket.messages[1]!.payload, { rideId });
+    // D42 (amoa/questions/REPONSES-2026-09-02.md §1) : le numéro du client voyage dans l'accusé
+    // immédiat, pas dans un message séparé -- lu depuis proposalDetails() ci-dessus (posé par
+    // propose(), déjà en Redis, jamais un appel Odoo).
+    assert.deepEqual(driverSocket.messages[1]!.payload, { rideId, clientPhoneNumber: '+237691234567' });
 
     assert.equal(await isReserved(redis, driverId), false, 'la réservation doit avoir été remplacée');
     assert.equal(await isEngaged(redis, driverId), true, 'critère 1 -- engagement posé à l\'acceptation');
@@ -159,6 +164,7 @@ describe('ProposalLifecycle (L3-07)', () => {
       photoUrl: profile.photoUrl,
       motorcycleClass: profile.motorcycleClass,
       licensePlate: profile.licensePlate,
+      phoneNumber: profile.phoneNumber,
     });
   });
 
@@ -188,6 +194,7 @@ describe('ProposalLifecycle (L3-07)', () => {
       photoUrl: null,
       motorcycleClass: null,
       licensePlate: null,
+      phoneNumber: null,
     });
   });
 

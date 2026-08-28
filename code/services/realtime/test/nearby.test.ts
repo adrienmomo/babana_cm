@@ -40,6 +40,7 @@ const PROFILE: DriverProfile = {
   rating: 4.8,
   motorcycleClass: 'standard',
   licensePlate: 'LT-1234-BC',
+  phoneNumber: '+237655000111',
 };
 
 const NEARBY_DRIVER_WHITELIST = ['driverId', 'firstName', 'photoUrl', 'rating', 'motorcycleClass', 'position', 'distanceMeters'].sort();

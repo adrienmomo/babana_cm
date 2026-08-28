@@ -24,6 +24,7 @@ const PROFILE: DriverProfile = {
   rating: 4.8,
   motorcycleClass: 'standard',
   licensePlate: 'LT-1234-BC',
+  phoneNumber: '+237655000111',
 };
 
 let redis: Redis;

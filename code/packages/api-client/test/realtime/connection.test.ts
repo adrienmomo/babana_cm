@@ -111,6 +111,7 @@ describe('createRealtimeClient -- connexion et resynchronisation (L6-04, L3-11)'
         photoUrl: null,
         motorcycleClass: 'standard',
         licensePlate: 'LT-1234-BC',
+        phoneNumber: '+237691234567',
       },
     });
 

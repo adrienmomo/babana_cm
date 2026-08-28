@@ -5,6 +5,7 @@ import { MapView, type LatLng, type MapMarker } from '@babana/maps';
 import { StreamLivenessWatchdog, type ConnectionState } from '@babana/api-client';
 import type { realtime } from '@babana/contracts';
 import { GENERIC_AVATAR, classLabel } from '../components/driverFormatting';
+import { CallButton } from '../components/CallButton';
 import { EmergencyButton } from '../components/EmergencyButton';
 import { ShareTripButton } from '../components/ShareTripButton';
 import { formatEta } from '../format';
@@ -22,10 +23,10 @@ import type { ClientParamList } from '../navigation/types';
  * `babana_ride.py::TOGETHER_STATES`), donc pendant toute la durée où cet écran est affiché,
  * approche comme course.
  *
- * **Aucun bouton d'appel du chauffeur non plus** : la spécification en prose le demande
- * (« coordonnées du chauffeur pour l'appeler »), mais `ride.assigned` (D41) ne porte aucun numéro
- * -- ni lui ni aucun autre message serveur à destination du client. Un écart, pas un oubli
- * d'écran : voir `amoa/questions/L6-09.md`.
+ * **Bouton d'appel du chauffeur** (D42, 2 septembre -- amoa/questions/REPONSES-2026-09-02.md
+ * §1, referme l'écart `amoa/questions/L6-09.md`) : `ride.assigned` porte désormais `phoneNumber`.
+ * Absent, jamais inerte (`CallButton`, même discipline que Share/Emergency) : rien ne s'affiche
+ * tant que le profil chauffeur n'a pas fini de synchroniser (D30).
  */
 
 type Props = NativeStackScreenProps<ClientParamList, 'Tracking'>;
@@ -205,6 +206,7 @@ export function TrackingScreen({ route, navigation }: Props) {
       </View>
 
       <View style={styles.actionsRow} testID="tracking-actions">
+        <CallButton phoneNumber={driver.phoneNumber} />
         <ShareTripButton rideId={rideId} />
         <EmergencyButton rideId={rideId} />
       </View>
