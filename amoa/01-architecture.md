@@ -494,6 +494,10 @@ spécifications.
 
 | Décision | Arbitrée le | Portée par |
 |---|---|---|
-| D42 — numéros de téléphone révélés à l'affectation | 27 août | **J25** |
+
+**Registre vide, vérifié le 2 septembre (J25).** D42 (numéros de téléphone révélés à
+l'affectation), seule ligne depuis la création du registre, a été portée ce soir-là
+(`amoa/questions/REPONSES-2026-09-02.md` §1) — retirée du tableau plutôt que laissée cochée : ce
+registre liste ce qui reste à faire, pas un historique.
 
 Une ligne qui reste ici plus de deux nuits est un signal, pas une note.
