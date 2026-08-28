@@ -84,33 +84,33 @@ export function plausibilityConfigFrom(config: Config): PlausibilityConfig {
   };
 }
 
-export async function ingestPosition(
+interface RawSample {
+  latitude: number;
+  longitude: number;
+  accuracyMeters: number;
+  speedMetersPerSecond: number | null;
+  headingDegrees: number | null;
+  capturedAtMs: number;
+}
+
+/**
+ * Un seul relevé, déjà résolu en `RawSample` -- coeur inchangé de ce qui existait avant L6-05
+ * (agrégation) : la validation de plausibilité compare toujours contre la DERNIÈRE position
+ * stockée en Redis, jamais contre un point du même lot qui ne serait pas encore écrit. `ingestPosition`
+ * ci-dessous appelle cette fonction séquentiellement, un lot de N points coûtant donc N allers-
+ * retours Redis -- même coût qu'avant si l'appelant n'envoie qu'un point à la fois
+ * (`precedingSamples` vide, cas par défaut).
+ */
+async function ingestOne(
   redis: Redis,
-  context: ConnectionContext,
-  message: realtime.PositionUpdateMessage,
+  driverId: string,
+  sample: RawSample,
   plausibility: PlausibilityConfig,
   ttlSeconds: number,
-  nowMs: number = Date.now(),
-  // L3-10 : optionnel -- seul `ws/dispatch.ts` le fournit en production. Absent, l'accumulation
-  // n'est simplement pas alimentée (les tests d'ingestion qui ne s'y intéressent pas le laissent
-  // vide).
+  nowMs: number,
   accumulation?: AccumulationConfig
 ): Promise<IngestOutcome> {
-  if (context.role !== 'driver' || !context.driverId) {
-    // Un client n'émet jamais position.update (émetteur unique, C-02) -- défensif : rejeté sans
-    // fermer la connexion, pas une exception, pour rester cohérent avec le traitement des autres
-    // rejets de ce module.
-    ingestMetrics.recordRejected('not_a_driver');
-    return { accepted: false, reason: 'not_a_driver' };
-  }
-
-  const previousStored = await getPosition(redis, context.driverId);
-  const sample = {
-    latitude: message.payload.latitude,
-    longitude: message.payload.longitude,
-    accuracyMeters: message.payload.accuracyMeters,
-    capturedAtMs: Date.parse(message.emittedAt),
-  };
+  const previousStored = await getPosition(redis, driverId);
 
   const result = checkPlausibility(
     sample,
@@ -132,13 +132,13 @@ export async function ingestPosition(
 
   await storePosition(
     redis,
-    context.driverId,
+    driverId,
     {
       latitude: sample.latitude,
       longitude: sample.longitude,
       accuracyMeters: sample.accuracyMeters,
-      speedMetersPerSecond: message.payload.speedMetersPerSecond,
-      headingDegrees: message.payload.headingDegrees,
+      speedMetersPerSecond: sample.speedMetersPerSecond,
+      headingDegrees: sample.headingDegrees,
       capturedAtMs: sample.capturedAtMs,
     },
     ttlSeconds
@@ -154,7 +154,7 @@ export async function ingestPosition(
   // REPONSES-2026-08-16-J7.md §2) -- un chauffeur réservé ou engagé qui émet une position ne
   // revient donc jamais dans le pool, quelle que soit la fréquence de ses positions (L3-06R,
   // critères 3 bis et 3 ter).
-  await addEligibleToPool(redis, context.driverId, sample.latitude, sample.longitude);
+  await addEligibleToPool(redis, driverId, sample.latitude, sample.longitude);
 
   // L3-10 : accumule distance / durée / tracé si une course est en cours pour ce chauffeur
   // (l'accumulation elle-même vérifie qu'elle est active -- rien ici ne le sait). N'alimente
@@ -163,7 +163,7 @@ export async function ingestPosition(
   // ni fermer la connexion (même politique que le reste du service).
   if (accumulation) {
     try {
-      await accumulatePosition(redis, context.driverId, { latitude: sample.latitude, longitude: sample.longitude }, accumulation);
+      await accumulatePosition(redis, driverId, { latitude: sample.latitude, longitude: sample.longitude }, accumulation);
     } catch {
       // L'accumulation sert au contrôle et à la calibration, jamais au tarif -- un tick manqué
       // n'est pas un incident.
@@ -172,4 +172,64 @@ export async function ingestPosition(
 
   ingestMetrics.recordAccepted();
   return { accepted: true };
+}
+
+/**
+ * `message.payload` porte le point le plus récent, plus -- optionnellement -- les relevés
+ * accumulés avant lui (`precedingSamples`, L6-05, agrégation avant envoi côté app Chauffeur : voir
+ * `apps/driver/src/location/tracker.ts`). Traités dans l'ordre chronologique, chacun contre la
+ * validation de plausibilité (L3-02) comme s'il était arrivé seul -- un point du lot rejeté
+ * n'empêche pas les suivants d'être tentés (même politique que pour un point isolé : le réseau
+ * mobile est intermittent, un point aberrant au milieu d'un lot n'est pas une faute qui doit en
+ * invalider d'autres).
+ *
+ * Renvoie l'issue du point le plus récent (dernier traité) -- c'est celui qui compte pour
+ * l'appelant historique d'avant L6-05 (`ws/dispatch.ts` ignore de toute façon la valeur de
+ * retour ; seuls les tests l'inspectent).
+ */
+export async function ingestPosition(
+  redis: Redis,
+  context: ConnectionContext,
+  message: realtime.PositionUpdateMessage,
+  plausibility: PlausibilityConfig,
+  ttlSeconds: number,
+  nowMs: number = Date.now(),
+  // L3-10 : optionnel -- seul `ws/dispatch.ts` le fournit en production. Absent, l'accumulation
+  // n'est simplement pas alimentée (les tests d'ingestion qui ne s'y intéressent pas le laissent
+  // vide).
+  accumulation?: AccumulationConfig
+): Promise<IngestOutcome> {
+  if (context.role !== 'driver' || !context.driverId) {
+    // Un client n'émet jamais position.update (émetteur unique, C-02) -- défensif : rejeté sans
+    // fermer la connexion, pas une exception, pour rester cohérent avec le traitement des autres
+    // rejets de ce module.
+    ingestMetrics.recordRejected('not_a_driver');
+    return { accepted: false, reason: 'not_a_driver' };
+  }
+
+  const preceding: RawSample[] = message.payload.precedingSamples.map((sample) => ({
+    latitude: sample.latitude,
+    longitude: sample.longitude,
+    accuracyMeters: sample.accuracyMeters,
+    speedMetersPerSecond: sample.speedMetersPerSecond,
+    headingDegrees: sample.headingDegrees,
+    capturedAtMs: Date.parse(sample.capturedAt),
+  }));
+  const latest: RawSample = {
+    latitude: message.payload.latitude,
+    longitude: message.payload.longitude,
+    accuracyMeters: message.payload.accuracyMeters,
+    speedMetersPerSecond: message.payload.speedMetersPerSecond,
+    headingDegrees: message.payload.headingDegrees,
+    capturedAtMs: Date.parse(message.emittedAt),
+  };
+
+  let outcome: IngestOutcome = { accepted: false, reason: 'not_a_driver' };
+  for (const sample of [...preceding, latest]) {
+    // eslint-disable-next-line no-await-in-loop -- séquentiel par nécessité : chaque point doit
+    // être validé contre la dernière position RÉELLEMENT stockée, y compris celle que le point
+    // précédent du même lot vient d'écrire.
+    outcome = await ingestOne(redis, context.driverId, sample, plausibility, ttlSeconds, nowMs, accumulation);
+  }
+  return outcome;
 }

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { envelopeSchema } from './envelope';
-import { DriverIdSchema, LatLngSchema, RideIdSchema } from '../http/common';
+import { DriverIdSchema, IsoDateTimeSchema, LatLngSchema, RideIdSchema } from '../http/common';
 
 /**
  * Tous les messages émis VERS le serveur, qu'ils viennent de l'application Chauffeur ou de
@@ -15,12 +15,37 @@ import { DriverIdSchema, LatLngSchema, RideIdSchema } from '../http/common';
 
 // --- Chauffeur vers serveur ---------------------------------------------------------------
 
-/** Émetteur : chauffeur. Position GPS courante. */
+/**
+ * Un relevé de position, horodaté individuellement (L6-05) : nécessaire dès qu'un message peut
+ * en porter plusieurs captés à des instants différents (`precedingSamples` ci-dessous) --
+ * `capturedAt` de chacun, distinct de `emittedAt` de l'enveloppe qui est l'heure d'ENVOI du lot.
+ */
+export const PositionSampleSchema = z.object({
+  ...LatLngSchema.shape,
+  accuracyMeters: z.number().nonnegative(),
+  speedMetersPerSecond: z.number().nonnegative().nullable(),
+  headingDegrees: z.number().min(0).max(360).nullable(),
+  capturedAt: IsoDateTimeSchema,
+});
+export type PositionSample = z.infer<typeof PositionSampleSchema>;
+
+/**
+ * Émetteur : chauffeur. Position GPS la plus récente, plus -- optionnellement -- les relevés
+ * accumulés avant elle (L6-05, agrégation avant envoi) : un chauffeur en mouvement capte à une
+ * fréquence adaptative mais n'envoie pas une requête par point ; les points captés entre deux
+ * envois voyagent dans `precedingSamples`, dans l'ordre chronologique, jamais le point le plus
+ * récent qui reste porté par les champs ci-dessus (jamais dupliqué).
+ *
+ * `precedingSamples` vide par défaut : un envoi non agrégé (un seul point, capté au moment de
+ * l'envoi) reste un message valide sans rien y ajouter -- forme additive, compatible avec tout
+ * appelant antérieur à L6-05 qui n'envoyait qu'un point par message.
+ */
 export const PositionUpdatePayloadSchema = z.object({
   ...LatLngSchema.shape,
   accuracyMeters: z.number().nonnegative(),
   speedMetersPerSecond: z.number().nonnegative().nullable(),
   headingDegrees: z.number().min(0).max(360).nullable(),
+  precedingSamples: z.array(PositionSampleSchema).max(20).default([]),
 });
 export const PositionUpdateMessageSchema = envelopeSchema('position.update', PositionUpdatePayloadSchema);
 export type PositionUpdateMessage = z.infer<typeof PositionUpdateMessageSchema>;

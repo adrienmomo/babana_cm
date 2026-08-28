@@ -31,6 +31,12 @@ jest.mock('../../realtime', () => ({
   realtimeClient: { getState: () => mockConnectionState, send: (...args: unknown[]) => mockSend(...args) },
 }));
 
+// L6-05 : AvailabilityToggle.tsx (montée par cet écran) importe le singleton réel sinon -- voir
+// components/__tests__/AvailabilityToggle.test.tsx pour le même raisonnement.
+jest.mock('../../location', () => ({
+  locationTracker: { setOnline: jest.fn() },
+}));
+
 import { HomeScreen } from '../HomeScreen';
 
 function fakeNavigation() {

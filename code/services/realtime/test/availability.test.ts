@@ -44,6 +44,7 @@ function positionMessage() {
       accuracyMeters: 20,
       speedMetersPerSecond: 5,
       headingDegrees: 90,
+      precedingSamples: [],
     },
   };
 }
