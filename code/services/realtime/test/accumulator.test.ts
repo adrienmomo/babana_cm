@@ -18,7 +18,12 @@ import { ingestPosition } from '../src/tracking/ingest';
 import type { PlausibilityConfig } from '../src/tracking/validation';
 import type { ConnectionContext } from '../src/ws/auth';
 
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
+// DB logique dédiée (index 1) : ce fichier fait beaucoup d'écritures Redis réelles (boucles de
+// positions, ingestPosition) et un `flushdb` en tête de chaque test -- l'isoler du DB 0 partagé
+// par les autres tests du service évite toute interférence de timing avec les tests sensibles à
+// l'expiration (reservation.test.ts, L3-06). C'est toujours un vrai Redis (l'accumulation vit
+// dans un HASH -- ce qu'un faux Redis ne prouverait pas), seulement une autre base.
+const REDIS_URL = `${process.env.REDIS_URL ?? 'redis://localhost:6379'}/1`;
 
 const CONFIG: AccumulationConfig = {
   minSegmentMeters: 5,
@@ -56,12 +61,13 @@ before(() => {
 });
 
 after(async () => {
+  await redis.flushdb();
   await redis.quit();
 });
 
 beforeEach(async () => {
   driverId = `accum-${randomUUID().slice(0, 8)}`;
-  await redis.del(accumulationKey(driverId));
+  await redis.flushdb();
 });
 
 /** ~1 m ≈ 9e-6 degrés de latitude à Douala. Décale un point de `metersNorth` / `metersEast`. */
