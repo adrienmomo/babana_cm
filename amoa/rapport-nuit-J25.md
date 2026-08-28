@@ -87,3 +87,43 @@ inscription future y met, sans garantie de format ni de validité. Le champ dég
 renseigné à la main. À vérifier au pilote, avec de vrais chauffeurs inscrits.
 
 ---
+
+## `measured` honnête — une accumulation qui n'a rien reçu n'est pas une mesure de zéro
+
+### Le doute tranché
+
+Formulation exacte du doute (J24, `amoa/questions/REPONSES-2026-09-02.md` §3) : *« Tant que L6-05
+n'émet rien, toute course réelle se termine avec `distanceMeters: 0`, `measured: true`. […] Ce
+n'est pas faux — zéro mètre ont réellement été mesurés — mais c'est le genre d'honnêteté littérale
+qui trompe. »* Vérifié dans le dépôt (pas supposé) : `handleRideMeasurement`
+(`services/realtime/src/http/internal.ts`) renvoyait `measured: measurement !== null` —
+`getAccumulation` renvoie un objet non nul dès que `startAccumulation` a posé le HASH Redis à
+`ride.start`, **avant** la moindre position acceptée. `measured` valait donc vrai dès le démarrage
+de la course, avec `distanceMeters: 0` affiché comme un fait.
+
+**Correctif** : `measured = measurement !== null && measurement.pointCount > 0`. `pointCount`
+existait déjà dans `RideMeasurement` (utilisé par `accumulator.test.ts` depuis L3-10) — rien de
+nouveau à calculer, seulement à le lire au bon endroit. Sans mesure : `distanceMeters` /
+`durationSeconds` / `polyline` retombent à `null`, jamais `0` ni `''` — même discipline que le
+correctif de contrat 1 de J24 (« une absence assumée plutôt qu'un chiffre faux »).
+
+Rien à changer côté Odoo (`realtime_client.py::fetch_ride_measurement` traite déjà
+`measured: false` comme « aucune accumulation », `None` en retour) ni côté contrat (`measured`
+était déjà un booléen distinct, `distanceMeters`/`durationSeconds` déjà nullables depuis J24) : le
+défaut vivait uniquement dans `handleRideMeasurement`.
+
+### Tests
+
+- `services/realtime/test/internal.test.ts` : le test qui affirmait `measured: true,
+  distanceMeters: 0` juste après `ride.start` (avant toute position) est retourné —
+  `measured: false`, `distanceMeters: null`, `polyline: null` désormais attendus à ce point précis
+  de la séquence.
+
+### Doute pour quelqu'un de réel
+
+Ce correctif seul ne change rien tant que L6-05 n'émet aucune position réelle : une course jouée
+de bout en bout se termine encore avec `measured: false` (au lieu de `true` avec un zéro trompeur)
+— c'est le résultat honnête attendu, mais le résumé de fin dit toujours « Trajet non relevé ». La
+tâche suivante de ce soir change cet état de fait.
+
+---
