@@ -71,6 +71,38 @@ Décidé le 2 septembre : L6-05 sera écrite sans mesure préalable sur un vrai 
 
 **Un repli est prévu d'avance.** Le plus économe : ne capturer qu'en course, et se contenter d'une position rare hors course. On perd la fraîcheur du géo-index, on garde la flotte. Décider ce repli maintenant coûte dix minutes ; le décider en urgence avec des chauffeurs qui désinstallent coûte le pilote.
 
+### Le protocole de mesure — une demi-journée, avant tout le reste
+
+Ajouté le 3 septembre. Cette mesure conditionne une décision d'architecture (§4 bis de
+`01-architecture.md`) et elle doit être faite **avant** la fin du développement, pas au premier jour
+du pilote : si la capture ne tient pas en arrière-plan, la réponse est une bibliothèque native et
+un nouveau build, ce qui ne s'improvise pas la veille.
+
+**Ce qu'on cherche** : est-ce qu'Android suspend la capture quand l'application passe derrière
+Google Maps ? C'est le chemin normal de chaque course (D12), pas un cas limite.
+
+**Comment.** Installer l'APK Chauffeur, se mettre en ligne, faire une course réelle ou simulée en
+navigant avec Google Maps pendant vingt minutes écran allumé. Puis compter, **côté serveur**, les
+positions réellement arrivées sur cette période — le nombre attendu se déduit de la cadence
+configurée. Refaire l'exercice écran éteint, téléphone en poche, quinze minutes, en ligne mais
+hors course : c'est l'état où le chauffeur passe le plus de temps.
+
+**Sur deux ou trois téléphones différents**, dont au moins un Xiaomi ou un Huawei : leurs
+politiques d'économie de batterie sont plus agressives que l'Android standard, et un résultat sur
+un seul appareil ne dit rien du parc réel.
+
+**Ce qu'on relève en même temps, puisque le téléphone est là** : pourcentage de batterie consommé
+sur la période, et données échangées. Les compteurs sont déjà posés dans l'application (L6-05,
+`getMetrics()`).
+
+**Ce que chaque issue déclenche** — décidé d'avance pour que la mesure serve immédiatement :
+
+| Résultat | Décision |
+|---|---|
+| La capture tient sur tous les appareils | Rien à faire. Une dépendance native et un lot évités |
+| Elle tient mal, ou seulement sur certains | Bibliothèque de service de premier plan — elle couvre l'attente **et** la course |
+| Elle ne tient pas du tout | Alors seulement, rouvrir la navigation embarquée — qui ne réglera toujours que la course |
+
 ---
 
 ## 3. Les trois délais subis, et ils commandent tout
@@ -135,6 +167,9 @@ ce qui est précisément le pire moment.
 
 Rien de ce qui suit ne demande plus d'une heure, et tout est à délai subi.
 
+0. **Mesurer la capture GPS en arrière-plan** — une demi-journée, protocole au §2. C'est la seule
+   donnée qui manque pour trancher une décision d'architecture, et elle ne s'obtient nulle part
+   ailleurs qu'avec un vrai téléphone.
 1. **Lancer la vérification développeur Android** — c'est la démarche, plutôt que le compte Play.
 2. **Choisir et contacter une passerelle SMS.** Un fournisseur, deux usages.
 3. **Trouver le comptable** qui validera le plan, et lui poser les trois questions déjà écrites

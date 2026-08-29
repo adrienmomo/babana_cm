@@ -270,6 +270,12 @@ Fonctionnement en arrière-plan avec les permissions et le service de premier pl
 
 Arrêt de la capture dès le passage hors ligne. Une capture qui continue hors ligne est à la fois une consommation inutile et un problème de vie privée.
 
+**La notification persistante affiche un fait, pas une promesse** (précision du 3 septembre). Android exige une notification visible pour toute collecte de position en arrière-plan, et il serait tentant d'y écrire « suivi actif ». Ce serait une affirmation que rien ne garantit : sans service de premier plan natif, le système peut suspendre la capture sans que l'application le sache.
+
+Elle affiche donc **quand la dernière position a réellement été envoyée** — « il y a N minutes ». Elle cesse d'affirmer et se met à constater. Et elle devient au passage le diagnostic dont le pilote aura besoin : un chauffeur, ou celui qui l'observe, voit immédiatement si la capture s'est arrêtée, sans avoir à interroger le serveur.
+
+C'est la même règle que partout ailleurs ici — une absence explicite plutôt qu'une valeur plausible et fausse — appliquée à ce que le produit dit de lui-même.
+
 ### Critères d'acceptation
 
 1. Aucune capture hors ligne — test explicite.

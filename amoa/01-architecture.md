@@ -23,7 +23,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D9 | MVP pilote : boucle de course complète, **paiement espèces uniquement** | Mobile Money dès le MVP | Les agréments marchands MTN/Orange sont un délai administratif hors de notre contrôle |
 | D10 | **Le client choisit son chauffeur** en v1 (CDC §II.2) | Matching automatique par proximité (CDC §IV.2) | Décision maître d'ouvrage. Supprime le moteur de matching de la v1, introduit la conséquence C2 |
 | D11 | En cas de refus, **retour à la sélection manuelle**, sans attribution automatique | Bouton « prenez le plus proche » en repli | Décision maître d'ouvrage. Risque d'abandon à surveiller en pilote |
-| D12 | Navigation par **lien profond vers Google Maps** en v1, navigation assistée in-app prévue en v2 | Turn-by-turn embarqué dès la v1 | Coût et consommation batterie disproportionnés au MVP. Impose l'abstraction C3 |
+| D12 | Navigation par **lien profond vers Google Maps** en v1, navigation assistée in-app prévue en v2 | Turn-by-turn embarqué dès la v1 | Coût et consommation batterie disproportionnés au MVP. Impose l'abstraction C3. **Réexaminée et maintenue le 3 septembre** — voir §4 bis |
 | D13 | **Google Maps** comme fournisseur de carte, derrière une abstraction interne | Mapbox | Couverture des points d'intérêt à Douala nettement supérieure ; plugin Navigation React Native officiel. Voir `02-comparatif-cartographie.md` |
 | D14 | Le client se voit proposer les **5 chauffeurs les plus proches** | Tous les chauffeurs du rayon | Décision maître d'ouvrage. Limite l'exposition de la flotte (C2b) et rend le choix praticable sur un petit écran |
 | D15 | Tarif = **base + distance × prix au km**, majoré par un **coefficient de zone et d'heure de pointe**. **Pas de prix à la minute** | Facturation à la minute, prix ferme calculé sur le devis | Conséquence directe d'É8 : la durée disponible avant la course est une durée voiture. Le salariat (D5) retire au terme temps sa raison d'être. Voir écart É9 |
@@ -214,6 +214,24 @@ Aucun écran n'importe directement le SDK de carte. Une interface interne — af
 
 **Partage de trajet (CDC §II.6)**
 Le partage d'un trajet avec un proche implique une **route publique non authentifiée**, consultable dans un navigateur par quelqu'un qui n'a pas l'application. Conséquences de conception : jeton opaque non devinable, expiration à la fin de la course plus un délai court, et exposition stricte du minimum — position et ETA, jamais l'identité du client ni son historique.
+
+---
+
+## 4 bis. D12 réexaminée, et maintenue (3 septembre)
+
+La capture GPS a été livrée sans service de premier plan Android : Android peut donc suspendre les minuteurs de l'application dès qu'elle passe en arrière-plan. Or D12 — la navigation par lien profond — l'y envoie **pendant toute la course**. L'arrière-plan n'est pas un cas limite du produit, c'est le chemin normal de chaque course, et si la capture s'y arrête, le suivi que le client regarde s'arrête avec elle.
+
+La navigation embarquée a donc été rouverte comme réponse possible. Puis écartée, et le raisonnement mérite d'être gardé, parce que la question reviendra.
+
+**Elle ne résout que la moitié du problème.** Elle garde l'application au premier plan pendant la course. Mais un chauffeur passe l'essentiel de son temps **en ligne à attendre**, téléphone en poche, écran éteint — et c'est cet état-là qui alimente le géo-index, donc la capacité même du produit à proposer un chauffeur. La navigation embarquée n'y change rien.
+
+**Et elle coûte de la batterie là où nous n'en avons pas à perdre.** Un guidage pas à pas, écran allumé, consomme sans commune mesure avec un minuteur d'arrière-plan. C'était la raison de D12 au premier jour, et elle n'a pas faibli : un chauffeur dont la batterie tient trois heures désinstalle.
+
+**Le prix, lui, n'est plus un argument** — le SDK de navigation est facturé par destination, avec mille destinations gratuites par mois depuis la baisse tarifaire de 2026. Un pilote n'en paierait rien. C'est le seul des trois arguments d'origine qui est tombé.
+
+**Ce qui manque n'est pas une décision, c'est une mesure.** Personne ne sait aujourd'hui si la capture tient en arrière-plan sur un terminal réel, et la question se tranche en une demi-journée — voir le protocole dans `06-jalons-et-pilote.md`. Trois issues : elle tient, et il n'y a rien à faire ; elle tient mal, et une bibliothèque de service de premier plan couvre les deux états ; elle ne tient pas du tout, et alors seulement la navigation embarquée redevient une question — en ne réglant toujours que la course.
+
+Décider avant de mesurer aurait été ajouter un lot entier pour un problème dont nous ignorons l'ampleur.
 
 ---
 
