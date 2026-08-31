@@ -135,6 +135,24 @@ En partant du 31 août, à cinq points par nuit et sans interruption :
 | **Déploiement et recette** | ~22 septembre | Sur le VPS réel, avec de vrais comptes externes, données de pilote chargées |
 | **Pilote — premières courses** | **~29 septembre**, avec une marge au **6 octobre** | Chauffeurs inscrits et validés, superviseur formé, sauvegardes testées |
 
+### Révision du 5 septembre — deux semaines de plus
+
+J'avais annoncé que je referais le calcul si trois nuits d'affilée s'arrêtaient avant la fin de leur lot. C'est arrivé, et voici le résultat.
+
+**Le rythme n'est pas de cinq points par nuit, il est de trois et demi.** Les trois dernières ont livré trois à quatre points chacune, pas cinq. Et aucune ne s'est arrêtée pour une mauvaise raison : à chaque fois, la tâche s'est révélée plus large que sa taille annoncée une fois ouverte — deux dépendances absentes à cadrer pour l'inscription, une revalidation serveur inexistante pour les notifications. Ce n'est pas un ralentissement de l'exécution, c'est une erreur de mon estimation.
+
+**Il reste environ 47 points de périmètre pilote**, pour 61 % d'avancement global. À trois et demi par nuit, **quatorze nuits** plutôt que douze — et depuis une base de départ plus tardive.
+
+| Jalon révisé | Date |
+|---|---|
+| Périmètre pilote terminé | ~29 septembre |
+| Déploiement et recette | ~6 octobre |
+| **Pilote — premières courses** | **~13 octobre**, marge au **20 octobre** |
+
+**Deux semaines de plus que la première estimation.** Je préfère le dire maintenant qu'à la mi-septembre, et il n'y a rien à corriger dans la façon de travailler : les trois nuits écourtées ont chacune produit un écart qui valait plus que la tâche non finie.
+
+**Ce qui pourrait encore compresser.** La session avec un téléphone (L6-19) court en parallèle des nuits et ne coûte rien au calendrier si elle a lieu tôt. Le back-office (L9-01 à L9-05) est cinq tâches qui se ressemblent, donc plus rapides ensemble qu'en dispersé. Et une partie du périmètre pilote peut encore glisser après les premières courses si l'observation montre qu'il n'y sert pas — l'export web en est le meilleur candidat.
+
 **La marge d'une semaine n'est pas de la prudence rituelle.** Les dix dernières nuits ont toutes
 trouvé un défaut réel que rien n'aurait révélé autrement — une écriture comptable qui contredisait
 le compte courant, un jeton en clair en base, une commande de course qui échouait au premier appel

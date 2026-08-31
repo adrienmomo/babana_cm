@@ -142,6 +142,14 @@ L'ouverture affiche l'écran de proposition (L6-12), qui **revalide auprès du s
 
 Le délai entre l'émission de la proposition et l'affichage doit être mesuré : c'est lui qui détermine si le délai d'acceptation de 30 secondes est réaliste.
 
+**Trois précisions du 5 septembre, toutes issues de l'écart déposé avant d'écrire du code.**
+
+**La proposition se relit auprès du serveur, et l'absence se dit.** Une application fermée n'a jamais reçu `proposal.new` : elle n'a que ce que la notification porte, c'est-à-dire le minimum. C'est la réponse de resynchronisation (C-02) qui lui apprend s'il reste une course à prendre, avec ses détails et sa **véritable échéance** — pas trente secondes fraîches, le temps réellement restant. Et cette réponse dit l'absence explicitement : conclure « il n'y a rien » parce que rien n'est arrivé au bout d'un délai serait l'inférence par le silence que D49 a supprimée.
+
+**Le délai se mesure jusqu'à l'affichage, pas jusqu'à la remise au fournisseur.** Le serveur ne peut observer seul que l'acceptation de son envoi par Firebase — or tout le délai qui compte vit après : mise en veille du système, réseau, réveil de l'appareil. Mesurer la première moitié reviendrait à mesurer la partie qui ne pose jamais problème. L'application signale donc quand la proposition s'est réellement affichée ; sur une flotte pilote, le volume est négligeable et c'est le seul chiffre qui répond à la question posée — un chauffeur a-t-il vu la course à temps.
+
+**La réception native rejoint la passe avec appareil (L6-19).** Recevoir un message Firebase exige un lien natif et un build mobile, comme le sélecteur de pièces et le service de premier plan. La logique de routage et de déduplication, elle, s'écrit et se teste ici.
+
 ### Critères d'acceptation
 
 1. La notification part en parallèle du WebSocket, pas à sa place.

@@ -266,6 +266,9 @@ L'effacement compte autant que la révélation. Une donnée personnelle qu'on ex
 
 - Reconnexion avec temporisation croissante et gigue aléatoire, pour éviter que mille chauffeurs se reconnectent en même temps après une coupure réseau.
 - À la reconnexion, le client envoie son dernier état connu ; le serveur répond par un message de resynchronisation complet plutôt que par un différentiel.
+- **Cette réponse est complète au sens fort (précision du 5 septembre)** : elle dit l'état de la course active **et** l'existence ou l'absence d'une proposition en attente, avec ses détails et sa véritable échéance. Un chauffeur qui ouvre une notification alors que son application était fermée n'a jamais reçu `proposal.new` ; c'est cette réponse, et elle seule, qui lui dit s'il y a encore une course à prendre et combien de secondes il lui reste.
+
+  **L'absence se dit, elle ne se déduit pas d'un silence.** Ré-émettre `proposal.new` et laisser l'application conclure au bout d'un délai qu'il n'y a rien réintroduirait exactement l'inférence par le silence que D49 a supprimée — et le délai à inventer serait faux sur un réseau de Douala, comme tous les autres.
 - Les actions émises hors connexion sont mises en file locale et rejouées à la reconnexion, dans l'ordre, avec leur identifiant d'origine pour que le serveur puisse les dédupliquer.
 - Une position vieille de plus de N secondes est ignorée par le serveur, pas rejouée : rejouer une position obsolète est pire que la perdre.
 
