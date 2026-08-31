@@ -66,11 +66,16 @@ export type DriverParamList = {
  * Chauffeur dont le dossier n'est pas (ou plus) approuvé -- `pending` explicitement (spécification
  * L6-00), et par défaut-refus tout statut qui n'est pas `approved` (`rejected`, `suspended`, ou
  * inconnu tant que `AuthClient.restore()` n'a pas encore été rafraîchi, voir
- * `src/navigation/index.tsx`). Un seul écran ce soir : le parcours d'inscription complet
- * (profil, documents) est L6-15, hors de ce lot -- "routé vers son écran d'attente de dossier",
- * pas vers tout le parcours.
+ * `src/navigation/index.tsx`).
+ *
+ * Parcours d'inscription (L6-15) : profil, dépôt des pièces, écran d'attente. L'écran d'entrée
+ * se calcule à l'ouverture depuis l'état serveur (`resolveOnboardingRoute`, `screens/onboarding/
+ * state.ts`) -- c'est ce qui rend le parcours reprenable après une fermeture (critère 1).
+ * `Documents` peut porter `focusType` quand on y revient pour renvoyer une pièce précise.
  */
-export type DriverPendingParamList = {
+export type DriverOnboardingParamList = {
+  Profile: undefined;
+  Documents: { focusType?: 'license' | 'id_card' } | undefined;
   Pending: undefined;
 };
 

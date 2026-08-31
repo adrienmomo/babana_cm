@@ -240,6 +240,16 @@ export const HTTP_ENDPOINTS = {
     requestExample: null,
     responseExample: documents.uploadDriverDocumentResponseExample,
   },
+  listDriverDocuments: {
+    method: 'GET',
+    path: '/api/v1/driver/documents',
+    requiresAuth: true,
+    requestSchema: null,
+    responseSchema: documents.ListDriverDocumentsResponseSchema,
+    errors: documents.ListDriverDocumentsErrors,
+    requestExample: null,
+    responseExample: documents.listDriverDocumentsResponseExample,
+  },
   driverDocumentSignedUrl: {
     method: 'GET',
     path: '/api/v1/driver/documents/{id}/url',

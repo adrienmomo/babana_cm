@@ -58,16 +58,25 @@ function driverUser(driverStatus: 'pending' | 'approved' | 'rejected' | 'suspend
   return { id: 'd1', role: 'driver' as const, displayName: 'Paul', photoUrl: null, phoneVerified: true, driverStatus };
 }
 
+const renderedRoots: ReactTestRenderer[] = [];
+
 async function renderApp(): Promise<ReactTestRenderer> {
   let root!: ReactTestRenderer;
   await act(async () => {
     root = create(<AppNavigator />);
   });
+  renderedRoots.push(root);
   return root;
 }
 
 describe('AppNavigator Chauffeur (L6-00)', () => {
-  afterEach(() => {
+  afterEach(async () => {
+    // Démonter les arbres rendus : depuis L6-15, l'écran d'inscription porte un effet
+    // asynchrone (useOnboarding) -- un arbre laissé monté ferait fuir un setState après la fin
+    // du test ("worker process failed to exit gracefully").
+    await act(async () => {
+      for (const root of renderedRoots.splice(0)) root.unmount();
+    });
     jest.clearAllMocks();
     sessionLostListener = null;
   });
@@ -93,25 +102,30 @@ describe('AppNavigator Chauffeur (L6-00)', () => {
     expect(texts.join(' ')).not.toContain('Accueil chauffeur');
   });
 
-  it("un chauffeur pending n'atteint pas les écrans de course -- il est routé vers l'attente de dossier (critère 5)", async () => {
+  // Depuis L6-15, le chauffeur non approuvé entre dans le parcours d'inscription réel (profil,
+  // dépôt des pièces, attente) au lieu du placeholder L6-00. Sans état local ni serveur (mocks
+  // ci-dessus), l'écran d'entrée calculé est le profil -- ce qui reste vérifié ici, c'est le
+  // critère 5 de L6-00 : il n'atteint aucun écran de course.
+  it("un chauffeur pending n'atteint pas les écrans de course -- il entre dans le parcours d'inscription (critère 5)", async () => {
     mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
     mockRefreshUser.mockResolvedValue({ user: driverUser('pending') });
     const root = await renderApp();
 
     const texts = root.root.findAllByType(Text).map((n) => JSON.stringify(n.props.children));
-    expect(texts.join(' ')).toContain('Dossier en cours de validation');
+    expect(texts.join(' ')).toContain('Votre inscription');
     expect(texts.join(' ')).not.toContain('Accueil chauffeur');
   });
 
   it.each(['rejected', 'suspended', undefined] as const)(
-    'un chauffeur %s (défaut-refus) est aussi routé vers l\'attente de dossier',
+    "un chauffeur %s (défaut-refus) entre aussi dans le parcours d'inscription, jamais dans les écrans de course",
     async (status) => {
       mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
       mockRefreshUser.mockResolvedValue({ user: driverUser(status) });
       const root = await renderApp();
 
       const texts = root.root.findAllByType(Text).map((n) => JSON.stringify(n.props.children));
-      expect(texts.join(' ')).toContain('Dossier en cours de validation');
+      expect(texts.join(' ')).toContain('Votre inscription');
+      expect(texts.join(' ')).not.toContain('Accueil chauffeur');
     }
   );
 

@@ -149,6 +149,15 @@ class BabanaDriver(models.Model):
         "individuel (L9-06, back-office, hors de ce lot, ajustera le paramètre, pas ce champ).",
     )
     phone_verified = fields.Boolean(string="Numéro vérifié", default=False)
+    document_ids = fields.One2many(
+        "babana.driver.document",
+        "driver_id",
+        string="Documents",
+        help="Permis et pièce d'identité téléversés par le chauffeur (L1-05). L'inscription "
+        "(L6-15) crée une ligne par téléversement -- un document renvoyé après rejet ajoute une "
+        "ligne, l'ancienne reste pour l'audit. GET /api/v1/driver/documents ne renvoie que la "
+        "plus récente par type.",
+    )
 
     _sql_constraints = [
         (
