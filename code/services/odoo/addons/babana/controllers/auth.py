@@ -219,7 +219,15 @@ def _build_user_payload(user, *, picture=None) -> dict:
     if role == "driver":
         # babana.driver (L1-03) est désormais créé dès le premier sign-in chauffeur (L1-03R) :
         # la recherche trouve toujours une fiche.
-        payload["driverStatus"] = user._babana_driver().state
+        driver = user._babana_driver()
+        payload["driverStatus"] = driver.state
+        # Motif présent seulement pour une décision négative sur le dossier entier
+        # (amoa/questions/REPONSES-2026-09-04.md §2) -- `null` explicite le reste du temps, jamais
+        # omis : même règle que le motif d'un document rejeté (controllers/documents.py, D30).
+        if driver.state in ("rejected", "suspended"):
+            payload["driverRejectionReason"] = driver.rejection_reason or None
+        else:
+            payload["driverRejectionReason"] = None
     return payload
 
 

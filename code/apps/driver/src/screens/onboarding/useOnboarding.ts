@@ -9,6 +9,7 @@ import {
   savePendingUpload,
   setProfileAcknowledged,
   type DocumentSlot,
+  type DriverStatus,
   type OnboardingRoute,
   type PendingUpload,
   type RequiredDocumentType,
@@ -33,7 +34,7 @@ export interface OnboardingController {
   clearPending: (type: RequiredDocumentType) => Promise<void>;
 }
 
-export function useOnboarding(userId: string): OnboardingController {
+export function useOnboarding(userId: string, driverStatus?: DriverStatus): OnboardingController {
   const [status, setStatus] = useState<'loading' | 'ready'>('loading');
   const [slots, setSlots] = useState<DocumentSlot[]>([]);
   const [initialRoute, setInitialRoute] = useState<OnboardingRoute>('Profile');
@@ -69,13 +70,13 @@ export function useOnboarding(userId: string): OnboardingController {
       if (cancelled) return;
       setPendingUploads(pending);
       setSlots(computed);
-      setInitialRoute(resolveOnboardingRoute(computed, acknowledged));
+      setInitialRoute(resolveOnboardingRoute(computed, acknowledged, driverStatus));
       setStatus('ready');
     })();
     return () => {
       cancelled = true;
     };
-  }, [userId]);
+  }, [userId, driverStatus]);
 
   const acknowledgeProfile = useCallback(async () => {
     await setProfileAcknowledged(userId);

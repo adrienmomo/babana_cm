@@ -50,6 +50,53 @@ class TestMeController(HttpCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["driverStatus"], "pending")
 
+    def test_rejected_driver_profile_carries_status_and_reason(self):
+        # amoa/questions/REPONSES-2026-09-04.md §2 : « en cours de validation » n'est pas une
+        # information, « votre permis est illisible » en est une -- le motif voyage dans la
+        # session pour que l'app le dise.
+        from ..controllers.auth import _issue_access_token
+
+        user = self.env["res.users"].sudo()._babana_find_or_create_from_google(
+            sub="sub-me-rejected", email="me-rejected@example.invalid", name="Refusé", role="driver"
+        )
+        user._babana_driver().action_reject(reason="Permis de conduire illisible")
+        access_token, _ = _issue_access_token(user)
+
+        body = self._get(access_token).json()
+
+        self.assertEqual(body["driverStatus"], "rejected")
+        self.assertEqual(body["driverRejectionReason"], "Permis de conduire illisible")
+
+    def test_suspended_driver_profile_carries_status_and_reason(self):
+        from ..controllers.auth import _issue_access_token
+
+        user = self.env["res.users"].sudo()._babana_find_or_create_from_google(
+            sub="sub-me-suspended", email="me-suspended@example.invalid", name="Suspendu", role="driver"
+        )
+        user._babana_driver().write({"state": "suspended", "rejection_reason": "Comportement signalé"})
+        access_token, _ = _issue_access_token(user)
+
+        body = self._get(access_token).json()
+
+        self.assertEqual(body["driverStatus"], "suspended")
+        self.assertEqual(body["driverRejectionReason"], "Comportement signalé")
+
+    def test_pending_driver_profile_has_a_null_reason_never_an_omission(self):
+        # Même règle de non-omission que le motif d'un document (D30) : `null` explicite, pas
+        # une clé absente, pour qu'un client typé n'ait pas à distinguer les deux.
+        from ..controllers.auth import _issue_access_token
+
+        user = self.env["res.users"].sudo()._babana_find_or_create_from_google(
+            sub="sub-me-pending-reason", email="me-pending-reason@example.invalid", name="Attente", role="driver"
+        )
+        access_token, _ = _issue_access_token(user)
+
+        body = self._get(access_token).json()
+
+        self.assertEqual(body["driverStatus"], "pending")
+        self.assertIn("driverRejectionReason", body)
+        self.assertIsNone(body["driverRejectionReason"])
+
     def test_missing_token_is_rejected(self):
         response = self._get()
 

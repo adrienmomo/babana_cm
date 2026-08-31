@@ -37,6 +37,17 @@ export const AuthenticatedUserSchema = z.object({
    * ce champ qui porte l'information, pas un rejet de l'authentification.
    */
   driverStatus: z.enum(['pending', 'approved', 'rejected', 'suspended']).optional(),
+  /**
+   * Motif de la décision négative sur le dossier — renseigné seulement quand `driverStatus`
+   * vaut 'rejected' ou 'suspended', `null` sinon (même règle de non-omission que
+   * `rejectionReason` d'un document, documents.ts). Sans lui, un chauffeur refusé redépose des
+   * pièces qui seront refusées de nouveau sans savoir pourquoi : « en cours de validation »
+   * n'est pas une information, « votre permis est illisible » en est une
+   * (amoa/questions/REPONSES-2026-09-04.md §2). L7-03 porte la même donnée par notification ;
+   * ici elle voyage dans la session pour que l'écran de suivi de dossier (L6-15) la dise dès
+   * l'ouverture, sans attendre une notification qui a pu se perdre.
+   */
+  driverRejectionReason: z.string().nullable().optional(),
 });
 export type AuthenticatedUser = z.infer<typeof AuthenticatedUserSchema>;
 

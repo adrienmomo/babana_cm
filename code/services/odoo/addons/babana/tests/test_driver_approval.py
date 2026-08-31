@@ -207,6 +207,35 @@ class TestDriverApproval(TransactionCase):
         with self.assertRaises(UserError):
             driver.action_reactivate()
 
+    # --- Le motif de la décision négative est persisté, et effacé quand elle est levée --------
+    # amoa/questions/REPONSES-2026-09-04.md §2 : c'est ce champ que la session porte jusqu'à
+    # l'app (AuthenticatedUser.driverRejectionReason).
+
+    def test_suspension_persists_its_reason_on_the_record(self):
+        driver = self._make_approvable_candidate()
+        driver.action_approve(new_employee_name="Chauffeur")
+
+        driver.action_suspend(reason="Comportement signalé")
+
+        self.assertEqual(driver.rejection_reason, "Comportement signalé")
+
+    def test_reactivation_clears_the_reason(self):
+        driver = self._make_approvable_candidate()
+        driver.action_approve(new_employee_name="Chauffeur")
+        driver.action_suspend(reason="Comportement signalé")
+
+        driver.action_reactivate()
+
+        self.assertFalse(driver.rejection_reason)
+
+    def test_approval_clears_a_prior_rejection_reason(self):
+        driver = self._make_approvable_candidate()
+        driver.action_reject(reason="Pièce d'identité expirée")
+
+        driver.action_approve(new_employee_name="Chauffeur")
+
+        self.assertFalse(driver.rejection_reason)
+
     # --- Critère 6 : chaque changement d'état est journalisé, avec auteur et motif ------------
 
     def test_state_changes_are_logged_in_the_chatter(self):

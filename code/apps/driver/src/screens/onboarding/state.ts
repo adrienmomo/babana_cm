@@ -60,14 +60,31 @@ export function documentSlots(documents: readonly http.DriverDocument[]): Docume
   });
 }
 
-export type OnboardingRoute = 'Profile' | 'Documents' | 'Pending';
+export type OnboardingRoute = 'Profile' | 'Documents' | 'Pending' | 'Rejected';
+
+/** Statut de dossier porté par la session (AuthenticatedUser.driverStatus). `undefined` quand le
+ * rafraîchissement de session a échoué hors ligne -- traité en défaut-refus, comme `pending`. */
+export type DriverStatus = 'pending' | 'approved' | 'rejected' | 'suspended' | undefined;
 
 /**
- * Écran sur lequel reprendre l'inscription (critère 1) : profil non confirmé -> `Profile` ; un
- * document manquant ou rejeté -> `Documents` (il y a quelque chose à faire) ; sinon -> `Pending`
- * (tout est déposé, on attend la validation).
+ * Écran sur lequel reprendre l'inscription / le suivi de dossier (critère 1). Trois situations
+ * qui n'appellent pas la même action (amoa/questions/REPONSES-2026-09-04.md §2) :
+ *
+ * - **refusé** (`driverStatus` 'rejected' ou 'suspended') -> `Rejected` : le motif, et le chemin
+ *   pour corriger et resoumettre. Prime sur tout le reste -- un dossier refusé ne se raconte pas
+ *   comme une inscription en cours.
+ * - **incomplet** (un document manquant ou rejeté) -> `Documents` : il y a une pièce à
+ *   (re)déposer, nommée.
+ * - **en cours de validation** (tout est déposé) -> `Pending` : rien à faire qu'attendre.
+ *
+ * Et, avant tout cela, profil non confirmé -> `Profile`.
  */
-export function resolveOnboardingRoute(slots: readonly DocumentSlot[], profileAcknowledged: boolean): OnboardingRoute {
+export function resolveOnboardingRoute(
+  slots: readonly DocumentSlot[],
+  profileAcknowledged: boolean,
+  driverStatus?: DriverStatus
+): OnboardingRoute {
+  if (driverStatus === 'rejected' || driverStatus === 'suspended') return 'Rejected';
   if (!profileAcknowledged) return 'Profile';
   if (slots.some((slot) => slot.status === 'missing' || slot.status === 'rejected')) return 'Documents';
   return 'Pending';

@@ -78,6 +78,20 @@ describe('resolveOnboardingRoute (L6-15, critère 1 -- reprenable)', () => {
     expect(resolveOnboardingRoute(bothPending, true)).toBe('Pending');
     expect(allDocumentsSubmitted(bothPending)).toBe(true);
   });
+
+  it('dossier rejeté ou suspendu -> Rejected, quel que soit l’état des documents et du profil', () => {
+    // amoa/questions/REPONSES-2026-09-04.md §2 : un dossier refusé ne se raconte pas comme une
+    // inscription en cours -- il prime, même profil non confirmé.
+    expect(resolveOnboardingRoute(bothPending, true, 'rejected')).toBe('Rejected');
+    expect(resolveOnboardingRoute(bothPending, false, 'suspended')).toBe('Rejected');
+    expect(resolveOnboardingRoute(documentSlots([doc({ documentType: 'license' })]), true, 'rejected')).toBe('Rejected');
+  });
+
+  it('pending / approved / statut inconnu ne routent jamais vers Rejected', () => {
+    expect(resolveOnboardingRoute(bothPending, true, 'pending')).toBe('Pending');
+    expect(resolveOnboardingRoute(bothPending, true, 'approved')).toBe('Pending');
+    expect(resolveOnboardingRoute(bothPending, true, undefined)).toBe('Pending');
+  });
 });
 
 describe('persistance locale (critère 1 + le téléversement survit à une coupure)', () => {
