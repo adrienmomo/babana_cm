@@ -9,8 +9,11 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from unittest.mock import patch
 
 from odoo.tests.common import HttpCase, tagged
+
+from ..services import push
 
 
 def _internal_url(path: str) -> str:
@@ -303,3 +306,72 @@ class TestInternalController(HttpCase):
 
         self.assertEqual(response.status_code, 401)
         self.assertEqual(response.json()["error"]["code"], "UNAUTHORIZED")
+
+    # --- drivers/proposal-push (L7-04, sens temps réel -> Odoo) -------------------------------
+    #
+    # L'ENVOI lui-même (fournisseur, marquage, nettoyage des jetons) est prouvé par test_push.py ;
+    # `notify_users_async` y est prouvé ne programmer qu'un `cr.postcommit` (critères 3/5 de
+    # L7-01). Ici on vérifie ce que CE contrôleur ajoute : résoudre le bon compte et composer un
+    # message minimal, haute priorité, avec les bonnes données de routage -- en interceptant
+    # `notify_users_async` à sa frontière (le postcommit + fil de fond d'un HttpCase n'est pas un
+    # point d'observation fiable, même découpage que test_realtime_commit_hook.py).
+
+    def test_proposal_push_composes_a_minimal_high_priority_notification_for_the_driver_account(self):
+        driver_user, driver = self._make_driver_user("sub-proposal-push")
+
+        with patch.object(push, "notify_users_async") as mock_notify:
+            response = self._post(
+                "/drivers/proposal-push",
+                {
+                    "driverId": driver.public_id,
+                    "rideId": "11111111-1111-4111-8111-111111111111",
+                    "expiresAt": "2026-09-05T10:00:30.000Z",
+                },
+                secret=self._real_secret(),
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json(), {"ok": True, "notified": True})
+
+        self.assertEqual(mock_notify.call_count, 1)
+        _env, users, message = mock_notify.call_args[0]
+        # Le bon compte : celui du chauffeur visé.
+        self.assertEqual(list(users.ids), driver_user.ids)
+        # Haute priorité (réveille l'appareil) et une seule proposition à la fois (collapse).
+        self.assertTrue(message.high_priority)
+        self.assertEqual(message.collapse_key, "babana-proposal")
+        # Données de routage : ouvrent l'écran de proposition, portent la véritable échéance.
+        self.assertEqual(message.data["type"], "proposal")
+        self.assertEqual(message.data["rideId"], "11111111-1111-4111-8111-111111111111")
+        self.assertEqual(message.data["expiresAt"], "2026-09-05T10:00:30.000Z")
+        # Contenu MINIMAL et sans donnée sensible : ni montant, ni point (écran verrouillé).
+        blob = (message.title + " " + message.body).lower()
+        self.assertNotIn("fcfa", blob)
+        self.assertNotIn("4.0", blob)
+        self.assertNotIn("9.7", blob)
+
+    def test_proposal_push_does_not_send_when_there_is_no_account_to_reach(self):
+        driver = self._make_driver("Sans compte")
+        with patch.object(push, "notify_users_async") as mock_notify:
+            response = self._post(
+                "/drivers/proposal-push",
+                {"driverId": driver.public_id, "rideId": "r", "expiresAt": "x"},
+                secret=self._real_secret(),
+            )
+        self.assertEqual(response.json(), {"ok": True, "notified": False})
+        mock_notify.assert_not_called()
+
+    def test_proposal_push_unknown_driver_is_a_validation_error(self):
+        response = self._post(
+            "/drivers/proposal-push",
+            {"driverId": "unknown", "rideId": "r", "expiresAt": "x"},
+            secret=self._real_secret(),
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"]["code"], "VALIDATION_ERROR")
+
+    def test_proposal_push_missing_secret_is_unauthorized(self):
+        response = self._post(
+            "/drivers/proposal-push", {"driverId": "x", "rideId": "r", "expiresAt": "x"}
+        )
+        self.assertEqual(response.status_code, 401)

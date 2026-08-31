@@ -34,9 +34,12 @@ jest.mock('../../navigation/transitions', () => ({
 
 import { ProposalScreen } from '../ProposalScreen';
 import { formatMoney } from '../../format';
+import { resetProposalDedup } from '../../proposalDedup';
+import type { DriverParamList } from '../../navigation/types';
 
 const RIDE_ID = asRideId('ride-1');
 const PARAMS = {
+  source: 'realtime' as const,
   rideId: RIDE_ID,
   origin: { latitude: 4.05, longitude: 9.7 },
   destination: { latitude: 4.06, longitude: 9.71 },
@@ -48,6 +51,7 @@ const PARAMS = {
   // gelé par jest à l'heure réelle du beforeEach : sous forte charge (suite complète en
   // parallèle) l'écart dépasse quelques secondes et le compte à rebours attendu (30) tombe à 27.
   expiresAt: new Date(Date.now() + 30_000).toISOString(),
+  emittedAt: new Date().toISOString(),
 };
 
 function fakeNavigation() {
@@ -62,8 +66,10 @@ beforeEach(() => {
   // Après useFakeTimers() : `Date.now()` est maintenant gelé à une valeur stable, sur laquelle
   // `expiresAt` doit être calé pour que `remainingSeconds()` parte bien de 30.
   PARAMS.expiresAt = new Date(Date.now() + 30_000).toISOString();
+  PARAMS.emittedAt = new Date().toISOString();
   realtimeListener = null;
   mockReverseGeocode.mockResolvedValue(null);
+  resetProposalDedup();
 });
 
 afterEach(async () => {
@@ -74,7 +80,7 @@ afterEach(async () => {
 });
 
 async function renderProposal(
-  params = PARAMS,
+  params: DriverParamList['Proposal'] = PARAMS,
   navigation = fakeNavigation()
 ): Promise<{ root: ReactTestRenderer; navigation: ReturnType<typeof fakeNavigation> }> {
   const route = { key: 'Proposal', name: 'Proposal' as const, params };
@@ -107,14 +113,55 @@ function emitAccepted(rideId = RIDE_ID, clientPhoneNumber: string | null = '+237
   });
 }
 
-function emitSynced(activeRideId: string | null, activeRideState: string | null) {
+function emitSynced(
+  activeRideId: string | null,
+  activeRideState: string | null,
+  activeProposal: Record<string, unknown> | null = null
+) {
   realtimeListener?.({
     type: 'session.synced',
     id: 's1',
     emittedAt: new Date().toISOString(),
-    payload: { activeRideId, activeRideState, serverTime: new Date().toISOString() },
+    payload: { activeRideId, activeRideState, activeProposal, serverTime: new Date().toISOString() },
   });
 }
+
+function activeProposalFor(rideId = RIDE_ID, over: Record<string, unknown> = {}) {
+  return {
+    rideId,
+    origin: { latitude: 4.05, longitude: 9.7 },
+    destination: { latitude: 4.06, longitude: 9.71 },
+    amount: 1200,
+    distanceMeters: 3200,
+    distanceToOriginMeters: 1400,
+    expiresAt: new Date(Date.now() + 5_000).toISOString(),
+    emittedAt: new Date(Date.now() - 25_000).toISOString(),
+    ...over,
+  };
+}
+
+function emitProposalNew(rideId = RIDE_ID, emittedAt = new Date(Date.now() - 3_000).toISOString()) {
+  realtimeListener?.({
+    type: 'proposal.new',
+    id: 'pn1',
+    emittedAt,
+    payload: {
+      rideId,
+      origin: { latitude: 4.05, longitude: 9.7 },
+      destination: { latitude: 4.06, longitude: 9.71 },
+      amount: 1200,
+      distanceMeters: 3200,
+      distanceToOriginMeters: 1400,
+      expiresAt: new Date(Date.now() + 28_000).toISOString(),
+    },
+  });
+}
+
+const NOTIF_PARAMS = {
+  source: 'notification' as const,
+  rideId: RIDE_ID,
+  expiresAt: null as string | null,
+};
 
 describe('ProposalScreen (L6-12)', () => {
   it('critère 1 -- réveille l’appareil au montage, efface l’alerte au démontage', async () => {
@@ -310,5 +357,77 @@ describe('ProposalScreen (L6-12)', () => {
     });
 
     expect(root.root.findByProps({ testID: 'countdown-value' }).props.children).toBeLessThanOrEqual(25);
+  });
+
+  // --- L7-04 : mesure du délai d'acheminement, et ouverture depuis une notification ----------
+
+  it('L7-04 critère 4 -- signale proposal.seen à l’affichage réel, une seule fois, avec l’emittedAt d’origine', async () => {
+    await renderProposal();
+
+    const seenCalls = mockSend.mock.calls.filter((c) => c[0] === 'proposal.seen');
+    expect(seenCalls).toHaveLength(1);
+    expect(seenCalls[0][1]).toEqual({ rideId: RIDE_ID, emittedAt: PARAMS.emittedAt });
+
+    // Un tick de plus ne le renvoie pas.
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3000);
+    });
+    expect(mockSend.mock.calls.filter((c) => c[0] === 'proposal.seen')).toHaveLength(1);
+  });
+
+  it('mode notification -- revalide (session.resync forcée) et n’affiche ni détails ni boutons avant la réponse', async () => {
+    const { root } = await renderProposal(NOTIF_PARAMS);
+
+    expect(mockSend).toHaveBeenCalledWith('session.resync', { lastKnownRideId: RIDE_ID });
+    expect(texts(root)).toContain('Vérification de la proposition…');
+    expect(root.root.findAllByProps({ testID: 'proposal-accept' })).toHaveLength(0);
+    // Pas encore de proposal.seen : rien n'est affiché.
+    expect(mockSend.mock.calls.filter((c) => c[0] === 'proposal.seen')).toHaveLength(0);
+  });
+
+  it('mode notification -- session.synced avec activeProposal remplit l’écran, avec la véritable échéance, puis signale proposal.seen', async () => {
+    const { root } = await renderProposal(NOTIF_PARAMS);
+    const active = activeProposalFor(RIDE_ID);
+
+    await act(async () => {
+      emitSynced(null, null, active);
+    });
+
+    expect(texts(root)).toContain(formatMoney(1200));
+    expect(root.root.findByProps({ testID: 'proposal-accept' })).toBeDefined();
+    // Véritable échéance : ~5 s restantes, pas 30.
+    expect(root.root.findByProps({ testID: 'countdown-value' }).props.children).toBeLessThanOrEqual(6);
+
+    const seenCalls = mockSend.mock.calls.filter((c) => c[0] === 'proposal.seen');
+    expect(seenCalls).toHaveLength(1);
+    expect(seenCalls[0][1]).toEqual({ rideId: RIDE_ID, emittedAt: active.emittedAt });
+  });
+
+  it('mode notification -- session.synced sans activeProposal dit « plus à prendre », sans boutons, et revient (critère 3)', async () => {
+    const { root, navigation } = await renderProposal(NOTIF_PARAMS);
+
+    await act(async () => {
+      emitSynced(null, null, null);
+    });
+
+    expect(texts(root)).toContain('Cette course n’est plus à prendre.');
+    expect(root.root.findAllByProps({ testID: 'proposal-accept' })).toHaveLength(0);
+    expect(mockSend.mock.calls.filter((c) => c[0] === 'proposal.seen')).toHaveLength(0);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(2500);
+    });
+    expect(navigation.goBack).toHaveBeenCalledTimes(1);
+  });
+
+  it('mode notification -- un proposal.new qui rattrape la notification remplit l’écran', async () => {
+    const { root } = await renderProposal(NOTIF_PARAMS);
+
+    await act(async () => {
+      emitProposalNew(RIDE_ID);
+    });
+
+    expect(root.root.findByProps({ testID: 'proposal-accept' })).toBeDefined();
+    expect(texts(root)).toContain(formatMoney(1200));
   });
 });

@@ -2,11 +2,13 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { reverseGeocode } from '@babana/maps';
+import type { LatLng } from '@babana/maps';
 import type { realtime } from '@babana/contracts';
 import { CountdownRing } from '../components/CountdownRing';
 import { formatDistance, formatMoney } from '../format';
 import { alertIncomingProposal, dismissProposalAlert } from '../proposalAlert';
 import { onRealtimeMessage, realtimeClient } from '../realtime';
+import { markProposalHandled, forgetProposal } from '../proposalDedup';
 import { replaceWithActiveRide } from '../navigation/transitions';
 import type { DriverParamList } from '../navigation/types';
 
@@ -18,11 +20,34 @@ import type { DriverParamList } from '../navigation/types';
  * **Le compte à rebours est indicatif ; le serveur est seul juge** (spécification, L3-07) --
  * cet écran n'expire jamais lui-même une proposition, il ne fait qu'afficher `expiresAt` et
  * réagir à `proposal.expired` quand le serveur le pousse réellement.
+ *
+ * **Deux façons d'arriver ici** (L7-04) :
+ * - `source: 'realtime'` -- l'app tenait déjà les détails (`proposal.new`, ou
+ *   `session.synced.activeProposal` après reconnexion). Affichage immédiat.
+ * - `source: 'notification'` -- l'app était fermée à l'émission, ouverte depuis la notification
+ *   push. Elle n'a jamais reçu `proposal.new`. L'écran **revalide auprès du serveur** (une
+ *   `session.resync` forcée) et attend un `session.synced` explicite : soit il porte une
+ *   `activeProposal` pour ce `rideId` -- détails et **véritable** échéance -- soit il porte
+ *   `null`, et l'écran dit « cette course n'est plus à prendre » (jamais des boutons pour une
+ *   course déjà attribuée ou expirée, critère 3). Aucun délai inventé : on attend la réponse,
+ *   on ne conclut jamais d'un silence (D49).
  */
 
 type Props = NativeStackScreenProps<DriverParamList, 'Proposal'>;
 
 type Decision = 'idle' | 'accepting' | 'rejecting' | 'resolved';
+
+/** Détails complets d'une proposition affichable -- présents d'emblée en mode `realtime`,
+ * remplis par la revalidation en mode `notification`. */
+interface ProposalDisplayDetails {
+  origin: LatLng;
+  destination: LatLng;
+  amount: number;
+  distanceMeters: number;
+  distanceToOriginMeters: number | null;
+  expiresAt: string;
+  emittedAt: string;
+}
 
 /** Durée d'affichage du message de résolution avant le retour automatique (critère 4) -- assez
  * long pour être lu, pas assez pour que le chauffeur se demande si l'écran est figé. */
@@ -36,6 +61,10 @@ const ASSIGNED_RIDE_STATES: ReadonlySet<realtime.SessionSyncedMessage['payload']
   'assigned',
   'in_progress',
 ]);
+
+function isProposalNewMessage(message: realtime.ServerToClientMessage): message is realtime.ProposalNewMessage {
+  return message.type === 'proposal.new';
+}
 
 function isProposalExpiredMessage(message: realtime.ServerToClientMessage): message is realtime.ProposalExpiredMessage {
   return message.type === 'proposal.expired';
@@ -53,9 +82,40 @@ function remainingSeconds(expiresAt: string): number {
   return Math.max(0, Math.round((new Date(expiresAt).getTime() - Date.now()) / 1000));
 }
 
-export function ProposalScreen({ route, navigation }: Props) {
-  const { rideId, origin, destination, amount, distanceMeters, distanceToOriginMeters, expiresAt } = route.params;
+function detailsFromRealtimeParams(
+  params: Extract<DriverParamList['Proposal'], { source?: 'realtime' }>
+): ProposalDisplayDetails {
+  return {
+    origin: params.origin,
+    destination: params.destination,
+    amount: params.amount,
+    distanceMeters: params.distanceMeters,
+    distanceToOriginMeters: params.distanceToOriginMeters,
+    expiresAt: params.expiresAt,
+    emittedAt: params.emittedAt,
+  };
+}
 
+function detailsFromActiveProposal(active: realtime.ActiveProposal): ProposalDisplayDetails {
+  return {
+    origin: active.origin,
+    destination: active.destination,
+    amount: active.amount,
+    distanceMeters: active.distanceMeters,
+    distanceToOriginMeters: active.distanceToOriginMeters,
+    expiresAt: active.expiresAt,
+    emittedAt: active.emittedAt,
+  };
+}
+
+export function ProposalScreen({ route, navigation }: Props) {
+  const params = route.params;
+  const rideId = params.rideId;
+  const fromNotification = params.source === 'notification';
+
+  const [details, setDetails] = useState<ProposalDisplayDetails | null>(
+    fromNotification ? null : detailsFromRealtimeParams(params)
+  );
   const [originLabel, setOriginLabel] = useState<string | null>(null);
   const [destinationLabel, setDestinationLabel] = useState<string | null>(null);
   const [decision, setDecision] = useState<Decision>('idle');
@@ -65,6 +125,12 @@ export function ProposalScreen({ route, navigation }: Props) {
   // l'acceptation -- `decision` (état React) y serait périmé, même raisonnement que `phaseRef`
   // dans TrackingScreen.tsx (apps/client).
   const decisionRef = useRef<Decision>('idle');
+  // `proposal.seen` (L7-04, critère 4) n'est signalé qu'une fois -- au premier affichage réel
+  // des boutons, quelle que soit la source.
+  const seenSignalledRef = useRef(false);
+  // Revalidation en mode notification : ne conclure « plus à prendre » qu'une fois, sur le
+  // premier session.synced qui répond.
+  const revalidationSettledRef = useRef(false);
 
   function updateDecision(next: Decision) {
     decisionRef.current = next;
@@ -80,17 +146,28 @@ export function ProposalScreen({ route, navigation }: Props) {
     };
   }, []);
 
+  // Mode notification : revalider auprès du serveur (L7-04). Une `session.resync` forcée -- même
+  // message que la reconnexion automatique -- pour obtenir un `session.synced` frais qui dira s'il
+  // reste une proposition à prendre, et laquelle. Rien n'est affiché tant que la réponse n'est
+  // pas là : aucun délai deviné.
+  useEffect(() => {
+    if (fromNotification) {
+      realtimeClient.send('session.resync', { lastKnownRideId: rideId });
+    }
+  }, [fromNotification, rideId]);
+
   // Départ/arrivée affichés comme une approximation lisible, jamais comme un fait précis --
   // même honnêteté que HomeScreen.tsx côté Client (doute L6-06 §1) : c'est le point que le
   // serveur a transmis qui fait foi, le libellé ne fait qu'aider à le lire d'un coup d'œil.
   useEffect(() => {
+    if (!details) return;
     let cancelled = false;
-    reverseGeocode(origin)
+    reverseGeocode(details.origin)
       .then((label) => {
         if (!cancelled) setOriginLabel(label);
       })
       .catch(() => {});
-    reverseGeocode(destination)
+    reverseGeocode(details.destination)
       .then((label) => {
         if (!cancelled) setDestinationLabel(label);
       })
@@ -98,7 +175,7 @@ export function ProposalScreen({ route, navigation }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [origin, destination]);
+  }, [details]);
 
   // Un tick par seconde pour rafraîchir le compte à rebours affiché -- purement indicatif.
   useEffect(() => {
@@ -106,39 +183,76 @@ export function ProposalScreen({ route, navigation }: Props) {
     return () => clearInterval(timer);
   }, []);
 
+  // Signale au serveur l'affichage réel de la proposition (L7-04, critère 4) -- dès que les
+  // détails et les boutons sont là, une seule fois. C'est ce chiffre, mesuré côté serveur à la
+  // réception, qui dit si le délai d'acceptation de trente secondes est réaliste.
+  useEffect(() => {
+    if (!details || decision !== 'idle' || resolutionMessage || seenSignalledRef.current) return;
+    seenSignalledRef.current = true;
+    realtimeClient.send('proposal.seen', { rideId, emittedAt: details.emittedAt });
+  }, [details, decision, resolutionMessage, rideId]);
+
   // Toutes les issues d'une proposition passent par le fil (D49) -- plus aucun délai deviné :
+  //  - `session.synced` : en mode notification, porte (ou non) `activeProposal` -- la
+  //    revalidation ; en mode accept, filet si `proposal.accepted` s'est perdu ;
+  //  - `proposal.new` : le WebSocket a fini par rattraper la notification -- on remplit les
+  //    détails s'ils manquaient encore ;
   //  - `proposal.accepted` : l'acceptation a été résolue en faveur du chauffeur -> ActiveRide ;
-  //  - `proposal.expired` : expiration simple, ou acceptation arrivée trop tard (critère 3) ;
-  //  - `session.synced` : filet de sécurité si `proposal.accepted` s'est perdu sans que la
-  //    connexion tombe puis se rétablisse -- la resynchronisation automatique
-  //    (`@babana/api-client`, à chaque `connected`) rapporte alors l'état réel de la course.
+  //  - `proposal.expired` : expiration simple, ou acceptation arrivée trop tard (critère 3).
   useEffect(() => {
     return onRealtimeMessage((message) => {
-      if (isProposalAcceptedMessage(message) && message.payload.rideId === rideId) {
-        if (decisionRef.current === 'rejecting' || decisionRef.current === 'resolved') return;
-        updateDecision('resolved');
-        replaceWithActiveRide(navigation, {
-          rideId,
-          origin,
-          destination,
-          amount,
-          distanceMeters,
-          clientPhoneNumber: message.payload.clientPhoneNumber,
+      if (isSessionSyncedMessage(message)) {
+        const active = message.payload.activeProposal;
+        // Revalidation (mode notification) : la première réponse tranche.
+        if (fromNotification && !revalidationSettledRef.current && decisionRef.current === 'idle') {
+          if (active && active.rideId === rideId) {
+            revalidationSettledRef.current = true;
+            markProposalHandled(rideId);
+            setDetails(detailsFromActiveProposal(active));
+          } else {
+            // `activeProposal` absent, ou pour une autre course : il n'y a plus rien à prendre.
+            // On le dit -- pas de boutons pour une course qui n'est plus disponible (critère 3).
+            revalidationSettledRef.current = true;
+            setResolutionMessage('Cette course n’est plus à prendre.');
+            updateDecision('resolved');
+          }
+        }
+        // Filet d'acceptation (D30) : session.synced ne porte pas le numéro du client -- absent,
+        // jamais inventé.
+        if (
+          decisionRef.current === 'accepting' &&
+          message.payload.activeRideId === rideId &&
+          ASSIGNED_RIDE_STATES.has(message.payload.activeRideState)
+        ) {
+          updateDecision('resolved');
+          navigateToActiveRide(null);
+        }
+        return;
+      }
+
+      if (isProposalNewMessage(message) && message.payload.rideId === rideId) {
+        if (decisionRef.current !== 'idle') return;
+        revalidationSettledRef.current = true;
+        markProposalHandled(rideId);
+        setDetails((current) => current ?? {
+          origin: message.payload.origin,
+          destination: message.payload.destination,
+          amount: message.payload.amount,
+          distanceMeters: message.payload.distanceMeters,
+          distanceToOriginMeters: message.payload.distanceToOriginMeters,
+          expiresAt: message.payload.expiresAt,
+          emittedAt: message.emittedAt,
         });
         return;
       }
-      if (
-        isSessionSyncedMessage(message) &&
-        decisionRef.current === 'accepting' &&
-        message.payload.activeRideId === rideId &&
-        ASSIGNED_RIDE_STATES.has(message.payload.activeRideState)
-      ) {
+
+      if (isProposalAcceptedMessage(message) && message.payload.rideId === rideId) {
+        if (decisionRef.current === 'rejecting' || decisionRef.current === 'resolved') return;
         updateDecision('resolved');
-        // Filet de resynchronisation (D30) : session.synced ne porte pas le numéro du client --
-        // absent, jamais inventé, plutôt qu'une valeur périmée ou devinée.
-        replaceWithActiveRide(navigation, { rideId, origin, destination, amount, distanceMeters, clientPhoneNumber: null });
+        navigateToActiveRide(message.payload.clientPhoneNumber);
         return;
       }
+
       if (isProposalExpiredMessage(message) && message.payload.rideId === rideId) {
         const wasAccepting = decisionRef.current === 'accepting';
         setResolutionMessage(
@@ -149,13 +263,27 @@ export function ProposalScreen({ route, navigation }: Props) {
         updateDecision('resolved');
       }
     });
-    // origin/destination/amount/distanceMeters viennent de route.params, stables pour la vie de
-    // l'écran -- transmis tels quels à ActiveRide (L6-13), jamais une raison de se réabonner.
+    // rideId/fromNotification stables pour la vie de l'écran -- jamais une raison de se réabonner.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rideId, navigation]);
 
+  function navigateToActiveRide(clientPhoneNumber: string | null) {
+    // Les détails sont garantis présents ici : une acceptation n'est possible qu'après affichage
+    // des boutons, donc après `setDetails`. Repli défensif sur les params `realtime` malgré tout.
+    const d = details ?? (fromNotification ? null : detailsFromRealtimeParams(params));
+    if (!d) return;
+    replaceWithActiveRide(navigation, {
+      rideId,
+      origin: d.origin,
+      destination: d.destination,
+      amount: d.amount,
+      distanceMeters: d.distanceMeters,
+      clientPhoneNumber,
+    });
+  }
+
   // Retour automatique, sans action requise (critère 4) -- le message reste lisible un instant
-  // avant de disparaître, l'un n'empêche pas l'autre.
+  // avant de disparaître, l'un n'empêche pas l'autre. Couvre aussi « plus à prendre » (notif).
   useEffect(() => {
     if (!resolutionMessage) return;
     const timer = setTimeout(() => navigation.goBack(), RESOLUTION_DISPLAY_MS);
@@ -163,55 +291,69 @@ export function ProposalScreen({ route, navigation }: Props) {
   }, [resolutionMessage, navigation]);
 
   function handleAccept() {
-    if (decision !== 'idle') return;
+    if (decision !== 'idle' || !details) return;
     updateDecision('accepting');
     realtimeClient.send('proposal.accept', { rideId });
     // Aucune bascule optimiste : la navigation vers ActiveRide n'a lieu qu'à la réception de
     // `proposal.accepted` (ou de `session.synced` en filet), jamais après un délai deviné (D49).
-    // Le compte à rebours affiché reste purement indicatif -- le serveur seul tranche (L3-07).
   }
 
   function handleReject() {
     if (decision !== 'idle') return;
     updateDecision('rejecting');
     realtimeClient.send('proposal.reject', { rideId });
+    // Une proposition refusée peut être re-proposée plus tard (cas rare) : le registre de
+    // déduplication ne doit pas l'avaler en silence.
+    forgetProposal(rideId);
     navigation.goBack();
   }
+
+  const provisionalExpiresAt = details?.expiresAt ?? (fromNotification && params.expiresAt ? params.expiresAt : null);
 
   return (
     <View style={styles.container} testID="proposal-screen">
       <Text style={styles.title}>Nouvelle proposition</Text>
 
-      <View style={styles.pointsSummary}>
-        <Text style={styles.pointText} numberOfLines={1} testID="proposal-origin">
-          Départ : {originLabel ?? '…'}
-        </Text>
-        <Text style={styles.pointText} numberOfLines={1} testID="proposal-destination">
-          Arrivée : {destinationLabel ?? '…'}
-        </Text>
-      </View>
+      {details ? (
+        <>
+          <View style={styles.pointsSummary}>
+            <Text style={styles.pointText} numberOfLines={1} testID="proposal-origin">
+              Départ : {originLabel ?? '…'}
+            </Text>
+            <Text style={styles.pointText} numberOfLines={1} testID="proposal-destination">
+              Arrivée : {destinationLabel ?? '…'}
+            </Text>
+          </View>
 
-      <Text style={styles.amount} testID="proposal-amount">
-        {formatMoney(amount)}
-      </Text>
-      <Text style={styles.distance} testID="proposal-distance">
-        Course : {formatDistance(distanceMeters)}
-      </Text>
-      {/* D51 -- distance à vide jusqu'au client, souvent le chiffre le plus déterminant pour
-          décider en trente secondes. Approximation à vol d'oiseau (É8), pas un itinéraire. */}
-      <Text style={styles.approachDistance} testID="proposal-approach-distance">
-        {distanceToOriginMeters === null
-          ? 'Distance jusqu’au client indisponible'
-          : `≈ ${formatDistance(distanceToOriginMeters)} pour rejoindre le client`}
-      </Text>
+          <Text style={styles.amount} testID="proposal-amount">
+            {formatMoney(details.amount)}
+          </Text>
+          <Text style={styles.distance} testID="proposal-distance">
+            Course : {formatDistance(details.distanceMeters)}
+          </Text>
+          {/* D51 -- distance à vide jusqu'au client, souvent le chiffre le plus déterminant pour
+              décider en trente secondes. Approximation à vol d'oiseau (É8), pas un itinéraire. */}
+          <Text style={styles.approachDistance} testID="proposal-approach-distance">
+            {details.distanceToOriginMeters === null
+              ? 'Distance jusqu’au client indisponible'
+              : `≈ ${formatDistance(details.distanceToOriginMeters)} pour rejoindre le client`}
+          </Text>
+        </>
+      ) : !resolutionMessage ? (
+        <Text style={styles.revalidating} testID="proposal-revalidating">
+          Vérification de la proposition…
+        </Text>
+      ) : null}
 
-      <CountdownRing remainingSeconds={remainingSeconds(expiresAt)} />
+      {provisionalExpiresAt && !resolutionMessage ? (
+        <CountdownRing remainingSeconds={remainingSeconds(provisionalExpiresAt)} />
+      ) : null}
 
       {resolutionMessage ? (
         <View style={styles.resolutionBanner} testID="proposal-resolution">
           <Text style={styles.resolutionText}>{resolutionMessage}</Text>
         </View>
-      ) : (
+      ) : details ? (
         <View style={styles.actionsRow}>
           <Pressable
             testID="proposal-reject"
@@ -234,7 +376,7 @@ export function ProposalScreen({ route, navigation }: Props) {
             <Text style={styles.actionLabel}>Accepter</Text>
           </Pressable>
         </View>
-      )}
+      ) : null}
 
       {decision === 'accepting' ? (
         <Text style={styles.pending} testID="proposal-accepting">
@@ -276,6 +418,9 @@ const styles = StyleSheet.create({
   approachDistance: {
     color: '#0A7D3D',
     fontWeight: '600',
+  },
+  revalidating: {
+    color: '#6B7280',
   },
   actionsRow: {
     flexDirection: 'row',

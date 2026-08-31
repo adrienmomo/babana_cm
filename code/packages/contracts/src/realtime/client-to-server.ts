@@ -72,6 +72,29 @@ export const ProposalRejectPayloadSchema = z.object({
 export const ProposalRejectMessageSchema = envelopeSchema('proposal.reject', ProposalRejectPayloadSchema);
 export type ProposalRejectMessage = z.infer<typeof ProposalRejectMessageSchema>;
 
+/**
+ * Émetteur : chauffeur. Signale que l'écran de proposition (L6-12) s'est **réellement affiché** --
+ * boutons visibles, compte à rebours en place. C'est le seul instant qui répond à la question de
+ * L7-04, critère 4 : « un chauffeur a-t-il vu la course à temps ». Le serveur ne peut observer
+ * seul que l'acceptation de son envoi par le fournisseur push ; tout le délai qui compte vit
+ * après (veille du système, réseau, réveil de l'appareil).
+ *
+ * `emittedAt` rejoue l'`emittedAt` de l'enveloppe du `proposal.new` d'origine (ou de
+ * `session.synced.activeProposal.emittedAt` quand l'app ne l'a jamais reçu et l'a retrouvé par
+ * resynchronisation) -- porté dans la charge utile, pas déduit de l'enveloppe de CE message, qui
+ * date de l'affichage et non de l'émission. Le serveur mesure `réception − emittedAt` : un seul
+ * chiffre, calculé avec son horloge, qui inclut la latence de remontée de ce message mais pas
+ * l'écart d'horloge entre l'appareil et le serveur. Purement télémétrique : aucune réponse, et
+ * jamais mis en file d'attente hors connexion (une mesure d'acheminement rejouée dix minutes plus
+ * tard ne mesurerait plus rien -- même raisonnement que `position.update`, L3-11).
+ */
+export const ProposalSeenPayloadSchema = z.object({
+  rideId: RideIdSchema,
+  emittedAt: IsoDateTimeSchema,
+});
+export const ProposalSeenMessageSchema = envelopeSchema('proposal.seen', ProposalSeenPayloadSchema);
+export type ProposalSeenMessage = z.infer<typeof ProposalSeenMessageSchema>;
+
 // --- Client (passager) vers serveur -------------------------------------------------------
 
 /**
@@ -123,6 +146,7 @@ export const ClientToServerMessageSchema = z.discriminatedUnion('type', [
   AvailabilitySetMessageSchema,
   ProposalAcceptMessageSchema,
   ProposalRejectMessageSchema,
+  ProposalSeenMessageSchema,
   NearbySubscribeMessageSchema,
   NearbyUnsubscribeMessageSchema,
   RideTrackMessageSchema,

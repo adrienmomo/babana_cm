@@ -13,25 +13,48 @@ import type { LatLng } from '@babana/maps';
 export type DriverParamList = {
   Home: undefined;
   /**
-   * Portée directement par la navigation plutôt que relue depuis un nouvel abonnement (L6-12) :
-   * `proposal.new` (C-02) n'arrive qu'une fois, diffusé aux abonnés déjà en écoute au moment de
-   * sa réception (`onRealtimeMessage`, `@babana/api-client`) -- un abonnement posé après coup, au
-   * montage de `Proposal`, ne le recevrait jamais une seconde fois. `HomeScreen` (seul appelant)
-   * transmet donc tout ce que `proposal.new` a porté.
+   * Deux façons d'ouvrir cet écran (L6-12, L7-04) :
+   *
+   * - `source: 'realtime'` (par défaut, `HomeScreen`) -- l'app tenait déjà tous les détails,
+   *   portés par `proposal.new` (C-02) ou par `session.synced.activeProposal` à une reconnexion.
+   *   `proposal.new` n'arrive qu'une fois, diffusé aux seuls abonnés déjà en écoute -- un
+   *   abonnement posé au montage de `Proposal` ne le recevrait jamais : d'où le passage par la
+   *   navigation.
+   * - `source: 'notification'` -- l'app était **fermée** à l'émission, ouverte depuis la
+   *   notification push. Elle n'a jamais reçu `proposal.new` : elle n'a que le `rideId` et, au
+   *   mieux, une échéance approximative. L'écran **revalide auprès du serveur** (une
+   *   resynchronisation forcée) avant d'afficher quoi que ce soit -- détails et **véritable**
+   *   échéance, ou « cette course n'est plus à prendre » si la réponse ne porte pas de
+   *   proposition active (jamais des boutons pour une course déjà attribuée ou expirée).
    */
-  Proposal: {
-    rideId: RideId;
-    origin: LatLng;
-    destination: LatLng;
-    amount: number;
-    /** Distance de la course (départ -> arrivée), celle qui sert au tarif. */
-    distanceMeters: number;
-    /** Distance à vide jusqu'au client (D51), à vol d'oiseau -- `null` si le serveur n'a pas pu
-     * lire la position du chauffeur au moment de la réservation. */
-    distanceToOriginMeters: number | null;
-    /** ISO 8601 -- le serveur seul est juge de l'expiration (L3-07), ce champ n'est qu'indicatif. */
-    expiresAt: string;
-  };
+  Proposal:
+    | {
+        source?: 'realtime';
+        rideId: RideId;
+        origin: LatLng;
+        destination: LatLng;
+        amount: number;
+        /** Distance de la course (départ -> arrivée), celle qui sert au tarif. */
+        distanceMeters: number;
+        /** Distance à vide jusqu'au client (D51), à vol d'oiseau -- `null` si le serveur n'a pas
+         * pu lire la position du chauffeur au moment de la réservation. */
+        distanceToOriginMeters: number | null;
+        /** ISO 8601 -- le serveur seul est juge de l'expiration (L3-07), ce champ n'est
+         * qu'indicatif, mais il porte la **véritable** échéance restante, pas trente secondes
+         * fraîches. */
+        expiresAt: string;
+        /** Émission d'origine de la proposition -- signalée au serveur quand l'écran s'est
+         * réellement affiché (`proposal.seen`, L7-04 critère 4). */
+        emittedAt: string;
+      }
+    | {
+        source: 'notification';
+        rideId: RideId;
+        /** Échéance portée par la notification, si elle en portait une -- `null` sinon. Sert un
+         * premier compte à rebours en attendant la revalidation ; la véritable échéance vient de
+         * `session.synced.activeProposal`. */
+        expiresAt: string | null;
+      };
   /**
    * Portée par la navigation depuis `Proposal` (L6-13) : la course en cours a besoin des points
    * (guidage, phases) et du montant (transmis ensuite à `Settlement`). Rien n'est relu depuis un

@@ -17,6 +17,7 @@ from odoo.http import request
 from odoo.service.model import PG_CONCURRENCY_EXCEPTIONS_TO_RETRY
 
 from . import _common
+from ..services import push
 from ..models.babana_ride import CLIENT_ACTIVE_STATES, DRIVER_ACTIVE_STATES
 from ..models.babana_ride_state import RideInvalidTransition
 from ..models.babana_ride_share import (
@@ -134,6 +135,60 @@ class InternalController(http.Controller):
                 {"driverId": ride.driver_id.public_id, "rideId": ride.public_id} for ride in rides
             ]
         }, 200
+
+    # --- POST /internal/drivers/proposal-push (L7-04, sens temps réel -> Odoo) ----------------
+
+    # _WRITE_ROUTE bien qu'aucune écriture n'ait lieu dans CETTE transaction : `notify_users_async`
+    # programme un `cr.postcommit` (envoi + marquage `last_used_at` + désactivation des jetons
+    # révoqués sur un fil de fond, curseur dédié) -- il ne se déclenche qu'après un COMMIT réussi,
+    # et une route readonly ne l'offre pas de façon garantie. Rien de sensible dans la réponse ni
+    # dans la notification (voir _proposal_push).
+    @http.route("/api/internal/drivers/proposal-push", **_WRITE_ROUTE)
+    def proposal_push(self, **_kwargs):
+        return self._dispatch("proposalPush", self._proposal_push)
+
+    def _proposal_push(self):
+        """L7-04 : « la notification la plus critique du système ». Émise par le service temps réel
+        EN PARALLÈLE de `proposal.new` (jamais à sa place, critère 1) -- ce contrôleur ne fait que
+        résoudre le compte du chauffeur et confier l'envoi à l'unique émetteur FCM (services/
+        push.py, L7-01). Le service temps réel n'a pas de client push à lui (invariant 1 : pas de
+        PostgreSQL, donc pas la table des jetons).
+
+        Asynchrone (`notify_users_async`) : un envoi lent ne doit jamais retarder la réservation
+        côté temps réel, qui attend cette réponse HTTP (best-effort, mais attend quand même).
+
+        Contenu MINIMAL et sans donnée sensible (spécification) : ni montant, ni départ, ni
+        destination. Une notification peut arriver après l'expiration -- afficher un montant pour
+        une course déjà attribuée serait trompeur -- et l'écran verrouillé est lisible par un
+        tiers. Le détail vient de l'app une fois ouverte (revalidation par `session.synced`)."""
+        env = request.env(user=SUPERUSER_ID)
+        body = _common.parse_json_body() or {}
+        driver = self._find_driver(env, body.get("driverId"))
+        if not driver:
+            return _common.error_payload("VALIDATION_ERROR", "driverId inconnu ou manquant"), 400
+        if not driver.user_id:
+            # Personne à joindre : pas une erreur d'appel du service temps réel, juste un chauffeur
+            # sans compte `res.users`. Le message WebSocket reste le canal principal.
+            return {"ok": True, "notified": False}, 200
+
+        message = push.PushMessage(
+            # L7-02 déplacera ces libellés dans des modèles traduisibles (règle du lot) ; d'ici là,
+            # français en clair.
+            title="Nouvelle course proposée",
+            body="Ouvrez l'application pour répondre.",
+            # Données de routage : ouvrent l'app sur l'écran de proposition (L6-12), qui revalide
+            # ensuite auprès du serveur. `expiresAt` porte la véritable échéance pour un premier
+            # compte à rebours avant même que la revalidation aboutisse.
+            data={
+                "type": "proposal",
+                "rideId": body.get("rideId") or "",
+                "expiresAt": body.get("expiresAt") or "",
+            },
+            high_priority=True,  # réveille l'appareil (L7-04)
+            collapse_key="babana-proposal",  # une seule proposition à la fois : un renvoi remplace
+        )
+        push.notify_users_async(env, driver.user_id, message)
+        return {"ok": True, "notified": True}, 200
 
     # --- POST /internal/session/active-ride (L3-11, resynchronisation à la reconnexion) -------
 

@@ -9,6 +9,8 @@ import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import type { WebSocket } from 'ws';
 import { ProposalLifecycle, type ProposalDetails } from '../src/proposal/lifecycle';
+import { proposalRecordKey } from '../src/proposal/keys';
+import type { ProposalNotifier, ProposalNotifyParams } from '../src/proposal/notify';
 import { ConnectionRegistry, type ConnectionContext } from '../src/ws/auth';
 import { isInPool, removeFromPool } from '../src/redis/geo-index';
 import { isReserved } from '../src/reservation/reserve';
@@ -401,5 +403,127 @@ describe('ProposalLifecycle (L3-07)', () => {
 
     const outcome = await lifecycle.propose(driverId, proposalDetails(randomUUID(), id('no-driver-client')));
     assert.deepEqual(outcome, { proposed: false });
+  });
+});
+
+describe('ProposalLifecycle -- notification push et relecture (L7-04)', () => {
+  function capturingNotifier() {
+    const calls: ProposalNotifyParams[] = [];
+    const notifier: ProposalNotifier = (_config, params) => {
+      calls.push(params);
+    };
+    return { calls, notifier };
+  }
+
+  test('critère 1 -- la notification part EN PARALLÈLE du proposal.new, jamais à sa place (même chauffeur connecté)', async () => {
+    const config = configWith();
+    const registry = new ConnectionRegistry();
+    const { calls, notifier } = capturingNotifier();
+    const lifecycle = new ProposalLifecycle(config, redis, registry, notifier);
+
+    const driverId = await availableDriver('l704-parallel');
+    const clientUserId = id('l704-parallel-client');
+    const rideId = randomUUID();
+    const driverSocket = fakeSocket();
+    // Chauffeur bel et bien connecté : la notification part quand même (dédupliquée côté app).
+    registry.add(driverContext(driverId), driverSocket.socket);
+
+    const outcome = await lifecycle.propose(driverId, proposalDetails(rideId, clientUserId));
+    assert.equal(outcome.proposed, true);
+
+    assert.equal(driverSocket.messages[0]!.type, 'proposal.new');
+    assert.equal(calls.length, 1, 'la notification push est déclenchée une fois');
+    assert.equal(calls[0]!.driverId, driverId);
+    assert.equal(calls[0]!.rideId, rideId);
+    assert.equal(
+      calls[0]!.expiresAt,
+      (outcome as { proposed: true; expiresAt: string }).expiresAt,
+      'la notification porte la véritable échéance'
+    );
+  });
+
+  test("aligne les deux durées -- l'enregistrement stocke l'échéance d'acceptation, pas le TTL de réservation", async () => {
+    // Délais volontairement écartés : acceptation 20 s, réservation 40 s. Prendre l'un pour
+    // l'autre donnerait vingt secondes d'erreur sur le compte à rebours.
+    const config = configWith({ PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: '20', RESERVATION_TTL_SECONDS: '40' });
+    const registry = new ConnectionRegistry();
+    const { notifier } = capturingNotifier();
+    const lifecycle = new ProposalLifecycle(config, redis, registry, notifier);
+
+    const driverId = await availableDriver('l704-durations');
+    const rideId = randomUUID();
+    const before = Date.now();
+    await lifecycle.propose(driverId, proposalDetails(rideId, id('l704-durations-client')));
+
+    const raw = await redis.get(proposalRecordKey(driverId));
+    assert.ok(raw, "l'enregistrement de proposition existe");
+    const stored = JSON.parse(raw!) as { expiresAt: string; emittedAt: string };
+    const remainingMs = Date.parse(stored.expiresAt) - before;
+    assert.ok(
+      remainingMs > 17_000 && remainingMs <= 21_000,
+      `échéance ~20 s (acceptation), pas ~40 s (réservation) -- obtenu ${remainingMs} ms`
+    );
+    assert.ok(Math.abs(Date.parse(stored.emittedAt) - before) < 2_000, 'emittedAt = instant d’émission');
+  });
+
+  test('peekActiveProposal restitue la proposition vivante avec son échéance réelle -- pas trente secondes fraîches', async () => {
+    const config = configWith();
+    const registry = new ConnectionRegistry();
+    const { notifier } = capturingNotifier();
+    const lifecycle = new ProposalLifecycle(config, redis, registry, notifier);
+
+    const driverId = await availableDriver('l704-peek-live');
+    const rideId = randomUUID();
+    await lifecycle.propose(driverId, proposalDetails(rideId, id('l704-peek-live-client')));
+
+    // 25 s après l'émission : il doit rester ~5 s, pas 30.
+    const twentyFiveSecondsLater = Date.now() + 25_000;
+    const peeked = await lifecycle.peekActiveProposal(driverId, twentyFiveSecondsLater);
+    assert.ok(peeked, 'la proposition est toujours à prendre');
+    assert.equal(peeked!.rideId, rideId);
+    const remaining = Date.parse(peeked!.expiresAt) - twentyFiveSecondsLater;
+    assert.ok(remaining > 0 && remaining <= 6_000, `~5 s restantes, pas 30 (${remaining} ms)`);
+    assert.equal(typeof peeked!.emittedAt, 'string');
+  });
+
+  test('peekActiveProposal renvoie null pour une proposition déjà échue -- une notification ouverte trop tard n’affiche pas les boutons (critère 3)', async () => {
+    const config = configWith();
+    const registry = new ConnectionRegistry();
+    const { notifier } = capturingNotifier();
+    const lifecycle = new ProposalLifecycle(config, redis, registry, notifier);
+
+    const driverId = await availableDriver('l704-peek-expired');
+    const rideId = randomUUID();
+    await lifecycle.propose(driverId, proposalDetails(rideId, id('l704-peek-expired-client')));
+
+    // Bien après l'échéance d'acceptation (30 s) mais avant l'expiration Redis (45 s) :
+    // l'enregistrement est encore là, mais la proposition n'est plus à prendre.
+    const wellAfterDeadline = Date.now() + 40_000;
+    assert.equal(await lifecycle.peekActiveProposal(driverId, wellAfterDeadline), null);
+  });
+
+  test('peekActiveProposal renvoie null une fois la proposition résolue (acceptée)', async () => {
+    const config = configWith();
+    const registry = new ConnectionRegistry();
+    const { notifier } = capturingNotifier();
+    const lifecycle = new ProposalLifecycle(config, redis, registry, notifier);
+
+    const driverId = await availableDriver('l704-peek-accepted');
+    const rideId = randomUUID();
+    await lifecycle.propose(driverId, proposalDetails(rideId, id('l704-peek-accepted-client')));
+    assert.equal(await lifecycle.accept(driverId, rideId), true);
+
+    assert.equal(await lifecycle.peekActiveProposal(driverId), null, 'plus de proposition à relire après acceptation');
+  });
+
+  test('peekActiveProposal renvoie null quand il n’y a jamais eu de proposition -- l’absence est un fait, pas un silence', async () => {
+    const config = configWith();
+    const registry = new ConnectionRegistry();
+    const { notifier } = capturingNotifier();
+    const lifecycle = new ProposalLifecycle(config, redis, registry, notifier);
+
+    const driverId = id('l704-peek-none');
+    usedDriverIds.add(driverId);
+    assert.equal(await lifecycle.peekActiveProposal(driverId), null);
   });
 });
