@@ -15,11 +15,13 @@ const CONFIG: AdaptiveCaptureConfig = {
   degradedIntervalMs: 300_000,
   batchSize: 5,
   batchMaxWaitMs: 45_000,
+  notificationRefreshMs: 60_000,
 };
 
 interface FakeDeps extends LocationTrackerDeps {
   sent: realtime.PositionUpdateMessage['payload'][];
   notificationShown: boolean;
+  lastNotificationMessage: string | null;
   messageListeners: Set<(message: realtime.ServerToClientMessage) => void>;
   emit: (message: realtime.ServerToClientMessage) => void;
   foregroundState: 'granted' | 'denied';
@@ -41,6 +43,7 @@ function fakeDeps(overrides: Partial<FakeDeps> = {}): FakeDeps {
   const deps: FakeDeps = {
     sent,
     notificationShown: false,
+    lastNotificationMessage: null,
     messageListeners,
     foregroundState: 'granted',
     fixQueue,
@@ -63,11 +66,13 @@ function fakeDeps(overrides: Partial<FakeDeps> = {}): FakeDeps {
       return () => messageListeners.delete(listener);
     },
     onSessionLost: () => () => {},
-    showNotification: () => {
+    updateNotification: (message: string) => {
       deps.notificationShown = true;
+      deps.lastNotificationMessage = message;
     },
     hideNotification: () => {
       deps.notificationShown = false;
+      deps.lastNotificationMessage = null;
     },
     now: () => Date.now(),
     ...overrides,
@@ -287,5 +292,78 @@ describe('LocationTracker (L6-05)', () => {
     const metrics = tracker.getMetrics();
     expect(metrics.positionsCaptured).toBe(1);
     expect(metrics.gpsActiveMs).toBeGreaterThanOrEqual(0);
+  });
+
+  test('la notification constate la dernière position envoyée, jamais un « suivi actif » (précision du 3 septembre)', async () => {
+    // batchSize=1 : le premier relevé part immédiatement, on observe le passage
+    // « pas encore envoyée » -> « à l'instant ».
+    const deps = fakeDeps();
+    const tracker = new LocationTracker(deps, { ...CONFIG, batchSize: 1 });
+    tracker.start();
+
+    tracker.setOnline(true);
+    // Avant tout envoi : la notification dit qu'aucune position n'est encore partie -- elle
+    // n'affirme pas un suivi qu'elle ne peut pas garantir.
+    expect(deps.notificationShown).toBe(true);
+    expect(deps.lastNotificationMessage).toMatch(/pas encore envoyée/i);
+
+    await jest.advanceTimersByTimeAsync(0);
+    expect(deps.sent.length).toBe(1);
+    // Un envoi vient de partir -- la notification le constate.
+    expect(deps.lastNotificationMessage).toMatch(/à l’instant/i);
+  });
+
+  test('la notification vieillit quand plus aucune position ne part -- le diagnostic d’une capture calée', async () => {
+    // Un premier relevé part (batchSize=1), puis le GPS ne rend plus rien : plus aucun envoi.
+    const deps = fakeDeps({
+      fixQueue: [
+        { ...AKWA, accuracyMeters: 10, speedMetersPerSecond: null, headingDegrees: null },
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+      ],
+    });
+    const tracker = new LocationTracker(deps, { ...CONFIG, batchSize: 1, idleIntervalMs: 90_000, notificationRefreshMs: 60_000 });
+    tracker.start();
+    tracker.setOnline(true);
+
+    await jest.advanceTimersByTimeAsync(0);
+    expect(deps.sent.length).toBe(1);
+    expect(deps.lastNotificationMessage).toMatch(/à l’instant/i);
+
+    // Le réaffichage périodique fait grandir « il y a N min » alors que rien de nouveau ne part.
+    await jest.advanceTimersByTimeAsync(60_000);
+    expect(deps.sent.length).toBe(1);
+    expect(deps.lastNotificationMessage).toMatch(/il y a 1 minute/i);
+
+    await jest.advanceTimersByTimeAsync(120_000);
+    expect(deps.sent.length).toBe(1);
+    expect(deps.lastNotificationMessage).toMatch(/il y a 3 minutes/i);
+  });
+
+  test('le passage hors ligne efface la notification et son horodatage de dernier envoi', async () => {
+    const deps = fakeDeps();
+    const tracker = new LocationTracker(deps, { ...CONFIG, batchSize: 1 });
+    tracker.start();
+    tracker.setOnline(true);
+    await jest.advanceTimersByTimeAsync(0);
+    expect(deps.lastNotificationMessage).toMatch(/à l’instant/i);
+
+    tracker.setOnline(false);
+    expect(deps.notificationShown).toBe(false);
+
+    // Retour en ligne : rien n'est encore reparti, la notification repart de « pas encore
+    // envoyée » plutôt que de rejouer un « à l'instant » périmé.
+    tracker.setOnline(true);
+    expect(deps.lastNotificationMessage).toMatch(/pas encore envoyée/i);
+
+    // Et le réaffichage périodique ne continue pas après un passage hors ligne.
+    tracker.setOnline(false);
+    deps.lastNotificationMessage = 'sentinelle';
+    await jest.advanceTimersByTimeAsync(600_000);
+    expect(deps.lastNotificationMessage).toBe('sentinelle');
   });
 });

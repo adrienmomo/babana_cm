@@ -11,6 +11,7 @@ const CONFIG: AdaptiveCaptureConfig = {
   degradedIntervalMs: 300_000,
   batchSize: 5,
   batchMaxWaitMs: 45_000,
+  notificationRefreshMs: 60_000,
 };
 
 const AKWA = { latitude: 4.0483, longitude: 9.6934 };

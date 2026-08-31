@@ -80,3 +80,11 @@ export const LOCATION_BATCH_MAX_WAIT_MS = Number(process.env.BABANA_LOCATION_BAT
 export const LOCATION_DEGRADED_MODE = process.env.BABANA_LOCATION_DEGRADED_MODE === 'true';
 /** Cadence unique appliquée en mode dégradé, hors course. Très espacée par construction. */
 export const LOCATION_DEGRADED_ONLINE_INTERVAL_MS = Number(process.env.BABANA_LOCATION_DEGRADED_ONLINE_INTERVAL_MS) || 300_000;
+
+/**
+ * Cadence de réaffichage de la notification persistante de capture (`location/background.ts`),
+ * indépendante de la capture elle-même : c'est elle qui fait vieillir le « il y a N min » quand
+ * plus aucune position ne part -- le diagnostic d'une capture calée (précision du 3 septembre,
+ * `amoa/questions/REPONSES-2026-09-03.md` §2). Une minute par défaut, la granularité du message.
+ */
+export const LOCATION_NOTIFICATION_REFRESH_MS = Number(process.env.BABANA_LOCATION_NOTIFICATION_REFRESH_MS) || 60_000;

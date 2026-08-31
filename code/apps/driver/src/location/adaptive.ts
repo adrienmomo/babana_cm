@@ -25,6 +25,11 @@ export interface AdaptiveCaptureConfig {
   batchSize: number;
   /** ...ou après ce délai depuis le premier point en attente, même si le tampon n'est pas plein. */
   batchMaxWaitMs: number;
+  /** Cadence de réaffichage de la notification persistante (`background.ts`) -- indépendante de
+   * la capture : c'est elle qui fait grandir « il y a N min » quand plus aucune position ne part,
+   * le signal qui révèle une capture calée (précision du 3 septembre). Sans ce réaffichage, la
+   * notification resterait figée sur le dernier envoi réussi et rassurerait à tort. */
+  notificationRefreshMs: number;
 }
 
 /**
