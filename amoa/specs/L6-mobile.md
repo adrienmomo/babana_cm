@@ -650,6 +650,12 @@ Prise de photo depuis l'app avec cadrage guidé, ou choix dans la galerie. Compr
 
 Le parcours est **reprenable** : un chauffeur qui ferme l'app au milieu retrouve son avancement.
 
+**Un dossier refusé se dit, avec son motif (précision du 4 septembre).** La première implémentation routait un chauffeur `rejected` ou `suspended` vers le même parcours qu'un `pending` : il redéposait des pièces qui seraient refusées de nouveau, sans jamais savoir pourquoi. Le motif existe côté Odoo, il ne voyageait simplement pas jusqu'à l'application.
+
+Le statut du dossier et son motif entrent donc dans la session, et l'écran distingue trois situations qui n'appellent pas la même action : **en cours de validation** — il n'y a rien à faire qu'attendre ; **incomplet** — il manque telle pièce, précisément ; **refusé** — avec le motif, et le chemin pour corriger et resoumettre.
+
+C'est la différence entre un chauffeur qui corrige et un chauffeur qui abandonne. Et c'est la même règle que partout ailleurs : « en cours de validation » n'est pas une information, « il manque votre permis » en est une.
+
 ### Critères d'acceptation
 
 1. Le parcours est reprenable après fermeture de l'app.
@@ -737,6 +743,44 @@ Si les seuils ne sont pas tenus, les leviers dans l'ordre : réduire la fréquen
 3. Les trois scénarios sont couverts.
 4. Le rapport est versionné dans le dépôt.
 5. Si un seuil n'est pas tenu, les optimisations sont appliquées et la mesure refaite.
+
+---
+
+## L6-19 — Passe native et validation sur terminal
+
+### Objectif
+
+Ajouter d'un seul geste ce qui ne peut se valider que sur un vrai téléphone, et le valider.
+
+### Contexte
+
+**Créée le 4 septembre.** Deux dépendances natives manquent, et aucune ne peut être vérifiée dans l'environnement des sessions de nuit — il n'y produit aucun build mobile.
+
+**Le sélecteur de pièces bloque tout** : sans lui, l'ouverture de l'appareil photo est une exception explicite, et aucun chauffeur ne peut déposer un permis. L6-15 est écrite, testée, et son chemin d'entrée reste fermé.
+
+**Le service de premier plan est conditionnel** : la mesure de la capture en arrière-plan (`06-jalons-et-pilote.md` §2) dira s'il est nécessaire. Il l'est probablement — D12 envoie l'application en arrière-plan pendant toute la course — mais on ne l'ajoute pas sur une intuition.
+
+Les grouper tient à une raison simple : le sélecteur est obligatoire, il exige un build et une session avec un appareil, et cette session peut servir deux fois. Deux passes natives séparées, c'est deux fois la même mise en place pour la moitié du résultat.
+
+### Spécification
+
+**Le sélecteur de pièces** : appareil photo et galerie, permissions demandées séparément, un refus ne bloque jamais l'écran — le chauffeur peut réessayer. La compression et la reprise après coupure existent déjà (L6-15) et n'ont pas à être refaites.
+
+**Le service de premier plan**, si la mesure le justifie : permissions Android correspondant à la version cible, notification liée au service réel plutôt que posée à côté. Elle continue d'afficher un fait — quand la dernière position est partie — parce que même un vrai service peut être tué par un gestionnaire agressif.
+
+**La session avec l'appareil produit deux résultats**, et l'un ne dispense pas de l'autre : le dépôt d'une pièce réelle de bout en bout, et le protocole de mesure GPS du §2 des jalons — vingt minutes derrière Google Maps, quinze minutes écran éteint, sur deux ou trois terminaux dont un constructeur à politique agressive.
+
+### Critères d'acceptation
+
+1. Un chauffeur dépose une pièce depuis l'appareil photo et depuis la galerie, sur un vrai terminal.
+2. Un refus de permission ne bloque pas l'écran et laisse réessayer.
+3. Le protocole de mesure du §2 est exécuté, et ses chiffres consignés — positions attendues contre positions arrivées, batterie, données.
+4. **La décision sur le service de premier plan est prise à partir de ces chiffres**, et écrite : ajouté, ou explicitement jugé inutile.
+5. Les compteurs de L6-05 sont lus sur l'appareil, pas seulement en test.
+
+### Piège
+
+La tentation sera de conclure sur un seul téléphone. Les politiques d'économie de batterie varient assez d'un constructeur à l'autre pour qu'un résultat unique ne dise rien du parc réel — c'est précisément ce que la mesure existe pour éviter.
 
 ---
 

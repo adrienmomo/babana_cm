@@ -167,9 +167,11 @@ ce qui est précisément le pire moment.
 
 Rien de ce qui suit ne demande plus d'une heure, et tout est à délai subi.
 
-0. **Mesurer la capture GPS en arrière-plan** — une demi-journée, protocole au §2. C'est la seule
-   donnée qui manque pour trancher une décision d'architecture, et elle ne s'obtient nulle part
-   ailleurs qu'avec un vrai téléphone.
+0. **Une session avec un vrai téléphone** — une demi-journée, et elle sert deux fois (L6-19).
+   Valider le dépôt d'une pièce depuis l'appareil photo, et exécuter le protocole de mesure GPS
+   du §2. Le sélecteur de pièces est **bloquant** — sans lui aucun chauffeur ne peut s'inscrire —
+   et la mesure conditionne une décision d'architecture. Ni l'un ni l'autre ne s'obtient
+   autrement : les sessions de nuit ne produisent aucun build mobile.
 1. **Lancer la vérification développeur Android** — c'est la démarche, plutôt que le compte Play.
 2. **Choisir et contacter une passerelle SMS.** Un fournisseur, deux usages.
 3. **Trouver le comptable** qui validera le plan, et lui poser les trois questions déjà écrites

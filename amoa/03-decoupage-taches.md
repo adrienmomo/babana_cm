@@ -221,6 +221,7 @@ Les états `brouillon → demandée → proposée → affectée → en_cours →
 | L6-15 | App Chauffeur — inscription et téléversement des documents, écran d'attente de validation | M | L6-02, L1-05 |
 | L6-16 | **Mode dégradé réseau** dans les deux apps : file d'attente locale des actions, rejeu à la reconnexion, état affiché sans ambiguïté | L | L6-04 |
 | L6-17 | Mesure de consommation batterie et données de L6-05, sur terminaux d'entrée de gamme | M | L6-05 |
+| L6-19 | **Passe native et validation sur terminal** : sélecteur de pièces (bloquant pour L6-15), service de premier plan Android selon la mesure, un seul build, une seule session avec un vrai téléphone | M | L6-05, L6-15 |
 | L6-18 | **Export web de l'app Client** (D22) : implémentation web de `@babana/maps`, flux OAuth web, dégradations signalées, déploiement Vercel. **App Chauffeur exclue** | M | L6-09, L6-01 |
 
 **Sur L6-01** : à faire avant tout écran cartographique, pas après. Une abstraction ajoutée après coup n'en est pas une — les écrans auront déjà fui vers le SDK et le basculement vers Mapbox redeviendra une réécriture.
