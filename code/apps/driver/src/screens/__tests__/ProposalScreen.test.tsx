@@ -43,6 +43,10 @@ const PARAMS = {
   amount: 1200,
   distanceMeters: 3200,
   distanceToOriginMeters: 1400 as number | null,
+  // Recalculé dans beforeEach() une fois les faux minuteurs installés -- sinon `expiresAt` est
+  // figé à l'heure réelle du chargement du module, alors que `Date.now()` vu par l'écran est
+  // gelé par jest à l'heure réelle du beforeEach : sous forte charge (suite complète en
+  // parallèle) l'écart dépasse quelques secondes et le compte à rebours attendu (30) tombe à 27.
   expiresAt: new Date(Date.now() + 30_000).toISOString(),
 };
 
@@ -55,6 +59,9 @@ const renderedRoots: ReactTestRenderer[] = [];
 beforeEach(() => {
   jest.clearAllMocks();
   jest.useFakeTimers();
+  // Après useFakeTimers() : `Date.now()` est maintenant gelé à une valeur stable, sur laquelle
+  // `expiresAt` doit être calé pour que `remainingSeconds()` parte bien de 30.
+  PARAMS.expiresAt = new Date(Date.now() + 30_000).toISOString();
   realtimeListener = null;
   mockReverseGeocode.mockResolvedValue(null);
 });

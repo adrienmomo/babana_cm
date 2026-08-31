@@ -93,7 +93,13 @@ class BabanaDriver(models.Model):
         default="pending",
         required=True,
     )
-    rejection_reason = fields.Text(string="Motif de rejet")
+    rejection_reason = fields.Text(
+        string="Motif de rejet ou de suspension",
+        help="Motif de la dernière décision négative sur le dossier (rejet L1-06, ou "
+        "suspension). Voyage jusqu'à l'app dans la session "
+        "(AuthenticatedUser.driverRejectionReason) pour que l'écran de suivi de dossier (L6-15) "
+        "dise pourquoi. Effacé à l'approbation et à la réactivation.",
+    )
     is_online = fields.Boolean(string="En ligne", default=False)
 
     # Champs-pont restants (amoa/questions/L1-03.md, code/docs/bridge-fields.md) : rating_avg et
@@ -567,7 +573,11 @@ class BabanaDriver(models.Model):
             # décision explicite d'un gestionnaire -- jamais à l'inscription (L1-01R).
             employee = self.env["hr.employee"].create({"name": new_employee_name})
 
-        self.write({"employee_id": employee.id, "state": "approved"})
+        # rejection_reason effacé : un dossier d'abord rejeté puis approuvé ne doit pas continuer
+        # de porter son ancien motif jusqu'à l'app (AuthenticatedUser.driverRejectionReason).
+        self.write(
+            {"employee_id": employee.id, "state": "approved", "rejection_reason": False}
+        )
         self.message_post(body=f"Dossier approuvé, rattaché à l'employé « {employee.name} ».")
         return self
 
@@ -585,14 +595,19 @@ class BabanaDriver(models.Model):
         """is_online passe à faux mécaniquement (write() ci-dessus force is_online=False dès
         que state != 'approved') -- pas une conséquence recalculée ici (critère 4). Une course
         en cours n'est pas interrompue (critère 5) : rien ici ne touche babana.ride, la
-        machine à états (L4-02) continue son cours indépendamment de l'état du chauffeur."""
+        machine à états (L4-02) continue son cours indépendamment de l'état du chauffeur.
+
+        Le motif est persisté sur `rejection_reason` (et non seulement posté au fil) : c'est lui
+        que la session porte jusqu'à l'app (AuthenticatedUser.driverRejectionReason,
+        amoa/questions/REPONSES-2026-09-04.md §2) pour qu'un chauffeur suspendu lise « votre
+        compte est suspendu : <motif> » au lieu de « déposez vos pièces »."""
         self.ensure_one()
         if not reason:
             raise UserError(
                 "Un motif est obligatoire pour suspendre un chauffeur (L1-06, critère 3, même "
                 "règle que le rejet)."
             )
-        self.write({"state": "suspended"})
+        self.write({"state": "suspended", "rejection_reason": reason})
         if self.user_id:
             # Point d'entrée construit par L1-02 précisément pour cet appel (critère 4).
             self.env["babana.token"].sudo()._revoke_all_for_user(self.user_id)
@@ -605,6 +620,6 @@ class BabanaDriver(models.Model):
             raise UserError(
                 "Seul un chauffeur suspendu peut être réactivé (L1-06)."
             )
-        self.write({"state": "approved"})
+        self.write({"state": "approved", "rejection_reason": False})
         self.message_post(body="Chauffeur réactivé.")
         return self

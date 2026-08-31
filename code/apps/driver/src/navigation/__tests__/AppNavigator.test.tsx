@@ -54,8 +54,19 @@ import { AppNavigator, navigationRef } from '../index';
 const mockRestore = authClient.restore as jest.Mock;
 const mockRefreshUser = authClient.refreshUser as jest.Mock;
 
-function driverUser(driverStatus: 'pending' | 'approved' | 'rejected' | 'suspended' | undefined) {
-  return { id: 'd1', role: 'driver' as const, displayName: 'Paul', photoUrl: null, phoneVerified: true, driverStatus };
+function driverUser(
+  driverStatus: 'pending' | 'approved' | 'rejected' | 'suspended' | undefined,
+  driverRejectionReason: string | null = null
+) {
+  return {
+    id: 'd1',
+    role: 'driver' as const,
+    displayName: 'Paul',
+    photoUrl: null,
+    phoneVerified: true,
+    driverStatus,
+    driverRejectionReason,
+  };
 }
 
 const renderedRoots: ReactTestRenderer[] = [];
@@ -116,18 +127,32 @@ describe('AppNavigator Chauffeur (L6-00)', () => {
     expect(texts.join(' ')).not.toContain('Accueil chauffeur');
   });
 
-  it.each(['rejected', 'suspended', undefined] as const)(
-    "un chauffeur %s (défaut-refus) entre aussi dans le parcours d'inscription, jamais dans les écrans de course",
-    async (status) => {
-      mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
-      mockRefreshUser.mockResolvedValue({ user: driverUser(status) });
-      const root = await renderApp();
+  it("un statut inconnu (rafraîchissement hors ligne) reste en défaut-refus : parcours d'inscription, jamais les écrans de course", async () => {
+    mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
+    mockRefreshUser.mockResolvedValue({ user: driverUser(undefined) });
+    const root = await renderApp();
 
-      const texts = root.root.findAllByType(Text).map((n) => JSON.stringify(n.props.children));
-      expect(texts.join(' ')).toContain('Votre inscription');
-      expect(texts.join(' ')).not.toContain('Accueil chauffeur');
-    }
-  );
+    const texts = root.root.findAllByType(Text).map((n) => JSON.stringify(n.props.children));
+    expect(texts.join(' ')).toContain('Votre inscription');
+    expect(texts.join(' ')).not.toContain('Accueil chauffeur');
+  });
+
+  // amoa/questions/REPONSES-2026-09-04.md §2 : un dossier refusé se dit -- son propre écran, avec
+  // le motif, jamais routé comme un `pending` vers « déposez vos pièces ».
+  it.each([
+    ['rejected', "Votre dossier n'a pas été retenu"],
+    ['suspended', 'Votre compte est suspendu'],
+  ] as const)("un chauffeur %s voit l'écran de dossier refusé avec son motif, jamais les écrans de course", async (status, heading) => {
+    mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
+    mockRefreshUser.mockResolvedValue({ user: driverUser(status, 'Permis de conduire illisible') });
+    const root = await renderApp();
+
+    const texts = root.root.findAllByType(Text).map((n) => JSON.stringify(n.props.children));
+    expect(texts.join(' ')).toContain(heading);
+    expect(texts.join(' ')).toContain('Permis de conduire illisible');
+    expect(texts.join(' ')).not.toContain('Accueil chauffeur');
+    expect(texts.join(' ')).not.toContain('Votre inscription');
+  });
 
   it('un chauffeur approved atteint les écrans de course', async () => {
     mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });

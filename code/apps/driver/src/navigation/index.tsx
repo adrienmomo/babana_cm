@@ -13,6 +13,7 @@ import { SettlementScreen } from '../screens/SettlementScreen';
 import { ProfileScreen } from '../screens/onboarding/ProfileScreen';
 import { DocumentsScreen } from '../screens/onboarding/DocumentsScreen';
 import { PendingScreen } from '../screens/onboarding/PendingScreen';
+import { RejectedScreen } from '../screens/onboarding/RejectedScreen';
 import { defaultImageSource } from '../screens/onboarding/imageSource';
 import { useOnboarding } from '../screens/onboarding/useOnboarding';
 import { documentUploader } from '../onboarding';
@@ -101,13 +102,19 @@ function SignInStack({ onSignedIn }: { onSignedIn: (session: AuthState) => void 
 }
 
 /**
- * Parcours d'inscription (L6-15) : profil -> dépôt des pièces -> écran d'attente. L'écran
- * d'entrée est calculé à l'ouverture depuis l'état serveur (`useOnboarding`) -- rouvrir l'app
- * après une fermeture retombe sur la bonne étape (critère 1). Les écrans ne lisent jamais le
- * serveur eux-mêmes : ils reçoivent `slots` et les gestes en props.
+ * Parcours d'inscription et de suivi de dossier (L6-15) : profil -> dépôt des pièces -> écran
+ * d'attente, plus l'écran de dossier refusé (amoa/questions/REPONSES-2026-09-04.md §2). L'écran
+ * d'entrée est calculé à l'ouverture depuis l'état serveur (`useOnboarding`, qui prend
+ * `driverStatus` en compte) -- rouvrir l'app après une fermeture retombe sur la bonne étape
+ * (critère 1). Les écrans ne lisent jamais le serveur eux-mêmes : ils reçoivent `slots`, le
+ * motif de refus et les gestes en props.
  */
 function OnboardingNavigator({ user }: { user: AuthUser }) {
-  const onboarding = useOnboarding(user.id);
+  const onboarding = useOnboarding(user.id, user.driverStatus);
+  // Sûr par construction : `Rejected` n'est l'écran d'entrée que quand `driverStatus` vaut
+  // 'rejected' ou 'suspended' (resolveOnboardingRoute) -- le repli 'rejected' ne sert qu'à
+  // satisfaire le typage.
+  const rejectedStatus: 'rejected' | 'suspended' = user.driverStatus === 'suspended' ? 'suspended' : 'rejected';
 
   if (onboarding.status === 'loading') {
     return <PlaceholderScreen title="Babana Chauffeur" task="chargement du dossier" />;
@@ -148,6 +155,15 @@ function OnboardingNavigator({ user }: { user: AuthUser }) {
             slots={onboarding.slots}
             onFix={(type) => navigation.navigate('Documents', { focusType: type })}
             onRefresh={onboarding.refresh}
+          />
+        )}
+      </OnboardingStack.Screen>
+      <OnboardingStack.Screen name="Rejected">
+        {({ navigation }) => (
+          <RejectedScreen
+            status={rejectedStatus}
+            reason={user.driverRejectionReason ?? null}
+            onResubmit={() => navigation.navigate('Documents')}
           />
         )}
       </OnboardingStack.Screen>

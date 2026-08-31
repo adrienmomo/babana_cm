@@ -72,11 +72,17 @@ export type DriverParamList = {
  * se calcule à l'ouverture depuis l'état serveur (`resolveOnboardingRoute`, `screens/onboarding/
  * state.ts`) -- c'est ce qui rend le parcours reprenable après une fermeture (critère 1).
  * `Documents` peut porter `focusType` quand on y revient pour renvoyer une pièce précise.
+ *
+ * `Rejected` (amoa/questions/REPONSES-2026-09-04.md §2) : dossier refusé globalement (`rejected`
+ * ou `suspended`), avec son motif et le chemin pour corriger -- distinct de `Pending`
+ * (« en cours de validation », rien à faire) et de `Documents` (« il manque telle pièce »),
+ * parce que les trois situations n'appellent pas la même action.
  */
 export type DriverOnboardingParamList = {
   Profile: undefined;
   Documents: { focusType?: 'license' | 'id_card' } | undefined;
   Pending: undefined;
+  Rejected: undefined;
 };
 
 export type AuthParamList = {
