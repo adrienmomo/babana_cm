@@ -225,3 +225,65 @@ désormais réellement. C'est un défaut préexistant que ce lot a révélé.
   hors périmètre — à faire avec elle.
 
 ---
+
+## 3. Arrêt après L7-01 — L7-04 non commencée, écart déposé
+
+Consigne du prompt : « Si le lot ne passe pas en entier, arrête-toi après L7-01. » Il ne passe
+pas en entier, et l'arrêt ici n'est pas seulement une question de budget.
+
+**En lisant `ProposalScreen.tsx` et `services/realtime/src/proposal/`, j'ai constaté que la
+revalidation serveur que L7-04 (et le prompt, et le rapport J26) supposent acquise n'existe
+pas.** `ProposalScreen` reçoit *tous* les détails de la proposition par `route.params` depuis le
+message WebSocket `proposal.new` ; il n'émet aucune requête « cette proposition est-elle
+toujours active, donne-moi ses détails », et `session.resync` ne renvoie rien sur une
+proposition `proposed`. D49 / l'écart `L6-12.md` portent sur l'ajout de `proposal.accepted`
+comme accusé de l'*action d'acceptation*, pas sur une relecture de proposition.
+
+Or c'est exactement ce dont le cas central de L7-04 a besoin : application fermée, le chauffeur
+ouvre la notification, l'app n'a **jamais** reçu `proposal.new` — elle n'a que le minimum porté
+par la notification (« une course est proposée, temps restant »). Sans un chemin de
+revalidation, elle ne peut ni afficher les détails, ni décider entre « voici la course » et
+« cette course n'est plus à prendre », ni afficher un compte à rebours honnête.
+
+L7-04 est donc une **tâche pleine** — contrat + service temps réel + app — pas un reliquat de
+lot. Détail, options et recommandation (ré-émettre `proposal.new` à la reconnexion depuis les
+clés Redis déjà posées par `propose()`) : **`amoa/questions/L7-04.md`**, déposé sur `master`.
+S'y ajoutent les deux blocages déjà connus : le récepteur FCM natif (troisième dépendance
+native après L6-05 et L6-15) et le niveau de la métrique du critère 4 (proxy serveur vs
+aller-retour app→serveur).
+
+Ce que L7-01 a rendu possible reste acquis : le contrat serveur et `createPushRegistrar` sont
+réels et testés, la seule pièce cliente qui manque est le binding natif, qui se branche dans la
+session avec un appareil.
+
+---
+
+## Qu'est-ce qui me laisse un doute pour quelqu'un de réel
+
+Au-delà des doutes tâche par tâche ci-dessus, trois pour l'ensemble :
+
+1. **La proposition qui réveille un chauffeur hors connexion n'arrivera pas demain matin.** Le
+   prompt l'attend ; elle demande L7-04, qui demande une capacité de revalidation qui n'existe
+   pas et un build mobile que cet environnement ne produit pas. L'écart le dit sans détour
+   plutôt que de livrer une demi-implémentation qui *paraîtrait* marcher en test et se
+   révélerait creuse sur un vrai téléphone.
+
+2. **Le nombre de dépendances natives non validables s'accumule** : service de premier plan
+   (L6-05), sélecteur de pièces (L6-15), et maintenant récepteur FCM (L7-04). Trois pièces
+   petites, mais chacune sur le chemin critique du pilote côté chauffeur, et aucune vérifiable
+   sans une session avec un appareil. La session L6-19 (déjà en tête des démarches) devrait les
+   absorber toutes les trois — sinon c'est trois mises en place pour le même résultat.
+
+3. **Le chemin FCM réel n'a jamais rien envoyé.** OAuth2 par compte de service, HTTP v1,
+   détection des jetons révoqués — tout est écrit, rien n'est exercé sans compte Firebase. Le
+   premier vrai envoi reste une inconnue, au même titre que le premier vrai appel de routage.
+
+---
+
+## Passe finale
+
+`make reset && make up && make lint && make typecheck && make test` sur base fraîche.
+
+_(Résultat consigné ici à la fin de la passe — voir le message de commit qui l'accompagne.)_
+
+
