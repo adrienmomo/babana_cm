@@ -135,6 +135,7 @@ class TestPushDispatch(TransactionCase):
     def test_dispatch_sends_to_active_tokens_and_marks_them_used(self):
         r1 = self.Token._register_token(self.user, "tok-1", "android")
         r2 = self.Token._register_token(self.user, "tok-2", "ios")
+        (r1 | r2).write({"last_used_at": False})  # part d'un état connu
 
         result = push.dispatch(self.env, (self.user.id,), _msg())
 

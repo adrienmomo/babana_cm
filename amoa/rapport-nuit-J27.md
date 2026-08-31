@@ -282,8 +282,21 @@ Au-delà des doutes tâche par tâche ci-dessus, trois pour l'ensemble :
 
 ## Passe finale
 
-`make reset && make up && make lint && make typecheck && make test` sur base fraîche.
+`make reset && make up && make lint && make typecheck && make test` sur base fraîche, tout vert :
 
-_(Résultat consigné ici à la fin de la passe — voir le message de commit qui l'accompagne.)_
+- **Odoo** : `0 failed, 0 error(s) of 2305 tests` (2272 à J26 ; +33 = les nouveaux `test_push`,
+  `test_devices_controller`, `test_me_controller` — ce dernier ne tournait pas avant ce lot — et
+  les ajouts de `test_driver_approval`).
+- **npm test** : `@babana/contracts` 78, `@babana/api-client` 80, `services/realtime` 188,
+  `@babana/client` 106, `@babana/driver` 143, `@babana/concurrency-tests` 31 — ce dernier exerce
+  `POST /api/v1/devices` et `/devices/deactivate` contre le vrai Odoo (C-01 critère 6), et les
+  scénarios de concurrence L3-13 restent verts.
+- **verify-ride-state-machine** et **verify-realtime-message-map** : OK.
+- `make lint` et `make typecheck` : aucun problème.
+
+Note : lors d'un premier essai, deux tests de `@babana/concurrency-tests` (encaissement
+concurrent, rejeu select-driver) ont échoué sur `ECONNRESET` / timeout — c'était une contention
+d'infrastructure de ma part (j'avais lancé des `odoo -u babana --test-enable` en parallèle sur la
+même pile). Sur la passe propre, base fraîche et rien d'autre en cours : 31/31.
 
 
