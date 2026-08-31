@@ -11,10 +11,11 @@ import {
   LOCATION_IDLE_DETECTION_WINDOW_MS,
   LOCATION_IDLE_DISPLACEMENT_THRESHOLD_METERS,
   LOCATION_IDLE_SPEED_THRESHOLD_MPS,
+  LOCATION_NOTIFICATION_REFRESH_MS,
 } from '../../config';
 import { captureIntervalFor, MovementDetector, type AdaptiveCaptureConfig, type DriverActivityState } from './adaptive';
 import { ensureBackgroundPermission, ensureForegroundPermission, type PermissionState } from './permissions';
-import { showTrackingNotification, hideTrackingNotification } from './background';
+import { updateTrackingNotification, hideTrackingNotification, formatLastSentMessage } from './background';
 import { onRealtimeMessage, realtimeClient } from '../realtime';
 import { onSessionLost } from '../auth';
 
@@ -46,7 +47,10 @@ export interface LocationTrackerDeps {
   send: (payload: realtime.PositionUpdateMessage['payload']) => void;
   onMessage: (listener: (message: realtime.ServerToClientMessage) => void) => () => void;
   onSessionLost: (listener: () => void) => () => void;
-  showNotification: () => void;
+  /** Pose ou met à jour la notification persistante avec un texte déjà composé (voir
+   * `background.ts::formatLastSentMessage`) -- ce module lui fournit un fait constaté, jamais une
+   * promesse de suivi. */
+  updateNotification: (message: string) => void;
   hideNotification: () => void;
   now: () => number;
 }
@@ -108,6 +112,7 @@ export function adaptiveConfigFromEnv(): AdaptiveCaptureConfig {
     degradedIntervalMs: LOCATION_DEGRADED_ONLINE_INTERVAL_MS,
     batchSize: LOCATION_BATCH_SIZE,
     batchMaxWaitMs: LOCATION_BATCH_MAX_WAIT_MS,
+    notificationRefreshMs: LOCATION_NOTIFICATION_REFRESH_MS,
   };
 }
 
@@ -116,6 +121,11 @@ export class LocationTracker {
   private rideActive = false;
   private state: DriverActivityState = 'offline';
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private notificationTimer: ReturnType<typeof setInterval> | null = null;
+  /** Horodatage du dernier envoi réellement parti sur le fil (`flush()`), ou `null` tant
+   * qu'aucune position n'est partie depuis le passage en ligne -- porté par la notification
+   * persistante, qui constate ce fait plutôt que d'affirmer un suivi actif (3 septembre). */
+  private lastPositionSentAtMs: number | null = null;
   private buffer: BufferedSample[] = [];
   private batchStartedAtMs: number | null = null;
   private readonly movement: MovementDetector;
@@ -199,11 +209,17 @@ export class LocationTracker {
 
     if (next === 'offline') {
       this.stopTimer();
+      this.stopNotificationTimer();
+      this.lastPositionSentAtMs = null;
       this.deps.hideNotification();
       return;
     }
     if (wasOffline) {
-      this.deps.showNotification();
+      // Nouvelle session de capture : aucune position n'est encore partie. La notification le
+      // dit, et ne prétend rien d'autre tant que le premier envoi n'a pas eu lieu.
+      this.lastPositionSentAtMs = null;
+      this.refreshNotification();
+      this.startNotificationTimer();
     }
     // Un changement d'état (immobile -> en mouvement, hors course -> en course) reprogramme le
     // prochain relevé à la nouvelle cadence plutôt que d'attendre l'ancienne -- une transition
@@ -214,6 +230,27 @@ export class LocationTracker {
   private stopTimer(): void {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
+  }
+
+  /** Recompose et repose la notification persistante à partir du dernier envoi réellement parti
+   * -- « il y a N min », ou « pas encore envoyée » si aucun. Appelée à chaque `flush()`, à chaque
+   * changement d'état, et périodiquement (`startNotificationTimer`). */
+  private refreshNotification(): void {
+    this.deps.updateNotification(formatLastSentMessage(this.lastPositionSentAtMs, this.deps.now()));
+  }
+
+  /** Réaffiche la notification à cadence fixe, indépendamment de la capture : c'est ce
+   * réaffichage qui fait grandir « il y a N min » quand plus aucune position ne part, et révèle
+   * ainsi une capture calée (une notification figée sur le dernier envoi réussi rassurerait à
+   * tort). Arrêté au passage hors ligne. */
+  private startNotificationTimer(): void {
+    this.stopNotificationTimer();
+    this.notificationTimer = setInterval(() => this.refreshNotification(), this.config.notificationRefreshMs);
+  }
+
+  private stopNotificationTimer(): void {
+    if (this.notificationTimer) clearInterval(this.notificationTimer);
+    this.notificationTimer = null;
   }
 
   /**
@@ -337,6 +374,11 @@ export class LocationTracker {
     this.metrics.bytesSent += JSON.stringify(payload).length;
     this.buffer = [];
     this.batchStartedAtMs = null;
+
+    // Un envoi vient réellement de partir -- la notification le constate (« à l'instant »), et
+    // repartira à grandir depuis cet instant si plus rien ne suit (3 septembre).
+    this.lastPositionSentAtMs = this.deps.now();
+    this.refreshNotification();
   }
 }
 
@@ -362,7 +404,7 @@ function defaultDeps(): LocationTrackerDeps {
     send: (payload) => realtimeClient.send('position.update', payload),
     onMessage: onRealtimeMessage,
     onSessionLost,
-    showNotification: showTrackingNotification,
+    updateNotification: updateTrackingNotification,
     hideNotification: hideTrackingNotification,
     now: () => Date.now(),
   };
