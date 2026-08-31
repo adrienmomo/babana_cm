@@ -187,3 +187,50 @@ générique (`apiClient.request('listDriverDocuments')`), rien de spécial. 5 te
   d'assistant, pas d'aperçu du fichier depuis le formulaire, pas de notification au chauffeur
   (L7-03). Un gestionnaire peut rejeter avec un motif ; le chauffeur le voit à sa prochaine
   ouverture de l'app, pas par une notification.
+
+---
+
+## Arrêt après L6-15 — L7-01 et L7-04 non commencées
+
+Consigne du prompt : « Si le lot ne passe pas en entier, arrête-toi après L6-15. » Il n'est pas
+passé en entier. L6-15 a coûté plus que prévu — deux dépendances absentes à cadrer (L1-09,
+sélecteur d'image), une extension de contrat, un endpoint Odoo, un module `multipart` dans
+`api-client`, trois écrans, la reprise, et la reprise du back-office minimal pour que le motif de
+rejet ne soit pas du décor. Le lot rétrécit à mesure que le code grandit (CLAUDE.md) : c'était le
+cas ici.
+
+**L7-01 (FCM, cycle de vie des jetons d'appareil) et L7-04 (notification de proposition hors
+connexion) ne sont pas commencées.** Elles restent le dernier blocage dur du pilote côté
+chauffeur : une application fermée ne reçoit aucune proposition. Ce qu'il faudra garder à
+l'esprit en les reprenant, tiré du prompt de cette nuit :
+
+- **D19** : le simulateur push par défaut, aucune branche conditionnelle dans le code métier, le
+  vrai service branché par configuration (et D43 : pas de valeur par défaut qui retombe sur le
+  vrai fournisseur).
+- **L7-01, le piège** : un jeton d'appareil périmé qui reste en base envoie dans le vide et fait
+  croire que le chauffeur a été prévenu. Il se nettoie **quand Firebase le signale**, pas quand
+  quelqu'un y pense.
+- **L7-04** : la notification **double** le message temps réel, elle ne le remplace pas. Le délai
+  d'acceptation court depuis l'émission de la proposition (L3-07), pas depuis l'ouverture de
+  l'app — un chauffeur qui ouvre sa notification 25 s plus tard doit voir un compte à rebours
+  honnête. `ProposalScreen` revalide déjà auprès du serveur (écart `L6-12.md`, D49) — c'est le
+  bon point d'accroche.
+- La déduplication par identifiant de proposition existe déjà côté app (`proposalAlert.ts` /
+  `ProposalScreen`) ; L7-04 la complète pour la source distante.
+
+## Passe finale
+
+`make reset && make up && make lint && make typecheck && make test` sur base fraîche, tout vert :
+
+- **Odoo** : `0 failed, 0 error(s) of 2272 tests` (module babana : 564 tests) — inclut les
+  nouveaux tests de `test_documents.py` (projection JSON du motif, liste par type, un seul état
+  par type après renvoi, compte non-chauffeur refusé, `action_verify`/`action_reject` + contrainte
+  de motif).
+- **npm test** (workspaces) : `@babana/contracts` 74, `@babana/api-client` 71, `services/realtime`
+  188, `@babana/client` 106, `@babana/driver` 137, `@babana/concurrency-tests` 29 — ce dernier
+  exerce `GET /api/v1/driver/documents` contre le vrai Odoo (C-01 critère 6), scénarios de
+  concurrence L3-13 verts.
+- **verify-ride-state-machine** et **verify-realtime-message-map** : OK (22 messages du contrat,
+  19 câblés, 3 en attente — inchangé par ce lot).
+- `make lint` et `make typecheck` : aucun problème.
+
