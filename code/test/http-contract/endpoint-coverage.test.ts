@@ -256,6 +256,31 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     assert.equal(offline.online, false);
   },
 
+  registerDeviceToken: async () => {
+    const session = await freshSession('client', 'register-device');
+    const client = clientFor(session.accessToken);
+    const first = (await client.request('registerDeviceToken', {
+      body: { token: `fcm-${randomUUID()}`, platform: 'android' },
+    })) as http.RegisterDeviceTokenResponse;
+    assert.equal(first.registered, true);
+    // Additif : un second appareil pour le même compte n'écrase pas le premier (L7-01).
+    const second = (await client.request('registerDeviceToken', {
+      body: { token: `fcm-${randomUUID()}`, platform: 'ios' },
+    })) as http.RegisterDeviceTokenResponse;
+    assert.equal(second.registered, true);
+  },
+
+  deactivateDeviceToken: async () => {
+    const session = await freshSession('client', 'deactivate-device');
+    const client = clientFor(session.accessToken);
+    const token = `fcm-${randomUUID()}`;
+    await client.request('registerDeviceToken', { body: { token, platform: 'android' } });
+    const deactivated = (await client.request('deactivateDeviceToken', {
+      body: { token },
+    })) as http.DeactivateDeviceTokenResponse;
+    assert.equal(deactivated.deactivated, true);
+  },
+
   driverCash: async () => {
     const { session } = await approvedDriverSession('driver-cash');
     const cash = (await clientFor(session.accessToken).request('driverCash')) as http.DriverCashResponse;

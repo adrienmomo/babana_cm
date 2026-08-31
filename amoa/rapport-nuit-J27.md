@@ -110,3 +110,118 @@ est un défaut).
   le support. À rediscuter avec L7-03 / le back-office superviseur.
 
 ---
+
+## 2. L7-01 — Firebase Cloud Messaging, cycle de vie des jetons d'appareil
+
+Le piège est le cycle de vie, pas l'intégration : un jeton périmé qui reste en base envoie dans
+le vide et **ment silencieusement** sur une notification qu'on croit délivrée. Tout est construit
+autour de ce point.
+
+### Le modèle : ajouter, jamais écraser ; nettoyer sur signal, jamais deviner
+
+`babana.device.token` (`user_id`, `token`, `platform`, `registered_at`, `last_used_at`,
+`active`). Contrainte unique sur le **couple** `(user_id, token)` seulement :
+
+- un compte, plusieurs appareils → plusieurs lignes ;
+- un appareil, plusieurs comptes (partagé, ou réinstallé) → plusieurs lignes, pas de doublon
+  silencieux ni de violation de contrainte. La première réinstallation d'un chauffeur ne casse
+  rien.
+
+Le champ `active` d'Odoo (archivage) porte la désactivation : un jeton désactivé sort
+**automatiquement** de `_active_tokens_for_users` (filtre implicite), la table ne se vide jamais
+(audit), et un jeton qui redevient valide se réactive sans doublon. Le nettoyage se fait dans
+**un seul endroit** — `dispatch`, sur retour d'envoi du fournisseur (`PushResult.invalid_tokens`)
+— jamais par un cron qui balaie. Un jeton d'enregistrement signalé invalide est désactivé **pour
+tous les comptes** qui le portent, pas seulement celui de l'envoi en cours.
+
+> Note de nommage : la méthode d'upsert s'appelle `_register_token`, pas `_register` — ce
+> dernier est un attribut réservé du métaclasse ORM d'Odoo (un booléen), qui écrasait
+> silencieusement la méthode (`'bool' object is not callable`). Trouvé en exécutant les tests,
+> pas supposé.
+
+### `services/push.py` — deux implémentations, D19 et D43
+
+`PUSH_PROVIDER` choisit :
+
+- **`console`** (défaut) — le simulateur : journalise la notification et la garde en mémoire
+  (`recent_sent`) pour inspection. Aucun compte Firebase requis pour un parcours complet
+  (critère 4). C'est l'exception que la stratégie de simulation nomme explicitement (05 §2) :
+  FCM ne se simule pas par « même code, autre URL », il se remplace.
+- **`fcm`** — Firebase Cloud Messaging HTTP v1 (OAuth2 par compte de service, assertion JWT
+  RS256 via PyJWT, aucune dépendance nouvelle). Exige `FCM_PROJECT_ID` / `FCM_CLIENT_EMAIL` /
+  `FCM_PRIVATE_KEY` ; **aucun repli** si l'une manque (D43) — non configuré, on lève, plutôt que
+  de retomber en silence sur le simulateur ou sur un envoi inattendu depuis un environnement de
+  dev. Ce chemin n'est pas exercé ici (aucun compte Firebase) — même statut que le chemin réel
+  de `google_identity.py` / `routing.py`.
+
+Défaut = simulateur, jamais le vrai fournisseur : les deux règles du prompt tenues ensemble.
+
+### Envoi asynchrone, isolé de toute transaction (critères 3 et 5)
+
+`notify_users_async(env, users, message)` **n'enregistre qu'un point d'accroche `cr.postcommit`**
+— rien n'est envoyé pendant la transaction (critère 3), et `cr.postcommit` n'exécute son
+callback qu'après un COMMIT réussi (même discipline D32/D33 que `services/realtime_client.py`).
+Le callback lance un **fil de fond** qui ouvre son propre curseur (`odoo.registry(db).cursor()`),
+appelle `dispatch`, et **avale toute exception** : un envoi lent ou raté ne fait échouer aucune
+transaction métier (critère 5). `dispatch` lui-même est isolé de tout fil/curseur pour être
+testable directement.
+
+### Contrat et endpoints (C-01, extension additive)
+
+`devices.ts` : `POST /api/v1/devices` `{token, platform}` → `{registered: true}` (enregistre ou
+réactive) ; `POST /api/v1/devices/deactivate` `{token}` → `{deactivated: true}` (déconnexion
+volontaire, idempotent). Enregistrés dans `HTTP_ENDPOINTS`, projetés dans `docs/contracts/
+http-api.md`, et exercés contre le vrai Odoo par `endpoint-coverage.test.ts` (C-01 critère 6 —
+la vérification de complétude aurait fait échouer la suite si je les avais oubliés).
+
+### `@babana/api-client/src/push/` — le SDK natif reste derrière une frontière injectée
+
+`createPushRegistrar({ apiClient, binding, platform })` : `register()` (à la connexion) demande
+l'autorisation, lit le jeton, l'enregistre, et s'abonne aux **rotations** (re-enregistrement à
+chaque nouveau jeton). `unregister()` (déconnexion) désactive côté serveur. `register()` **ne
+rejette jamais** — un refus d'autorisation ou l'absence de SDK renvoie une issue explicite
+(`permission-denied` / `unavailable` / …), jamais une exception, pour qu'aucun écran ne se
+bloque (L7-06).
+
+`@babana/api-client` ne gagne aucune dépendance native : la frontière est l'interface
+`PushBinding`. `createUnavailablePushBinding()` — le défaut jusqu'à la session avec un appareil —
+échoue franchement, ne renvoie jamais un jeton inventé (D43).
+
+### Tests
+
+- `test_push.py` : plusieurs appareils par compte ; réenregistrement du même couple = réactivé,
+  jamais dupliqué ; un jeton pour deux comptes ; jetons désactivés exclus des envois ; feedback
+  de jeton invalide → désactive ce jeton **seul**, tous comptes ; défaut = simulateur ;
+  `PUSH_PROVIDER` inconnu et `fcm` sans identifiants → lèvent ; `notify_users_async` ne
+  programme qu'un postcommit ; le fil de fond avale toute panne.
+- `test_devices_controller.py` : enregistrement crée la ligne ; additif entre appareils ;
+  plateforme invalide → 400 ; sans jeton d'auth → 401 ; désactivation idempotente.
+- `registrar.test.ts` (@babana/api-client) : enregistrement + rotation + toutes les issues non
+  bloquantes + `unregister` best-effort + pas de double abonnement.
+- `endpoint-coverage.test.ts` : les deux endpoints contre le vrai Odoo.
+
+### Corrigé au passage — un fichier de test qui ne tournait pas
+
+`tests/__init__.py` n'importait pas `test_me_controller.py` : ce fichier, ajouté avec D35
+(`GET /me`), **n'a jamais tourné en intégration continue** — Odoo ne découvre que les modules de
+test importés dans `tests/__init__.py`. Ajouté, avec `test_push` et `test_devices_controller`.
+Les tests de dossier refusé de la tâche 1 (écrits dans `test_me_controller.py`) tournent donc
+désormais réellement. C'est un défaut préexistant que ce lot a révélé.
+
+### Ce qui me laisse un doute pour quelqu'un de réel
+
+- **Le chemin `fcm` n'a jamais envoyé une vraie notification.** La logique OAuth2 + HTTP v1 est
+  écrite, la détection des jetons invalides (404 `UNREGISTERED`, 400 `INVALID_ARGUMENT` sur le
+  champ `token`) aussi — mais rien ne l'exerce sans compte Firebase. Le premier vrai envoi est
+  une inconnue, comme le premier vrai appel de routage ou de vérification Google.
+- **Aucune app n'appelle encore `createPushRegistrar`.** Le binding natif (Firebase/APNs) est la
+  **troisième dépendance native bloquante** après le service de premier plan (L6-05) et le
+  sélecteur de pièces (L6-15) : il exige un build mobile que cet environnement ne produit pas.
+  Le registrar et le contrat serveur sont réels et testés ; le câblage `bootstrap.ts` +
+  `PushBinding` réel se fait dans la session avec un appareil (L6-19 et voisines).
+- **L'endpoint d'inspection HTTP du simulateur n'est pas fait.** `push.recent_sent()` existe
+  (Python), suffisant pour les tests de cette nuit ; l'exposition HTTP que le §2 de la stratégie
+  de simulation décrit appartient au scénario e2e « notifications désactivées » de **L7-06**,
+  hors périmètre — à faire avec elle.
+
+---

@@ -49,6 +49,12 @@ services:
       SMTP_USER: ${SMTP_USER}
       SMTP_PASSWORD: ${SMTP_PASSWORD}
       SMTP_FROM: ${SMTP_FROM}
+      # Notification push (L7-01) : 'console' par défaut journalise au lieu d'envoyer (D19) ;
+      # 'fcm' exige FCM_PROJECT_ID/FCM_CLIENT_EMAIL/FCM_PRIVATE_KEY, sans repli (D43).
+      PUSH_PROVIDER: ${PUSH_PROVIDER:-console}
+      FCM_PROJECT_ID: ${FCM_PROJECT_ID:-}
+      FCM_CLIENT_EMAIL: ${FCM_CLIENT_EMAIL:-}
+      FCM_PRIVATE_KEY: ${FCM_PRIVATE_KEY:-}
     volumes:
       - ../services/odoo/addons:/mnt/extra-addons
       - ../services/odoo/config/odoo.conf:/etc/odoo/odoo.conf:ro

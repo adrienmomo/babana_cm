@@ -279,6 +279,32 @@ d'autre combinaison.
 
 ---
 
+## Jetons d'appareil (push) — `devices.ts`
+
+L7-01 (Firebase Cloud Messaging). Le serveur garde plusieurs jetons par compte (un compte,
+plusieurs appareils) et un même jeton peut appartenir à plusieurs comptes (appareil partagé, ou
+réinstallé). Le nettoyage d'un jeton périmé se fait sur retour d'envoi de Firebase, pas ici.
+
+### `POST /devices`
+
+Enregistre — ou réactive, si déjà connu — le jeton FCM du compte courant. Appelé à la connexion
+et à chaque rotation du jeton signalée par Firebase.
+
+- Requête : `{ token, platform }` — `platform` ∈ `'android' | 'ios' | 'web'`
+- Réponse : `{ registered: true }`
+- Erreurs : implicites uniquement (`VALIDATION_ERROR`, `UNAUTHORIZED`)
+
+### `POST /devices/deactivate`
+
+Déconnexion volontaire de cet appareil. Idempotent : un jeton inconnu ou déjà désactivé répond
+`{ deactivated: true }`.
+
+- Requête : `{ token }`
+- Réponse : `{ deactivated: true }`
+- Erreurs : implicites uniquement
+
+---
+
 ## Bouton d'urgence — `incident.ts`
 
 L8-04 (CDC §II.6). Déclenchable par le client ou le chauffeur — l'acteur se déduit du jeton

@@ -34,3 +34,6 @@ from . import test_discrepancy
 from . import test_driver_cash_controller
 from . import test_incident
 from . import test_ride_share
+from . import test_me_controller
+from . import test_push
+from . import test_devices_controller
