@@ -53,6 +53,27 @@
                         <field name="cash_balance"/>
                         <field name="cash_limit"/>
                     </group>
+                    <notebook>
+                        <!--
+                            Documents du dossier (L1-05, L6-15). Édition inline plutôt qu'un
+                            assistant : un gestionnaire vérifie ou rejette un document en
+                            changeant verification_status / rejection_reason ici même. Le motif
+                            devient obligatoire dès que le statut passe à « rejeté »
+                            (babana_driver_document.py, _check_rejected_requires_reason). Les
+                            boutons dédiés et l'aperçu du fichier par URL signée sont L9-01.
+                        -->
+                        <page string="Documents" name="documents">
+                            <field name="document_ids">
+                                <list editable="bottom">
+                                    <field name="document_type"/>
+                                    <field name="verification_status"/>
+                                    <field name="expires_on"/>
+                                    <field name="rejection_reason"/>
+                                    <field name="create_date" string="Téléversé le"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
                 </sheet>
                 <chatter/>
             </form>

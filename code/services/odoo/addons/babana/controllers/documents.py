@@ -1,6 +1,10 @@
 # Documents chauffeur (L1-05, É2) : téléversement (permis, pièce d'identité) et accès signé à
 # durée limitée. Le fichier ne transite jamais par PostgreSQL -- écrit sur S3/MinIO
 # (services/storage.py), seule la clé d'objet est enregistrée sur babana.driver.document.
+#
+# GET /api/v1/driver/documents (liste des documents du chauffeur courant avec leur état) est
+# ajouté par L6-15 : c'est ce que l'écran d'attente de dossier lit pour dire précisément où il
+# en est. Même chemin que l'upload, méthode distincte.
 from __future__ import annotations
 
 import logging
@@ -20,6 +24,8 @@ _UPLOAD_ROUTE = {"type": "http", "auth": "none", "methods": ["POST"], "csrf": Fa
                   "readonly": False}
 _URL_ROUTE = {"type": "http", "auth": "none", "methods": ["GET"], "csrf": False,
               "readonly": True}
+_LIST_ROUTE = {"type": "http", "auth": "none", "methods": ["GET"], "csrf": False,
+               "readonly": True}
 
 _DOCUMENT_TYPES = {"license", "id_card"}
 
@@ -34,6 +40,51 @@ class DriverDocumentsController(http.Controller):
         except Exception:
             _logger.exception("erreur interne dans POST /api/v1/driver/documents")
             return _common.error_response("INTERNAL_ERROR", "erreur interne", 500)
+
+    @http.route("/api/v1/driver/documents", **_LIST_ROUTE)
+    def list_documents(self, **_kwargs):
+        try:
+            return self._list_documents()
+        except _common.AuthenticationFailed as exc:
+            return _common.error_response(exc.code, "authentification requise", exc.status)
+        except Exception:
+            _logger.exception("erreur interne dans GET /api/v1/driver/documents")
+            return _common.error_response("INTERNAL_ERROR", "erreur interne", 500)
+
+    def _list_documents(self):
+        _env, user = _common.authenticated_user()
+        driver = user._babana_driver()
+        if not driver:
+            return _common.error_response(
+                "UNAUTHORIZED", "ce compte n'est pas un compte chauffeur", 401
+            )
+
+        # Le plus récent par type seulement (L6-15) : renvoyer un permis rejeté PUIS un permis
+        # renvoyé (deux lignes en base, l'upload crée toujours) afficherait deux états pour un
+        # même document. L'ancien reste en base pour l'audit ; l'app ne voit que le courant.
+        latest_by_type = {}
+        for document in driver.sudo().document_ids.sorted("create_date", reverse=True):
+            latest_by_type.setdefault(document.document_type, document)
+
+        return _common.json_response(
+            {"documents": [self._project_document(d) for d in latest_by_type.values()]},
+            200,
+        )
+
+    @staticmethod
+    def _project_document(document):
+        return {
+            "id": document.id,
+            "documentType": document.document_type,
+            "verificationStatus": document.verification_status,
+            # Motif présent seulement quand rejeté (L6-15, critère 3) -- `null` sinon, jamais une
+            # chaîne vide qui se présenterait comme un motif.
+            "rejectionReason": document.rejection_reason or None
+            if document.verification_status == "rejected"
+            else None,
+            "expiresOn": document.expires_on.isoformat() if document.expires_on else None,
+            "uploadedAt": _common.iso_datetime(document.create_date),
+        }
 
     def _upload(self):
         env, user = _common.authenticated_user()

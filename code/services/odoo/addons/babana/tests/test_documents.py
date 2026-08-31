@@ -118,6 +118,48 @@ class TestDriverDocumentModel(TransactionCase):
         )
         self.assertFalse(document.expires_on)
 
+    # --- L6-15 : vérification / rejet côté back-office -----------------------------------------
+
+    def test_action_verify_sets_status_and_clears_reason(self):
+        driver = self._make_driver()
+        document = self.env["babana.driver.document"].create(
+            {
+                "driver_id": driver.id,
+                "document_type": "id_card",
+                "storage_key": "irrelevant",
+                "verification_status": "rejected",
+                "rejection_reason": "Photo floue",
+            }
+        )
+        document.action_verify()
+        self.assertEqual(document.verification_status, "verified")
+        self.assertFalse(document.rejection_reason)
+
+    def test_action_reject_requires_a_reason(self):
+        driver = self._make_driver()
+        document = self.env["babana.driver.document"].create(
+            {"driver_id": driver.id, "document_type": "id_card", "storage_key": "irrelevant"}
+        )
+        with self.assertRaises(ValidationError):
+            document.action_reject(reason="   ")
+
+    def test_action_reject_records_reason_and_status(self):
+        driver = self._make_driver()
+        document = self.env["babana.driver.document"].create(
+            {"driver_id": driver.id, "document_type": "id_card", "storage_key": "irrelevant"}
+        )
+        document.action_reject(reason="Pièce d'identité expirée")
+        self.assertEqual(document.verification_status, "rejected")
+        self.assertEqual(document.rejection_reason, "Pièce d'identité expirée")
+
+    def test_direct_write_to_rejected_without_reason_is_forbidden(self):
+        driver = self._make_driver()
+        document = self.env["babana.driver.document"].create(
+            {"driver_id": driver.id, "document_type": "id_card", "storage_key": "irrelevant"}
+        )
+        with self.assertRaises(ValidationError):
+            document.write({"verification_status": "rejected"})
+
 
 # --- Contrôleur : téléversement et URL signée, critères 3, 4 et 5 côté API ----------------------
 
@@ -226,3 +268,74 @@ class TestDriverDocumentsController(HttpCase):
         )
 
         self.assertEqual(response.status_code, 201)
+
+    # --- L6-15, critères 3 et 5 : GET /driver/documents renvoie l'état de chaque document ------
+
+    def test_list_documents_returns_status_per_type(self):
+        token = self._sign_in_as_driver("sub-doc-list")
+        self._upload(token, document_type="id_card", content_type="image/jpeg", data=_A_JPEG)
+        self._upload(
+            token, document_type="license", content_type="image/png", data=_A_PNG,
+            expires_on="2030-01-01",
+        )
+
+        response = self.url_open(
+            "/api/v1/driver/documents", headers={"Authorization": f"Bearer {token}"}
+        )
+        self.assertEqual(response.status_code, 200)
+        by_type = {d["documentType"]: d for d in response.json()["documents"]}
+        self.assertEqual(set(by_type), {"id_card", "license"})
+        self.assertEqual(by_type["id_card"]["verificationStatus"], "pending")
+        self.assertIsNone(by_type["id_card"]["rejectionReason"])
+        self.assertEqual(by_type["license"]["expiresOn"], "2030-01-01")
+        self.assertTrue(by_type["license"]["uploadedAt"].endswith("Z"))
+
+    def test_list_documents_shows_only_the_latest_per_type(self):
+        # Un document renvoyé après rejet ajoute une ligne (l'upload crée toujours) : la liste
+        # ne doit en montrer qu'une par type, la plus récente (L6-15).
+        token = self._sign_in_as_driver("sub-doc-list-latest")
+        self._upload(token, document_type="id_card", content_type="image/jpeg", data=_A_JPEG)
+        self._upload(token, document_type="id_card", content_type="image/png", data=_A_PNG)
+
+        documents = self.url_open(
+            "/api/v1/driver/documents", headers={"Authorization": f"Bearer {token}"}
+        ).json()["documents"]
+        id_cards = [d for d in documents if d["documentType"] == "id_card"]
+        self.assertEqual(len(id_cards), 1, "un seul état par type -- le plus récent")
+
+    def test_list_documents_requires_a_driver_account(self):
+        token = _mint_google_token(sub="sub-doc-list-client", email="c@example.invalid")
+        access_token = self.url_open(
+            "/api/v1/auth/google",
+            data=json.dumps({"idToken": token, "role": "client"}).encode(),
+            headers={"Content-Type": "application/json"},
+        ).json()["accessToken"]
+
+        response = self.url_open(
+            "/api/v1/driver/documents", headers={"Authorization": f"Bearer {access_token}"}
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(response.json()["error"]["code"], "UNAUTHORIZED")
+
+
+# --- L6-15, critère 3 : le motif de rejet remonte tel quel dans la projection JSON -------------
+
+
+@tagged("post_install", "-at_install")
+class TestDriverDocumentProjection(TransactionCase):
+    def test_rejected_document_projection_carries_its_reason(self):
+        from ..controllers.documents import DriverDocumentsController
+
+        employee = self.env["hr.employee"].create({"name": "Chauffeur projection"})
+        driver = self.env["babana.driver"].create({"employee_id": employee.id})
+        document = self.env["babana.driver.document"].create(
+            {"driver_id": driver.id, "document_type": "id_card", "storage_key": "irrelevant"}
+        )
+        document.action_reject(reason="Pièce illisible")
+
+        projected = DriverDocumentsController._project_document(document)
+        self.assertEqual(projected["verificationStatus"], "rejected")
+        self.assertEqual(projected["rejectionReason"], "Pièce illisible")
+
+        document.action_verify()
+        self.assertIsNone(DriverDocumentsController._project_document(document)["rejectionReason"])

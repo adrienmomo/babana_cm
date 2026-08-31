@@ -16,6 +16,7 @@
     "@babana/maps": "*",
     "@babana/navigation": "*",
     "@babana/ui": "*",
+    "@react-native-async-storage/async-storage": "^3.1.1",
     "@react-native-community/geolocation": "^3.4.0",
     "@react-native-community/push-notification-ios": "^1.12.0",
     "@react-navigation/native": "^7.3.16",

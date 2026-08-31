@@ -10,11 +10,18 @@ import { HomeScreen } from '../screens/HomeScreen';
 import { ProposalScreen } from '../screens/ProposalScreen';
 import { ActiveRideScreen } from '../screens/ActiveRideScreen';
 import { SettlementScreen } from '../screens/SettlementScreen';
-import type { AuthParamList, DriverParamList, DriverPendingParamList } from './types';
+import { ProfileScreen } from '../screens/onboarding/ProfileScreen';
+import { DocumentsScreen } from '../screens/onboarding/DocumentsScreen';
+import { PendingScreen } from '../screens/onboarding/PendingScreen';
+import { defaultImageSource } from '../screens/onboarding/imageSource';
+import { useOnboarding } from '../screens/onboarding/useOnboarding';
+import { documentUploader } from '../onboarding';
+import { ONBOARDING_MAX_DOCUMENT_BYTES } from '../../config';
+import type { AuthParamList, DriverParamList, DriverOnboardingParamList } from './types';
 
 const AuthStack = createNativeStackNavigator<AuthParamList>();
 const DriverStack = createNativeStackNavigator<DriverParamList>();
-const PendingStack = createNativeStackNavigator<DriverPendingParamList>();
+const OnboardingStack = createNativeStackNavigator<DriverOnboardingParamList>();
 
 /**
  * Réf partagée -- `./transitions.ts` (L6-12, L6-14) l'utilise pour `reset()`. Typée
@@ -93,13 +100,58 @@ function SignInStack({ onSignedIn }: { onSignedIn: (session: AuthState) => void 
   );
 }
 
-function PendingNavigator() {
+/**
+ * Parcours d'inscription (L6-15) : profil -> dépôt des pièces -> écran d'attente. L'écran
+ * d'entrée est calculé à l'ouverture depuis l'état serveur (`useOnboarding`) -- rouvrir l'app
+ * après une fermeture retombe sur la bonne étape (critère 1). Les écrans ne lisent jamais le
+ * serveur eux-mêmes : ils reçoivent `slots` et les gestes en props.
+ */
+function OnboardingNavigator({ user }: { user: AuthUser }) {
+  const onboarding = useOnboarding(user.id);
+
+  if (onboarding.status === 'loading') {
+    return <PlaceholderScreen title="Babana Chauffeur" task="chargement du dossier" />;
+  }
+
   return (
-    <PendingStack.Navigator screenOptions={{ headerShown: false }}>
-      <PendingStack.Screen name="Pending">
-        {() => <PlaceholderScreen title="Dossier en cours de validation" task="L6-15" />}
-      </PendingStack.Screen>
-    </PendingStack.Navigator>
+    <OnboardingStack.Navigator initialRouteName={onboarding.initialRoute} screenOptions={{ headerShown: false }}>
+      <OnboardingStack.Screen name="Profile">
+        {({ navigation }) => (
+          <ProfileScreen
+            user={{ displayName: user.displayName, photoUrl: user.photoUrl }}
+            onContinue={async () => {
+              await onboarding.acknowledgeProfile();
+              navigation.replace('Documents');
+            }}
+          />
+        )}
+      </OnboardingStack.Screen>
+      <OnboardingStack.Screen name="Documents">
+        {({ navigation, route }) => (
+          <DocumentsScreen
+            slots={onboarding.slots}
+            pendingUploads={onboarding.pendingUploads}
+            imageSource={defaultImageSource}
+            uploader={documentUploader}
+            maxBytes={ONBOARDING_MAX_DOCUMENT_BYTES}
+            focusType={route.params?.focusType}
+            onSavePending={onboarding.savePending}
+            onClearPending={onboarding.clearPending}
+            onRefresh={onboarding.refresh}
+            onAllSubmitted={() => navigation.replace('Pending')}
+          />
+        )}
+      </OnboardingStack.Screen>
+      <OnboardingStack.Screen name="Pending">
+        {({ navigation }) => (
+          <PendingScreen
+            slots={onboarding.slots}
+            onFix={(type) => navigation.navigate('Documents', { focusType: type })}
+            onRefresh={onboarding.refresh}
+          />
+        )}
+      </OnboardingStack.Screen>
+    </OnboardingStack.Navigator>
   );
 }
 
@@ -120,12 +172,12 @@ function DriverNavigator() {
 /**
  * Un chauffeur `approved` accède aux écrans de course ; tout le reste -- `pending` (spécification
  * L6-00), `rejected`, `suspended`, ou un statut absent parce que le rafraîchissement de session a
- * échoué hors ligne -- est routé vers l'écran d'attente de dossier (critère d'acceptation 5).
+ * échoué hors ligne -- est routé vers le parcours d'inscription / suivi de dossier (L6-15).
  * Défaut-refus délibéré : seul `approved` est nommé explicitement, jamais l'inverse.
  */
 function DriverAppSwitch({ user }: { user: AuthUser }) {
   if (user.driverStatus === 'approved') return <DriverNavigator />;
-  return <PendingNavigator />;
+  return <OnboardingNavigator user={user} />;
 }
 
 export function AppNavigator() {

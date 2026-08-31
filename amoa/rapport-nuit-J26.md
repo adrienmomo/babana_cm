@@ -79,3 +79,158 @@ qui ne sont pas non plus « adaptatifs » au sens strict — tout ce que `tracke
 - `location/__tests__/adaptive.test.ts` : le littéral `AdaptiveCaptureConfig` complété.
 
 `npm test` (workspaces) vert, `tsc --noEmit` et `eslint` verts sur `@babana/driver`.
+
+---
+
+## L6-15 — inscription chauffeur
+
+### Le blocage que ça lève
+
+Avant ce soir, aucun vrai chauffeur ne pouvait entrer dans le système : `DriverAppSwitch`
+routait tout statut non `approved` vers un `PlaceholderScreen` (« Dossier en cours de validation
+— écran à venir, L6-15 »). Un blocage dur du pilote, pas une finition.
+
+### Deux dépendances absentes, constatées dans le dépôt — `amoa/questions/L6-15.md`
+
+Vérifié avant d'écrire, pas supposé (CLAUDE.md, 15 août) :
+
+- **L1-09 (vérification du numéro) n'a aucun back-end** : `@babana/contracts` déclare
+  `phoneVerifyStart`/`phoneVerifyConfirm`, mais il n'y a ni `controllers/phone.py`, ni
+  `services/sms.py`, ni modèle — et `endpoint-coverage.test.ts` les classe déjà en
+  `NOT_YET_IMPLEMENTED`. Le découpage (§5) donne à L6-15 les dépendances **L6-02 et L1-05**
+  seulement, et **aucun des cinq critères d'acceptation** ne porte sur le téléphone. L'étape
+  « vérification du numéro » n'est donc pas construite : la brancher sur un 404 serait du
+  théâtre. Elle s'insérera dans `resolveOnboardingRoute` quand L1-09 atterrira.
+- **Aucune bibliothèque native de capture / compression d'image** dans `apps/driver` — même
+  situation que le service de premier plan de L6-05, même règle (signaler, pas ajouter à
+  l'aveugle). La sélection + compression est isolée derrière `ImageSource`, injectée aux écrans ;
+  la valeur par défaut **échoue franchement** (jamais d'image inventée, principe de D43).
+
+### Contrat (C-01) — extension additive
+
+`GET /api/v1/driver/documents` : liste des documents du chauffeur courant avec
+`verificationStatus`, `rejectionReason` (renseigné seulement si rejeté, `null` sinon — D30),
+`expiresOn`, `uploadedAt`. Le contrat n'avait qu'un endpoint d'écriture et un d'URL signée ; les
+critères 3 et 5 exigent une lecture. Même précédent que L2-04 / L3-04. Enregistré dans
+`HTTP_ENDPOINTS`, exercé contre le vrai Odoo par `endpoint-coverage.test.ts` (C-01 critère 6).
+
+### Odoo
+
+- `controllers/documents.py` : `GET /driver/documents` — même chemin que l'upload, méthode
+  distincte. Ne renvoie que **le plus récent par type** : un document renvoyé après rejet ajoute
+  une ligne (l'upload crée toujours), l'ancienne reste en base pour l'audit, l'app ne voit que
+  l'état courant.
+- `babana.driver` : `document_ids` (One2many) — nécessaire à la lecture et à la vue.
+- `babana.driver.document` : `action_verify` / `action_reject(reason)` (motif obligatoire,
+  journalisé au fil du dossier), plus une contrainte `_check_rejected_requires_reason` qui vaut
+  aussi pour l'édition inline. Le minimum pour que « le refus se dit avec son motif » ne soit pas
+  du décor : un gestionnaire vérifie/rejette depuis la fiche chauffeur (page « Documents »
+  ajoutée à la vue). L'assistant dédié et la notification push restent L9-01 / L7-03.
+- Tests : `test_documents.py` — projection JSON (motif présent seulement si rejeté), liste par
+  type, un seul état par type après renvoi, refus d'un compte non-chauffeur ; `action_verify` /
+  `action_reject` et la contrainte de motif. 15 tests ciblés verts sur base à jour (`-u babana`).
+
+### `@babana/api-client`
+
+`createDriverDocumentUploader` (`src/documents/`) : le seul chemin `multipart/form-data` du
+client — `createHttpClient` sérialise toujours en JSON. En-tête `Authorization`, catalogue
+d'erreurs C-01, et renouvellement transparent (un `refresh` + un unique réessai sur
+`TOKEN_EXPIRED`, comme `withTransparentRefresh`). La **lecture** passe par le client REST
+générique (`apiClient.request('listDriverDocuments')`), rien de spécial. 5 tests.
+
+### App Chauffeur
+
+- `screens/onboarding/` : `ProfileScreen` (confirmation de l'identité Google), `DocumentsScreen`
+  (dépôt, une ligne indépendante par pièce), `PendingScreen` (état précis de chaque pièce,
+  motif + « Renvoyer ce document » sur un rejet).
+- `state.ts` : dérivation pure de l'avancement (`documentSlots`, `resolveOnboardingRoute`) +
+  persistance AsyncStorage (drapeau « profil confirmé », photos en attente d'envoi), cloisonnée
+  par utilisateur.
+- `useOnboarding` : **reprenable** (critère 1) — l'écran d'entrée se calcule à l'ouverture depuis
+  l'état serveur (`GET /driver/documents`) + le drapeau local. Rouvrir l'app retombe sur la bonne
+  étape. Hors ligne : parcours utilisable, tout « à déposer », l'envoi retentera.
+- **Le téléversement survit à une coupure** (spécification) : la photo prise puis compressée est
+  persistée **avant** l'envoi ; un échec réseau laisse un bouton « Réessayer l'envoi » qui rejoue
+  le **même fichier** — le chauffeur ne reprend pas la photo. Une erreur métier (type MIME)
+  abandonne le fichier et demande une nouvelle photo.
+- **Compression** (critère 2) : le plafond (`ONBOARDING_MAX_DOCUMENT_BYTES`, config, 4 Mio par
+  défaut, bien sous les 10 Mio serveur) est passé à `imageSource.pick` ; une image encore trop
+  lourde n'est jamais envoyée.
+- Navigation : `PendingNavigator` (placeholder) remplacé par `OnboardingNavigator`.
+  `DriverPendingParamList` → `DriverOnboardingParamList` (`Profile`/`Documents`/`Pending`,
+  `Documents` porte `focusType` pour revenir renvoyer une pièce précise).
+- `AppNavigator.test.tsx` : les 4 cas qui vérifiaient le texte du placeholder vérifient
+  maintenant l'entrée dans le parcours réel — l'invariant de L6-00 (critère 5 : un chauffeur non
+  approuvé n'atteint aucun écran de course) reste testé. Arbres démontés en `afterEach` : l'effet
+  asynchrone de `useOnboarding` ferait fuir un `setState` sinon (« worker failed to exit »).
+- 8 nouveaux fichiers de test, 31 tests d'inscription. `@babana/driver` : 22 suites / 137 tests,
+  `tsc` et `eslint` verts, aucune fuite de minuteur.
+
+### Ce qui me laisse un doute pour quelqu'un de réel
+
+- **Sans sélecteur de photo natif, un vrai chauffeur ne peut pas encore déposer une pièce.**
+  Tout le reste — reprise, compression, survie à la coupure, renvoi ciblé, motif de rejet — est
+  réel et testé, mais l'ouverture de l'appareil photo est un `throw` explicite en attendant la
+  bibliothèque native (à valider sur le terminal du pilote, comme L6-05). C'est le trou visible
+  demain matin.
+- **L'écran d'attente ne dit rien du dossier rejeté globalement.** Un `driverStatus: 'rejected'`
+  ou `'suspended'` (le dossier entier, décidé par un gestionnaire, avec son motif) route
+  aujourd'hui vers le parcours d'inscription comme un `pending`. Le motif du refus global vit sur
+  `babana.driver.rejection_reason` mais ne voyage pas dans `AuthenticatedUser` — c'est L6-11 /
+  L7-03 qui le portera. Un chauffeur rejeté verra donc « déposez vos pièces » au lieu de « votre
+  dossier a été refusé : <motif> ».
+- **Pas d'aperçu des pièces déjà déposées.** L'app affiche l'état (`pending`/`verified`/
+  `rejected`) mais ne re-télécharge pas la photo par URL signée pour la montrer au chauffeur. Ce
+  n'est dans aucun critère, mais un chauffeur qui a un doute sur la photo qu'il a envoyée ne peut
+  pas la revoir.
+- **La vérification back-office est minimale.** Édition inline dans la fiche chauffeur, pas
+  d'assistant, pas d'aperçu du fichier depuis le formulaire, pas de notification au chauffeur
+  (L7-03). Un gestionnaire peut rejeter avec un motif ; le chauffeur le voit à sa prochaine
+  ouverture de l'app, pas par une notification.
+
+---
+
+## Arrêt après L6-15 — L7-01 et L7-04 non commencées
+
+Consigne du prompt : « Si le lot ne passe pas en entier, arrête-toi après L6-15. » Il n'est pas
+passé en entier. L6-15 a coûté plus que prévu — deux dépendances absentes à cadrer (L1-09,
+sélecteur d'image), une extension de contrat, un endpoint Odoo, un module `multipart` dans
+`api-client`, trois écrans, la reprise, et la reprise du back-office minimal pour que le motif de
+rejet ne soit pas du décor. Le lot rétrécit à mesure que le code grandit (CLAUDE.md) : c'était le
+cas ici.
+
+**L7-01 (FCM, cycle de vie des jetons d'appareil) et L7-04 (notification de proposition hors
+connexion) ne sont pas commencées.** Elles restent le dernier blocage dur du pilote côté
+chauffeur : une application fermée ne reçoit aucune proposition. Ce qu'il faudra garder à
+l'esprit en les reprenant, tiré du prompt de cette nuit :
+
+- **D19** : le simulateur push par défaut, aucune branche conditionnelle dans le code métier, le
+  vrai service branché par configuration (et D43 : pas de valeur par défaut qui retombe sur le
+  vrai fournisseur).
+- **L7-01, le piège** : un jeton d'appareil périmé qui reste en base envoie dans le vide et fait
+  croire que le chauffeur a été prévenu. Il se nettoie **quand Firebase le signale**, pas quand
+  quelqu'un y pense.
+- **L7-04** : la notification **double** le message temps réel, elle ne le remplace pas. Le délai
+  d'acceptation court depuis l'émission de la proposition (L3-07), pas depuis l'ouverture de
+  l'app — un chauffeur qui ouvre sa notification 25 s plus tard doit voir un compte à rebours
+  honnête. `ProposalScreen` revalide déjà auprès du serveur (écart `L6-12.md`, D49) — c'est le
+  bon point d'accroche.
+- La déduplication par identifiant de proposition existe déjà côté app (`proposalAlert.ts` /
+  `ProposalScreen`) ; L7-04 la complète pour la source distante.
+
+## Passe finale
+
+`make reset && make up && make lint && make typecheck && make test` sur base fraîche, tout vert :
+
+- **Odoo** : `0 failed, 0 error(s) of 2272 tests` (module babana : 564 tests) — inclut les
+  nouveaux tests de `test_documents.py` (projection JSON du motif, liste par type, un seul état
+  par type après renvoi, compte non-chauffeur refusé, `action_verify`/`action_reject` + contrainte
+  de motif).
+- **npm test** (workspaces) : `@babana/contracts` 74, `@babana/api-client` 71, `services/realtime`
+  188, `@babana/client` 106, `@babana/driver` 137, `@babana/concurrency-tests` 29 — ce dernier
+  exerce `GET /api/v1/driver/documents` contre le vrai Odoo (C-01 critère 6), scénarios de
+  concurrence L3-13 verts.
+- **verify-ride-state-machine** et **verify-realtime-message-map** : OK (22 messages du contrat,
+  19 câblés, 3 en attente — inchangé par ce lot).
+- `make lint` et `make typecheck` : aucun problème.
+

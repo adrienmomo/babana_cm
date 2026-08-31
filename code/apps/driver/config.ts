@@ -88,3 +88,11 @@ export const LOCATION_DEGRADED_ONLINE_INTERVAL_MS = Number(process.env.BABANA_LO
  * `amoa/questions/REPONSES-2026-09-03.md` §2). Une minute par défaut, la granularité du message.
  */
 export const LOCATION_NOTIFICATION_REFRESH_MS = Number(process.env.BABANA_LOCATION_NOTIFICATION_REFRESH_MS) || 60_000;
+
+/**
+ * Taille maximale d'une photo de document après compression, avant téléversement (L6-15,
+ * critère d'acceptation 2). Bien en dessous du plafond serveur (`babana.document_max_upload_bytes`,
+ * 10 Mio) : sur un réseau mobile camerounais, plus la photo est légère, plus l'envoi aboutit.
+ * Paramétrable (invariant 5), jamais codé en dur dans l'écran d'inscription.
+ */
+export const ONBOARDING_MAX_DOCUMENT_BYTES = Number(process.env.BABANA_ONBOARDING_MAX_DOCUMENT_BYTES) || 4 * 1024 * 1024;

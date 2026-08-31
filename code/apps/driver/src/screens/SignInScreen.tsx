@@ -13,7 +13,7 @@ import { authClient } from '../auth';
  * Connexion Google (L6-02) -- même écran que `apps/client`, seul le rôle échangé diffère
  * ('driver' plutôt que 'client', voir `handlePress`). Un chauffeur non approuvé se connecte
  * normalement : `session.user.driverStatus` porte 'pending', et c'est à l'appelant de router
- * vers l'écran de suivi de dossier (L6-15, pas encore construit) plutôt que vers l'accueil --
+ * vers le parcours d'inscription / suivi de dossier (L6-15) plutôt que vers l'accueil --
  * critère d'acceptation 5, la donnée existe déjà dans la session, ce n'est jamais une erreur de
  * connexion.
  */

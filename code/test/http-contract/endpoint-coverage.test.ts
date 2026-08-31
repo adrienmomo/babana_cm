@@ -289,6 +289,18 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     assert.equal(parsed.documentType, 'id_card');
   },
 
+  listDriverDocuments: async () => {
+    const { session } = await approvedDriverSession('list-documents');
+    await fetch(`${ODOO_API_ROOT}/driver/documents`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session.accessToken}` },
+      body: uploadableDocumentForm(),
+    });
+    const listed = (await clientFor(session.accessToken).request('listDriverDocuments')) as http.ListDriverDocumentsResponse;
+    assert.ok(Array.isArray(listed.documents));
+    assert.ok(listed.documents.some((d) => d.documentType === 'id_card'));
+  },
+
   driverDocumentSignedUrl: async () => {
     const { session } = await approvedDriverSession('document-signed-url');
     const uploadResponse = await fetch(`${ODOO_API_ROOT}/driver/documents`, {
