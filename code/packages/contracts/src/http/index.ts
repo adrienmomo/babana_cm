@@ -11,6 +11,7 @@ export * from './settlement';
 export * from './remittance';
 export * from './driver';
 export * from './documents';
+export * from './devices';
 export * from './incident';
 export * from './share';
 
@@ -22,6 +23,7 @@ import * as settlement from './settlement';
 import * as remittance from './remittance';
 import * as driver from './driver';
 import * as documents from './documents';
+import * as devices from './devices';
 import * as incident from './incident';
 import * as share from './share';
 
@@ -249,6 +251,26 @@ export const HTTP_ENDPOINTS = {
     errors: documents.ListDriverDocumentsErrors,
     requestExample: null,
     responseExample: documents.listDriverDocumentsResponseExample,
+  },
+  registerDeviceToken: {
+    method: 'POST',
+    path: '/api/v1/devices',
+    requiresAuth: true,
+    requestSchema: devices.RegisterDeviceTokenRequestSchema,
+    responseSchema: devices.RegisterDeviceTokenResponseSchema,
+    errors: devices.RegisterDeviceTokenErrors,
+    requestExample: devices.registerDeviceTokenRequestExample,
+    responseExample: devices.registerDeviceTokenResponseExample,
+  },
+  deactivateDeviceToken: {
+    method: 'POST',
+    path: '/api/v1/devices/deactivate',
+    requiresAuth: true,
+    requestSchema: devices.DeactivateDeviceTokenRequestSchema,
+    responseSchema: devices.DeactivateDeviceTokenResponseSchema,
+    errors: devices.DeactivateDeviceTokenErrors,
+    requestExample: devices.deactivateDeviceTokenRequestExample,
+    responseExample: devices.deactivateDeviceTokenResponseExample,
   },
   driverDocumentSignedUrl: {
     method: 'GET',

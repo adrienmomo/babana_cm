@@ -36,3 +36,5 @@ access_babana_incident_supervisor,babana.incident supervisor,model_babana_incide
 access_babana_incident_manager,babana.incident manager,model_babana_incident,group_babana_manager,1,0,0,0
 access_babana_incident_admin,babana.incident admin,model_babana_incident,group_babana_admin,1,1,1,0
 access_babana_ride_share_admin,babana.ride.share admin,model_babana_ride_share,group_babana_admin,1,1,1,1
+access_babana_device_token_supervisor,babana.device.token supervisor,model_babana_device_token,group_babana_supervisor,1,0,0,0
+access_babana_device_token_admin,babana.device.token admin,model_babana_device_token,group_babana_admin,1,1,1,1
