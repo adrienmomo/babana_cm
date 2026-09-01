@@ -32,4 +32,7 @@ racine du dépôt pour le contexte complet.
     'installable': True,
     'application': True,
     'auto_install': False,
+    # D52 : remplit babana_public_id ligne par ligne sur res_users (table déjà peuplée) AVANT
+    # que _add_sql_constraints ne pose unique(babana_public_id). Voir __init__.py.
+    'pre_init_hook': '_pre_init_backfill_unique_defaults',
 }

@@ -37,3 +37,4 @@ from . import test_ride_share
 from . import test_me_controller
 from . import test_push
 from . import test_devices_controller
+from . import test_sql_constraints_in_db
