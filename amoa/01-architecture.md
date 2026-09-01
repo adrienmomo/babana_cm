@@ -56,6 +56,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D49 | **Toute action émise sur le fil reçoit une réponse, positive ou négative.** Un succès ne s'infère jamais d'un silence | Ne répondre qu'en cas d'échec | Une app qui n'apprend que les échecs doit deviner les succès — et deviner veut dire attendre un délai inventé. Voir §3 ter |
 | D50 | **Un flux annonce sa propre cadence** dans son accusé d'abonnement ; l'application ne recopie jamais une valeur du serveur | Constante locale alignée à la main | Deux copies d'une même valeur, sans mécanisme pour les tenir d'accord, finissent par diverger en silence — D23, une fois de plus. Voir §3 ter |
 | D51 | **Une proposition porte la distance à parcourir à vide** jusqu'au client, pas seulement celle de la course | La distance de la course seule | C'est le chiffre le plus déterminant pour un chauffeur qui décide en trente secondes, et le serveur le connaît déjà |
+| D52 | **Les contraintes déclarées sont comparées à celles réellement présentes en base**, après installation | Faire confiance à la déclaration | Odoo journalise l'échec de création d'une contrainte et poursuit. Deux ont ainsi protégé le vide pendant des semaines. Voir §9 quater |
 
 ---
 
@@ -388,6 +389,20 @@ Exigences du CDC §VII.2 et §VII.3, à traiter comme des tâches et non comme d
 - **Rôles** : le mobile n'accède jamais à un modèle Odoo hors de ce que les règles d'enregistrement autorisent pour son utilisateur. Un chauffeur ne lit pas la course d'un autre chauffeur ; un client ne lit pas les documents d'un chauffeur. À vérifier par des tests, pas par relecture.
 - **Journalisation** : toute transition de course et toute opération sur le compte courant chauffeur sont journalisées de manière non modifiable. C'est ce qui permettra de trancher un litige.
 - **L'export web ne persiste aucune session (D39, 24 août).** Un navigateur n'a pas de trousseau système à qui déléguer : tout ce qu'on y range est lisible par n'importe quelle injection de script. Le jeton de renouvellement, qui vaut une session entière et survit à l'expiration du jeton d'accès, n'y a donc pas sa place. La session web vit en mémoire ; fermer l'onglet déconnecte, rouvrir demande une reconnexion Google — deux clics, puisque la session Google du navigateur est déjà ouverte. C'est le coût réel de D22, et il est acceptable précisément parce que l'export web est un complément de démonstration, pas le canal principal. Un cookie inaccessible au script serait la bonne réponse pour une vraie application web ; il exigerait un second mécanisme d'authentification à côté du porteur, ce que D35 vient d'écarter.
+
+---
+
+## 9 quater. Une contrainte déclarée n'est pas une contrainte posée (D52)
+
+Deux fois maintenant, une contrainte SQL déclarée dans le module n'existait pas en base. La première protégeait le solde d'un chauffeur contre le passage sous zéro ; elle ne pouvait pas être créée, parce que le champ n'est pas stocké. La seconde garantit l'unicité de l'identifiant public d'un utilisateur ; elle a échoué parce qu'Odoo remplit une nouvelle colonne sur une table déjà peuplée avec **une seule évaluation de la valeur par défaut** — les sept comptes système ont donc reçu le même identifiant, et la contrainte d'unicité n'a pas pu se poser dessus.
+
+Dans les deux cas, Odoo a **journalisé l'échec et poursuivi l'installation**. C'est un choix défendable de sa part — refuser d'installer un module pour une contrainte est brutal — mais la conséquence pour nous est qu'une garantie annoncée dans le code, documentée dans le contrat, n'existe nulle part ailleurs que dans notre confiance.
+
+**Une contrainte qui échoue silencieusement ressemble exactement à une contrainte qui protège.** C'est ce qui la rend pire qu'une absence de contrainte : personne ne va vérifier ce qui est déjà écrit.
+
+La liste des contraintes déclarées se compare donc à celle des contraintes présentes en base, après installation, mécaniquement. C'est la même famille de vérification que le jeton qui traverse deux services, les endpoints appelés contre le vrai serveur, ou la cartographie des messages : **rendre mécanique une lecture qu'aucune relecture ne fait fiablement.**
+
+Le corollaire vaut au-delà des contraintes : **un identifiant unique généré par valeur par défaut n'est pas unique** sur une table déjà peuplée. Le remplissage se fait en une passe, pas ligne par ligne.
 
 ---
 

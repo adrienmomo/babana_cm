@@ -103,21 +103,23 @@ les chauffeurs se connecter, on peut en couper un pour montrer un départ de la 
 
 ### Réserves pour quelqu'un de réel
 
-1. **Devise.** Sur une base qui porte déjà des écritures comptables (données de démonstration
-   Odoo), passer la société en XAF est refusé par Odoo — le seed le tente dans un savepoint et
-   retombe proprement sur la devise en place (USD sur la base de développement actuelle), en le
-   journalisant. Les **montants** restent justes et vérifiables de tête ; seul le symbole au
-   back-office peut être `$` au lieu de FCFA. L'app, elle, affiche toujours « XAF » (le contrat
-   le fixe). Sur une base vraiment vierge sans données de démonstration Odoo, le passage en XAF
-   devrait réussir — à confirmer à la passe finale.
+1. **Devise.** `make seed` installe le module (`-i babana`) avec les **données de démonstration
+   Odoo** (défaut de dev), qui créent des écritures comptables — Odoo refuse alors de changer la
+   devise de la société. Le seed le tente dans un savepoint et retombe proprement sur la devise
+   en place (USD), journalisé. **Confirmé à la passe finale sur base fraîche** : le back-office
+   affiche `$`. Les **montants** restent justes et vérifiables de tête ; l'app et l'API
+   affichent « XAF » (le contrat le fixe). Contournement pour la démonstration :
+   `-i babana --without-demo=all` (base propre, XAF passe) ou devise fixée à la main au premier
+   lancement. À trancher si le symbole compte pour le rendez-vous.
 2. **Documents chauffeur.** `storage_key` pointe vers des objets S3 qui n'existent pas
    (`seed/<sub>/license.jpg`). Le back-office montre les documents comme *vérifiés* ; les
    ouvrir échouerait. Le scénario de démonstration ne les ouvre pas. À remplacer par de vrais
    téléversements si une démonstration doit montrer la consultation d'une pièce.
-3. **`res_users_babana_public_id_unique`** ne s'ajoute pas sur la base de développement actuelle
-   (sept comptes y partagent un même `babana_public_id`, séquelle de `HttpCase` répétés) —
-   sans rapport avec le seed, qui crée des comptes à `public_id` uniques. À vérifier absent
-   après `make reset`.
+3. **`res_users_babana_public_id_unique` ne s'applique jamais** — vérifié sur base fraîche : les
+   7 comptes système d'Odoo partagent un même `babana_public_id`, la contrainte
+   `_sql_constraints` échoue en silence à l'installation. Défaut **L1-01** préexistant, pas
+   introduit par le seed (qui crée des comptes à `public_id` uniques par `create()`). Écart
+   déposé : `amoa/questions/L1-01-res-users-public-id-uniqueness.md`.
 
 ### Fichiers
 
@@ -125,6 +127,7 @@ les chauffeurs se connecter, on peut en couper un pour montrer un départ de la 
 (nouveau) ; `code/services/odoo/scripts/README.md` (nouveau) ;
 `code/services/realtime/scripts/demo-drivers.mjs` (nouveau) ; `code/tools/secret-scan/scan.sh`
 (faux positif) ; `amoa/questions/L0-06-live-driver-positions.md` (nouveau).
+Écart connexe trouvé à la passe finale : `amoa/questions/L1-01-res-users-public-id-uniqueness.md`.
 
 ---
 
@@ -255,3 +258,124 @@ liste `SMTP_HOST=<relais réel>` parmi les variables du `.env` de production. No
 (nouveaux) ; `code/infra/production/monitoring/{README.md, probe.sh, probe-host.sh}` (nouveaux) ;
 `code/docs/operations/{production.md, latency-baseline.md}` (nouveaux) ; `.gitignore`
 (`.state/`) ; `amoa/questions/L0-06.md` (note datée).
+
+---
+
+## Le scénario §3 passe-t-il en entier sur une base fraîchement seedée ?
+
+**Oui, de bout en bout.** Répétition jouée contre la pile réelle (API + WebSocket, les vrais
+chemins — pas les tests), sur `make reset && make up && make seed && make seed-drivers`, avec un
+harnais jetable qui suit les huit étapes de `07-demonstration.md` §3 :
+
+| Étape §3 | Résultat |
+|---|---|
+| 1. Le client voit 5 chauffeurs autour de lui | ✅ `nearby.drivers` : 5 chauffeurs, distances 448–1631 m, gammes standard/premium, `nearby.subscribe.ack` avec `broadcastIntervalMs: 5000` |
+| 2–3. Départ/arrivée désignés, l'estimation s'affiche avec son détail | ✅ `POST /quote` → 700 XAF, `baseFare 300 + distanceFare 378 + rounding 22 = 700` (somme = total, vérifiable de tête) |
+| 4. Le client choisit un chauffeur | ✅ `POST /rides` (requested) puis `POST /rides/{id}/select-driver` |
+| 5. Le chauffeur reçoit la proposition et **refuse** ; le client revient à la sélection, ce chauffeur en moins | ✅ `proposal.new` reçu, `proposal.reject` émis, `ride.rejected` reçu côté client ; la 2ᵉ liste `nearby.drivers` exclut bien le refusant (`excludeDriverIds`) |
+| 6. Un second chauffeur accepte | ✅ `proposal.accept` → course `assigned` |
+| 7. Course démarrée, terminée, encaissée | ✅ `start` → `in_progress`, `complete` → `completed` (montant 700, `measured=false`), `settle` → `settled`, `driverCashBalance: 3700`, `cashLimitReached: false` |
+| 8. Bascule back-office | ✅ course `C2026000009 settled`, règle « Grille Akwa » (zone résolue), `fare_rule_snapshot` décomposable, **le solde du chauffeur a monté d'exactement le montant encaissé** (3000 → 3700), mouvement de compte courant `collection` lié à la course |
+
+**Le seul écart constaté, cosmétique** : le back-office affiche les montants en **USD**, pas en
+FCFA. La base de démonstration installe les données de démonstration génériques d'Odoo, qui
+créent des écritures comptables ; Odoo refuse alors de changer la devise de la société. Le seed
+tente le passage en XAF dans un savepoint et retombe proprement (journalisé). **Les montants
+sont justes** (700, 1 250…), seul le symbole diffère, et l'API/l'app affichent bien « XAF » (le
+contrat le fixe). Contournement pour une démonstration : installer sans données de démonstration
+(`-i babana --without-demo=all`) ou fixer la devise à la main au premier lancement — à
+documenter si le symbole compte pour le rendez-vous.
+
+Aucune remise n'a été jouée dans la répétition (étape 8, « si vous en jouez une ») — le chemin
+d'écriture comptable de la remise (L5-05) existe et est couvert par les tests, mais n'est pas
+requis par le parcours nominal.
+
+---
+
+## Passe finale
+
+Environnement : `make reset && make up` (base fraîche), Docker Desktop, Node 22.23.
+
+### `make seed` sur base fraîche
+
+`make reset && make up && make seed` : **exécuté, vert, idempotent**. Première exécution : 6
+zones, 6 grilles, 1 client, 1 superviseur, 5 chauffeurs approuvés (motos, documents,
+affectations), 8 courses `settled` avec leurs mouvements de compte courant. Seconde exécution
+consécutive : `+0 cette exécution`, aucun doublon. `make seed-drivers` : les 5 chauffeurs
+entrent dans `babana:drivers:available` avec des positions dispersées.
+
+Un avertissement docutils (`<string>:38 Unexpected indentation`) apparaît **au tout premier
+`-i babana`** — rendu RST du champ `description` du manifeste, cosmétique, ne se reproduit
+jamais ensuite.
+
+### `make lint`, `make typecheck`
+
+Verts, les neuf espaces de travail (sur base seedée).
+
+### `make test`
+
+- **Suite babana** : `0 failed, 0 error(s)` — **609 tests** (`odoo.tests.stats: babana`). Tous
+  les `npm test` verts : `@babana/api-client` 80, `@babana/contracts` 79, `@babana/maps` 19,
+  `@babana/navigation` 4, `@babana/realtime` 205, `@babana/client` 106, `@babana/driver` 159,
+  `@babana/concurrency-tests` 31 (Redis + Odoo réels, L3-13). `verify-ride-state-machine` et
+  `verify-realtime-message-map` OK — 23 messages du contrat, mêmes 3 en attente qu'à J28.
+- **Écart de comptage relevé — 609 vs 2309 à J28.** `make test` (cible inchangée par J29) fait
+  `-i babana --test-enable` : sur un `make up` **frais et non seedé**, il installe babana **et
+  toutes ses dépendances** (`base`, `account`, `hr`, `mail`, `account_edi_ubl_cii`…), et
+  `--test-enable` exécute alors **aussi les suites de ces modules cœur** (~1 700 tests) — c'est
+  ce qui composait le « 2309 » de J27/J28. Après `make seed` (qui installe déjà le module), un
+  `make test` ne réinstalle plus rien : seule la suite **babana** (609) se rejoue. Les 609 sont
+  la couverture du projet ; les ~1 700 autres sont les tests d'Odoo lui-même, qui ne se
+  relancent qu'à une installation fraîche.
+  **Conséquence pratique** : la passe complète historique (`~2309`) se fait avec `make test` sur
+  un `make up` frais, **avant** `make seed`. C'est cette passe qui est en cours de vérification
+  au moment d'écrire (elle dépasse largement la limite d'un appel de dix minutes ; lancée en
+  arrière-plan). Le résultat sera consigné en amendement à cette entrée.
+  Ce n'est pas un défaut introduit par J29 — c'est une propriété de `-i` d'Odoo révélée par le
+  fait qu'il existe désormais une étape `make seed` qui installe le module. Piste, si le
+  comptage doit rester stable : `make test` en `-i babana -u babana` (rejoue toujours la suite
+  babana quel que soit l'état antérieur), au prix d'un double passage des 609 sur base fraîche.
+  Signalé plutôt que tranché sur une cible que J27/J28 utilisent telle quelle.
+
+### Répétition du scénario
+
+Voir la section ci-dessus : parcours §3 complet, vert, sur base fraîchement seedée.
+
+---
+
+## Ce qui me laisse un doute pour quelqu'un de réel
+
+1. **Devise USD au back-office** (détaillé plus haut). Cosmétique, mais c'est exactement le genre
+   de détail qu'un client remarque à l'écran — à décider avant le rendez-vous : `--without-demo`
+   ou devise fixée à la main.
+2. **`make seed-drivers` doit rester ouvert** pendant toute la démonstration. Si le terminal se
+   ferme, la carte se vide en 60 s (TTL des positions). Écart déposé
+   (`L0-06-live-driver-positions.md`) : commande à la main, ou service `compose.dev.yaml` — à
+   trancher.
+3. **Documents chauffeur non ouvrables** (`storage_key` vers des objets S3 absents). Le back-office
+   les montre « vérifiés » ; les ouvrir échoue. Sans objet pour le scénario, à corriger si une
+   démonstration doit montrer la consultation d'une pièce.
+4. **`res.users.babana_public_id` sans contrainte d'unicité en base** — trouvé en validant le
+   seed sur base fraîche. Défaut L1-01 préexistant (les 7 comptes système partagent un UUID),
+   sans impact sur les comptes mobiles réels. Écart déposé
+   (`L1-01-res-users-public-id-uniqueness.md`).
+5. **Aucune étape de L0-07 n'a tourné sur une machine.** Les scripts sont relisibles, pas
+   éprouvés. Le premier `bootstrap.sh` réel, la première restauration, la première alerte de
+   supervision : tout cela reste devant.
+6. **Le bundle web n'a pas été vérifié dans un vrai navigateur cette nuit** — l'interstitiel de
+   certificat de Chrome (racine de la CA locale de Caddy non installée dans le trousseau,
+   `certutil` absent) bloque l'automatisation. Le montage même origine est prouvé par `curl` et
+   par la répétition complète du scénario en WebSocket + HTTP ; la vérification visuelle demande
+   d'ajouter la racine de Caddy au trousseau, comme les nuits de vérification J20/J24 l'avaient
+   fait sur leur poste.
+
+---
+
+## Note de périmètre
+
+Trois tâches de périmètre pilote en une nuit (L0-06 seed, part de L6-18, scaffolding L0-07),
+plus la répétition et la passe. C'est un lot dense pour un dépôt à ce stade — mené en entier,
+mais la part L0-07 est du **scaffolding relisible**, pas du déploiement éprouvé, et la frontière
+est tracée explicitement (table « fait / attend une machine », entrée 3). Si une seule chose
+devait être approfondie avant le rendez-vous, c'est la vérification visuelle du bundle web dans
+un navigateur (point 6 ci-dessus).
