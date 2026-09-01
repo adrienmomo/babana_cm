@@ -97,7 +97,7 @@ s'il était arrivé seul.
 | `driver.position` | Client | `{ rideId, position, etaSeconds }` | Suivi pendant une course affectée ou en cours |
 | `ride.started` | Client | `{ rideId }` | Transition `→ in_progress` |
 | `ride.completed` | Client | `{ rideId, distanceMeters, durationSeconds, measured, amount, breakdown }` | Transition `→ completed` — `distanceMeters` / `durationSeconds` à `null` quand `measured` est faux (course terminée sans accumulation temps réel, L3-10 / `amoa/questions/L6-13.md`) |
-| `session.synced` | Client ou chauffeur | `{ activeRideId, activeRideState, serverTime }` | Voir « Politique de reconnexion » |
+| `session.synced` | Client ou chauffeur | `{ activeRideId, activeRideState, activeProposal, rideStateKnown, serverTime }` | Voir « Politique de reconnexion » |
 
 `ride.cancelled` a un seul émetteur (le serveur) mais deux destinataires possibles selon qui est
 concerné par la course — le critère d'acceptation 1 de C-02 porte sur l'émetteur, pas sur le
@@ -196,10 +196,18 @@ messages.
 **Resynchronisation complète, jamais un différentiel.** À la reconnexion, le client (ou le
 chauffeur) envoie `session.resync` avec `lastKnownRideId` — la dernière course qu'il croit
 suivre, ou `null`. Le serveur répond par `session.synced`, un instantané complet de l'état
-courant (`activeRideId`, `activeRideState`, `serverTime`), jamais une liste de changements
-depuis la dernière position connue. Un différentiel suppose que le client sait exactement ce
-qu'il a manqué ; après une coupure de durée inconnue, cette hypothèse est justement celle qui ne
-tient pas.
+courant (`activeRideId`, `activeRideState`, `activeProposal`, `rideStateKnown`, `serverTime`),
+jamais une liste de changements depuis la dernière position connue. Un différentiel suppose que
+le client sait exactement ce qu'il a manqué ; après une coupure de durée inconnue, cette
+hypothèse est justement celle qui ne tient pas.
+
+**Odoo injoignable pendant la resynchronisation.** Odoo est seul juge de l'état d'une course
+(D27). S'il ne répond pas, le serveur ne se tait plus (avant : aucun `session.synced`, ce qui
+privait le chauffeur d'une proposition connue localement) : la réponse part avec
+`rideStateKnown: false`, `activeRideId` / `activeRideState` à `null` **faute d'information** — pas
+parce que l'absence est confirmée — et `activeProposal` porte la proposition vivante lue en Redis
+si elle existe. L'app garde son état de course courant tant que `rideStateKnown` est `false`
+(L7-04, 6 septembre — `amoa/questions/REPONSES-2026-09-06.md` §4).
 
 **File locale et rejeu à l'identique.** Les actions émises hors connexion (`proposal.accept`,
 `ride.track`, `position.update`, etc.) sont mises en file sur l'appareil et rejouées à la

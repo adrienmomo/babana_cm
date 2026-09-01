@@ -16,6 +16,8 @@ jest.mock('../../proposalAlert', () => ({
 }));
 
 let realtimeListener: ((message: unknown) => void) | null = null;
+let mockConnectionStateListener: ((state: string) => void) | null = null;
+let mockConnectionState: 'offline' | 'connecting' | 'connected' = 'connected';
 const mockSend = jest.fn();
 jest.mock('../../realtime', () => ({
   onRealtimeMessage: (listener: (message: unknown) => void) => {
@@ -24,8 +26,22 @@ jest.mock('../../realtime', () => ({
       realtimeListener = null;
     };
   },
-  realtimeClient: { send: (...args: unknown[]) => mockSend(...args) },
+  onRealtimeConnectionStateChange: (listener: (state: string) => void) => {
+    mockConnectionStateListener = listener;
+    return () => {
+      mockConnectionStateListener = null;
+    };
+  },
+  realtimeClient: {
+    send: (...args: unknown[]) => mockSend(...args),
+    getState: () => mockConnectionState,
+  },
 }));
+
+function setConnectionState(state: 'offline' | 'connecting' | 'connected') {
+  mockConnectionState = state;
+  mockConnectionStateListener?.(state);
+}
 
 const mockReplaceWithActiveRide = jest.fn();
 jest.mock('../../navigation/transitions', () => ({
@@ -68,6 +84,8 @@ beforeEach(() => {
   PARAMS.expiresAt = new Date(Date.now() + 30_000).toISOString();
   PARAMS.emittedAt = new Date().toISOString();
   realtimeListener = null;
+  mockConnectionStateListener = null;
+  mockConnectionState = 'connected';
   mockReverseGeocode.mockResolvedValue(null);
   resetProposalDedup();
 });
@@ -116,13 +134,14 @@ function emitAccepted(rideId = RIDE_ID, clientPhoneNumber: string | null = '+237
 function emitSynced(
   activeRideId: string | null,
   activeRideState: string | null,
-  activeProposal: Record<string, unknown> | null = null
+  activeProposal: Record<string, unknown> | null = null,
+  rideStateKnown = true
 ) {
   realtimeListener?.({
     type: 'session.synced',
     id: 's1',
     emittedAt: new Date().toISOString(),
-    payload: { activeRideId, activeRideState, activeProposal, serverTime: new Date().toISOString() },
+    payload: { activeRideId, activeRideState, activeProposal, rideStateKnown, serverTime: new Date().toISOString() },
   });
 }
 
@@ -383,6 +402,28 @@ describe('ProposalScreen (L6-12)', () => {
     expect(root.root.findAllByProps({ testID: 'proposal-accept' })).toHaveLength(0);
     // Pas encore de proposal.seen : rien n'est affiché.
     expect(mockSend.mock.calls.filter((c) => c[0] === 'proposal.seen')).toHaveLength(0);
+  });
+
+  it("mode notification -- pendant l'attente, l'écran dit « hors connexion » quand le lien n'est pas établi (un fait, pas un délai)", async () => {
+    const { root } = await renderProposal(NOTIF_PARAMS);
+
+    // Connecté : le texte reste neutre.
+    expect(texts(root)).toContain('Vérification de la proposition…');
+    expect(texts(root)).not.toContain('hors connexion');
+
+    await act(async () => {
+      setConnectionState('offline');
+    });
+    expect(texts(root)).toContain('hors connexion');
+    // Toujours aucune conclusion tirée : pas de boutons, pas de message « plus à prendre ».
+    expect(root.root.findAllByProps({ testID: 'proposal-accept' })).toHaveLength(0);
+    expect(texts(root)).not.toContain('Cette course n’est plus à prendre.');
+
+    // Le lien revient : le fait affiché suit.
+    await act(async () => {
+      setConnectionState('connected');
+    });
+    expect(texts(root)).not.toContain('hors connexion');
   });
 
   it('mode notification -- session.synced avec activeProposal remplit l’écran, avec la véritable échéance, puis signale proposal.seen', async () => {

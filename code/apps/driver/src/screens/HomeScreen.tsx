@@ -73,7 +73,12 @@ export function HomeScreen({ navigation }: Props) {
 
     const unsubscribeMessages = onRealtimeMessage((message) => {
       if (isSessionSyncedMessage(message)) {
-        setInCourse(ACTIVE_RIDE_STATES.has(message.payload.activeRideState));
+        // `rideStateKnown: false` -> Odoo était injoignable : l'état de course est indéterminé,
+        // on garde celui qu'on a (L7-04, 6 septembre). `activeProposal`, lui, est fiable quel que
+        // soit ce drapeau -- il est lu en Redis.
+        if (message.payload.rideStateKnown) {
+          setInCourse(ACTIVE_RIDE_STATES.has(message.payload.activeRideState));
+        }
         // L7-04 : une proposition active retrouvée par resynchronisation (app relancée en pleine
         // proposition, ou reconnexion réseau) -- l'app n'a jamais reçu `proposal.new`, c'est
         // `session.synced` qui la lui apprend, avec sa **véritable** échéance. `null` explicite

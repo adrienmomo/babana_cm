@@ -6,8 +6,9 @@ import type { LatLng } from '@babana/maps';
 import type { realtime } from '@babana/contracts';
 import { CountdownRing } from '../components/CountdownRing';
 import { formatDistance, formatMoney } from '../format';
+import type { ConnectionState } from '@babana/api-client';
 import { alertIncomingProposal, dismissProposalAlert } from '../proposalAlert';
-import { onRealtimeMessage, realtimeClient } from '../realtime';
+import { onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { markProposalHandled, forgetProposal } from '../proposalDedup';
 import { replaceWithActiveRide } from '../navigation/transitions';
 import type { DriverParamList } from '../navigation/types';
@@ -31,6 +32,11 @@ import type { DriverParamList } from '../navigation/types';
  *   `null`, et l'écran dit « cette course n'est plus à prendre » (jamais des boutons pour une
  *   course déjà attribuée ou expirée, critère 3). Aucun délai inventé : on attend la réponse,
  *   on ne conclut jamais d'un silence (D49).
+ *
+ * Pendant cette attente, l'écran **affiche un fait plutôt qu'une attente muette** (L7-04,
+ * 6 septembre) : il connaît l'état de la connexion temps réel. « Vérification… » devient
+ * « Vérification… — hors connexion » quand le lien n'est pas établi. Aucune durée devinée : on
+ * dit ce qu'on observe, on n'en tire aucune conclusion sur la proposition.
  */
 
 type Props = NativeStackScreenProps<DriverParamList, 'Proposal'>;
@@ -120,6 +126,9 @@ export function ProposalScreen({ route, navigation }: Props) {
   const [destinationLabel, setDestinationLabel] = useState<string | null>(null);
   const [decision, setDecision] = useState<Decision>('idle');
   const [resolutionMessage, setResolutionMessage] = useState<string | null>(null);
+  // État de la connexion temps réel -- affiché comme un fait pendant la revalidation (L7-04,
+  // 6 septembre), jamais utilisé pour conclure quoi que ce soit sur la proposition.
+  const [connectionState, setConnectionState] = useState<ConnectionState>(() => realtimeClient.getState());
   const [, forceTick] = useState(0);
   // Lu de façon synchrone par le gestionnaire de proposal.expired et par le délai de grâce de
   // l'acceptation -- `decision` (état React) y serait périmé, même raisonnement que `phaseRef`
@@ -155,6 +164,9 @@ export function ProposalScreen({ route, navigation }: Props) {
       realtimeClient.send('session.resync', { lastKnownRideId: rideId });
     }
   }, [fromNotification, rideId]);
+
+  // Suivre l'état de connexion pour l'afficher pendant l'attente -- un fait observé, pas un délai.
+  useEffect(() => onRealtimeConnectionStateChange(setConnectionState), []);
 
   // Départ/arrivée affichés comme une approximation lisible, jamais comme un fait précis --
   // même honnêteté que HomeScreen.tsx côté Client (doute L6-06 §1) : c'est le point que le
@@ -341,7 +353,9 @@ export function ProposalScreen({ route, navigation }: Props) {
         </>
       ) : !resolutionMessage ? (
         <Text style={styles.revalidating} testID="proposal-revalidating">
-          Vérification de la proposition…
+          {connectionState === 'connected'
+            ? 'Vérification de la proposition…'
+            : 'Vérification de la proposition… — hors connexion'}
         </Text>
       ) : null}
 

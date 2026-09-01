@@ -228,3 +228,67 @@ peut en couper un) tient pour cette démonstration.
 ### Fichiers
 
 `code/services/realtime/scripts/demo-drivers.mjs`.
+
+---
+
+## 4. Les deux corrections de L7-04
+
+### A. La resynchronisation dit ce qu'elle ignore
+
+**Avant** : `handleSessionResync` échouait **entièrement** si Odoo était injoignable — aucun
+`session.synced` envoyé (`console.error` puis `return`). Le raisonnement d'origine était juste
+(ne pas renvoyer `activeRideId: null` qui laisserait croire à tort qu'aucune course n'est en
+cours), mais il privait le chauffeur d'une proposition **connue localement** — elle vit en Redis,
+pas dans Odoo.
+
+**Troisième voie** (prompt J30, `REPONSES-2026-09-06.md` §4) : la réponse part quand même.
+
+- Nouveau champ de contrat `session.synced.rideStateKnown: boolean` (requis, jamais implicite —
+  esprit D49). `true` quand Odoo a répondu ; `false` quand il était injoignable.
+- Sur échec Odoo : `rideStateKnown: false`, `activeRideId`/`activeRideState` à `null` **faute
+  d'information** (pas parce que l'absence est confirmée), et `activeProposal` est lu en Redis et
+  porté quand même (`peekActiveProposal` s'exécute désormais dans les deux branches).
+- Côté chauffeur, les deux consommateurs qui traduisaient « `activeRideState` absent » en « pas
+  en course » sont gardés : `HomeScreen.tsx` (verrou de la bascule en ligne) et
+  `location/tracker.ts` (cadence de capture) ne touchent à l'état de course **que si
+  `rideStateKnown`**. `ActiveRideScreen.tsx` teste un **match positif**
+  (`activeRideId === rideId && activeRideState === 'in_progress'`) — insensible au cas
+  indéterminé, laissé tel quel.
+
+### B. L'écran affiche un fait plutôt qu'une attente muette
+
+`ProposalScreen` en mode `notification`, pendant qu'il attend la réponse de revalidation :
+affichait « Vérification de la proposition… », immuable, même hors connexion. La consigne « pas
+de délai inventé » reste tenue — mais l'app **connaît son état de connexion**. Le texte devient
+« Vérification de la proposition… — hors connexion » quand `realtimeClient.getState() !==
+'connected'`. Aucune durée devinée, aucune conclusion tirée sur la proposition : juste le fait
+observé. Nouvel abonnement `onRealtimeConnectionStateChange` (déjà utilisé par `HomeScreen`).
+
+### Tests
+
+- `packages/contracts/test/realtime.test.ts` : `rideStateKnown` requis, et le cas
+  `rideStateKnown: false` accepté.
+- `services/realtime/test/resync.test.ts` : le test « dégradation silencieuse, aucun message »
+  est **réécrit** (la décision a changé, pas le code adapté au test — CLAUDE.md) : la réponse
+  part avec `rideStateKnown: false` ; nouveau test « un chauffeur avec une proposition vivante
+  la reçoit malgré tout ».
+- `apps/driver` : `HomeScreen.test.tsx` (nouvelle : `rideStateKnown: false` ne déverrouille pas
+  la bascule), `tracker.test.ts` (nouvelle : `rideStateKnown: false` ne fait pas sortir de
+  course, `true` oui), `ProposalScreen.test.tsx` (nouvelle : « hors connexion » affiché comme
+  un fait, aucune conclusion). Mock `../../realtime` étendu (`getState`,
+  `onRealtimeConnectionStateChange`).
+- `make test` complet en passe finale. Suites déjà rejouées ici : contracts 79, realtime 206,
+  driver 162, client 106, api-client 80, maps 19, navigation 4 — toutes vertes ;
+  `verify-realtime-message-map` / `verify-ride-state-machine` OK ; `typecheck` + `lint` de tous
+  les espaces de travail verts.
+
+### Fichiers
+
+`code/packages/contracts/src/realtime/server-to-client.ts` ;
+`code/services/realtime/src/ws/resync.ts` ; `code/apps/driver/src/screens/ProposalScreen.tsx`,
+`code/apps/driver/src/screens/HomeScreen.tsx`, `code/apps/driver/src/location/tracker.ts` ;
+`code/docs/contracts/realtime-events.md`, `code/docs/contracts/realtime-message-map.json` ;
+tests : `code/packages/contracts/test/realtime.test.ts`,
+`code/services/realtime/test/resync.test.ts`,
+`code/apps/driver/src/screens/__tests__/{ProposalScreen,HomeScreen,ActiveRideScreen}.test.tsx`,
+`code/apps/driver/src/location/__tests__/tracker.test.ts`.

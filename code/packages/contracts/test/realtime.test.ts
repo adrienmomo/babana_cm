@@ -383,7 +383,13 @@ describe('exemples valides — serveur vers client', () => {
         type: 'session.synced',
         id: randomUUID(),
         emittedAt: now,
-        payload: { activeRideId: rideId, activeRideState: 'in_progress', activeProposal: null, serverTime: now },
+        payload: {
+          activeRideId: rideId,
+          activeRideState: 'in_progress',
+          activeProposal: null,
+          rideStateKnown: true,
+          serverTime: now,
+        },
       })
     );
     // L7-04 : une proposition active retrouvée par resynchronisation -- même forme que
@@ -406,6 +412,23 @@ describe('exemples valides — serveur vers client', () => {
             expiresAt: now,
             emittedAt: now,
           },
+          rideStateKnown: true,
+          serverTime: now,
+        },
+      })
+    );
+    // L7-04 (6 septembre) : Odoo injoignable -- la réponse part quand même, elle porte la
+    // proposition connue localement et dit que l'état de course est indéterminé.
+    assert.doesNotThrow(() =>
+      SessionSyncedMessageSchema.parse({
+        type: 'session.synced',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: {
+          activeRideId: null,
+          activeRideState: null,
+          activeProposal: null,
+          rideStateKnown: false,
           serverTime: now,
         },
       })
@@ -416,7 +439,16 @@ describe('exemples valides — serveur vers client', () => {
         type: 'session.synced',
         id: randomUUID(),
         emittedAt: now,
-        payload: { activeRideId: rideId, activeRideState: 'in_progress', serverTime: now },
+        payload: { activeRideId: rideId, activeRideState: 'in_progress', rideStateKnown: true, serverTime: now },
+      })
+    );
+    // `rideStateKnown` est requis lui aussi : dire explicitement si l'état est connu.
+    assert.throws(() =>
+      SessionSyncedMessageSchema.parse({
+        type: 'session.synced',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: { activeRideId: rideId, activeRideState: 'in_progress', activeProposal: null, serverTime: now },
       })
     );
   });

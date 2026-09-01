@@ -114,9 +114,15 @@ describe('handleSessionResync (L3-11)', () => {
 
     assert.equal(messages.length, 1);
     assert.equal(messages[0]!.type, 'session.synced');
-    const payload = messages[0]!.payload as { activeRideId: string; activeRideState: string; serverTime: string };
+    const payload = messages[0]!.payload as {
+      activeRideId: string;
+      activeRideState: string;
+      rideStateKnown: boolean;
+      serverTime: string;
+    };
     assert.equal(payload.activeRideId, 'ride-42');
     assert.equal(payload.activeRideState, 'in_progress');
+    assert.equal(payload.rideStateKnown, true);
     assert.ok(payload.serverTime);
   });
 
@@ -158,7 +164,7 @@ describe('handleSessionResync (L3-11)', () => {
     assert.equal(messages.length, 0);
   });
 
-  test('Odoo injoignable : dégradation silencieuse, aucun message envoyé, la connexion reste ouverte', async () => {
+  test("Odoo injoignable : la réponse part quand même, rideStateKnown false, l'état de course n'est pas inféré", async () => {
     odooResponse = 'error';
     const { socket, messages } = fakeSocket();
 
@@ -166,7 +172,35 @@ describe('handleSessionResync (L3-11)', () => {
       handleSessionResync(config, fakeProposals().proposals, clientContext(), socket, { lastKnownRideId: null })
     );
 
-    assert.equal(messages.length, 0);
+    assert.equal(messages.length, 1);
+    const payload = messages[0]!.payload as {
+      activeRideId: unknown;
+      activeRideState: unknown;
+      rideStateKnown: boolean;
+    };
+    // `null` faute d'information, jamais parce qu'on a confirmé l'absence -- le drapeau le dit.
+    assert.equal(payload.rideStateKnown, false);
+    assert.equal(payload.activeRideId, null);
+    assert.equal(payload.activeRideState, null);
+  });
+
+  test('Odoo injoignable : un chauffeur avec une proposition vivante la reçoit malgré tout (troisième voie L7-04)', async () => {
+    odooResponse = 'error';
+    const proposal = anActiveProposal();
+    const { socket, messages } = fakeSocket();
+
+    await handleSessionResync(config, fakeProposals(proposal).proposals, driverContext(), socket, {
+      lastKnownRideId: null,
+    });
+
+    assert.equal(messages.length, 1);
+    const payload = messages[0]!.payload as {
+      activeProposal: realtime.ActiveProposal | null;
+      rideStateKnown: boolean;
+    };
+    // Dire ce qu'on sait (la proposition, lue en Redis) ET ce qu'on ignore (l'état de course).
+    assert.deepEqual(payload.activeProposal, proposal);
+    assert.equal(payload.rideStateKnown, false);
   });
 
   // --- L7-04 : la proposition active retrouvée par resynchronisation -----------------------

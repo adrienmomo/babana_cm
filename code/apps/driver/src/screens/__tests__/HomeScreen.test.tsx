@@ -72,7 +72,8 @@ function texts(root: ReactTestRenderer): string {
 
 function emitSessionSynced(
   activeRideState: string | null,
-  activeProposal: Record<string, unknown> | null = null
+  activeProposal: Record<string, unknown> | null = null,
+  rideStateKnown = true
 ) {
   realtimeListener?.({
     type: 'session.synced',
@@ -82,6 +83,7 @@ function emitSessionSynced(
       activeRideId: activeRideState ? 'r1' : null,
       activeRideState,
       activeProposal,
+      rideStateKnown,
       serverTime: new Date().toISOString(),
     },
   });
@@ -166,6 +168,22 @@ describe('HomeScreen (L6-11)', () => {
       emitSessionSynced(null);
     });
     expect(root.root.findByProps({ testID: 'availability-toggle' }).props.disabled).toBe(false);
+  });
+
+  it("L7-04 -- session.synced avec rideStateKnown false (Odoo injoignable) ne change pas l'état de course : il n'est pas inféré d'un null", async () => {
+    const { root } = await renderHome();
+
+    await act(async () => {
+      emitSessionSynced('assigned');
+    });
+    expect(root.root.findByProps({ testID: 'availability-toggle' }).props.disabled).toBe(true);
+
+    // Odoo injoignable : activeRideState arrive à null, mais rideStateKnown est false -- l'app
+    // garde ce qu'elle sait, la bascule reste verrouillée.
+    await act(async () => {
+      emitSessionSynced(null, null, false);
+    });
+    expect(root.root.findByProps({ testID: 'availability-toggle' }).props.disabled).toBe(true);
   });
 
   it('une proposition reçue navigue vers l’écran Proposal avec son rideId', async () => {
