@@ -11,6 +11,17 @@ des valeurs de développement fonctionnelles pour les variables non secrètes, e
 manifestement factices (`dev-only-not-a-real-secret`) pour les secrets — jamais une vraie clé,
 même désactivée ou de test.
 
+**Exception : les adresses de fournisseur externe n'ont pas de valeur dans `.env.example`**
+(D43 retournée, `amoa/questions/REPONSES-2026-09-06.md` §2). `GOOGLE_JWKS_URL`,
+`GOOGLE_ROUTING_URL`, `SMTP_HOST`, `SMTP_PORT` y sont **vides** ; `BABANA_MAPS_SEARCH_URL` aussi.
+La valeur de développement (vers les simulateurs `L0-08`, vers `mailpit`) est posée
+explicitement — par `infra/compose.dev.yaml` pour ce qu'Odoo consomme, par les cibles `make
+client` / `make client-web` pour ce qui est lu au build. Motif : une mise en production qui
+recopie `.env.example` ne doit jamais hériter d'une adresse de simulateur. `mailpit` en
+particulier accepte une facture, la garde, et ne signale rien — une panne d'envoi invisible.
+`infra/production/deploy.sh` refuse de déployer si l'une de ces variables est vide ou pointe
+vers un simulateur.
+
 **En production, les secrets viennent d'un gestionnaire de secrets ou des variables
 d'environnement de la plateforme d'hébergement, jamais d'un fichier déposé sur le serveur.**
 Le fichier `infra/env/.env` qui existe en développement sur le poste d'un développeur n'a pas
@@ -31,18 +42,18 @@ injecte les variables directement dans l'environnement du conteneur au démarrag
 | `POSTGRES_USER` | Utilisateur PostgreSQL | texte | `odoo` | Choisi à la création de l'instance, sans droits superutilisateur superflus |
 | `POSTGRES_PASSWORD` | Mot de passe PostgreSQL | texte, secret | `dev-only-not-a-real-secret` | Généré aléatoirement, stocké dans le gestionnaire de secrets |
 | `GOOGLE_OAUTH_CLIENT_IDS` | Audiences (`aud`) de jeton acceptées, un ou plusieurs identifiants clients OAuth séparés par des virgules (Android, iOS, Web) | liste `xxx.apps.googleusercontent.com` | `dev-client-id.apps.googleusercontent.com` | Console Google Cloud, écran de consentement OAuth du projet babana.cm |
-| `GOOGLE_JWKS_URL` | URL du jeu de clés servant à vérifier la signature des jetons Google (D19 : seul ce qui change entre dev et prod) | URL | `http://mock-google-identity:4000/.well-known/jwks.json` | `https://www.googleapis.com/oauth2/v3/certs` (valeur par défaut si absente) |
+| `GOOGLE_JWKS_URL` | URL du jeu de clés servant à vérifier la signature des jetons Google (D19 : seul ce qui change entre dev et prod) | URL | **vide** dans `.env.example` ; `infra/compose.dev.yaml` pose `http://mock-google-identity:4000/.well-known/jwks.json` | `https://www.googleapis.com/oauth2/v3/certs` — explicite, aucun repli (`_jwks_url` lève, `deploy.sh` bloque) |
 | `JWT_SECRET` | Signe les jetons applicatifs (accessToken de C-01) | texte, secret, haute entropie | `dev-only-not-a-real-secret` | Généré aléatoirement (256 bits), gestionnaire de secrets |
 | `REALTIME_SHARED_SECRET` | Authentifie les appels du service temps réel vers Odoo | texte, secret, haute entropie | `dev-only-not-a-real-secret` | Généré aléatoirement, distinct de `JWT_SECRET` |
 | `MINIO_ROOT_USER` | Identifiant racine MinIO / S3 | texte | `babana-dev` | Généré à la création de l'instance |
 | `MINIO_ROOT_PASSWORD` | Mot de passe racine MinIO / S3 | texte, secret | `dev-only-not-a-real-secret` | Généré aléatoirement, gestionnaire de secrets |
-| `SMTP_HOST`, `SMTP_PORT` | Adresse du relais SMTP pour l'envoi de facture (CDC §III.3) — même mécanisme que `GOOGLE_JWKS_URL` : une seule variable, une valeur différente par environnement (L0-01R, 10 août) | nom d'hôte, port | `mailpit` / `1025` (L0-08, `infra/compose.dev.yaml`) | Relais SMTP retenu (fournisseur à choisir, hors de ce soir) ; voir l'écart ci-dessous |
+| `SMTP_HOST`, `SMTP_PORT` | Adresse du relais SMTP pour l'envoi de facture (CDC §III.3) | nom d'hôte, port | **vides** dans `.env.example` ; `infra/compose.dev.yaml` pose `mailpit` / `1025` (L0-08) | Relais SMTP retenu (fournisseur à choisir) — explicite, jamais `mailpit` (`deploy.sh` bloque) ; voir l'écart ci-dessous |
 | `SMTP_USER`, `SMTP_PASSWORD` | Identifiants du relais SMTP | texte, secret | vides (mailpit n'authentifie pas) | Fournisseur SMTP retenu, gestionnaire de secrets |
 | `SMTP_FROM` | Adresse d'expédition des emails de facture | adresse email | `no-reply@babana.cm` | Adresse définitive du domaine `babana.cm` |
 | `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY` | Compte de service Firebase Cloud Messaging (API HTTP v1), notifications push | identifiants de compte de service | vides, non consommées (L1-09/L7-01 journalisent, D19) | Console Firebase du projet babana.cm, compte de service dédié aux notifications |
 | `SMS_GATEWAY_API_KEY`, `SMS_GATEWAY_SENDER_ID` | Passerelle SMS pour l'OTP de rattachement de numéro | clé API, identifiant expéditeur | vides, non consommées (L1-09 journalise, D19) | Fournisseur SMS retenu (à choisir, hors de ce soir) |
 | `GOOGLE_MAPS_API_KEY` | Clé API Google Maps consommée par les apps au build natif (D13) | clé API | vide, non consommée (mock-maps sert de doublure complète, D19) | Console Google Cloud, restreinte par empreinte de signature Android / bundle iOS |
-| `BABANA_MAPS_SEARCH_URL` | Adresse de la recherche de lieu REST (`searchPlace`, L6-01) consommée par `apps/client` au build (même mécanisme que `GOOGLE_JWKS_URL` : une seule variable, une valeur par environnement) | URL | `http://localhost:4001/search` (mock-maps, port hôte exposé directement, `infra/compose.dev.yaml`) | Adresse Google réelle (valeur par défaut si absente, `packages/maps/src/providers/google/places.ts::PLACES_TEXT_SEARCH_URL`) |
+| `BABANA_MAPS_SEARCH_URL` | Adresse de la recherche de lieu REST (`searchPlace`, L6-01) consommée par `apps/client` **au build** (lue de `process.env` de l'hôte, pas d'un conteneur) | URL | **vide** dans `.env.example` ; `make client` / `make client-web` posent `http://localhost:4001/search` (mock-maps, port hôte exposé) | Adresse Google réelle — explicite au build (aucun repli : `getSearchUrl()` lève) |
 
 **Ce qui n'apparaît volontairement pas dans cette table :** l'adresse de Redis
 (`redis://redis:6379`) et l'URL interne d'Odoo (`http://odoo:8069`, consommée par le service
@@ -121,6 +132,11 @@ cp infra/env/.env.example infra/env/.env   # fait aussi automatiquement par `mak
 make up
 ```
 
-Rien d'autre à renseigner : toutes les variables ci-dessus ont soit une valeur de développement
-fonctionnelle, soit sont vides et non consommées en développement (SMTP, FCM, SMS, Google Maps —
-simulées ou sans objet, D19).
+Rien d'autre à renseigner. Les variables de `.env.example` ont soit une valeur de développement
+fonctionnelle, soit sont vides et non consommées (FCM, SMS, Google Maps — simulées ou sans
+objet, D19), soit sont vides **mais posées ailleurs pour le développement** : `GOOGLE_JWKS_URL`,
+`GOOGLE_ROUTING_URL`, `SMTP_HOST`, `SMTP_PORT` par `infra/compose.dev.yaml` ;
+`BABANA_MAPS_SEARCH_URL` par les cibles `make client` / `make client-web`. C'est la contrepartie
+de la règle « pas d'adresse de fournisseur dans `.env.example` » (D43 retournée, voir plus
+haut) : `make up` fonctionne sans rien ajouter, mais un déploiement de production doit renseigner
+ces variables lui-même, vers les vrais fournisseurs.

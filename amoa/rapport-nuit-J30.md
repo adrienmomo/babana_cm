@@ -87,3 +87,87 @@ rapport) : le hook ne se déclenche que sur une base où le module n'a jamais é
 `code/services/odoo/addons/babana/__manifest__.py` (`pre_init_hook`) ;
 `code/services/odoo/addons/babana/tests/test_sql_constraints_in_db.py` (nouveau) ;
 `code/services/odoo/addons/babana/tests/__init__.py` (enregistrement).
+
+---
+
+## 2. Le SMTP sans valeur par défaut — D43 retournée, appliquée
+
+### Le défaut, et la règle
+
+`SMTP_HOST=mailpit` était la valeur par défaut de `infra/env/.env.example`, que `make up`
+recopie en `infra/env/.env` et qu'un `.env` de production part de recopier aussi. Une mise en
+production qui suit le chemin documenté enverrait ses factures à `mailpit` — qui les **accepte**,
+les garde, et ne signale rien. C'est D43 retournée : là (28 août), une configuration absente
+retombait sur le vrai fournisseur et masquait sa panne ; ici elle retombait sur le simulateur,
+et c'est pire, parce qu'un simulateur répond « envoyé ».
+
+**Arbitrage appliqué** : les réglages qui désignent un fournisseur externe (réel ou simulateur)
+n'ont **pas** de valeur dans `.env.example`. Vides. La valeur de développement est posée
+explicitement par la configuration de développement.
+
+### Les autres cas trouvés
+
+Passés au même regard, dans `.env.example` :
+
+| Variable | Consommateur | Avant | Après |
+|---|---|---|---|
+| `SMTP_HOST`, `SMTP_PORT` | Odoo (envoi de facture) | `mailpit` / `1025` | **vides** ; `compose.dev.yaml` pose `mailpit`/`1025` |
+| `GOOGLE_JWKS_URL` | Odoo (`google_identity.py`) | `http://mock-google-identity:4000/...` | **vide** ; `compose.dev.yaml` pose le mock |
+| `GOOGLE_ROUTING_URL` | Odoo (`routing.py`) | `http://mock-maps:4001/route` | **vide** ; `compose.dev.yaml` pose le mock |
+| `BABANA_MAPS_SEARCH_URL` | build de `apps/client` (`process.env` de l'hôte) | `http://localhost:4001/search` | **vide** ; `make client` / `make client-web` posent la valeur mock |
+
+`SMTP_FROM=no-reply@babana.cm` **garde** sa valeur : ce n'est pas une adresse de fournisseur
+mais celle du domaine babana.cm, identique dans tous les environnements.
+
+Deux de ces quatre échouaient déjà bruyamment en production si vides (`_jwks_url` lève ;
+`routing.py` avait un repli code `DEFAULT_ROUTING_URL` **vers le mock** — supprimé, remplacé par
+`_routing_url()` qui lève, sur le modèle de `_jwks_url`). `SMTP_HOST` était le seul vraiment
+silencieux, mais les quatre partageaient la même forme : une adresse de simulateur servie comme
+« valeur par défaut raisonnable ».
+
+### Ce qui bouge, et le choix sur la garde `:?`
+
+- **`infra/compose.yaml`** : `GOOGLE_JWKS_URL` perd sa garde `${...:?}`, `GOOGLE_ROUTING_URL`
+  perd son défaut `${...:-http://mock-maps...}`. Motif : avec la valeur vide dans `.env`, une
+  garde `:?` dans le fichier de base **empêcherait `make up`** de démarrer (l'interpolation
+  échoue avant la fusion avec `compose.dev.yaml` — vérifié). La protection de la production ne
+  disparaît pas, elle change d'endroit : **`deploy.sh`** (qui n'utilise que `compose.yaml`) fait
+  désormais un `die` — pas un `warn` — si `GOOGLE_JWKS_URL`, `GOOGLE_ROUTING_URL` ou `SMTP_HOST`
+  est vide ou pointe vers un simulateur, et le code d'Odoo lève de toute façon à l'appel. C'est
+  un choix d'implémentation (protocole d'écart : « décider, avancer, le mentionner ») —
+  l'alternative aurait été un jeu de variables `*_PROD_*` ou un fichier `.env.prod.example`
+  distinct, ce que D19 écarte (« une seule variable dont la valeur change »).
+- **`infra/compose.dev.yaml`** : nouveau bloc `odoo.environment` avec les quatre valeurs mock /
+  mailpit. C'est là, désormais, qu'est « la configuration de développement ».
+- **`Makefile`** : `client` et `client-web` passent `BABANA_MAPS_SEARCH_URL` (défaut
+  `?=`, surchargable) — cette variable est lue de `process.env` de l'hôte au build, pas d'un
+  conteneur, donc `compose.dev.yaml` ne peut pas la porter.
+- **`routing.py`** : `DEFAULT_ROUTING_URL` supprimé, `_routing_url()` lève si non configurée.
+- **README `infra/env/`, `docs/operations/production.md`** : table et procédure de déploiement
+  mises à jour (colonne « développement » : vide + où la valeur est réellement posée).
+
+### Le garde-fou mécanique
+
+`test/config/env-example.test.ts` (nouveau, workspace `@babana/concurrency-tests`,
+`config/*.test.ts` ajouté au script et au tsconfig) : lit `infra/env/.env.example`, exige que
+les cinq variables ci-dessus soient **déclarées et vides**, et qu'**aucune** ligne de valeur ne
+contienne un marqueur de simulateur (`mailpit`, `mock-google-identity`, `mock-maps`, `:4000`,
+`:4001`). Vérifié à blanc : en remettant `SMTP_HOST=mailpit`, le test échoue (deux assertions).
+
+### Vérifié
+
+- `docker compose -f compose.yaml -f compose.dev.yaml config` sur un `.env` fraîchement copié de
+  l'exemple : le service `odoo` résout `GOOGLE_JWKS_URL`, `GOOGLE_ROUTING_URL`, `SMTP_HOST/PORT`
+  vers les valeurs mock/mailpit de `compose.dev.yaml`. `make up` démarre donc sans rien ajouter.
+- `docker compose -f compose.yaml config` seul (chemin `deploy.sh`) : ces variables résolvent à
+  `""`, sans erreur — `deploy.sh` les refuserait ensuite.
+- `test/config/env-example.test.ts` : vert ; échoue quand on réintroduit une valeur de mock.
+- La passe finale (section dédiée) rejoue `make test` complet sur base fraîche.
+
+### Fichiers
+
+`code/infra/env/.env.example`, `code/infra/env/README.md` ; `code/infra/compose.yaml`,
+`code/infra/compose.dev.yaml` ; `code/Makefile` (cibles `client`, `client-web`) ;
+`code/services/odoo/addons/babana/services/routing.py` ; `code/infra/production/deploy.sh` ;
+`code/docs/operations/production.md` ; `code/test/config/env-example.test.ts` (nouveau),
+`code/test/package.json`, `code/test/tsconfig.json`.

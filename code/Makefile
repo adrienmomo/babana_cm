@@ -37,11 +37,17 @@ seed-drivers:    ## Tient les chauffeurs semés en ligne, à des positions dispe
 	# availability.set + position.update), il n'écrit jamais Redis directement.
 	node services/realtime/scripts/demo-drivers.mjs
 
+# BABANA_MAPS_SEARCH_URL est lu de process.env au build (transform-inline-environment-variables),
+# pas d'un conteneur -- il n'a donc pas de valeur dans infra/env/.env.example (D43 retournée,
+# amoa/questions/REPONSES-2026-09-06.md §2) et c'est ici, la configuration de développement, qui
+# le pose vers mock-maps (port exposé à l'hôte). Un build de production pose l'adresse Google.
+BABANA_MAPS_SEARCH_URL ?= http://localhost:4001/search
+
 client:          ## Démarre l'app Client (bundler React Native)
-	npm run start -w @babana/client
+	BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" npm run start -w @babana/client
 
 client-web:      ## Construit le bundle web du Client dans apps/client/dist-web (servi par Caddy, D46)
-	npm run build:web -w @babana/client
+	BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" npm run build:web -w @babana/client
 
 driver:          ## Démarre l'app Chauffeur
 	npm run start -w @babana/driver

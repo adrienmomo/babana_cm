@@ -64,14 +64,18 @@ de configuration.
 
 Cloner le dépôt dans `/opt/babana`, renseigner `code/infra/env/.env` à partir de
 `.env.example` — avec les **secrets de production** (origine de chaque valeur :
-`infra/env/README.md`). Points qui diffèrent du développement, vérifiés par `deploy.sh` :
+`infra/env/README.md`). `.env.example` ne contient **aucune** adresse de fournisseur externe
+(D43 retournée, `amoa/questions/REPONSES-2026-09-06.md` §2) : celles-ci sont vides et doivent
+être renseignées ici. Points qui diffèrent du développement, `deploy.sh` **refuse de partir**
+si l'un manque ou pointe vers un simulateur :
 
 - `BABANA_DOMAIN=babana.cm`, `NODE_ENV=production` ;
-- `GOOGLE_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs` (pas de mock) ;
-- `GOOGLE_ROUTING_URL` et `BABANA_MAPS_SEARCH_URL` = vraies API Google (le défaut compose pointe
-  `mock-maps`, absent en prod) ;
-- `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASSWORD` = relais SMTP réel (mailpit n'est que dans
-  `compose.dev.yaml`, jamais démarré ici) ;
+- `GOOGLE_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs` (vide dans `.env.example`) ;
+- `GOOGLE_ROUTING_URL` et `BABANA_MAPS_SEARCH_URL` = vraies API Google (vides dans
+  `.env.example` ; le développement les reçoit de `compose.dev.yaml` / des cibles `make client`) ;
+- `SMTP_HOST`/`SMTP_PORT` = relais SMTP réel + `SMTP_USER`/`SMTP_PASSWORD` (vides dans
+  `.env.example` ; `mailpit` n'est que dans `compose.dev.yaml`. Un `SMTP_HOST=mailpit` recopié
+  ici enverrait les factures dans le vide sans erreur — `deploy.sh` le refuse) ;
 - `PUSH_PROVIDER=fcm` + `FCM_*` si les notifications doivent partir ;
 - `ADMIN_ALLOWED_IPS` et `WEB_ALLOWED_IPS` = adresses réelles (le pilote reste fermé tant que
   L8-01/L8-02 n'existent pas).

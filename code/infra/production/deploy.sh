@@ -40,11 +40,24 @@ docker compose version >/dev/null 2>&1 || die "'docker compose' (v2) absent."
 # shellcheck disable=SC1090
 . "$ENV_FILE" 2>/dev/null || true
 [ "${BABANA_DOMAIN:-}" != "localhost" ] || die "BABANA_DOMAIN=localhost dans $ENV_FILE -- ce n'est pas une configuration de production."
+
+# Adresses de fournisseur externe : sans valeur par défaut (D43 retournée,
+# amoa/questions/REPONSES-2026-09-06.md §2). infra/compose.yaml les passe sans garde `:?` pour
+# ne pas gêner `make up` -- c'est donc ICI que la production est protégée : vide ou pointant vers
+# un simulateur, on refuse de déployer. Le mock SMTP est le plus dangereux : il accepte une
+# facture et ne signale rien.
 case "${GOOGLE_JWKS_URL:-}" in
-  *mock-google-identity*|"") warn "GOOGLE_JWKS_URL pointe vers un mock ou est vide -- l'authentification Google échouera en production." ;;
+  ""|*mock-google-identity*) die "GOOGLE_JWKS_URL vide ou vers un mock dans $ENV_FILE -- poser https://www.googleapis.com/oauth2/v3/certs." ;;
 esac
 case "${GOOGLE_ROUTING_URL:-}" in
-  *mock-maps*|"") warn "GOOGLE_ROUTING_URL pointe vers mock-maps (inexistant en prod) -- les estimations échoueront." ;;
+  ""|*mock-maps*) die "GOOGLE_ROUTING_URL vide ou vers mock-maps dans $ENV_FILE -- poser la vraie API de routage." ;;
+esac
+case "${SMTP_HOST:-}" in
+  ""|mailpit) die "SMTP_HOST vide ou =mailpit dans $ENV_FILE -- poser le relais SMTP réel (mailpit accepte les factures et ne signale rien)." ;;
+esac
+[ -n "${SMTP_PORT:-}" ] || die "SMTP_PORT vide dans $ENV_FILE -- le poser (587 ou 465 selon le relais retenu)."
+case "${BABANA_MAPS_SEARCH_URL:-}" in
+  *localhost:4001*|*mock-maps*) warn "BABANA_MAPS_SEARCH_URL pointe vers mock-maps -- le build web du Client ci-dessous embarquera cette adresse ; poser l'adresse Google réelle avant de servir aux vrais clients." ;;
 esac
 [ "${NODE_ENV:-}" = "production" ] || warn "NODE_ENV != production dans $ENV_FILE."
 

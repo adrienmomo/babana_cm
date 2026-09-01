@@ -35,8 +35,16 @@ services:
       USER: ${POSTGRES_USER}
       PASSWORD: ${POSTGRES_PASSWORD}
       GOOGLE_OAUTH_CLIENT_IDS: ${GOOGLE_OAUTH_CLIENT_IDS}
-      GOOGLE_JWKS_URL: ${GOOGLE_JWKS_URL:?GOOGLE_JWKS_URL doit être configurée -- D43, aucun repli implicite vers la vraie adresse Google}
-      GOOGLE_ROUTING_URL: ${GOOGLE_ROUTING_URL:-http://mock-maps:4001/route}
+      # D43 retournée (amoa/questions/REPONSES-2026-09-06.md §2) : ces adresses désignent un
+      # fournisseur réel ou son simulateur -- elles n'ont PAS de valeur par défaut ici. Vides
+      # dans infra/env/.env.example, posées explicitement pour le développement par
+      # infra/compose.dev.yaml (mock-*), fournies par la plateforme d'hébergement en production.
+      # Non configurées : le code d'Odoo échoue bruyamment (google_identity.py::_jwks_url,
+      # routing.py::_routing_url) et deploy.sh refuse de partir. Plus de garde `:?`/`:-` ici :
+      # elle empêcherait `make up` (compose.yaml + compose.dev.yaml) de démarrer alors que la
+      # valeur de dev vit désormais dans compose.dev.yaml.
+      GOOGLE_JWKS_URL: ${GOOGLE_JWKS_URL}
+      GOOGLE_ROUTING_URL: ${GOOGLE_ROUTING_URL}
       JWT_SECRET: ${JWT_SECRET}
       REALTIME_INTERNAL_URL: http://realtime:3000
       REALTIME_SHARED_SECRET: ${REALTIME_SHARED_SECRET}

@@ -4,5 +4,5 @@
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["concurrency/**/*.ts", "auth/**/*.ts", "http-contract/**/*.ts"]
+  "include": ["concurrency/**/*.ts", "auth/**/*.ts", "http-contract/**/*.ts", "config/**/*.ts"]
 }
