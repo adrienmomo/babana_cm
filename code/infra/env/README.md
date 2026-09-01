@@ -25,7 +25,8 @@ injecte les variables directement dans l'environnement du conteneur au démarrag
 |---|---|---|---|---|
 | `BABANA_DOMAIN` | Domaine racine, détermine les trois hôtes servis par Caddy | nom de domaine | `localhost` | `staging.babana.cm` (recette) ou `babana.cm` (production) |
 | `ACME_EMAIL` | Contact du certificat TLS (Let's Encrypt) | adresse email | `dev@example.invalid` | Adresse de l'équipe technique, surveillée |
-| `ADMIN_ALLOWED_IPS` | Plage IP autorisée sur `admin.` | CIDR, séparés par des virgules | `0.0.0.0/0` (ouvert) | Adresses du bureau / VPN de l'équipe |
+| `ADMIN_ALLOWED_IPS` | Plage IP autorisée sur `admin.` (back-office) | CIDR, séparés par des virgules | `0.0.0.0/0` (ouvert) | Adresses du bureau / VPN de l'équipe |
+| `WEB_ALLOWED_IPS` | Plage IP autorisée sur le domaine principal — bundle web du Client + `/api/*`, `/rt/*`, `/s/*` proxifiés sous la même origine (D46, L6-18). Ferme la démonstration tant que les habilitations (L8-01/L8-02) n'existent pas ; distincte d'`ADMIN_ALLOWED_IPS` pour ouvrir la démo sans ouvrir le back-office | CIDR, séparés par des virgules | `0.0.0.0/0` (ouvert) | Adresses du client pilote + de l'équipe ; s'ouvre à `0.0.0.0/0` quand L8-01/L8-02 sont en place |
 | `NODE_ENV` | Bascule dev/production des services Node ; garde-fou des mocks (D19) | `development` \| `production` \| `test` | `development` | `production` |
 | `POSTGRES_USER` | Utilisateur PostgreSQL | texte | `odoo` | Choisi à la création de l'instance, sans droits superutilisateur superflus |
 | `POSTGRES_PASSWORD` | Mot de passe PostgreSQL | texte, secret | `dev-only-not-a-real-secret` | Généré aléatoirement, stocké dans le gestionnaire de secrets |
@@ -104,9 +105,11 @@ pas des secrets, l'identifiant client OAuth est public par nature) ; se régén�
 client est recréé dans la console Google Cloud, auquel cas mettre à jour la liste et redéployer
 les apps concernées.
 
-**`ADMIN_ALLOWED_IPS` / `ACME_EMAIL` / `BABANA_DOMAIN`** — Pas des secrets. Mise à jour directe
-de la variable, sans procédure de rotation particulière au-delà de vérifier que la nouvelle
-valeur est correcte avant de redémarrer Caddy.
+**`ADMIN_ALLOWED_IPS` / `WEB_ALLOWED_IPS` / `ACME_EMAIL` / `BABANA_DOMAIN`** — Pas des secrets.
+Mise à jour directe de la variable, sans procédure de rotation particulière au-delà de vérifier
+que la nouvelle valeur est correcte avant de redémarrer Caddy. `WEB_ALLOWED_IPS` a vocation à
+passer à `0.0.0.0/0` une fois les habilitations (L8-01, L8-02) en place — c'est un verrou
+temporaire, pas une politique durable.
 
 ---
 

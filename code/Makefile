@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f infra/compose.yaml -f infra/compose.dev.yaml --env-file infra/env/.env
 
-.PHONY: up down logs reset seed seed-drivers client driver test lint typecheck verify secrets-scan
+.PHONY: up down logs reset seed seed-drivers client client-web driver test lint typecheck verify secrets-scan
 
 up:              ## Démarre tous les services et attend qu'ils soient sains
 	@test -f infra/env/.env || cp infra/env/.env.example infra/env/.env
@@ -37,8 +37,11 @@ seed-drivers:    ## Tient les chauffeurs semés en ligne, à des positions dispe
 	# availability.set + position.update), il n'écrit jamais Redis directement.
 	node services/realtime/scripts/demo-drivers.mjs
 
-client:          ## Démarre l'app Client
+client:          ## Démarre l'app Client (bundler React Native)
 	npm run start -w @babana/client
+
+client-web:      ## Construit le bundle web du Client dans apps/client/dist-web (servi par Caddy, D46)
+	npm run build:web -w @babana/client
 
 driver:          ## Démarre l'app Chauffeur
 	npm run start -w @babana/driver

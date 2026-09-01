@@ -2,24 +2,52 @@
 	email {$ACME_EMAIL}
 }
 
-# Apex — partage de trajet public et liens d'application
+# Domaine principal -- sert le bundle de l'application Client SOUS LA MÊME ORIGINE que l'API
+# qu'il appelle (D46, L6-18) : Caddy proxifie `/api/*` et `/rt/*` sous ce domaine, aucun
+# préflight, aucun en-tête CORS sur une API à jeton porteur. Plus le partage de trajet et les
+# liens d'application.
 {$BABANA_DOMAIN:localhost} {
+	# Métadonnée publique de liens d'application Android : lisible sans restriction (aucune
+	# donnée sensible), le vérificateur d'App Links de Google la lit depuis l'extérieur -- donc
+	# HORS de la liste d'adresses ci-dessous.
 	handle /.well-known/assetlinks.json {
 		root * /srv/wellknown
 		uri strip_prefix /.well-known
 		file_server
 	}
 
-	handle /s/* {
-		reverse_proxy realtime:3000
+	# Tant que les habilitations (L8-01, L8-02) n'existent pas, TOUT le reste du domaine est
+	# fermé par liste d'adresses -- même discipline que le back-office (`admin.` ci-dessous),
+	# par configuration. `WEB_ALLOWED_IPS` : liste d'autorisation du pilote (adresses du client
+	# et de l'équipe) ; `0.0.0.0/0` en développement (ouvert). Distincte de `ADMIN_ALLOWED_IPS`
+	# pour pouvoir ouvrir la démonstration au client sans lui ouvrir le back-office.
+	@allowed remote_ip {$WEB_ALLOWED_IPS:0.0.0.0/0}
+	handle @allowed {
+		# API mobile et service temps réel, sous la MÊME origine que le bundle (D46).
+		handle /api/* {
+			reverse_proxy odoo:8069
+		}
+		handle /rt/* {
+			reverse_proxy realtime:3000
+		}
+		# Partage de trajet public (L8-03) -- fermé lui aussi pendant le pilote, réversible
+		# quand L8-01/L8-02 poseront les habilitations.
+		handle /s/* {
+			reverse_proxy realtime:3000
+		}
+		# Bundle web de l'application Client -- `make client-web` (npm run build:web).
+		# Repli SPA : toute route inconnue rend `index.html`, la navigation se fait côté client.
+		handle {
+			root * /srv/web
+			try_files {path} /index.html
+			file_server
+		}
 	}
-
-	handle {
-		respond "babana.cm" 200
-	}
+	respond 403
 }
 
-# API mobile et temps réel
+# API mobile et temps réel -- origine dédiée des applications natives (jetons). Inchangée :
+# le bundle web n'a jamais besoin de cette origine (il appelle la sienne, ci-dessus).
 api.{$BABANA_DOMAIN:localhost} {
 	handle /rt/* {
 		reverse_proxy realtime:3000
@@ -30,7 +58,7 @@ api.{$BABANA_DOMAIN:localhost} {
 	}
 }
 
-# Back-office — accès restreint
+# Back-office -- accès restreint
 admin.{$BABANA_DOMAIN:localhost} {
 	@allowed remote_ip {$ADMIN_ALLOWED_IPS:0.0.0.0/0}
 	handle @allowed {

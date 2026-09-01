@@ -96,12 +96,17 @@ services:
       BABANA_DOMAIN: ${BABANA_DOMAIN:-localhost}
       ACME_EMAIL: ${ACME_EMAIL}
       ADMIN_ALLOWED_IPS: ${ADMIN_ALLOWED_IPS:-0.0.0.0/0}
+      WEB_ALLOWED_IPS: ${WEB_ALLOWED_IPS:-0.0.0.0/0}
     ports:
       - "80:80"
       - "443:443"
     volumes:
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./caddy/wellknown:/srv/wellknown:ro
+      # Bundle web de l'application Client (D46, L6-18), servi sous la même origine que l'API.
+      # Construit sur l'hôte par `make client-web` (npm run build:web -w @babana/client) ;
+      # répertoire vide -> Caddy rend 404 jusqu'à la première construction.
+      - ../apps/client/dist-web:/srv/web:ro
       - caddy-data:/data
       - caddy-config:/config
     restart: unless-stopped

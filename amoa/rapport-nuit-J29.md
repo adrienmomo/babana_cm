@@ -125,3 +125,83 @@ les chauffeurs se connecter, on peut en couper un pour montrer un départ de la 
 (nouveau) ; `code/services/odoo/scripts/README.md` (nouveau) ;
 `code/services/realtime/scripts/demo-drivers.mjs` (nouveau) ; `code/tools/secret-scan/scan.sh`
 (faux positif) ; `amoa/questions/L0-06-live-driver-positions.md` (nouveau).
+
+---
+
+## 2. Servir le bundle Client sous la même origine (part de L6-18)
+
+### Le montage
+
+Caddy sert désormais le **bundle web du Client** sur le domaine principal, et proxifie `/api/*`
+et `/rt/*` **sous cette même origine** (D46, L6-18). C'est le montage que la vérification de J20
+utilisait en jetable (`verify.localhost`) ; il entre dans l'infrastructure.
+
+**`infra/caddy/Caddyfile`** — le bloc apex devient :
+- `/.well-known/assetlinks.json` : public (métadonnée de liens d'app, lue de l'extérieur par
+  Google) — hors de la liste d'adresses ;
+- tout le reste derrière `@allowed remote_ip {$WEB_ALLOWED_IPS:0.0.0.0/0}` :
+  - `handle /api/*` → `odoo:8069`, `handle /rt/*` → `realtime:3000` : **même origine que le
+    bundle**, donc aucun préflight, aucun en-tête CORS sur une API à jeton porteur (D46) ;
+  - `handle /s/*` → `realtime:3000` : partage de trajet, fermé lui aussi pendant le pilote ;
+  - `handle { root * /srv/web ; try_files {path} /index.html ; file_server }` : le bundle, avec
+    repli SPA.
+  - `respond 403` sinon (même patron que `admin.`).
+
+L'hôte `api.` est **inchangé** : c'est l'origine dédiée des applications natives (jetons), le
+bundle web n'en a jamais besoin puisqu'il appelle la sienne.
+
+**L'accès reste fermé** (prompt : « tant que les habilitations n'existent pas ») : nouvelle
+variable **`WEB_ALLOWED_IPS`**, distincte d'`ADMIN_ALLOWED_IPS` — on peut ouvrir la démonstration
+au client sans lui ouvrir le back-office. `0.0.0.0/0` en développement. Documentée dans
+`.env.example` et `infra/env/README.md` (table + section rotation : verrou temporaire, passe à
+`0.0.0.0/0` quand L8-01/L8-02 sont en place).
+
+**`apps/client/config.web.ts`** (nouveau) — webpack résout `.web.ts` avant `.ts`
+(`resolve.extensions`), donc c'est ici, et jamais dans un écran (D22, même patron que
+`location.web.ts`), que l'export web apprend à parler à sa propre origine :
+`API_BASE_URL = window.location.origin`, `REALTIME_WS_URL = origin.replace(/^http/, 'ws') +
+'/rt/ws'`. `process.env.*` garde la priorité (une prévisualisation `staging.babana.cm` explicite
+l'emporte). Ajouté à l'`exclude` de `tsconfig.json`, comme `location.web.ts`.
+
+**`infra/compose.yaml`** — le conteneur Caddy monte `../apps/client/dist-web:/srv/web:ro`.
+Construit sur l'hôte par **`make client-web`** (`npm run build:web -w @babana/client`) ;
+répertoire vide → Caddy rend 404 jusqu'à la première construction. `dist-web/` est déjà dans
+`.gitignore` (`dist-web/`).
+
+### Vérifié, contre la pile réelle
+
+Après `make client-web` puis recréation du conteneur Caddy :
+
+- `GET https://localhost/` → `index.html` ; `GET /bundle.js` → 200, `text/javascript`, 3,15 Mo ;
+- `POST https://localhost/api/v1/quote` (sans jeton) → **401 d'Odoo**, pas un 404 — la requête
+  traverse bien Caddy jusqu'au contrôleur ;
+- `POST https://localhost/api/v1/auth/google` → `VALIDATION_ERROR` d'Odoo, forme attendue ;
+- route SPA inconnue → `index.html` ; `/rt/health` via l'apex → 200 ; assetlinks → 200 (public) ;
+- le bundle reconstruit ne contient plus `api.babana.cm` (0 occurrence) et porte bien
+  `window.location.origin` / `replace(/^http/,'ws')` : `config.web.ts` est pris en compte.
+- `caddy validate` : *Valid configuration*.
+- `npm run typecheck`, `npm run lint`, `npm test` de `@babana/client` : verts (106 tests,
+  inchangé depuis J28).
+
+### Ce que ça débloque
+
+L'écart `amoa/questions/L6-18-cors-api-web-quote.md` (J18/J24) : `OPTIONS /api/v1/quote → 401`
+cassait le préflight CORS **parce que le banc d'essai avait deux origines**. Servi sous une
+seule, le navigateur n'émet aucun `OPTIONS` : le blocage ne peut plus se produire, sans avoir
+ajouté d'en-tête CORS à l'API à jeton (ce que l'écart demandait justement d'éviter). Ce point de
+l'écart est **résolu par le montage**, pas par une politique CORS.
+
+### Ce qui reste explicitement à L6-18 (hors de cette nuit)
+
+Le fournisseur de carte **web** (`packages/maps/src/providers/web/` — aujourd'hui les stubs
+`webpack-stubs/` font juste compiler), le second chemin d'authentification (flux OAuth web,
+`packages/api-client/src/auth/web.ts`), la bannière de dégradation, la session en mémoire seule
+(D39), le déploiement Vercel par prévisualisation de branche. Le montage même origine est la
+part qui « serait à faire de toute façon » (D46) et qui entrait dans l'infrastructure ce soir.
+
+### Fichiers
+
+`code/infra/caddy/Caddyfile` ; `code/infra/compose.yaml` (montage `/srv/web`, `WEB_ALLOWED_IPS`) ;
+`code/apps/client/config.web.ts` (nouveau) ; `code/apps/client/tsconfig.json` (exclude) ;
+`code/Makefile` (cible `client-web`) ; `code/infra/env/.env.example`, `code/infra/env/README.md`
+(`WEB_ALLOWED_IPS`).
