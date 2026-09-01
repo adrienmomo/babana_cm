@@ -205,3 +205,53 @@ part qui « serait à faire de toute façon » (D46) et qui entrait dans l'infra
 `code/apps/client/config.web.ts` (nouveau) ; `code/apps/client/tsconfig.json` (exclude) ;
 `code/Makefile` (cible `client-web`) ; `code/infra/env/.env.example`, `code/infra/env/README.md`
 (`WEB_ALLOWED_IPS`).
+
+---
+
+## 3. Déploiement (L0-07) — aussi loin que possible depuis ici
+
+### Où je m'arrête, exactement
+
+**Aucune étape de la procédure §9 n'a été exécutée sur une machine** — il n'y a pas de VPS, pas
+de DNS, pas de secrets réels dans cet environnement. Ce qui est fait : **les scripts et le
+runbook qui codifient les dix étapes**, écrits pour que leur première exécution réelle soit
+mécanique et que la frontière « fait / attend une machine » soit nette.
+
+| # | Étape §9 | État |
+|---|---|---|
+| 1 | Provisionner le VPS | Dimensionnement fixé (§9). **Attend** un compte hébergeur. Recommandation écrite : Hetzner par défaut. |
+| 2–3 | Durcir SSH + pare-feu + MAJ auto | `infra/production/bootstrap.sh` — complet, idempotent, garde-fou « pas de clé → on ne coupe pas l'accès », port 80 laissé ouvert (piège ACME). **Attend** root sur le VPS + la vraie liste `SSH_ADMIN_IPS`. |
+| 4 | DNS | Noms fixés. **Attend** l'accès registrar + la propagation. |
+| 5–6 | Déployer + vérifier | `infra/production/deploy.sh` — `infra/compose.yaml` **seul** (jamais `compose.dev.yaml` : ports internes, sources montées, mailpit, mocks), build du bundle web, `-u babana`, `infra/smoke-test.sh`, enregistrement du commit déployé. Contrôles préalables sur le `.env` (BABANA_DOMAIN, GOOGLE_JWKS_URL/ROUTING_URL non-mock, NODE_ENV). **Attend** un `.env` de production avec les vrais secrets + le DNS résolu. |
+| 7 | Sauvegardes externes + **restauration prouvée** | `backup.sh` (pg_dump -Fc + miroir MinIO + `.env` chiffré age → remote rclone chez un **autre** hébergeur, rétention 14 j) et `restore.sh` (sur hôte vierge : recrée la base, recharge, `smoke-test` + contrôle de cohérence métier). **Attend** un stockage objet distinct + l'exécution réelle. Journal « Restauration prouvée » vide dans `production.md` — **L8-08 n'est pas satisfait tant qu'il l'est**. |
+| 8 | Supervision **hébergée ailleurs** | `infra/production/monitoring/` — `probe.sh` (HTTP seul : 3 hôtes, `/web/health`, `/rt/health`, **expiration des certificats**) et `probe-host.sh` (SSH : disque, **vol de CPU** (steal %, spécifique D18), âge de la dernière sauvegarde, file Odoo L3-12 en *placeholder*). `ALERT_CMD` par alerte. README : doit tourner sur une **autre** machine, et le test « panne provoquée » reste à faire. |
+| 9 | Latence de référence depuis Douala | Gabarit `docs/operations/latency-baseline.md` (méthode : API / WS / `/quote`, trois moments, p95). **Attend** une connexion camerounaise réelle. Marqué « NON MESURÉE ». |
+| 10 | Retour arrière + détenteurs d'accès | `infra/production/rollback.sh` (retour de code ; s'arrête net si le schéma a migré → restaurer la base). Tables « détenteurs d'accès » et « seuil de bascule d'hébergeur » dans `production.md` — **à remplir**, la valeur du seuil dépend de la référence de latence. |
+
+**Critère de fin de la mise en production (§9)** : étape 7 réussie + étape 8 qui alerte pour de
+vrai. Les deux attendent une machine. Aucune n'est cochée.
+
+### Écart mailpit (`amoa/questions/L0-06.md`) — traité
+
+L'écart disait « bloquant avant L0-07 ». Sa moitié SMTP est **déjà résolue** par l'état du
+dépôt : `infra/compose.yaml` utilise `${SMTP_HOST}` / `${SMTP_PORT}` (plus de littéral
+`mailpit`), et `mailpit` n'est que dans `compose.dev.yaml`. Reste que `make up` inclut toujours
+`compose.dev.yaml` — d'où `deploy.sh` qui n'utilise que `compose.yaml`, et `production.md` qui
+liste `SMTP_HOST=<relais réel>` parmi les variables du `.env` de production. Note datée ajoutée
+à l'écart. Le fournisseur **SMS** reste non tranché (hors périmètre, avant L1-09).
+
+### Choix d'implémentation (mentionnés, pas des écarts)
+
+- Scripts en `sh` POSIX (`#!/bin/sh`), vérifiés `sh -n` sous busybox/dash (le bash 3.2 de macOS
+  a un analyseur de here-documents cassé — faux négatif local, sans objet sur Debian).
+- `rclone` + `age` comme seuls outils ajoutés côté sauvegarde — justifiés par « stockage chez un
+  autre fournisseur » et « `.env` jamais en clair » de la spécification.
+- `infra/production/.state/` (commit déployé, horodatages, historique de sauvegarde) est local à
+  l'hôte, ajouté à `.gitignore`.
+
+### Fichiers
+
+`code/infra/production/{README.md, bootstrap.sh, deploy.sh, rollback.sh, backup.sh, restore.sh}`
+(nouveaux) ; `code/infra/production/monitoring/{README.md, probe.sh, probe-host.sh}` (nouveaux) ;
+`code/docs/operations/{production.md, latency-baseline.md}` (nouveaux) ; `.gitignore`
+(`.state/`) ; `amoa/questions/L0-06.md` (note datée).
