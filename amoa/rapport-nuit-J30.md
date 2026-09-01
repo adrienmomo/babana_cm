@@ -292,3 +292,120 @@ tests : `code/packages/contracts/test/realtime.test.ts`,
 `code/services/realtime/test/resync.test.ts`,
 `code/apps/driver/src/screens/__tests__/{ProposalScreen,HomeScreen,ActiveRideScreen}.test.tsx`,
 `code/apps/driver/src/location/__tests__/tracker.test.ts`.
+
+---
+
+## 5. Passe finale
+
+Environnement : `make reset` (down -v), `infra/env/.env` supprimé puis recréé par `make up`
+depuis le nouveau `.env.example` (variables de fournisseur vides, valeurs de dev fournies par
+`compose.dev.yaml`). Docker Desktop, Node 22.23, PostgreSQL 16.
+
+### `make up` puis `make seed` sur base fraîche
+
+- `make up` : les 7 conteneurs sains. `docker compose config` : le service `odoo` résout
+  `GOOGLE_JWKS_URL`, `GOOGLE_ROUTING_URL`, `SMTP_HOST/PORT` vers les valeurs mock/mailpit de
+  `compose.dev.yaml` — `make up` démarre sans qu'on ait rien renseigné.
+- `make seed` : **vert, idempotent** — 6 zones, 6 grilles, 1 client, 1 superviseur, 5 chauffeurs
+  approuvés, 8 courses `settled`. Seconde exécution : `+0 cette exécution`.
+- **D52 confirmé sur base réellement fraîche** (le `pre_init_hook` ne se déclenche qu'à une
+  première installation) : `SELECT count(*), count(distinct babana_public_id) FROM res_users`
+  → `14 | 14` ; `res_users_babana_public_id_unique  UNIQUE (babana_public_id)` présent dans
+  `pg_constraint` ; aucun `unable to add constraint` dans les journaux d'installation.
+
+### `make seed-drivers`
+
+Les 5 chauffeurs entrent dans `babana:drivers:available`, `speedMetersPerSecond` 6,1,
+`headingDegrees` renseigné. Positions relevées à ~20 s d'intervalle : les 5 ont bougé le long de
+leur tracé (déplacements de l'ordre de 90 m par pas), caps qui tournent aux virages, longitude
+minimale observée 9,689 — à l'est du Wouri. Boucles qui reviennent, aller-retours qui repartent.
+
+### `make lint`, `make typecheck`, `make verify`
+
+Verts. `make verify` (`infra/smoke-test.sh`) : 6 vérifications OK contre la pile réelle.
+
+### `make test`
+
+**Vert en entier** (`exit 0`), sur la base seedée :
+
+- **Suite Odoo babana** : `0 failed, 0 error(s)` — **612 tests** (609 à J29 + le nouveau
+  `test_sql_constraints_in_db` et les variantes de contrat L7-04).
+- `npm test` : `@babana/api-client` 80, `@babana/contracts` 79, `@babana/maps` 19,
+  `@babana/navigation` 4, `@babana/realtime` 206, `@babana/client` 106, `@babana/driver` 162,
+  `@babana/concurrency-tests` 37 (Redis + Odoo réels, plus le nouveau
+  `test/config/env-example.test.ts`) — tous verts.
+- `verify-realtime-message-map` (23 messages, 20 câblés, 3 en attente — mêmes 3 qu'à J29) et
+  `verify-ride-state-machine` : OK.
+- Les lignes `TypeError: fetch failed` dans la sortie de `@babana/realtime` sont les
+  `console.error` de tests qui pointent volontairement vers un Odoo injoignable (`# fail 0`).
+- Comme à J29 : sur une base déjà seedée, `make test` ne rejoue que la suite babana, pas les
+  ~1 700 tests des modules cœur d'Odoo (qui ne tournent qu'à une installation fraîche du module,
+  avant `make seed`). Propriété de `-i` d'Odoo, pas une régression.
+
+---
+
+## 6. Le scénario du §3, joué de bout en bout
+
+Rejoué contre la pile réelle (`make reset && make up && make seed`) avec un harnais jetable
+(scratchpad, comme J29) qui suit les huit étapes de `07-demonstration.md` §3 par les **vrais
+chemins** — `POST /api/v1/quote|rides|.../select-driver|start|complete|settle` + WebSocket
+(`nearby.subscribe`, `proposal.new`, `proposal.reject`, `proposal.accept`,
+`ride.rejected`, `ride.assigned`). Deux chauffeurs semés (`babana-demo-driver-1/-2`, approuvés
+par `make seed`) amenés en ligne par le harnais.
+
+| Étape §3 | Résultat |
+|---|---|
+| 1. Le client voit des chauffeurs autour de lui, tenus à jour | ✅ `nearby.drivers` : 2 chauffeurs (harnais) / 5 qui bougent avec `make seed-drivers` ; `nearby.subscribe.ack broadcastIntervalMs 5000` |
+| 2-3. Départ/arrivée désignés, estimation décomposée | ✅ `POST /quote` → **700 XAF**, `base 300 + distance 378 + surge 0 − remise 0 + arrondi 22 = 700` (recalculable de tête) |
+| 4. Le client crée la course et choisit un chauffeur | ✅ `POST /rides` (quoteId) → `requested` ; `select-driver` → `proposed` ; le chauffeur reçoit `proposal.new` (montant 700, `expiresAt`) |
+| 5. Le chauffeur refuse ; retour à la sélection, ce chauffeur en moins | ✅ `proposal.reject` → `ride.rejected` côté client ; après re-souscription `nearby.subscribe` avec `excludeDriverIds` (ce que fait `QuoteScreen`/`DriverRejectedScreen`), la liste exclut le refusant. **L'exclusion est pilotée par l'app, pas automatique côté serveur** — vérifié explicitement. |
+| 6. Un second chauffeur accepte | ✅ `select-driver` (2e) → `proposal.new` → `proposal.accept` → `ride.assigned` avec l'identité du chauffeur (prénom, photo) |
+| 7. Course démarrée, terminée, encaissée | ✅ `start` → `in_progress` ; `complete` → `completed` (montant 700, `measured false` — pas d'accumulation temps réel dans le harnais) ; `settle` → `settled`, `driverCashBalance` +700, `cashLimitReached false` |
+| 8. Bascule back-office | ✅ course `settled`, `final_amount 700`, zone « Akwa » résolue, `fare_rule_snapshot` présent ; mouvement `collection` de 700 lié à la course dans le compte courant du chauffeur |
+
+**Le scénario passe de bout en bout. Il ne bute nulle part.** Un seul point à connaître pour la
+démonstration (pas un blocage) : l'exclusion du chauffeur refusant est portée par l'application
+(re-souscription avec `excludeDriverIds`, plus filtre local dans `QuoteScreen`), pas par le
+serveur seul — c'est la conception (L3-08). Le back-office affiche encore les montants en **USD**
+et non en FCFA (devise de société non changée quand des écritures comptables existent déjà —
+détaillé par J29, contournement `--without-demo=all` ou devise fixée à la main) ; l'API et les
+apps affichent bien « XAF » (le contrat le fixe).
+
+---
+
+## Ce qui me laisse un doute pour quelqu'un de réel
+
+1. **`make test` complet vs partiel** — comme l'a établi J29 : après `make seed` (qui installe
+   déjà le module), `make test` ne rejoue que la suite babana, pas les ~1 700 tests des modules
+   cœur d'Odoo qui ne tournent qu'à une installation fraîche. La couverture du projet est la
+   suite babana ; le nombre total dépend de l'état antérieur de la base. Rien de neuf, mais un
+   lecteur du compte rendu doit le savoir avant de comparer un décompte à celui d'une autre nuit.
+2. **Le garde `:?` de `compose.yaml` déplacé vers `deploy.sh`.** `GOOGLE_JWKS_URL` n'a plus de
+   garde `${...:?}` dans `infra/compose.yaml` — elle empêchait `make up` de démarrer avec la
+   valeur vide. La protection de production tient maintenant à trois choses : `deploy.sh` qui
+   fait un `die`, le code d'Odoo qui lève à l'appel, et le test `test/config/env-example.test.ts`
+   qui interdit une valeur de simulateur dans l'exemple. C'est plus dispersé qu'une seule garde
+   Compose — défendable (la production ne passe pas par Compose seul), mais à garder en tête :
+   quelqu'un qui lit `compose.yaml` seul ne voit plus que ces variables sont obligatoires.
+3. **`make seed-drivers` reste une commande à laisser ouverte** pendant toute la démonstration
+   (elle tient les connexions WebSocket ; si le terminal se ferme, la carte se vide en ~60 s,
+   TTL des positions). Écart `L0-06-live-driver-positions.md` toujours ouvert sur l'emballage
+   (commande à la main vs service `compose.dev.yaml` profil `demo`). Non bloquant.
+4. **Les itinéraires de figuration sont des approximations dessinées à la main**, pas des rues
+   relevées. « Plausible, pas aléatoire » est tenu (segments cardinaux, virages, vitesse
+   constante, à l'est du Wouri), mais une moto pourrait « rouler » sur ce qui est en réalité un
+   pâté de maisons. Suffisant pour montrer des points qui se déplacent de façon crédible ;
+   à remplacer par de vrais tracés si la fidélité géographique compte un jour.
+5. **Devise USD au back-office** (inchangé depuis J29). Le seul détail que le client verra à
+   l'écran au point 8. À trancher avant le rendez-vous : `-i babana --without-demo=all`, ou
+   devise fixée à la main au premier lancement.
+6. **La partie native de L7-04 n'a toujours pas tourné sur un téléphone** : la réception d'un
+   message FCM réel (le cas « app fermée, le chauffeur ouvre la notification ») exige un build
+   mobile. La logique de routage/déduplication et l'écran de revalidation — y compris les deux
+   corrections de cette nuit — sont testés sans SDK ; le fait qu'un message arrive vraiment
+   reste à voir sur l'appareil du pilote (L6-19).
+7. **`res.users` : deux champs au même libellé.** `make seed` journalise
+   `Two fields (babana_google_sub, google_sub) of res.users() have the same label`. Cosmétique
+   (un `string=` non distinct entre `res.users.google_sub` et `res.partner.babana_google_sub`
+   hérités au même endroit), sans effet fonctionnel, mais visible dans les journaux
+   d'installation — à nettoyer un jour d'un `string=` explicite.
