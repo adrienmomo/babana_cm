@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f infra/compose.yaml -f infra/compose.dev.yaml --env-file infra/env/.env
 
-.PHONY: up down logs reset seed client driver test lint typecheck verify secrets-scan
+.PHONY: up down logs reset seed seed-drivers client driver test lint typecheck verify secrets-scan
 
 up:              ## Démarre tous les services et attend qu'ils soient sains
 	@test -f infra/env/.env || cp infra/env/.env.example infra/env/.env
@@ -22,8 +22,20 @@ reset:           ## Arrête et efface les données
 logs:            ## Journaux agrégés
 	$(COMPOSE) logs -f
 
-seed:            ## Jeu de données de démonstration
+seed:            ## Jeu de données de démonstration -- idempotent (D21, amoa/07-demonstration.md)
+	# `make up` seul n'installe jamais le module babana (compose.dev.yaml : `odoo --dev=reload`,
+	# sans `-i`) : sur une base fraîche il faut donc l'installer avant de semer. `-i` sur un
+	# module déjà installé ne fait que recharger le registre -- l'étape reste idempotente. Même
+	# `sh -c '... --db_host=...'` que `make test` : `docker compose exec` ne passe pas par
+	# l'entrypoint de l'image qui traduit HOST/USER/PASSWORD d'ordinaire.
+	$(COMPOSE) exec -T odoo sh -c 'odoo -d babana --stop-after-init --no-http -i babana --db_host="$$HOST" --db_user="$$USER" --db_password="$$PASSWORD"'
 	$(COMPOSE) exec -T odoo sh -c 'odoo shell -d babana --no-http --db_host="$$HOST" --db_user="$$USER" --db_password="$$PASSWORD"' < services/odoo/scripts/seed.py
+
+seed-drivers:    ## Tient les chauffeurs semés en ligne, à des positions dispersées (Ctrl-C pour arrêter)
+	# Le pool géo-indexé du service temps réel n'a qu'un seul écrivain (D26) : ce compagnon de
+	# `make seed` ouvre une connexion WebSocket par chauffeur semé (vrai /auth/google -> WS ->
+	# availability.set + position.update), il n'écrit jamais Redis directement.
+	node services/realtime/scripts/demo-drivers.mjs
 
 client:          ## Démarre l'app Client
 	npm run start -w @babana/client
