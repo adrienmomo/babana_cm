@@ -171,3 +171,60 @@ contienne un marqueur de simulateur (`mailpit`, `mock-google-identity`, `mock-ma
 `code/services/odoo/addons/babana/services/routing.py` ; `code/infra/production/deploy.sh` ;
 `code/docs/operations/production.md` ; `code/test/config/env-example.test.ts` (nouveau),
 `code/test/package.json`, `code/test/tsconfig.json`.
+
+---
+
+## 3. L'outil de figuration — chauffeurs qui se déplacent dans Douala
+
+### Ce qui change par rapport à J29
+
+`services/realtime/scripts/demo-drivers.mjs` existait (J29) : il mettait les chauffeurs semés en
+ligne par le vrai chemin (auth Google → WS → `availability.set` → `position.update`), mais à des
+**positions fixes** avec un tremblement de ±25 m tiré au hasard. Le prompt J30 demande qu'ils
+**se déplacent** — « des déplacements plausibles, pas aléatoires (D21) : une moto suit des rues,
+elle ne traverse pas le Wouri ».
+
+Le chemin d'authentification, la reconnexion et l'extinction propre (repasse hors ligne) sont
+**inchangés** — c'est la partie « vrai chemin » que l'écart validait. Seule la génération des
+positions est réécrite.
+
+### Les déplacements
+
+- **Six itinéraires fixes**, tracés en décalages `(dLat, dLng)` par rapport à
+  `BABANA_DEMO_ORIGIN` (Akwa, `4.0483,9.6934` par défaut — inchangé) : boucle Akwa centre,
+  Akwa→Deïdo, Akwa→New-Bell, boucle Bonapriso, boucle Bali/Akwa ouest, Akwa nord→Bépanda.
+  Longueurs 1,6 à 2,9 km. Chaque tracé suit grossièrement une trame de rues (segments
+  cardinaux, virages aux carrefours).
+- **Tous à l'est du Wouri** : longitude minimale ≈ 9,689 (le fleuve est vers 9,67–9,68 à cette
+  latitude, Bonabéri rive gauche est à 9,66). Aucun itinéraire ne l'approche, aucun saut
+  discontinu entre deux points (plus grand écart entre sommets : 601 m, interpolé).
+- **Aucun `Math.random()`.** Vitesse constante (`BABANA_DEMO_SPEED_KMH`, 22 km/h par défaut —
+  croisière d'une moto en ville), position émise toutes les 15 s (`< POSITION_TTL_SECONDS`),
+  soit ~92 m par pas. Départ de chaque chauffeur étalé sur son tracé de façon déterministe
+  (`((index-1) * 0.37) mod 1`) : deux chauffeurs sur le même tracé ne se superposent pas. La
+  flotte est identique d'une exécution à l'autre (D21).
+- Les tracés dont le dernier point rejoint le premier sont parcourus **en boucle continue** ;
+  les autres **en aller-retour** (demi-tour aux extrémités). Le cap (`headingDegrees`) et la
+  vitesse (`speedMetersPerSecond`) émis sont ceux du segment courant — plus de `null`.
+
+### Vérifié
+
+- `node --check` : OK.
+- Simulation hors ligne de la géométrie (`buildItinerary` / `locate` / `tick`) : positions qui
+  avancent de ~92 m par pas, cap qui tourne aux virages (0°→7°→66°→85° sur la boucle Akwa),
+  bornes lat 4,027–4,069 / lng 9,689–9,715, boucles qui reviennent, aller-retours qui
+  repartent.
+- Bout en bout contre la pile réelle : section « passe finale », après `make seed`
+  (`make seed-drivers` a besoin des chauffeurs `babana-demo-driver-N` approuvés).
+
+### Ce qui n'est pas fait, et pourquoi
+
+L'outil reste une **commande à lancer et à laisser ouverte** pendant la démonstration (elle tient
+les connexions WebSocket). C'est le point de l'écart `L0-06-live-driver-positions.md` non
+tranché (commande à la main vs service `compose.dev.yaml` profil `demo`). Rien de neuf à
+signaler : la recommandation J29 (garder la commande — on voit les chauffeurs se connecter, on
+peut en couper un) tient pour cette démonstration.
+
+### Fichiers
+
+`code/services/realtime/scripts/demo-drivers.mjs`.
