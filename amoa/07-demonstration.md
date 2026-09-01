@@ -98,6 +98,11 @@ une application fermée ne reçoit pas de proposition.
 démonstration n'est pas le SYSCOHADA. Les comptes sont paramétrables et attendent la validation
 d'un comptable. Le dire vous-même vaut mieux que de le laisser découvrir.
 
+**Vérifiez que les montants s'affichent en francs CFA à l'étape 8.** La devise de la société était
+le dollar jusqu'au 7 septembre, et l'étape du back-office est précisément celle qui doit
+convaincre. Un chauffeur qui doit « 700 USD » à une entreprise de moto-taxi de Douala annule tout
+le bénéfice de la démonstration.
+
 Et une quatrième, si la question du calendrier vient : **premières courses visées au 13 octobre,
 marge au 20**. Le détail est dans `06-jalons-et-pilote.md`, avec ce qui pourrait le compresser et
 ce qui le ferait glisser.

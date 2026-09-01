@@ -57,6 +57,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D50 | **Un flux annonce sa propre cadence** dans son accusé d'abonnement ; l'application ne recopie jamais une valeur du serveur | Constante locale alignée à la main | Deux copies d'une même valeur, sans mécanisme pour les tenir d'accord, finissent par diverger en silence — D23, une fois de plus. Voir §3 ter |
 | D51 | **Une proposition porte la distance à parcourir à vide** jusqu'au client, pas seulement celle de la course | La distance de la course seule | C'est le chiffre le plus déterminant pour un chauffeur qui décide en trente secondes, et le serveur le connaît déjà |
 | D52 | **Les contraintes déclarées sont comparées à celles réellement présentes en base**, après installation | Faire confiance à la déclaration | Odoo journalise l'échec de création d'une contrainte et poursuit. Deux ont ainsi protégé le vide pendant des semaines. Voir §9 quater |
+| D53 | **La base n'installe jamais les données de démonstration d'Odoo, et la devise franc CFA est exigée à l'installation** | Laisser la devise par défaut ; corriger à la main | Les données de démonstration créent des écritures avant qu'on fixe la devise, et Odoo refuse ensuite de la changer : le compte courant et le grand livre étaient libellés en dollars. Voir §7 |
 
 ---
 
@@ -333,6 +334,12 @@ Un chauffeur salarié qui encaisse des espèces détient des fonds appartenant �
 - Refuser la remise tant que le compte n'y est pas aurait un effet pervers : un chauffeur bloqué au plafond avec 500 FCFA manquants ne peut plus travailler du tout, donc plus rembourser.
 
 Le plafond bloquant est ce qui empêche cette dette de croître indéfiniment : elle se heurte au plafond, et le chauffeur doit régulariser pour reprendre.
+
+**Et elle le dit dans la bonne monnaie (D53, 7 septembre).** La devise de la société était le dollar. Un rapport de nuit l'avait classé « cosmétique — le back-office affiche des dollars » ; ce ne l'était pas. Le mouvement de compte courant prend par défaut la devise de la société, et l'écriture comptable aussi : **le compte courant des chauffeurs et le grand livre étaient donc libellés en dollars**, pendant que l'API annonçait « XAF » en dur. Le nombre était le même, la monnaie ne l'était pas — dans un produit dont l'objet entier est la réconciliation d'espèces en francs CFA.
+
+La cause : les données de démonstration d'Odoo créent des écritures comptables dès l'installation, et Odoo refuse ensuite de changer la devise d'une société qui en possède. Le correctif porte donc sur les deux bouts — **ces données n'ont rien à faire dans cette base**, et la devise est exigée à l'installation, vérifiée mécaniquement comme les contraintes de D52.
+
+Ce qui vaut d'être retenu : « cosmétique » est un jugement qu'il faut vérifier avant de le poser. Ici, une phrase sur un affichage cachait un grand livre dans la mauvaise monnaie.
 
 **La comptabilité dit la même chose que le compte courant, jamais autre chose (D34, 20 août).** C'est une évidence tant qu'on ne l'écrit pas, et une source de dérive dès qu'on l'oublie. La créance sur le chauffeur n'est soldée qu'à hauteur de ce qui a été **réellement reçu** ; le reliquat reste dû au bilan, du même montant que celui resté au compte courant. Les deux systèmes se vérifient alors l'un l'autre au lieu de se contredire.
 
