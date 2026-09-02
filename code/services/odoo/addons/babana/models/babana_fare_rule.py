@@ -110,6 +110,7 @@ class BabanaFareRule(models.Model):
     )
     has_overlap = fields.Boolean(
         compute="_compute_overlap_rule_ids",
+        search="_search_has_overlap",
         string="Recouvre une autre règle",
     )
     locked_by_usage = fields.Boolean(
@@ -155,6 +156,17 @@ class BabanaFareRule(models.Model):
             overlapping = others.filtered(lambda other, rule=rule: rule._overlaps_with(other))
             rule.overlap_rule_ids = [(6, 0, overlapping.ids)]
             rule.has_overlap = bool(overlapping)
+
+    def _search_has_overlap(self, operator, value):
+        # has_overlap n'est pas stocké (même raison que overlap_rule_ids : recalculé à chaque
+        # lecture, le nombre de règles d'un pilote reste faible) -- le filtre "En recouvrement"
+        # de la vue de recherche passe donc par un balayage Python, même patron que
+        # babana_driver.py::_search_cash_limit_reached pour "plafond atteint".
+        if operator not in ("=", "!="):
+            raise ValueError("Filtre 'recouvrement' : opérateur non supporté.")
+        wants_overlap = (operator == "=" and value) or (operator == "!=" and not value)
+        overlapping_ids = [rule.id for rule in self.search([]) if rule.has_overlap]
+        return [("id", "in" if wants_overlap else "not in", overlapping_ids)]
 
     def _is_generic(self) -> bool:
         # Une règle totalement sans restriction (data/fare_rule_default.xml : ni zone, ni gamme,

@@ -43,7 +43,10 @@
     "babana.fare.rule":           { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.zone":                { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.route.cache":         { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
-    "babana.idempotency.record":  { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] }
+    "babana.idempotency.record":  { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.fare.rule.version.wizard": { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.fare.simulator":      { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.cash.dashboard":      { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] }
   },
   "inherited_models": {
     "_comment": "Modèles Odoo standard exposés au mobile par héritage ou relation (L8-01, critère 6). Mêmes règles, testés au même titre.",
