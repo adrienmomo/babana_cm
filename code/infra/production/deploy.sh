@@ -56,6 +56,13 @@ case "${SMTP_HOST:-}" in
   ""|mailpit) die "SMTP_HOST vide ou =mailpit dans $ENV_FILE -- poser le relais SMTP réel (mailpit accepte les factures et ne signale rien)." ;;
 esac
 [ -n "${SMTP_PORT:-}" ] || die "SMTP_PORT vide dans $ENV_FILE -- le poser (587 ou 465 selon le relais retenu)."
+# Même motif D43, appliqué à un secret (constat du 11 septembre --
+# amoa/questions/REPONSES-2026-09-11.md §1) : ADMIN_PASSWORD vide ou recopié du fichier
+# d'exemple laisserait le back-office en `admin`/`admin`, ou en un mot de passe de
+# développement connu de quiconque a lu ce dépôt.
+case "${ADMIN_PASSWORD:-}" in
+  ""|dev-only-not-a-real-secret) die "ADMIN_PASSWORD vide ou égal à la valeur de développement dans $ENV_FILE -- poser un mot de passe de production généré (gestionnaire de secrets)." ;;
+esac
 case "${BABANA_MAPS_SEARCH_URL:-}" in
   *localhost:4001*|*mock-maps*) warn "BABANA_MAPS_SEARCH_URL pointe vers mock-maps -- le build web du Client ci-dessous embarquera cette adresse ; poser l'adresse Google réelle avant de servir aux vrais clients." ;;
 esac

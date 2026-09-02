@@ -51,7 +51,12 @@ export const MOCK_GOOGLE_URL = process.env.GOOGLE_MOCK_IDENTITY_URL ?? 'http://l
 
 const ODOO_DB = env('ODOO_DB', 'babana');
 const ODOO_ADMIN_LOGIN = env('ODOO_ADMIN_LOGIN', 'admin');
-const ODOO_ADMIN_PASSWORD = env('ODOO_ADMIN_PASSWORD', 'admin');
+// ADMIN_PASSWORD (infra/env/.env.example), pas ODOO_ADMIN_PASSWORD : c'est le nom que pose
+// __init__.py::_post_init_admin_password sur le compte admin (D43 retournée, constat du 2
+// septembre -- ce fichier tourne sur l'hôte, jamais dans un conteneur, et lisait jusqu'ici un
+// nom de variable que rien ne posait, repliant silencieusement sur l'ancien défaut Odoo
+// « admin » -- correct par coïncidence tant que ce mot de passe n'avait jamais été changé).
+const ODOO_ADMIN_PASSWORD = env('ADMIN_PASSWORD', 'admin');
 
 let requestId = 1;
 

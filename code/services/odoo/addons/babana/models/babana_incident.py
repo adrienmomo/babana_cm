@@ -24,10 +24,16 @@ INCIDENT_STATUSES = [
 
 class BabanaIncident(models.Model):
     _name = "babana.incident"
+    # Même défaut que babana.cash.remittance et babana.cash.discrepancy : sans ceci, le
+    # formulaire back-office (<chatter/>, babana_incident_views.xml) plante à l'ouverture
+    # (AttributeError sur _get_thread_with_access) -- constaté en revue visuelle du 2 septembre.
+    _inherit = ["mail.thread"]
     _description = "Incident déclenché pendant une course (L8-04)"
     _order = "create_date desc, id desc"
 
-    ride_id = fields.Many2one("babana.ride", required=True, index=True, ondelete="restrict")
+    ride_id = fields.Many2one(
+        "babana.ride", string="Course", required=True, index=True, ondelete="restrict"
+    )
     public_id = fields.Char(
         index=True,
         copy=False,
@@ -36,19 +42,26 @@ class BabanaIncident(models.Model):
         "séquentiel et devinable (même discipline que babana.ride.public_id).",
     )
     trigger_actor = fields.Selection(
-        [("client", "Client"), ("driver", "Chauffeur")], required=True, readonly=True
+        [("client", "Client"), ("driver", "Chauffeur")],
+        string="Déclenché par",
+        required=True,
+        readonly=True,
     )
     trigger_user_id = fields.Many2one(
-        "res.users", required=True, ondelete="restrict", readonly=True
+        "res.users", string="Utilisateur à l'origine", required=True, ondelete="restrict",
+        readonly=True
     )
     incident_type = fields.Selection(
-        INCIDENT_TYPES, default="emergency", required=True, readonly=True
+        INCIDENT_TYPES, string="Type d'incident", default="emergency", required=True,
+        readonly=True
     )
     latitude = fields.Float(
-        required=True, digits=(10, 6), readonly=True, help="Position exacte au déclenchement."
+        string="Latitude", required=True, digits=(10, 6), readonly=True,
+        help="Position exacte au déclenchement."
     )
-    longitude = fields.Float(required=True, digits=(10, 6), readonly=True)
+    longitude = fields.Float(string="Longitude", required=True, digits=(10, 6), readonly=True)
     triggered_at = fields.Datetime(
+        string="Déclenché à",
         required=True,
         readonly=True,
         help="Horodatage d'origine posé côté appareil -- distinct de create_date quand la "
@@ -56,18 +69,23 @@ class BabanaIncident(models.Model):
         "(critère d'acceptation 6).",
     )
 
-    status = fields.Selection(INCIDENT_STATUSES, default="open", required=True, index=True)
+    status = fields.Selection(
+        INCIDENT_STATUSES, string="Statut", default="open", required=True, index=True
+    )
     handled_by_id = fields.Many2one("res.users", string="Traité par", readonly=True)
-    handled_at = fields.Datetime(readonly=True)
-    resolution_notes = fields.Text(readonly=True)
+    handled_at = fields.Datetime(string="Traité à", readonly=True)
+    resolution_notes = fields.Text(string="Notes de résolution", readonly=True)
 
     emergency_contact_phone = fields.Char(
+        string="Contact d'urgence",
         readonly=True,
         help="Copie de res.partner.babana_emergency_contact au moment du déclenchement -- une "
         "correction ultérieure de la fiche client ne doit pas réécrire l'histoire d'un incident "
         "déjà traité.",
     )
-    emergency_contact_notified = fields.Boolean(readonly=True, default=False)
+    emergency_contact_notified = fields.Boolean(
+        string="Contact d'urgence prévenu", readonly=True, default=False
+    )
 
     _sql_constraints = [
         (

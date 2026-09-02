@@ -103,6 +103,7 @@ class BabanaDriver(models.Model):
             ("rejected", "Rejeté"),
             ("suspended", "Suspendu"),
         ],
+        string="État",
         default="pending",
         required=True,
     )

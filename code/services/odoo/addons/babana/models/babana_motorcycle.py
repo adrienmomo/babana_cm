@@ -34,6 +34,11 @@ class BabanaMotorcycle(models.Model):
     _inherit = ["mail.thread"]
     _description = "Moto de la flotte (L1-07, D6)"
     _order = "license_plate"
+    # Sans ceci, Odoo n'a ni "name" ni _rec_name et affiche le repli technique "babana.motorcycle,1"
+    # partout où le Many2one apparaît (liste et fiche chauffeur : "Moto affectée", historique
+    # d'affectations) -- constaté en revue visuelle du back-office du 2 septembre, jamais vu
+    # avant faute d'identifiant admin (amoa/questions/REPONSES-2026-09-11.md §1).
+    _rec_name = "license_plate"
 
     license_plate = fields.Char(string="Immatriculation", required=True, index=True, copy=False)
     brand = fields.Char(string="Marque")

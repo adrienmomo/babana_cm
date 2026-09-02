@@ -358,6 +358,16 @@ def make_history(client_user, drivers, zones_by_name):
     rounding_step = env["babana.fare.rule"].sudo()._default_rounding_step()
     made = 0
 
+    # Rejouabilité (docstring de tête) : la clé naturelle d'une entrée HISTORY ne peut pas être
+    # un champ métier -- ni la date (calculée depuis datetime.now(), donc différente à chaque
+    # nuit) ni la paire de zones (deux entrées distinctes de HISTORY peuvent la partager). Gardée
+    # à part, dans ir.config_parameter, plutôt que dans pickup_label : jusqu'au 2 septembre ce
+    # marqueur technique ("seed-history:1:0:Makepe>Akwa") était affiché tel quel comme adresse de
+    # départ dans "Courses récentes" -- constaté en revue visuelle du back-office, jamais vu avant
+    # faute d'identifiant admin (amoa/questions/REPONSES-2026-09-11.md §1).
+    Param = env["ir.config_parameter"].sudo()
+    seen_markers = set(json.loads(Param.get_param("babana.seed_history_markers") or "[]"))
+
     for days_ago, driver_ix, from_name, to_name in HISTORY:
         driver = drivers[driver_ix]
         _, (o_lat, o_lng) = zones_by_name[from_name]
@@ -369,7 +379,7 @@ def make_history(client_user, drivers, zones_by_name):
         when = datetime.now() - timedelta(days=days_ago, hours=(driver_ix + 1))
 
         marker = "seed-history:%d:%d:%s>%s" % (days_ago, driver_ix, from_name, to_name)
-        if env["babana.ride"].sudo().search_count([("pickup_label", "=", marker)]):
+        if marker in seen_markers:
             continue
 
         pickup_zone = env["babana.zone"].sudo().resolve_point(latitude=o_lat, longitude=o_lng)
@@ -418,7 +428,7 @@ def make_history(client_user, drivers, zones_by_name):
                 "client_id": partner.id,
                 "pickup_latitude": o_lat,
                 "pickup_longitude": o_lng,
-                "pickup_label": marker,
+                "pickup_label": "%s (démo)" % from_name,
                 "dropoff_latitude": d_lat,
                 "dropoff_longitude": d_lng,
                 "dropoff_label": "%s (démo)" % to_name,
@@ -461,10 +471,12 @@ def make_history(client_user, drivers, zones_by_name):
             "UPDATE babana_cash_movement SET create_date = %s WHERE ride_id = %s",
             (when + timedelta(minutes=18), ride.id),
         )
+        seen_markers.add(marker)
         made += 1
         info("+ course %s : %s -> %s, %d FCFA (%s)", ride.reference, from_name, to_name,
              round(ride.final_amount), driver.employee_id.name)
 
+    Param.set_param("babana.seed_history_markers", json.dumps(sorted(seen_markers)))
     return made
 
 

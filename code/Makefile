@@ -65,6 +65,20 @@ test:            ## Tests de tous les paquets et services, plus la suite Odoo
 	# principal du conteneur écoute déjà 8069, et --test-enable démarre un serveur HTTP même avec
 	# --stop-after-init.
 	$(COMPOSE) exec -T odoo sh -c 'odoo -d babana --test-enable --stop-after-init -i babana --http-port=8070 --db_host="$$HOST" --db_user="$$USER" --db_password="$$PASSWORD"'
+	# La limitation de débit sur la création de candidature (L1-01 critère 10, babana_driver.py)
+	# vise un abus réel -- 5 candidatures/heure par IP en production, déjà couvert bout en bout
+	# par test_driver_candidacy_creation_is_rate_limited (suite Odoo ci-dessus, avec sa propre
+	# valeur temporaire). npm test, juste après, crée légitimement plus de cinq identités
+	# chauffeur distinctes (une par scénario isolé de test/concurrency et test/http-contract),
+	# toutes vues depuis la même adresse par ce serveur (réseau Docker partagé) : sans ce
+	# relâchement elle se bloquerait elle-même dès le sixième chauffeur -- constaté le 2
+	# septembre en faisant tourner la suite complète pour la première fois d'une traite.
+	# Uniquement sur cette base de développement/test ; aucun mécanisme ne pose cette valeur en
+	# production (infra/production/deploy.sh n'appelle jamais cette cible).
+	printf '%s\n' \
+		'env["ir.config_parameter"].sudo().set_param("babana.driver_candidacy_rate_limit_max", "1000")' \
+		'env.cr.commit()' \
+		| $(COMPOSE) exec -T odoo sh -c 'odoo shell -d babana --no-http --db_host="$$HOST" --db_user="$$USER" --db_password="$$PASSWORD"'
 	npm test
 
 lint:            ## Lint de tous les espaces de travail

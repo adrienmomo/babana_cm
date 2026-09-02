@@ -26,10 +26,22 @@ CASH_REMITTANCE_DISCREPANCY_ACCOUNT_PARAM = "babana.cash_remittance_discrepancy_
 
 class BabanaCashRemittance(models.Model):
     _name = "babana.cash.remittance"
+    # Même motif que babana.ride._rec_name (babana_ride.py) : sans lui, la fiche s'ouvre sous le
+    # titre technique "babana.cash.remittance,2" plutôt que "R2026000002" -- visible dans le
+    # champ "Écart lié" de la fiche remise elle-même autant que dans le fil d'Ariane, constaté en
+    # revue visuelle du 2 septembre.
+    _rec_name = "reference"
+    # Sans ceci, le formulaire back-office (<chatter/>, babana_remittance_views.xml) plante à
+    # l'ouverture d'une remise réelle : AttributeError 'babana.cash.remittance' object has no
+    # attribute '_get_thread_with_access' -- constaté en revue visuelle du 2 septembre (même
+    # défaut que babana.cash.discrepancy et babana.incident, jamais vu avant faute d'identifiant
+    # admin, amoa/questions/REPONSES-2026-09-11.md §1).
+    _inherit = ["mail.thread"]
     _description = "Remise de caisse chauffeur (D8, L5-03)"
     _order = "create_date desc, id desc"
 
     reference = fields.Char(
+        string="Référence",
         required=True, copy=False, default="/", readonly=True,
         help="Référence humaine, par séquence (babana.cash.remittance) -- distincte de public_id "
         "(UUID, exposé à l'API mobile, C-01), même partition que babana.ride.",
@@ -42,7 +54,9 @@ class BabanaCashRemittance(models.Model):
         "l'identifiant Odoo interne, même règle que babana.ride.public_id et "
         "babana.driver.public_id (posée le 15 août).",
     )
-    driver_id = fields.Many2one("babana.driver", required=True, index=True, ondelete="restrict")
+    driver_id = fields.Many2one(
+        "babana.driver", string="Chauffeur", required=True, index=True, ondelete="restrict"
+    )
     currency_id = fields.Many2one(
         "res.currency",
         required=True,
@@ -85,22 +99,25 @@ class BabanaCashRemittance(models.Model):
             ("validated", "Validée"),
             ("disputed", "Contestée"),
         ],
+        string="État",
         default="draft",
         required=True,
         help="'draft' n'est jamais atteint par le chemin normal (L5-04, action_declare crée "
         "directement en 'declared') -- conservé pour compléter l'énumération de la "
         "spécification (L5-03) et pour un usage back-office futur non prévu par ce lot.",
     )
-    supervisor_id = fields.Many2one("res.users", ondelete="restrict")
-    declared_at = fields.Datetime()
-    validated_at = fields.Datetime()
+    supervisor_id = fields.Many2one("res.users", string="Superviseur", ondelete="restrict")
+    declared_at = fields.Datetime(string="Déclarée à")
+    validated_at = fields.Datetime(string="Validée à")
     discrepancy_reason = fields.Text(
+        string="Motif de l'écart",
         help="Motif libre, renseignable par le superviseur à la validation. Distinct du "
         "traitement structuré de l'écart (babana.cash.discrepancy, L5-06), qui porte son "
         "propre motif catégorisé et sa propre exigence de clôture motivée.",
     )
     move_id = fields.Many2one(
         "account.move",
+        string="Pièce comptable",
         copy=False,
         ondelete="restrict",
         help="Pièce comptable de la validation (L5-05) -- vide tant que la remise n'est pas "

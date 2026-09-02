@@ -36,13 +36,22 @@ _DECISIONS = [
 
 class BabanaCashDiscrepancy(models.Model):
     _name = "babana.cash.discrepancy"
+    # Sans ceci, le formulaire back-office (<chatter/>, babana_discrepancy_views.xml) plante à
+    # l'ouverture : AttributeError 'babana.cash.discrepancy' object has no attribute
+    # '_get_thread_with_access' -- constaté en revue visuelle du 2 septembre (même défaut que
+    # babana.cash.remittance et babana.incident, jamais vu avant faute d'identifiant admin,
+    # amoa/questions/REPONSES-2026-09-11.md §1).
+    _inherit = ["mail.thread"]
     _description = "Écart de remise de caisse (D29, L5-06)"
     _order = "create_date asc, id asc"  # triés par ancienneté (spécification, vue back-office)
 
     remittance_id = fields.Many2one(
-        "babana.cash.remittance", required=True, index=True, ondelete="restrict"
+        "babana.cash.remittance", string="Remise", required=True, index=True,
+        ondelete="restrict"
     )
-    driver_id = fields.Many2one("babana.driver", required=True, index=True, ondelete="restrict")
+    driver_id = fields.Many2one(
+        "babana.driver", string="Chauffeur", required=True, index=True, ondelete="restrict"
+    )
     currency_id = fields.Many2one(
         "res.currency", required=True, default=lambda self: self.env.company.currency_id.id
     )
@@ -55,6 +64,7 @@ class BabanaCashDiscrepancy(models.Model):
     )
     direction = fields.Selection(
         [("shortfall", "Manque"), ("surplus", "Excédent")],
+        string="Sens",
         required=True,
         default="shortfall",
         help="'shortfall' dans ce lot : une remise ne peut jamais dépasser le solde attendu "
@@ -64,16 +74,19 @@ class BabanaCashDiscrepancy(models.Model):
     )
     reason_category = fields.Selection(_REASON_CATEGORIES, string="Motif")
     reason_comment = fields.Text(
+        string="Commentaire",
         help="Obligatoire quand `reason_category` vaut 'other' (critère d'acceptation 2).",
     )
     status = fields.Selection(
-        [("pending", "En attente"), ("closed", "Clôturé")], default="pending", required=True
+        [("pending", "En attente"), ("closed", "Clôturé")],
+        string="Statut", default="pending", required=True
     )
-    decision = fields.Selection(_DECISIONS)
-    decided_by = fields.Many2one("res.users", ondelete="restrict")
-    closed_at = fields.Datetime()
+    decision = fields.Selection(_DECISIONS, string="Décision")
+    decided_by = fields.Many2one("res.users", string="Décidé par", ondelete="restrict")
+    closed_at = fields.Datetime(string="Clôturé à")
     adjustment_movement_id = fields.Many2one(
         "babana.cash.movement",
+        string="Mouvement d'ajustement",
         ondelete="restrict",
         help="Mouvement de compte courant produit par un traitement explicite (critère "
         "d'acceptation 3) -- vide pour le traitement par défaut (D29, `left_on_balance`), qui "
@@ -82,6 +95,7 @@ class BabanaCashDiscrepancy(models.Model):
     )
     write_off_move_id = fields.Many2one(
         "account.move",
+        string="Pièce d'apurement",
         ondelete="restrict",
         help="Pièce comptable qui éteint le reliquat de créance (D34, "
         "babana_cash_remittance.py::_babana_post_discrepancy_writeoff) -- vide pour le "

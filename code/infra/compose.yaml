@@ -45,6 +45,11 @@ services:
       # valeur de dev vit désormais dans compose.dev.yaml.
       GOOGLE_JWKS_URL: ${GOOGLE_JWKS_URL}
       GOOGLE_ROUTING_URL: ${GOOGLE_ROUTING_URL}
+      # Secret ordinaire (constat du 11 septembre -- amoa/questions/REPONSES-2026-09-11.md §1),
+      # posée dans infra/env/.env comme POSTGRES_PASSWORD/JWT_SECRET ci-dessous -- lue aussi bien
+      # par ce conteneur que par des outils hôte (test/concurrency/helpers/odoo-session.ts).
+      # __init__.py::_post_init_admin_password lève à l'installation du module si elle est vide.
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
       REALTIME_INTERNAL_URL: http://realtime:3000
       REALTIME_SHARED_SECRET: ${REALTIME_SHARED_SECRET}

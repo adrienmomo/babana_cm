@@ -185,3 +185,28 @@ de l'affronter :
 
 Les trois preuves composées remplacent ce qu'un unique test HttpCase de bout en bout promettait
 de couvrir mais ne peut structurellement pas prouver.
+
+## L'exception D43 (vide dans `.env.example`, posée dans `infra/compose.dev.yaml`) ne convient qu'aux valeurs consommées uniquement par les conteneurs
+
+D43 (adresses de fournisseur externe, `GOOGLE_JWKS_URL` et consorts) déplace la valeur de
+développement de `.env.example` vers `infra/compose.dev.yaml`, motif : une production qui
+recopierait `.env.example` ne doit jamais hériter d'une adresse de simulateur. Ce déplacement
+fonctionne parce que ces adresses ne sont lues que **dans** les conteneurs Docker.
+
+`ADMIN_PASSWORD` posée le 2 septembre a d'abord suivi ce même motif -- puis `make test` a échoué :
+`test/concurrency/helpers/odoo-session.ts`, qui tourne sur l'**hôte** (`npm test`, pas dans un
+conteneur), lit ses identifiants de service depuis `infra/env/.env` par un mécanisme déjà en
+place (`env()`, avec repli sur `.env.example`) -- jamais depuis `infra/compose.dev.yaml`, qui
+n'existe que pour la configuration *interne* d'un conteneur et n'est jamais chargé par un
+processus Node lancé depuis le poste de développement. `ADMIN_PASSWORD` valait donc `admin` par
+défaut côté outil de test (l'ancien Odoo out-of-the-box) pendant que le conteneur odoo, lui,
+appliquait la vraie valeur de développement au compte `admin` -- deux vérités pour un seul mot de
+passe, la seconde inconnue de la première.
+
+**Règle** : avant d'appliquer D43 à une nouvelle variable, vérifier qui la consomme, pas
+seulement ce qu'elle désigne. Une adresse de fournisseur ou un secret que seul le conteneur lit
+peut suivre D43 sans risque. Une valeur qu'un outil hôte doit aussi connaître (ici, un secret de
+service pour des fixtures de test) doit rester lisible depuis `infra/env/.env.example` /
+`infra/env/.env`, quitte à y porter une valeur factice comme les autres secrets
+(`POSTGRES_PASSWORD`, `JWT_SECRET`) -- la protection contre l'héritage en production reste portée
+par `infra/production/deploy.sh`, pas par l'absence de la variable dans ce fichier.
