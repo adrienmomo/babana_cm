@@ -148,10 +148,17 @@ Une tâche est finie quand **tous** ces points sont vrais. Pas avant, quel que s
 6. Aucun secret n'a été introduit dans un fichier suivi
 7. Les cinq invariants sont respectés
 8. **L'entrée de rapport de la tâche est écrite et commitée avec elle**, pas à la fin de la session
+9. **Une tâche qui produit un écran n'est finie que si quelqu'un l'a ouvert** — application mobile, export web, ou vue Odoo
 
 Le point 8 a été ajouté le 15 août, après une session interrompue en cours de route — limite atteinte, plantage de l'éditeur, reprise dans une autre session. Le lot a été mené à bien, mais le compte rendu, rédigé en un seul geste final, n'a jamais existé.
 
 **Le rapport n'est pas une documentation, c'est l'état de la session.** Une session qui reprend derrière une autre doit pouvoir savoir où la précédente s'est arrêtée, ce qu'elle a supposé, ce qu'elle a laissé rouge. Reconstituer cela depuis les messages de commit marche, mais mal. Écrit tâche par tâche, le rapport devient le document de passation — et il survit à une interruption, quelle qu'en soit la cause.
+
+Le point 9 a été ajouté le 12 septembre, après une revue visuelle qui a trouvé **cinq écrans cassés sur six** — dont trois qui affichaient « Oops! Something went wrong » à l'endroit exact où un superviseur valide une remise contestée ou prend en charge une urgence. Toutes les suites étaient vertes, et le lot avait passé une revue humaine : j'avais vérifié la logique et jamais demandé si l'écran s'ouvrait.
+
+Aucun test ne voit un écran. Un rendu qui compile, dont chaque branche est couverte et dont les types tiennent peut encore être une page blanche — c'est D38, écrit pour le bundle web, qui vaut pour toute surface visible.
+
+**Corollaire sur les données** : le jeu de démonstration doit peupler chaque écran qui existe. Un écran ouvert sur un état vide n'a pas été vu, il a été effleuré — et c'est en fabriquant à la main les données manquantes que le défaut le plus grave de cette revue est apparu.
 
 Le point 3 est celui qu'on est tenté de sauter. C'est aussi celui qui empêche les régressions.
 

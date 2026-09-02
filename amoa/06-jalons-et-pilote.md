@@ -135,6 +135,32 @@ En partant du 31 août, à cinq points par nuit et sans interruption :
 | **Déploiement et recette** | ~22 septembre | Sur le VPS réel, avec de vrais comptes externes, données de pilote chargées |
 | **Pilote — premières courses** | **~29 septembre**, avec une marge au **6 octobre** | Chauffeurs inscrits et validés, superviseur formé, sauvegardes testées |
 
+### Révision du 12 septembre — le chemin critique a changé de côté
+
+**Le développement n'est plus ce qui fixe la date.**
+
+71 % de l'ensemble, et **onze points de périmètre pilote restants** : la file de rejeu, la facture, les sauvegardes, les scénarios de bout en bout, et l'OTP téléphone. Trois à quatre nuits.
+
+Or trois choses n'avancent pas d'elles-mêmes, et deux d'entre elles bloquent des tâches de cette liste :
+
+| Ce qui dépend de vous | Ce que ça bloque | Délai propre |
+|---|---|---|
+| **Choisir une passerelle SMS** | L1-09 (OTP), et la notification du contact d'urgence | Contractualisation locale — jours à semaines, non compressible |
+| **Une demi-journée avec un téléphone** | L6-19 : sélecteur de pièces (aucun chauffeur ne peut s'inscrire sans lui), mesure GPS, revue visuelle des écrans Chauffeur | Une demi-journée, dès qu'un appareil est disponible |
+| **Provisionner le VPS et le DNS** | La démonstration, puis le déploiement réel (L0-07) | Heures |
+
+**La passerelle SMS est désormais le chemin critique**, seule, et elle ne l'était pas il y a une semaine — le code la rattrapait encore. Ce n'est plus le cas : si elle part aujourd'hui, la date tient ; si elle part dans trois semaines, la date glisse de trois semaines, quoi que produisent les nuits.
+
+**Ce que chaque décision coûte, en clair :**
+
+- La passerelle lancée **cette semaine** → le développement et la contractualisation se recouvrent, et le pilote reste sur sa fenêtre.
+- Lancée **dans deux semaines** → le développement sera fini et attendra. Deux semaines perdues, sans contrepartie.
+- **Renoncer à l'OTP au pilote** → possible, et à mesurer honnêtement : des chauffeurs salariés recrutés en personne n'ont pas besoin d'une vérification par SMS, mais les clients, si — et c'est le seul moyen qu'un chauffeur ait de rappeler quelqu'un dont le numéro est faux.
+
+Le téléphone et le VPS, eux, coûtent des heures. Ils ne fixent la date que s'ils attendent des semaines.
+
+---
+
 ### Révision du 5 septembre — deux semaines de plus
 
 J'avais annoncé que je referais le calcul si trois nuits d'affilée s'arrêtaient avant la fin de leur lot. C'est arrivé, et voici le résultat.
