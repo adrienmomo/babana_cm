@@ -11,12 +11,12 @@
     "",
     "Les utilisateurs mobiles n'ont AUCUN droit d'écriture directe (invariant : l'app affiche",
     "ce que le serveur décide). write/create/unlink valent `none` partout, sans exception.",
-    "Toute écriture réelle passe par les méthodes de transition et les contrôleurs, qui",
-    "s'exécutent en super-utilisateur -- jamais par l'ORM au nom du mobile.",
+    "Toute écriture réelle passe par les méthodes de transition et les contrôleurs.",
     "",
-    "`own` pour un chauffeur suppose TOUJOURS un dossier `approved` : un compte `suspended`,",
-    "`rejected` ou `pending` perd l'accès immédiatement, pas à l'expiration de son jeton",
-    "(test_suspended_driver_loses_access_immediately)."
+    "D55 (REPONSES-2026-09-08 §3) : `own` pour un chauffeur NE suppose PLUS `approved`. Une",
+    "suspension empêche de travailler, pas de voir : un compte `suspended`, `rejected` ou",
+    "`pending` garde la lecture de SES lignes (course en cours, compte courant, remises,",
+    "documents). Le blocage vit côté disponibilité (test_suspension_blocks_working_not_reading)."
   ],
   "roles": ["client", "driver"],
   "models": {

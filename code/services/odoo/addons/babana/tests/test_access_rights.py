@@ -17,7 +17,7 @@ import json
 import os
 import uuid
 
-from odoo.exceptions import AccessError, UserError
+from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests.common import TransactionCase, tagged
 
 _MATRIX_PATH = os.path.join(os.path.dirname(__file__), "fixtures", "access_matrix.json")
@@ -419,35 +419,62 @@ class TestAccessSpecialCases(TransactionCase):
         with self.assertRaises(AccessError):
             self.ride.with_user(self.client_user).mapped("driver_id.user_id.login")
 
-    # 4e propriété (J31) -- un compte suspendu ou rejeté perd ses accès IMMÉDIATEMENT --------
-    def test_suspended_or_rejected_driver_loses_access_immediately(self):
+    # 4e propriété (J31, révisée D55) -- une suspension empêche de TRAVAILLER, pas de VOIR ------
+    def test_suspension_blocks_working_not_reading(self):
+        """D55 (amoa/questions/REPONSES-2026-09-08.md §3). Avant : `state = 'approved'` figurait
+        dans toutes les règles, si bien qu'un chauffeur suspendu -- ou en attente -- perdait la
+        vue sur son compte courant, ses remises et la course qu'il était en train de faire.
+        Retirer à un débiteur tout moyen de voir sa dette est le raisonnement de D29 retourné
+        contre nous. Désormais la lecture de SES lignes reste, quel que soit l'état du dossier ;
+        le blocage vit là où il doit, côté disponibilité."""
         Ride = self.env["babana.ride"]
         Movement = self.env["babana.cash.movement"]
         Doc = self.env["babana.driver.document"]
+        Remittance = self.env["babana.cash.remittance"]
+        remittance = self.remittance
 
-        # Dossier approuvé : le chauffeur voit ses propres données.
-        self.assertTrue(Ride.with_user(self.driver_user).search([("id", "=", self.ride.id)]))
-        self.assertTrue(
-            Movement.with_user(self.driver_user).search([("id", "=", self.movement.id)])
-        )
+        for state in ("suspended", "rejected", "pending", "approved"):
+            self.driver.write({"state": state})
 
-        for lost_state in ("suspended", "rejected", "pending"):
-            self.driver.write({"state": lost_state})
-            self.assertFalse(
+            # Il VOIT toujours ses propres lignes -- course en cours, compte courant, remises,
+            # documents, et sa propre fiche.
+            self.assertTrue(
                 Ride.with_user(self.driver_user).search([("id", "=", self.ride.id)]),
-                "état %s : le chauffeur voit encore sa course" % lost_state,
+                "état %s : le chauffeur ne voit plus sa course en cours" % state,
             )
-            self.assertFalse(
+            self.assertTrue(
                 Movement.with_user(self.driver_user).search([("id", "=", self.movement.id)]),
-                "état %s : le chauffeur voit encore son compte courant" % lost_state,
+                "état %s : le chauffeur ne voit plus son compte courant" % state,
             )
-            self.assertFalse(
+            self.assertTrue(
+                Remittance.with_user(self.driver_user).search([("id", "=", remittance.id)]),
+                "état %s : le chauffeur ne voit plus ses remises" % state,
+            )
+            self.assertTrue(
                 Doc.with_user(self.driver_user).search([("id", "=", self.doc.id)]),
-                "état %s : le chauffeur voit encore ses documents" % lost_state,
+                "état %s : le chauffeur ne voit plus ses documents" % state,
             )
-            with self.assertRaises(AccessError):
-                self.driver.with_user(self.driver_user).read(["state"])
+            self.assertEqual(
+                self.driver.with_user(self.driver_user).read(["state"])[0]["state"], state
+            )
+            # ... mais jamais celles d'un autre : la règle reste « mes lignes ».
+            self.assertFalse(
+                Movement.with_user(self.driver_user).search(
+                    [("driver_id", "!=", self.driver.id)]
+                ),
+                "état %s : le chauffeur voit le compte courant d'un autre" % state,
+            )
 
-        # Retour à approved : l'accès revient, toujours sans expiration de jeton.
+        # En revanche, hors de l'état 'approved', il ne peut pas TRAVAILLER : passer en ligne
+        # est refusé, motif distinct (L3-04) et contrainte du modèle.
+        for blocked_state in ("suspended", "rejected", "pending"):
+            self.driver.write({"state": blocked_state})
+            self.assertEqual(
+                self.driver._check_online_eligibility()[0],
+                "DRIVER_NOT_APPROVED",
+                "état %s : le chauffeur pourrait passer en ligne" % blocked_state,
+            )
+            with self.assertRaises(ValidationError):
+                self.driver.write({"is_online": True})
+
         self.driver.write({"state": "approved"})
-        self.assertTrue(Ride.with_user(self.driver_user).search([("id", "=", self.ride.id)]))

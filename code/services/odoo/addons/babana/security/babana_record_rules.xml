@@ -14,9 +14,14 @@
         décide ; toute écriture passe par un contrôleur ou une transition, en
         super-utilisateur), et ir.model.access.csv ne donne au portail que `perm_read`.
 
-        `driver_id.state = 'approved'` dans chaque domaine chauffeur : un dossier `suspended`,
-        `rejected` ou `pending` perd l'accès à l'instant où l'état change, pas à l'expiration
-        du jeton (L8-02, test_suspended_or_rejected_driver_loses_access_immediately).
+        D55 (amoa/questions/REPONSES-2026-09-08.md §3) : ces domaines NE conditionnent PLUS
+        l'accès à `state = 'approved'`. Une suspension empêche de travailler, pas de voir :
+        elle agit sur la disponibilité (`babana_driver._check_online_eligibility`, la
+        contrainte `_check_online_requires_approved`, `write()` qui force `is_online = False`),
+        jamais sur la lecture. Un chauffeur suspendu doit continuer de voir son compte
+        courant, ses remises et la course qu'il est en train de faire ; un dossier `pending`
+        doit voir ses propres documents (écran de suivi L6-15). Le seul lien à `user_id` /
+        `driver_id.user_id` reste : « mes lignes, quel que soit l'état de mon dossier ».
 
         Les modèles absents d'ici (babana.quote, babana.incident, babana.ride.share,
         babana.assignment, babana.device.token, babana.token, babana.fare.rule, babana.zone,
@@ -38,7 +43,7 @@
         <field name="domain_force">
             ['|',
                 ('client_id', '=', user.partner_id.id),
-                '&amp;', ('driver_id.user_id', '=', user.id), ('driver_id.state', '=', 'approved')]
+                ('driver_id.user_id', '=', user.id)]
         </field>
     </record>
 
@@ -55,7 +60,7 @@
         <field name="perm_create" eval="False"/>
         <field name="perm_unlink" eval="False"/>
         <field name="domain_force">
-            ['&amp;', ('user_id', '=', user.id), ('state', '=', 'approved')]
+            [('user_id', '=', user.id)]
         </field>
     </record>
 
@@ -72,7 +77,7 @@
         <field name="perm_create" eval="False"/>
         <field name="perm_unlink" eval="False"/>
         <field name="domain_force">
-            ['&amp;', ('driver_id.user_id', '=', user.id), ('driver_id.state', '=', 'approved')]
+            [('driver_id.user_id', '=', user.id)]
         </field>
     </record>
 
@@ -87,7 +92,7 @@
         <field name="perm_create" eval="False"/>
         <field name="perm_unlink" eval="False"/>
         <field name="domain_force">
-            ['&amp;', ('driver_id.user_id', '=', user.id), ('driver_id.state', '=', 'approved')]
+            [('driver_id.user_id', '=', user.id)]
         </field>
     </record>
 
@@ -103,7 +108,7 @@
         <field name="perm_create" eval="False"/>
         <field name="perm_unlink" eval="False"/>
         <field name="domain_force">
-            ['&amp;', ('driver_id.user_id', '=', user.id), ('driver_id.state', '=', 'approved')]
+            [('driver_id.user_id', '=', user.id)]
         </field>
     </record>
 
@@ -118,7 +123,7 @@
         <field name="perm_create" eval="False"/>
         <field name="perm_unlink" eval="False"/>
         <field name="domain_force">
-            ['&amp;', ('driver_id.user_id', '=', user.id), ('driver_id.state', '=', 'approved')]
+            [('driver_id.user_id', '=', user.id)]
         </field>
     </record>
 

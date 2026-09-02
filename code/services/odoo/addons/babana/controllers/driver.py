@@ -41,7 +41,12 @@ class DriverController(http.Controller):
         driver = user._babana_driver()
         if not driver:
             return _common.error_payload("UNAUTHORIZED", "compte non rattaché à un chauffeur"), 401
-        if driver.state != "approved":
+        # D55 (amoa/questions/REPONSES-2026-09-08.md §3) : un chauffeur SUSPENDU garde la
+        # lecture de son compte courant -- il doit de l'argent, lui retirer tout moyen de
+        # savoir combien l'empêche de régulariser (le raisonnement de D29 retourné contre
+        # nous). La suspension agit sur la disponibilité, jamais sur cette lecture. Un dossier
+        # `pending`/`rejected` n'a jamais encaissé : DRIVER_NOT_APPROVED reste pour eux.
+        if driver.state not in ("approved", "suspended"):
             return _common.error_payload(
                 "DRIVER_NOT_APPROVED", "le dossier chauffeur n'est pas approuvé"
             ), 403

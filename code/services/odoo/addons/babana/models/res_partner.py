@@ -90,12 +90,16 @@ class ResPartner(models.Model):
     @api.model
     def _babana_partners_reachable_by_driver_user(self, user_id):
         """Partenaires clients d'une course active conduite par `user_id`. `sudo()` : ce lookup
-        alimente la règle d'enregistrement, il ne doit pas être filtré par elle."""
+        alimente la règle d'enregistrement, il ne doit pas être filtré par elle.
+
+        Aucune condition sur `driver_id.state` (D55, amoa/questions/REPONSES-2026-09-08.md §3) :
+        un chauffeur suspendu en plein trajet doit pouvoir joindre son passager -- « sa course
+        en cours » reste lisible, la suspension n'agit que sur la disponibilité future. La
+        fenêtre temporelle tient déjà entièrement à `state in (assigned, in_progress)`."""
         rides = self.env["babana.ride"].sudo().search(
             [
                 ("state", "in", list(_RIDE_TOGETHER_STATES)),
                 ("driver_id.user_id", "=", user_id),
-                ("driver_id.state", "=", "approved"),
             ]
         )
         return rides.client_id.ids
