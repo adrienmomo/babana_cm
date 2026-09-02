@@ -14,6 +14,10 @@ function apiErrorBody(code: string, message = 'technical') {
   return { error: { code, message, details: null } };
 }
 
+// DriverCashResponseSchema (L5-07, settlement.ts) : les cinq champs requis, dont l'historique des
+// remises -- un objet incomplet ferait échouer le parse Zod avant même d'atteindre l'assertion.
+const DRIVER_CASH_FIXTURE = { balance: 0, limit: 100000, marginRemaining: 100000, collectedToday: 0, remittances: [] };
+
 describe('createHttpClient -- réessais (L6-03, critère 2)', () => {
   it('réessaie sur une erreur serveur (>= 500), avec temporisation croissante', async () => {
     const wait = jest.fn().mockResolvedValue(undefined);
@@ -21,12 +25,12 @@ describe('createHttpClient -- réessais (L6-03, critère 2)', () => {
       .fn()
       .mockResolvedValueOnce(jsonResponse(503, apiErrorBody('ROUTE_UNAVAILABLE')))
       .mockResolvedValueOnce(jsonResponse(503, apiErrorBody('ROUTE_UNAVAILABLE')))
-      .mockResolvedValueOnce(jsonResponse(200, { balance: 0, limit: 100000, collectedToday: 0 }));
+      .mockResolvedValueOnce(jsonResponse(200, DRIVER_CASH_FIXTURE));
     const client = createHttpClient({ baseUrl: 'https://api.test', fetchImpl, wait, retryBaseDelayMs: 100 });
 
     const result = await client.request('driverCash');
 
-    expect(result).toEqual({ balance: 0, limit: 100000, collectedToday: 0 });
+    expect(result).toEqual(DRIVER_CASH_FIXTURE);
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(wait).toHaveBeenNthCalledWith(1, 100);
     expect(wait).toHaveBeenNthCalledWith(2, 200);
@@ -36,7 +40,7 @@ describe('createHttpClient -- réessais (L6-03, critère 2)', () => {
     const fetchImpl = jest
       .fn()
       .mockRejectedValueOnce(new TypeError('network down'))
-      .mockResolvedValueOnce(jsonResponse(200, { balance: 0, limit: 100000, collectedToday: 0 }));
+      .mockResolvedValueOnce(jsonResponse(200, DRIVER_CASH_FIXTURE));
     const client = createHttpClient({
       baseUrl: 'https://api.test',
       fetchImpl,
@@ -45,7 +49,7 @@ describe('createHttpClient -- réessais (L6-03, critère 2)', () => {
 
     const result = await client.request('driverCash');
 
-    expect(result).toEqual({ balance: 0, limit: 100000, collectedToday: 0 });
+    expect(result).toEqual(DRIVER_CASH_FIXTURE);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
@@ -92,7 +96,9 @@ describe('createHttpClient -- réessais (L6-03, critère 2)', () => {
       // de la réponse qui échoue.
       const fetchImpl = jest
         .fn()
-        .mockResolvedValue(jsonResponse(200, { balance: 'not-a-number', limit: 100000, collectedToday: 0 }));
+        .mockResolvedValue(
+          jsonResponse(200, { ...DRIVER_CASH_FIXTURE, balance: 'not-a-number' })
+        );
       const wait = jest.fn();
       const client = createHttpClient({ baseUrl: 'https://api.test', fetchImpl, wait });
 
@@ -119,7 +125,7 @@ describe('createHttpClient -- idempotence (L6-03, critère 3)', () => {
   });
 
   it("une lecture (GET) ne porte pas d'identifiant d'idempotence -- elle n'en a pas besoin", async () => {
-    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, { balance: 0, limit: 100000, collectedToday: 0 }));
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(200, DRIVER_CASH_FIXTURE));
     const client = createHttpClient({ baseUrl: 'https://api.test', fetchImpl });
 
     await client.request('driverCash');

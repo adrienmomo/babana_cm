@@ -10,6 +10,8 @@ import { HomeScreen } from '../screens/HomeScreen';
 import { ProposalScreen } from '../screens/ProposalScreen';
 import { ActiveRideScreen } from '../screens/ActiveRideScreen';
 import { SettlementScreen } from '../screens/SettlementScreen';
+import { CashScreen } from '../screens/CashScreen';
+import { RemittanceScreen } from '../screens/RemittanceScreen';
 import { ProfileScreen } from '../screens/onboarding/ProfileScreen';
 import { DocumentsScreen } from '../screens/onboarding/DocumentsScreen';
 import { PendingScreen } from '../screens/onboarding/PendingScreen';
@@ -176,9 +178,9 @@ function DriverNavigator() {
       <DriverStack.Screen name="Proposal" component={ProposalScreen} options={{ presentation: 'fullScreenModal' }} />
       <DriverStack.Screen name="ActiveRide" component={ActiveRideScreen} options={{ headerShown: false, gestureEnabled: false }} />
       <DriverStack.Screen name="Settlement" component={SettlementScreen} options={{ headerShown: false, gestureEnabled: false }} />
-      <DriverStack.Screen name="Remittance">
-        {() => <PlaceholderScreen title="Déclaration de remise" task="L5-07" />}
-      </DriverStack.Screen>
+      <DriverStack.Screen name="Cash" component={CashScreen} options={{ title: 'Ma caisse' }} />
+      <DriverStack.Screen name="Remittance" component={RemittanceScreen} options={{ title: 'Déclarer une remise' }} />
+
     </DriverStack.Navigator>
   );
 }

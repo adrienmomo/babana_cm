@@ -4,7 +4,7 @@
         <field name="name">babana.zone.list</field>
         <field name="model">babana.zone</field>
         <field name="arch" type="xml">
-            <list>
+            <list decoration-info="is_default">
                 <field name="name"/>
                 <field name="priority"/>
                 <field name="is_default"/>
@@ -19,12 +19,21 @@
         <field name="arch" type="xml">
             <form>
                 <sheet>
+                    <div class="alert alert-info" role="alert" invisible="not is_default">
+                        <strong>Zone par défaut.</strong> Un point qui n'appartient à aucun
+                        polygone actif résout ici, jamais en erreur (L2-02) -- c'est le
+                        comportement défini pour un trou entre deux zones.
+                    </div>
                     <group>
                         <field name="name"/>
-                        <field name="priority"/>
+                        <field name="priority" help="Départage entre zones qui se recouvrent (L9-04) : la plus forte gagne."/>
                         <field name="is_default"/>
                         <field name="active"/>
-                        <field name="polygon_geojson"/>
+                    </group>
+                    <group string="Tracé">
+                        <field name="polygon_geojson"
+                            help="Objet GeoJSON Polygon. Odoo Communauté n'a pas de widget carte éditable (L9-04) -- utiliser 'Éditer le tracé' ci-dessous pour dessiner visuellement, puis coller le résultat ici."/>
+                        <field name="external_editor_url" widget="url" text="Éditer le tracé sur une carte externe (geojson.io)"/>
                     </group>
                 </sheet>
             </form>

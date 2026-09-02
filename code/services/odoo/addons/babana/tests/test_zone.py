@@ -87,6 +87,21 @@ class TestBabanaZone(TransactionCase):
         second = zone._point_in_polygon(0.0, 0.0)
         self.assertEqual(first, second)
 
+    # --- L9-04, critère 3 : le tracé s'ouvre dans un éditeur externe, pré-rempli --------------
+
+    def test_external_editor_url_embeds_the_current_polygon(self):
+        # Odoo Communauté n'a pas de widget carte éditable (amoa/questions/L9-04.md) -- le champ
+        # ouvre geojson.io avec le GeoJSON courant encodé dans l'URL plutôt que de partir vide.
+        zone = self._make_zone(polygon_geojson=_SQUARE_GEOJSON)
+
+        self.assertTrue(zone.external_editor_url.startswith("https://geojson.io/#data="))
+        self.assertIn("10.0", zone.external_editor_url)
+
+    def test_external_editor_url_has_a_sane_default_without_a_polygon_yet(self):
+        zone = self._make_zone(polygon_geojson=False)
+
+        self.assertTrue(zone.external_editor_url.startswith("https://geojson.io/#data="))
+
     def test_inactive_zone_is_never_resolved(self):
         default_zone = self._make_zone(name="Défaut", is_default=True)
         self._make_zone(name="Inactive", active=False, priority=99)

@@ -125,7 +125,6 @@ Paramétrer les tarifs sans développeur.
 ```
 services/odoo/addons/babana/views/babana_fare_rule_views.xml
 services/odoo/addons/babana/views/babana_zone_views.xml
-services/odoo/addons/babana/views/babana_promotion_views.xml
 ```
 
 ### Spécification
@@ -134,9 +133,9 @@ Vue des règles tarifaires avec leur priorité et leur fenêtre de validité. **
 
 Simulateur de tarif : saisir un départ, une arrivée, une heure, une gamme, et voir le montant et la règle appliquée. Indispensable — sans lui, la seule façon de vérifier un paramétrage est de commander une course.
 
-Vue des zones avec leur polygone sur une carte, éditable.
+**Correction du 2 septembre (nuit J34) : le polygone d'une zone ne s'édite pas sur une carte, il s'ouvre dans un éditeur externe.** Même impossibilité que L9-03 la veille — Odoo Communauté n'a pas de widget carte, et l'édition (glisser des sommets, dessiner un tracé) demande davantage qu'un affichage. Même arbitrage (D12) : un champ calculé ouvre le polygone courant, pré-chargé, dans un éditeur de polygone externe ; le superviseur y dessine, puis colle le GeoJSON obtenu dans le champ. Voir `amoa/questions/L9-04.md`.
 
-Vue des promotions avec compteurs d'usage en temps réel et taux de conversion.
+**Correction du 2 septembre : la vue des promotions est retirée de ce lot.** `babana.promotion` (L2-06) n'existe pas — `amoa/06-jalons-et-pilote.md` reporte explicitement les promotions hors du pilote. `babana_promotion_views.xml` redevient une tâche propre une fois L2-06 fait. Voir `amoa/questions/L9-04.md`.
 
 Modifier une règle en cours d'utilisation crée une version (L2-01) : l'interface doit le dire clairement, pas laisser croire à une modification en place.
 
@@ -144,8 +143,8 @@ Modifier une règle en cours d'utilisation crée une version (L2-01) : l'interfa
 
 1. Le recouvrement de deux règles produit un avertissement.
 2. Le simulateur renvoie montant et règle appliquée.
-3. Les polygones de zone sont éditables sur carte.
-4. Les compteurs d'usage des promotions sont à jour.
+3. Le tracé d'une zone s'ouvre, pré-rempli, dans un éditeur de polygone externe, en un clic.
+4. ~~Les compteurs d'usage des promotions sont à jour.~~ Sans objet : voir la correction ci-dessus.
 5. La création de version lors d'une modification est explicite dans l'interface.
 
 ---

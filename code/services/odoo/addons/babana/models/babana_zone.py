@@ -5,9 +5,17 @@
 from __future__ import annotations
 
 import json
+import urllib.parse
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError
+
+# L9-04 (amoa/questions/L9-04.md §1) : Odoo Communauté n'a pas de widget carte, encore moins
+# éditable -- même impossibilité que L9-03 pour l'affichage du tracé de course (D12). geojson.io
+# accepte un GeoJSON pré-chargé via ce fragment d'URL : le superviseur y dessine ou ajuste le
+# polygone, puis colle le résultat dans polygon_geojson. Aucune bibliothèque de cartographie,
+# aucun serveur de tuiles embarqués dans le back-office.
+EXTERNAL_POLYGON_EDITOR_BASE_URL = "https://geojson.io/#data=data:application/json,"
 
 
 def _ray_casting_contains(x: float, y: float, ring: list[list[float]]) -> bool:
@@ -50,8 +58,28 @@ class BabanaZone(models.Model):
     is_default = fields.Boolean(
         string="Zone par défaut",
         help="Renvoyée quand aucune zone ne contient le point (critère d'acceptation 3), pas "
-        "une erreur. Au plus une zone par défaut active à la fois.",
+        "une erreur. Au plus une zone par défaut active à la fois. C'est le comportement "
+        "constatable pour un point hors de tout polygone : le simuler dans « Simulateur de "
+        "tarif » (L9-04) plutôt que de le supposer en lisant le code.",
     )
+    external_editor_url = fields.Char(
+        compute="_compute_external_editor_url",
+        string="Éditer le tracé",
+        help="Ouvre le polygone courant, pré-chargé, dans geojson.io (L9-04) -- Odoo Communauté "
+        "n'a pas de widget carte éditable. Dessiner ou ajuster le tracé là-bas, puis coller le "
+        "GeoJSON obtenu dans le champ ci-dessus.",
+    )
+
+    @api.depends("polygon_geojson")
+    def _compute_external_editor_url(self):
+        for zone in self:
+            payload = zone.polygon_geojson or (
+                '{"type": "Polygon", "coordinates": [[[9.70, 4.05], [9.70, 4.06], '
+                '[9.77, 4.06], [9.77, 4.05], [9.70, 4.05]]]}'
+            )
+            zone.external_editor_url = EXTERNAL_POLYGON_EDITOR_BASE_URL + urllib.parse.quote(
+                payload
+            )
 
     def init(self):
         self.env.cr.execute(

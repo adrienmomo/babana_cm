@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { asRideId } from '@babana/navigation';
 import type { ConnectionState } from '@babana/api-client';
@@ -141,6 +141,15 @@ export function HomeScreen({ navigation }: Props) {
       <View style={styles.toggleWrap}>
         <AvailabilityToggle inCourse={inCourse} onNavigateToRemittance={goToRemittance} />
       </View>
+
+      <Pressable
+        testID="home-go-to-cash"
+        accessibilityRole="button"
+        onPress={() => navigation.navigate('Cash')}
+        style={styles.cashLink}
+      >
+        <Text style={styles.cashLinkLabel}>Ma caisse</Text>
+      </Pressable>
     </View>
   );
 }
@@ -162,5 +171,16 @@ const styles = StyleSheet.create({
   },
   toggleWrap: {
     marginTop: 8,
+  },
+  cashLink: {
+    minHeight: 44,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cashLinkLabel: {
+    color: '#0A7D3D',
+    fontWeight: '700',
+    fontSize: 16,
   },
 });

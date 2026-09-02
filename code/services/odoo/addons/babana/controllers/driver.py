@@ -13,8 +13,14 @@ import logging
 from odoo import http
 
 from . import _common
+from .remittance import _PUBLIC_STATUS
 
 _logger = logging.getLogger(__name__)
+
+# Nombre d'entrées d'historique renvoyées par GET /drivers/me/cash (L5-07) -- borné pour ne pas
+# faire grossir la réponse indéfiniment sur un chauffeur ancien ; "les plus récentes en tête"
+# (contrat, settlement.ts) est ce qui compte pour l'écran, pas l'exhaustivité.
+_REMITTANCE_HISTORY_LIMIT = 20
 
 # readonly=False explicite : auth='none' est en lecture seule par défaut depuis Odoo 18
 # (code/docs/odoo-pitfalls.md) -- cet endpoint écrit (is_online).
@@ -37,7 +43,7 @@ class DriverController(http.Controller):
             return _common.error_response("INTERNAL_ERROR", "erreur interne", 500)
 
     def _get_cash(self):
-        _env, user = _common.authenticated_user()
+        env, user = _common.authenticated_user()
         driver = user._babana_driver()
         if not driver:
             return _common.error_payload("UNAUTHORIZED", "compte non rattaché à un chauffeur"), 401
@@ -56,11 +62,46 @@ class DriverController(http.Controller):
         # siens, sans condition d'état depuis D55). `cash_limit` et `_babana_cash_collected_
         # today` résolvent leur `ir.config_parameter` / journal en interne, inchangés.
         driver = driver.with_user(user)
+        balance = driver.cash_balance
+        limit = driver.cash_limit
+        margin_remaining = max(0.0, limit - balance)
+
+        # L5-07 : historique des remises (settlement.ts, DriverCashResponseSchema.remittances) --
+        # les mêmes règles d'enregistrement (D55) laissent un chauffeur suspendu voir les siennes.
+        # Le vocabulaire public ('pending'/'validated'/'rejected') est celui déjà établi par
+        # POST /remittances (_PUBLIC_STATUS, controllers/remittance.py) -- une seule table de
+        # correspondance, jamais une redéclarée ici (D17).
+        remittances = env["babana.cash.remittance"].with_user(user).search(
+            [("driver_id", "=", driver.id)], order="declared_at desc", limit=_REMITTANCE_HISTORY_LIMIT
+        )
+        remittance_history = [
+            {
+                "id": remittance.public_id,
+                "declaredAt": _common.iso_datetime(remittance.declared_at),
+                "amount": round(remittance.declared_amount),
+                "countedAmount": (
+                    round(remittance.counted_amount)
+                    if remittance.state in ("validated", "disputed")
+                    else None
+                ),
+                "status": _PUBLIC_STATUS[remittance.state],
+                # sudo() ciblé sur ce seul champ : res.users n'est pas un modèle que
+                # base.group_portal peut lire librement (D54 lit par ailleurs au nom du
+                # chauffeur, remittance.with_user(user) ci-dessus) -- mais le chauffeur a déjà
+                # rencontré ce superviseur en personne pour la remise, son nom n'est pas une
+                # donnée qu'il faille lui cacher.
+                "supervisorName": remittance.sudo().supervisor_id.name or None,
+            }
+            for remittance in remittances
+        ]
+
         return (
             {
-                "balance": round(driver.cash_balance),
-                "limit": round(driver.cash_limit),
+                "balance": round(balance),
+                "limit": round(limit),
+                "marginRemaining": round(margin_remaining),
                 "collectedToday": round(driver._babana_cash_collected_today()),
+                "remittances": remittance_history,
             },
             200,
         )
