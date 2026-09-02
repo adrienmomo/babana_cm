@@ -184,3 +184,125 @@ le pilote produira (L9-07/L9-08), signalée plutôt que fabriquée.
 — aucune règle métier ajoutée. 5 : intact — la fenêtre « documents expirant » (30 j) est une
 commodité d'affichage, pas une règle de blocage ; le TTL de l'URL signée reste le paramètre
 `babana.document_url_ttl_seconds`.
+
+---
+
+## 3. L9-02 — Vues flotte (motos)
+
+### Liste et couleurs
+
+Immatriculation, gamme, état, chauffeur, échéance d'assurance. `decoration-danger` si assurance
+expirée, `decoration-warning` si en maintenance, `decoration-muted` si retirée.
+
+### Échéances à venir (critère 1, sans construire de filtre)
+
+Menu **Flotte › Échéances d'assurance** → action dédiée, domaine
+`insurance_expires_on != False`, `search_default_insurance_expiring_soon` (fenêtre 30 j comme la
+recherche standard). Vues liste (triée par échéance croissante) et **calendrier** sur
+`insurance_expires_on`.
+
+### Formulaire
+
+Bouton **Affecter un chauffeur** (ouvre une ligne `babana.assignment` via
+`babana_assignment_new_action`, dont le `create()` pose le miroir `driver_id` — L1-08) et **Fin
+d'affectation** (`action_end_assignment` : clôt la ligne d'historique active, ce qui efface le
+miroir et repasse la moto à `available`). Onglets Historique d'affectations (lecture seule) et
+Courses du chauffeur affecté (indicatif — pas de lien direct course ↔ moto). Bandeau Assurance
+expirée.
+
+### Filtres
+
+Disponible / affectée / en maintenance, **assurance expirant bientôt**, **assurance expirée**
+(`insurance_expired`, compute + `search` traduisant vers `insurance_expires_on < today`).
+Regroupements : état, gamme.
+
+### Modèle
+
+`babana.motorcycle` : `+ assignment_ids` (readonly), `+ ride_ids` (related
+`driver_id.ride_ids`), `+ insurance_expired` (compute + search), `+ action_end_assignment`.
+
+### Tests
+
+`tests/test_motorcycle_backoffice.py` (5) : affectation → historique + miroir, fin d'affectation
+depuis la fiche ; drapeau + filtre assurance expirée ; échéances à venir interrogeables ;
+`assignment_ids` readonly.
+
+### Invariants
+
+2 : intact — l'affectation passe par `babana.assignment` (L1-08), `action_end_assignment` clôt
+une ligne, jamais d'écriture directe de `state` moto. 5 : intact — fenêtre 30 j = commodité de
+recherche.
+
+---
+
+## 4. L9-03 — Vues courses (suivi)
+
+### Liste
+
+Référence, date, client, chauffeur, départ, arrivée, distance, montant, état, moyen de
+paiement. `create/edit/delete="false"`. Couleurs : `danger` si annulée ou écart de distance
+signalé, `info` si en cours, `muted` si refusée. Action par défaut filtrée sur « en cours ».
+
+### Formulaire — lecture seule y compris administrateur (critère 1)
+
+`<form create="false" edit="false" delete="false">`. Le modèle garantit déjà l'immuabilité côté
+serveur (`babana_ride_state.write` : pas d'écriture directe de `state`, gel après `settled`) ;
+`edit="false"` le rend explicite. Contenu : course, trajet (coordonnées + zones),
+distance/durée, tarif, **chronologie des transitions** (les 7 `*_at` + qui a annulé + catégorie
++ motif), onglets Tracé (`track_polyline` brut), Détail tarifaire figé (`fare_rule_snapshot`),
+Refus, Incidents et litiges.
+
+### Filtres (critère 4)
+
+En cours / terminées / encaissées / annulées / refusées ; **écart de distance signalé**
+(`distance_deviation_flagged`, déjà `store=True`) ; abandon après refus ; aujourd'hui / cette
+semaine. Regroupements : jour, chauffeur, zone de départ, état, annulée par.
+
+### Modèle
+
+`babana.ride` : `+ _rec_name = "reference"`, `+ incident_ids` (readonly).
+
+### Tests
+
+`tests/test_ride_backoffice.py` (5) : `edit/create="false"` dans l'arch ; 7 champs de
+chronologie présents ; filtres état / zone / catégorie d'annulation / annulée par ; écart de
+distance signalé filtrable ; incidents liés visibles depuis la course.
+
+### Écart déposé
+
+`amoa/questions/L9-03.md` (sur master) : **critère 2 (« tracé sur carte ») non tenu**. Odoo
+Communauté n'a pas de widget carte au back-office (`web_map` est Enterprise), et afficher une
+carte impliquerait un serveur de tuiles externe (contre D19). Livré : coordonnées + zones +
+polyline encodé. Signalé plutôt que contourné.
+
+### Invariants
+
+2 : intact — formulaire non éditable, aucune transition ajoutée. 3 : intact — pure lecture. 5 :
+intact.
+
+---
+
+## Ce qui me laisse un doute, pour quelqu'un de réel
+
+**Le pire cas de la suspension reste ~60 secondes.** Si l'appel `notify_driver_unavailable` est
+perdu (service temps réel injoignable au commit), le chauffeur suspendu n'est pas retiré du
+vivier tout de suite : il faut attendre l'expiration de sa position (~60 s) et le nettoyage
+paresseux de `findNearby`. Ses jetons sont révoqués (ni reconnexion ni nouvelle position) et
+`_check_online_eligibility` le bloque côté Odoo — mais pendant cette minute un client pourrait
+encore le sélectionner et lui envoyer une proposition sans réponse. L'encaisse a le même trou,
+sans réconciliation non plus. Une flotte suspend rarement, mais quand elle le fait c'est souvent
+urgent, et « presque immédiat » n'est pas « immédiat ». La réconciliation de non-habilitation
+proposée dans l'écart J33 le fermerait.
+
+**Le tracé de course n'est pas visible au back-office.** Un superviseur qui enquête sur un écart
+de distance signalé voit un polyline encodé, pas un tracé. Pour « la course est partie à l'est
+alors que la destination est à l'ouest », il faut copier le polyline dans un outil externe.
+C'est le critère 2 de L9-03 ; il manque un widget.
+
+**« Zone d'activité » n'existe pas.** Le regroupement des chauffeurs par zone (L9-01) suppose
+une donnée qu'aucun modèle ne porte. Un superviseur qui veut « mes chauffeurs du secteur
+Bonabéri » ne l'a pas. Manque de modèle, pas de vue — à trancher avec L9-07.
+
+**Un gestionnaire a maintenant tous les droits RH** (`hr.group_hr_user`, nécessaire pour créer
+une fiche employé à l'approbation). Sur une instance dédiée à babana, sans conséquence ; sur une
+instance Odoo partagée, il lit alors toutes les fiches employé de la société. À surveiller.

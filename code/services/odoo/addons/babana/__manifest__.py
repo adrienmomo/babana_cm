@@ -28,6 +28,7 @@ racine du dépôt pour le contexte complet.
         'views/babana_remittance_views.xml',
         'views/babana_discrepancy_views.xml',
         'views/babana_incident_views.xml',
+        'views/babana_ride_views.xml',
     ],
     'installable': True,
     'application': True,

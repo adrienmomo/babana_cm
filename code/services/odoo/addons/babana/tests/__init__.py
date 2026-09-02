@@ -8,6 +8,7 @@ from . import test_driver_approval
 from . import test_driver_backoffice
 from . import test_driver_availability
 from . import test_motorcycle
+from . import test_motorcycle_backoffice
 from . import test_assignment
 from . import test_expiry_alerts
 from . import test_fare_rule
@@ -15,6 +16,7 @@ from . import test_zone
 from . import test_pricing
 from . import test_partner
 from . import test_ride_model
+from . import test_ride_backoffice
 from . import test_ride_state_machine
 from . import test_ride_state_machine_generated
 from . import test_ride_controller
