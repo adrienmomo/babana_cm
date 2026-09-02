@@ -4,9 +4,16 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { asRideId } from '@babana/navigation';
 import { ApiError } from '@babana/api-client';
 
+// `offlineRunner` réel (mêmes garanties qu'en production -- mise en file, rejeu, idempotence,
+// déjà couvertes par packages/api-client/test/offline/manager.test.ts), branché sur un faux
+// `httpClient` et un stockage en mémoire plutôt que sur `../../auth` et `../../realtime` (que ce
+// module importerait sinon transitivement -- `../offline.ts` n'a pas à en dépendre pour ce test).
 const mockRequest = jest.fn();
-jest.mock('../../auth', () => ({
-  apiClient: { request: (...args: unknown[]) => mockRequest(...args) },
+jest.mock('../../offline', () => ({
+  offlineRunner: require('@babana/api-client').createOfflineActionRunner({
+    httpClient: { request: (...args: unknown[]) => mockRequest(...args) },
+    queueStorage: require('@babana/api-client').createInMemoryOfflineQueue(),
+  }),
 }));
 
 const mockReplaceWithHome = jest.fn();

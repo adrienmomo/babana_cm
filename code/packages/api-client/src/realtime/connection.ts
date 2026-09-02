@@ -62,10 +62,24 @@ function defaultWait(ms: number): Promise<void> {
  * obsolète est pire que pas de position », L3-11) : une déclaration d'intérêt obsolète est pire
  * que son absence.
  */
+/**
+ * `proposal.accept`/`proposal.reject` (L6-16, "actions interdites hors connexion") : le motif
+ * est différent des trois autres membres de cet ensemble -- ce ne sont pas des déclarations
+ * d'intérêt réémises automatiquement, mais des actions à conséquence unique. La bonne réponse à
+ * une déconnexion n'est jamais de les rejouer plus tard (une acceptation qui atteindrait enfin le
+ * serveur après plusieurs minutes accepterait une course probablement déjà expirée ou attribuée
+ * à quelqu'un d'autre) ni de les rejouer automatiquement à la reconnexion sans que le chauffeur
+ * ne le redécide -- l'écran appelant (`ProposalScreen.tsx`) doit refuser l'action tout de suite,
+ * avec explication, avant même d'atteindre `send()`. Les inscrire ici est une garde
+ * supplémentaire, pas le mécanisme principal : si un appelant futur oublie de vérifier l'état de
+ * connexion, ce message sera abandonné plutôt que rejoué à l'aveugle bien plus tard.
+ */
 const NEVER_QUEUED_MESSAGE_TYPES: ReadonlySet<realtime.ClientToServerMessage['type']> = new Set([
   'nearby.subscribe',
   'nearby.unsubscribe',
   'ride.track',
+  'proposal.accept',
+  'proposal.reject',
 ]);
 
 function buildEnvelope<Type extends realtime.ClientToServerMessage['type']>(

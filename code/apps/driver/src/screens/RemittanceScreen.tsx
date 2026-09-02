@@ -1,9 +1,10 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ApiError, generateIdempotencyKey, translateApiError } from '@babana/api-client';
+import { ApiError, translateApiError } from '@babana/api-client';
 import { Button } from '@babana/ui';
 import { declareRemittance } from '../api/cash';
+import { offlineRunner } from '../offline';
 import { formatMoney } from '../format';
 import { replaceWithHome } from '../navigation/transitions';
 import type { DriverParamList } from '../navigation/types';
@@ -13,11 +14,12 @@ import type { DriverParamList } from '../navigation/types';
  * compte et valide ensuite au back-office** (L5-04, spécification) : cet écran ne fait que
  * poser l'état `declared`, il ne connaît ni le comptage ni la validation.
  *
- * **Hors connexion** (critère 5) : la même clé d'idempotence est réutilisée à chaque tentative de
- * CETTE déclaration -- une déclaration rejouée ne crée jamais une seconde remise (Odoo,
- * `babana.idempotency.record`). Même patron que `SettlementScreen.tsx` : mise en file avec un
- * bouton de nouvelle tentative manuelle, pas encore le remplacement automatique à la reconnexion
- * qu'apporte L6-16.
+ * **Hors connexion** (L6-16, action autorisée) : `declareRemittance` (`../api/cash.ts`) passe
+ * par `offlineRunner`, qui met en file dès le premier échec réseau et rejoue automatiquement à
+ * la reconnexion, avec une clé d'idempotence stable posée par le gestionnaire lui-même -- une
+ * déclaration rejouée ne crée jamais une seconde remise (Odoo, `babana.idempotency.record`). Le
+ * bouton « Réessayer maintenant » ne fait que forcer une tentative immédiate plutôt que d'attendre
+ * la reconnexion automatique -- même patron que `SettlementScreen.tsx`.
  */
 
 type Props = NativeStackScreenProps<DriverParamList, 'Remittance'>;
@@ -30,8 +32,6 @@ export function RemittanceScreen({ navigation }: Props) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [declaredAmount, setDeclaredAmount] = useState<number | null>(null);
 
-  const idempotencyKeyRef = useRef(generateIdempotencyKey());
-
   const parsedAmount = Number.parseInt(amountText, 10);
   const amountIsValid = amountText.trim().length > 0 && Number.isFinite(parsedAmount) && parsedAmount > 0;
 
@@ -40,18 +40,24 @@ export function RemittanceScreen({ navigation }: Props) {
     setPhase('declaring');
     setErrorMessage(null);
     try {
-      const response = await declareRemittance(parsedAmount, idempotencyKeyRef.current);
+      const response = await declareRemittance(parsedAmount, () => setPhase('queued'));
       setDeclaredAmount(response.amount);
       setPhase('declared');
     } catch (error) {
-      if (error instanceof ApiError) {
-        setErrorMessage(translateApiError(error));
-        setPhase('error');
-      } else {
-        // Réseau : mis en attente, la clé d'idempotence est conservée pour un renvoi sans risque.
-        setPhase('queued');
-      }
+      // Une erreur réseau ne fait jamais rejeter cette promesse (mise en file à la place,
+      // ci-dessus) -- seule reste une erreur métier.
+      setErrorMessage(error instanceof ApiError ? translateApiError(error) : 'Impossible de déclarer la remise. Réessayez.');
+      setPhase('error');
     }
+  }
+
+  function handleRetryNow() {
+    // Ne relance pas `handleDeclare()` -- la déclaration initiale reste en attente dans
+    // `offlineRunner` avec sa propre clé d'idempotence ; `flush()` retente ce qui est déjà en
+    // file, sans en créer une seconde.
+    // `flush()` ne rejette jamais (manager.ts -- une reconnexion future réessaiera), le `catch`
+    // ici n'est qu'une garde contre un rejet imprévu ; rien de plus à faire depuis un écran.
+    offlineRunner.flush().catch(() => {});
   }
 
   return (
@@ -78,7 +84,7 @@ export function RemittanceScreen({ navigation }: Props) {
           <Text style={styles.resultHint}>
             Déclaration en attente — elle sera renvoyée dès que la connexion revient.
           </Text>
-          <Button label="Réessayer maintenant" onPress={handleDeclare} testID="remittance-retry" />
+          <Button label="Réessayer maintenant" onPress={handleRetryNow} testID="remittance-retry" />
         </View>
       ) : (
         <>

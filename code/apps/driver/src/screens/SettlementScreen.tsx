@@ -1,9 +1,9 @@
-import React, { useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ApiError, generateIdempotencyKey, translateApiError } from '@babana/api-client';
+import { ApiError, translateApiError } from '@babana/api-client';
 import type { http } from '@babana/contracts';
-import { apiClient } from '../auth';
+import { offlineRunner } from '../offline';
 import { formatMoney } from '../format';
 import { replaceWithHome } from '../navigation/transitions';
 import type { DriverParamList } from '../navigation/types';
@@ -23,10 +23,14 @@ import type { DriverParamList } from '../navigation/types';
  * et l'écran propose la remise (L5-07) tout de suite -- plutôt que de laisser le chauffeur
  * découvrir qu'il ne reçoit plus de courses sans savoir pourquoi.
  *
- * Hors connexion : la même clé d'idempotence est réutilisée à chaque nouvelle tentative de CETTE
- * confirmation -- un encaissement rejoué ne produit jamais de double mouvement (Odoo,
- * `babana.idempotency.record`). La file persistante qui survit à un redémarrage de l'app est
- * L6-16 (voir `amoa/questions/L6-14.md`).
+ * Hors connexion (L6-16, action autorisée) : `offlineRunner.attempt()` (`../offline.ts`) met la
+ * confirmation en file dès le premier échec réseau et la rejoue automatiquement à la prochaine
+ * reconnexion, avec la MÊME clé d'idempotence -- un encaissement rejoué ne produit jamais de
+ * double mouvement (Odoo, `babana.idempotency.record`). La file survit à un redémarrage de l'app
+ * (`AsyncStorage`, `@babana/api-client/offline`). Le bouton « Réessayer maintenant » ne fait que
+ * forcer une tentative immédiate (`flush()`) plutôt que d'attendre la reconnexion automatique --
+ * la promesse que cet écran attend déjà (`handleConfirm`, ci-dessous) est la même dans les deux
+ * cas, elle se résout dès que l'une ou l'autre réussit.
  */
 
 type Props = NativeStackScreenProps<DriverParamList, 'Settlement'>;
@@ -46,19 +50,17 @@ export function SettlementScreen({ route, navigation }: Props) {
   const [cash, setCash] = useState<CashState | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Stable pour la vie de l'écran : toutes les tentatives de cette confirmation portent la même
-  // clé (critère 5). Une nouvelle confirmation, c'est un nouvel écran, donc une nouvelle clé.
-  const idempotencyKeyRef = useRef(generateIdempotencyKey());
-
   async function handleConfirm() {
     if (phase === 'confirming' || phase === 'settled') return;
     setPhase('confirming');
     setErrorMessage(null);
     try {
-      const settled = (await apiClient.request('settleRide', {
+      const settled = (await offlineRunner.attempt('settleRide', {
         pathParams: { id: rideId },
         body: { amountCollected: amount },
-        idempotencyKey: idempotencyKeyRef.current,
+        // Synchrone, avant que la promesse ci-dessus ne se résolve (échec réseau) -- bascule
+        // l'affichage tout de suite, sans attendre un succès qui peut survenir bien plus tard.
+        onQueued: () => setPhase('queued'),
       })) as http.SettleRideResponse;
 
       // Tout vient de la réponse de `settle` (J24) : plus de second appel, plus d'inférence.
@@ -69,16 +71,21 @@ export function SettlementScreen({ route, navigation }: Props) {
       });
       setPhase('settled');
     } catch (error) {
-      if (error instanceof ApiError) {
-        // Erreur métier (SETTLEMENT_AMOUNT_MISMATCH, transition invalide...) : ne se rejoue pas,
-        // le message explique.
-        setErrorMessage(translateApiError(error));
-        setPhase('error');
-      } else {
-        // Réseau : mis en attente, la clé d'idempotence est conservée pour un renvoi sans risque.
-        setPhase('queued');
-      }
+      // Erreur métier (SETTLEMENT_AMOUNT_MISMATCH, transition invalide...) -- la seule façon
+      // dont `attempt()` peut encore rejeter : un réseau absent ne fait jamais échouer cette
+      // promesse, il la met en file et la laisse en attente (ci-dessus).
+      setErrorMessage(error instanceof ApiError ? translateApiError(error) : 'Impossible de confirmer. Réessayez.');
+      setPhase('error');
     }
+  }
+
+  function handleRetryNow() {
+    // Ne relance pas `handleConfirm()` -- l'appel initial reste en attente dans `offlineRunner`
+    // avec sa clé d'idempotence propre ; en relancer un second créerait une seconde clé pour la
+    // même intention. `flush()` retente simplement ce qui est déjà en file.
+    // `flush()` ne rejette jamais (manager.ts -- une reconnexion future réessaiera), le `catch`
+    // ici n'est qu'une garde contre un rejet imprévu ; rien de plus à faire depuis un écran.
+    offlineRunner.flush().catch(() => {});
   }
 
   const capReached = cash?.cashLimitReached ?? false;
@@ -136,7 +143,7 @@ export function SettlementScreen({ route, navigation }: Props) {
           <Text style={styles.pendingText}>
             Encaissement en attente — il sera renvoyé dès que la connexion revient.
           </Text>
-          <Pressable testID="settlement-retry" accessibilityRole="button" onPress={handleConfirm} style={styles.primaryButton}>
+          <Pressable testID="settlement-retry" accessibilityRole="button" onPress={handleRetryNow} style={styles.primaryButton}>
             <Text style={styles.primaryLabel}>Réessayer maintenant</Text>
           </Pressable>
         </View>

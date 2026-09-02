@@ -16,6 +16,17 @@ jest.mock('../../auth', () => ({
   apiClient: { request: (...args: unknown[]) => mockRequest(...args) },
 }));
 
+// `offlineRunner` réel, branché sur le MÊME `mockRequest` que `apiClient` ci-dessus (même
+// topologie qu'en production : `../offline.ts` enrobe `apiClient`) -- `completeRide` (fin de
+// course, L6-16) passe par lui, `startRide` reste un appel direct. Voir
+// SettlementScreen.test.tsx pour le raisonnement complet sur ce patron de test.
+jest.mock('../../offline', () => ({
+  offlineRunner: require('@babana/api-client').createOfflineActionRunner({
+    httpClient: { request: (...args: unknown[]) => mockRequest(...args) },
+    queueStorage: require('@babana/api-client').createInMemoryOfflineQueue(),
+  }),
+}));
+
 const mockGetPosition = jest.fn().mockResolvedValue({ latitude: 4.05, longitude: 9.7 });
 jest.mock('../../location', () => ({
   getCurrentPosition: () => mockGetPosition(),
@@ -182,11 +193,57 @@ describe('ActiveRideScreen (L6-13)', () => {
       finish.props.onLongPress();
     });
     // La fin de course ne porte que la décision (J24) : corps vide, aucun relevé de trajet.
-    expect(mockRequest).toHaveBeenCalledWith('completeRide', {
-      pathParams: { id: RIDE_ID },
-      body: {},
-    });
+    expect(mockRequest).toHaveBeenCalledWith(
+      'completeRide',
+      expect.objectContaining({ pathParams: { id: RIDE_ID }, body: {} })
+    );
     expect(mockReplaceWithSettlement).toHaveBeenCalledWith(expect.anything(), { rideId: RIDE_ID, amount: 1500 });
+  });
+
+  it('L6-16 -- hors connexion, la fin de course est mise en attente puis confirmée automatiquement au retour du réseau', async () => {
+    const { root } = await renderActiveRide();
+    await act(async () => {
+      root.root.findByProps({ testID: 'active-ride-start' }).props.onPress();
+    });
+
+    // La rejection ne vise que le prochain appel (completeRide), pas celui de startRide déjà
+    // consommé ci-dessus (mockRequest.mockResolvedValue({}) par défaut, beforeEach).
+    mockRequest.mockRejectedValueOnce(new Error('network down'));
+    await act(async () => {
+      root.root.findByProps({ testID: 'active-ride-finish' }).props.onLongPress();
+    });
+    expect(root.root.findByProps({ testID: 'active-ride-finish-queued' })).toBeTruthy();
+    expect(root.root.findAllByProps({ testID: 'active-ride-finish' })).toHaveLength(0);
+    expect(mockReplaceWithSettlement).not.toHaveBeenCalled();
+
+    // Rejeu automatique (reconnexion) : ni bouton ni nouvelle action de l'écran, juste flush() --
+    // exactement ce que `../offline.ts` réel appelle depuis `onRealtimeConnectionStateChange`.
+    mockRequest.mockResolvedValueOnce({});
+    const { offlineRunner } = require('../../offline');
+    await act(async () => {
+      await offlineRunner.flush();
+    });
+
+    expect(mockReplaceWithSettlement).toHaveBeenCalledWith(expect.anything(), { rideId: RIDE_ID, amount: 1500 });
+  });
+
+  it('L6-16 -- « Réessayer maintenant » réutilise la même clé d’idempotence, sans double fin de course', async () => {
+    const { root } = await renderActiveRide();
+    await act(async () => {
+      root.root.findByProps({ testID: 'active-ride-start' }).props.onPress();
+    });
+    mockRequest.mockRejectedValueOnce(new Error('network down')).mockResolvedValueOnce({});
+    await act(async () => {
+      root.root.findByProps({ testID: 'active-ride-finish' }).props.onLongPress();
+    });
+    await act(async () => {
+      root.root.findByProps({ testID: 'active-ride-finish-retry' }).props.onPress();
+    });
+
+    const completeCalls = mockRequest.mock.calls.filter((c) => c[0] === 'completeRide');
+    expect(completeCalls).toHaveLength(2);
+    expect(completeCalls[0][1].idempotencyKey).toBe(completeCalls[1][1].idempotencyKey);
+    expect(mockReplaceWithSettlement).toHaveBeenCalledTimes(1);
   });
 
   it('critère 5 -- aucun bouton d’appel du client (aucun numéro au contrat, écart amoa/questions/L6-13.md)', async () => {

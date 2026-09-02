@@ -229,6 +229,63 @@ describe('ProposalScreen (L6-12)', () => {
     expect(flatten(reject.props.style({ pressed: false })).minHeight).toBeGreaterThanOrEqual(56);
   });
 
+  it('L6-16 -- accepter hors connexion est refusé tout de suite, avec explication, jamais mis en file', async () => {
+    const { root } = await renderProposal();
+
+    await act(async () => {
+      setConnectionState('offline');
+    });
+    await act(async () => {
+      root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
+    });
+
+    // Aucun envoi -- ni maintenant, ni plus tard : "accepter" ne doit jamais rejoindre la file
+    // du client temps réel (voir aussi connection.test.ts, NEVER_QUEUED_MESSAGE_TYPES).
+    expect(mockSend).not.toHaveBeenCalledWith('proposal.accept', expect.anything());
+    expect(root.root.findByProps({ testID: 'proposal-offline-blocked' })).toBeTruthy();
+    // Toujours "idle" : les boutons restent actifs, le chauffeur peut retenter dès reconnecté.
+    expect(root.root.findByProps({ testID: 'proposal-accept' }).props.disabled).toBe(false);
+  });
+
+  it('L6-16 -- refuser hors connexion est également bloqué tout de suite', async () => {
+    const { root, navigation } = await renderProposal();
+
+    await act(async () => {
+      setConnectionState('offline');
+    });
+    await act(async () => {
+      root.root.findByProps({ testID: 'proposal-reject' }).props.onPress();
+    });
+
+    expect(mockSend).not.toHaveBeenCalledWith('proposal.reject', expect.anything());
+    expect(root.root.findByProps({ testID: 'proposal-offline-blocked' })).toBeTruthy();
+    // Refuser reste possible : la proposition n'a pas été abandonnée par erreur (goBack n'a
+    // jamais été appelé -- contrairement à un refus réel, qui y appelle toujours goBack()).
+    expect(navigation.goBack).not.toHaveBeenCalled();
+  });
+
+  it('L6-16 -- une reconnexion efface l’explication ; accepter fonctionne normalement ensuite', async () => {
+    const { root } = await renderProposal();
+
+    await act(async () => {
+      setConnectionState('offline');
+    });
+    await act(async () => {
+      root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
+    });
+    expect(root.root.findByProps({ testID: 'proposal-offline-blocked' })).toBeTruthy();
+
+    await act(async () => {
+      setConnectionState('connected');
+    });
+    expect(root.root.findAllByProps({ testID: 'proposal-offline-blocked' })).toHaveLength(0);
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
+    });
+    expect(mockSend).toHaveBeenCalledWith('proposal.accept', { rideId: RIDE_ID });
+  });
+
   it('D49 -- accepter n’envoie que proposal.accept ; la bascule vers ActiveRide attend proposal.accepted, jamais un délai', async () => {
     const { root, navigation } = await renderProposal();
 
