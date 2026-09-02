@@ -15,6 +15,8 @@ import pytz
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
+from ..services import realtime_client
+
 # D28 (amoa/questions/REPONSES-2026-08-18.md, 01-architecture.md §7) : plafond FIXE POUR TOUTE LA
 # FLOTTE, jamais par chauffeur -- un plafond individuel créerait une inégalité que quelqu'un
 # devrait justifier à voix haute. Un seul paramètre système, jamais codé en dur (invariant 5) ;
@@ -477,7 +479,31 @@ class BabanaDriver(models.Model):
         # dans le même appel : être en ligne hors de l'état approuvé n'est jamais permis.
         if "state" in vals and vals["state"] != "approved":
             vals = dict(vals, is_online=False)
-        return super().write(vals)
+        result = super().write(vals)
+
+        # Câblage suspension/rejet/réactivation -> service temps réel (J33). Le forçage
+        # is_online=False ci-dessus n'agit QUE côté Odoo : le service temps réel garde son propre
+        # vivier géo-indexé (Redis), qui ne dépend pas d'is_online. Sans ce signal, un chauffeur
+        # suspendu reste sélectionnable et continue de recevoir des propositions jusqu'à
+        # l'expiration de sa dernière position. Même patron que _babana_apply_cash_limit +
+        # notify_cash_limit_reached (L5-02), appliqué au cas voisin.
+        #
+        # Toute entrée dans 'approved' lève la non-habilitation (réactivation, ou approbation
+        # d'une candidature) ; toute sortie la pose (suspension, rejet). Placé ici plutôt que
+        # dans chaque action_* pour couvrir aussi une écriture directe de state (défense en
+        # profondeur, même raison que le forçage is_online ci-dessus). D32/D33 : ces appels
+        # s'accrochent au commit et ne sont dans aucun savepoint (realtime_client.py).
+        if "state" in vals:
+            for record in self:
+                if vals["state"] == "approved":
+                    realtime_client.notify_driver_available(
+                        self.env, driver_public_id=record.public_id
+                    )
+                else:
+                    realtime_client.notify_driver_unavailable(
+                        self.env, driver_public_id=record.public_id
+                    )
+        return result
 
     # --- L1-10 : alertes d'échéance (permis) ----------------------------------------------
 
@@ -600,7 +626,11 @@ class BabanaDriver(models.Model):
         Le motif est persisté sur `rejection_reason` (et non seulement posté au fil) : c'est lui
         que la session porte jusqu'à l'app (AuthenticatedUser.driverRejectionReason,
         amoa/questions/REPONSES-2026-09-04.md §2) pour qu'un chauffeur suspendu lise « votre
-        compte est suspendu : <motif> » au lieu de « déposez vos pièces »."""
+        compte est suspendu : <motif> » au lieu de « déposez vos pièces ».
+
+        Le retrait du vivier temps réel n'est pas fait ici mais dans `write()` (J33) : toute
+        sortie de l'état 'approved' -- suspension, rejet -- y déclenche
+        `realtime_client.notify_driver_unavailable` au commit."""
         self.ensure_one()
         if not reason:
             raise UserError(
@@ -615,6 +645,10 @@ class BabanaDriver(models.Model):
         return self
 
     def action_reactivate(self):
+        """Repasse un chauffeur suspendu en 'approved'. Le `write()` lève la non-habilitation
+        côté temps réel (`realtime_client.notify_driver_available`, J33) mais NE réintègre PAS le
+        chauffeur au vivier : il se redéclare en ligne lui-même (D7). C'est le cas symétrique de
+        la suspension, pas son inverse exact."""
         self.ensure_one()
         if self.state != "suspended":
             raise UserError(

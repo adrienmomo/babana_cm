@@ -4,8 +4,9 @@
 # (jamais construit, hors périmètre), pas un second à inventer.
 #
 # D32 (amoa/questions/REPONSES-2026-08-18.md §4) : tout appel d'ici déclenché APRÈS une transition
-# Odoo (clear_engagement, notify_cancellation_async, notify_cash_limit_reached) part au commit de
-# la transaction appelante, jamais pendant -- voir leurs docstrings. Deux fonctions font exception :
+# Odoo (clear_engagement, notify_cancellation_async, notify_cash_limit_reached,
+# notify_driver_unavailable/notify_driver_available -- J33) part au commit de la transaction
+# appelante, jamais pendant -- voir leurs docstrings. Deux fonctions font exception :
 # `reserve_and_propose` PRÉCÈDE délibérément la transition, puisque c'est son résultat qui
 # l'autorise (et c'est pour cela que son idempotence D25 a été construite) ; `fetch_ride_measurement`
 # (L3-10) est une **lecture pure** appelée avant `in_progress -> completed` -- elle ne modifie
@@ -266,6 +267,61 @@ def notify_cash_limit_cleared(env, *, driver_public_id: str) -> None:
     **D32** : au COMMIT, jamais pendant -- une validation rejouée ou finalement annulée n'a pas
     réellement fait repasser le chauffeur sous le plafond."""
     env.cr.postcommit.add(lambda: _notify_cash_limit_cleared_now(driver_public_id=driver_public_id))
+
+
+def _notify_driver_unavailable_now(driver_public_id: str) -> None:
+    try:
+        _post("/internal/drivers/unavailable", {"driverId": driver_public_id})
+    except RealtimeUnavailable:
+        _logger.warning(
+            "échec du signalement de non-habilitation pour le chauffeur %s -- il pourrait rester "
+            "visible dans le vivier jusqu'à l'expiration de sa position (J33).",
+            driver_public_id,
+        )
+
+
+def notify_driver_unavailable(env, *, driver_public_id: str) -> None:
+    """Dossier chauffeur non habilité à travailler (D5, D31, D55, J33) : suspension ou rejet côté
+    Odoo. Signale au service temps réel qu'il doit retirer ce chauffeur du vivier géo-indexé ET
+    refuser toute acceptation déjà en vol pour lui -- même patron que `notify_cash_limit_reached`
+    (prompt J33 : « applique-le, ne le réinvente pas »). Appelée par `babana.driver.write()` dès
+    qu'un `state` sort de `approved`, à côté du forçage `is_online = False` qui, lui, n'agit que
+    côté Odoo.
+
+    **D31** : notifie, ne transitionne rien -- la machine à états d'une course en cours (L4-02)
+    n'est pas touchée, une suspension n'interrompt jamais une course (L1-06, critère 5).
+
+    **D32** : au COMMIT, jamais pendant -- la disponibilité de ce chauffeur ne doit changer côté
+    temps réel que si la transition d'état est réellement actée côté Odoo (une transaction rejouée
+    ou annulée n'a suspendu personne). **D33** : les actions de dossier chauffeur
+    (`action_suspend`/`action_reject`/`action_reactivate` et le `write()` qu'elles appellent) ne
+    portent aucun savepoint -- vérifié dans le code, comme `notify_ride_started`. L'appel est donc
+    enregistré directement après l'écriture."""
+    env.cr.postcommit.add(lambda: _notify_driver_unavailable_now(driver_public_id=driver_public_id))
+
+
+def _notify_driver_available_now(driver_public_id: str) -> None:
+    try:
+        _post("/internal/drivers/available", {"driverId": driver_public_id})
+    except RealtimeUnavailable:
+        _logger.warning(
+            "échec de la levée de non-habilitation pour le chauffeur %s -- il resterait invisible "
+            "jusqu'à la prochaine tentative, même après s'être redéclaré en ligne (J33).",
+            driver_public_id,
+        )
+
+
+def notify_driver_available(env, *, driver_public_id: str) -> None:
+    """Réactivation d'un chauffeur suspendu (D5, D31, D55, J33) : lève la non-habilitation côté
+    temps réel. Symétrique de `notify_driver_unavailable`, à une différence près voulue par le
+    prompt J33 -- elle NE réintègre PAS le chauffeur au vivier (contrairement à
+    `notify_cash_limit_cleared`) : « c'est au chauffeur de se redéclarer en ligne » (D7). Appelée
+    par `babana.driver.write()` dès qu'un `state` (re)devient `approved` ; sans effet si aucune
+    non-habilitation n'était posée (approbation d'une candidature jamais suspendue).
+
+    **D32/D33** : mêmes garanties que `notify_driver_unavailable` -- au commit, hors de tout
+    savepoint."""
+    env.cr.postcommit.add(lambda: _notify_driver_available_now(driver_public_id=driver_public_id))
 
 
 def _notify_ride_started_now(*, ride_public_id: str, client_user_public_id: str, driver_public_id: str) -> None:

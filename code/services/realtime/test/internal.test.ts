@@ -65,6 +65,7 @@ after(async () => {
       redis.del(`babana:driver:proposal:rideId:${driverId}`),
       redis.del(`babana:driver:proposal:record:${driverId}`),
       redis.del(`babana:driver:position:${driverId}`),
+      redis.del(`babana:driver:admin-hold:${driverId}`),
       redis.del(accumulationKey(driverId)),
     ])
   );
@@ -301,6 +302,43 @@ describe('POST /internal/engagement/clear (fin de course, critère 6)', () => {
     assert.equal(body.cleared, true);
     assert.equal(await isEngaged(redis, driverId), false);
     assert.equal(await isInPool(redis, driverId), true, 'redevient disponible immédiatement, sans attendre la position suivante');
+  });
+});
+
+describe('POST /internal/drivers/unavailable|available (suspension/rejet/réactivation, J33)', () => {
+  test('unavailable retire du vivier et pose la non-habilitation', async () => {
+    const driverId = await availableDriver('hold');
+    assert.equal(await isInPool(redis, driverId), true, 'préalable : dans le pool avant la suspension');
+
+    const { status, body } = await post('/internal/drivers/unavailable', { driverId });
+    assert.equal(status, 200);
+    assert.equal(body.held, true);
+    assert.equal(await isInPool(redis, driverId), false, 'retiré du vivier dans la seconde');
+    assert.equal(await redis.exists(`babana:driver:admin-hold:${driverId}`), 1);
+  });
+
+  test('available lève la non-habilitation SANS réintégrer au vivier (le chauffeur se redéclare)', async () => {
+    const driverId = await availableDriver('release-hold');
+    await post('/internal/drivers/unavailable', { driverId });
+    assert.equal(await isInPool(redis, driverId), false);
+
+    const { status, body } = await post('/internal/drivers/available', { driverId });
+    assert.equal(status, 200);
+    assert.equal(body.released, true);
+    assert.equal(await redis.exists(`babana:driver:admin-hold:${driverId}`), 0);
+    // Contrairement à /internal/drivers/cash-unblocked : pas de reintegrateIfEligible ici.
+    assert.equal(await isInPool(redis, driverId), false, 'pas de réintégration automatique (D7, J33)');
+  });
+
+  test('un chauffeur non habilité, même en ligne et positionné, n\'est jamais réinséré au vivier', async () => {
+    const driverId = await availableDriver('hold-reintegrate');
+    await post('/internal/drivers/unavailable', { driverId });
+
+    // Position émise avant que la déconnexion (jetons révoqués) ne se propage : le script
+    // d'éligibilité doit refuser la réinsertion.
+    const inserted = await addEligibleToPool(redis, driverId, SOMEWHERE.latitude, SOMEWHERE.longitude);
+    assert.equal(inserted, false);
+    assert.equal(await isInPool(redis, driverId), false);
   });
 });
 

@@ -17,6 +17,7 @@ import ast
 import os
 import re
 import socket
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 
@@ -205,6 +206,55 @@ class TestRealtimeCommitHook(HttpCase):
             "un vrai commit doit déclencher l'appel -- sinon ce test ne prouve rien (même piège "
             "que L3-13/L4-11 : une implémentation qui ne ferait jamais rien passerait le test "
             "précédent par accident)",
+        )
+
+    # --- notify_driver_unavailable (câblage suspension/rejet -> temps réel, J33) ------------
+    #
+    # Contre le VRAI service temps réel et le VRAI Redis, comme clear_engagement ci-dessus : la
+    # clé de non-habilitation (`babana:driver:admin-hold:<public_id>`) est observable, on prouve
+    # donc que l'appel HTTP a (rollback) ou n'a pas (commit) réellement eu lieu, pas seulement
+    # qu'une requête a été construite. Le comportement du vivier une fois la clé posée (retrait,
+    # refus d'acceptation, levée sans réintégration) est prouvé côté TypeScript
+    # (services/realtime/test/admin-hold.test.ts + internal.test.ts).
+
+    @staticmethod
+    def _hold_key(driver_public_id: str) -> str:
+        return f"babana:driver:admin-hold:{driver_public_id}"
+
+    def test_notify_driver_unavailable_sets_the_hold_key_once_committed(self):
+        driver_public_id = str(uuid.uuid4())
+        key = self._hold_key(driver_public_id)
+        self.addCleanup(_redis_delete, key)
+
+        env = _FakeEnv()
+        realtime_client.notify_driver_unavailable(env, driver_public_id=driver_public_id)
+        env.cr.commit()
+
+        import time
+
+        for _ in range(20):
+            if _redis_exists(key):
+                break
+            time.sleep(0.25)
+        self.assertTrue(
+            _redis_exists(key),
+            "un vrai commit doit poser la clé de non-habilitation -- sinon ce test ne prouve rien",
+        )
+
+    def test_notify_driver_unavailable_does_nothing_if_the_transaction_rolls_back(self):
+        driver_public_id = str(uuid.uuid4())
+        key = self._hold_key(driver_public_id)
+        self.addCleanup(_redis_delete, key)
+
+        env = _FakeEnv()
+        realtime_client.notify_driver_unavailable(env, driver_public_id=driver_public_id)
+        env.cr.rollback()
+
+        import time
+
+        time.sleep(1.0)
+        self.assertFalse(
+            _redis_exists(key), "aucune clé ne doit être posée si la transaction n'a pas commité"
         )
 
     # --- notify_cancellation_async (relâche réservation ET engagement) ---------------------
@@ -416,6 +466,46 @@ class TestRealtimeCommitHook(HttpCase):
             },
         )
 
+    # --- notify_driver_unavailable / notify_driver_available (J33) --------------------------
+    #
+    # Câblage suspension/rejet/réactivation -> service temps réel. Même patron que
+    # notify_cash_limit_reached : la preuve porte sur le POINT D'ACCROCHE (rollback n'appelle
+    # jamais, commit appelle exactement une fois). Le comportement Redis une fois l'appel arrivé
+    # (retrait du vivier, blocage de l'acceptation, levée sans réintégration) est prouvé côté
+    # service temps réel (services/realtime/test/admin-hold.test.ts).
+
+    def test_notify_driver_unavailable_does_not_call_out_if_the_transaction_rolls_back(self):
+        env = _FakeEnv()
+        with patch.object(realtime_client, "_post") as mock_post:
+            realtime_client.notify_driver_unavailable(env, driver_public_id="driver-1")
+            env.cr.rollback()
+        mock_post.assert_not_called()
+
+    def test_notify_driver_unavailable_calls_out_once_the_transaction_actually_commits(self):
+        env = _FakeEnv()
+        with patch.object(realtime_client, "_post") as mock_post:
+            realtime_client.notify_driver_unavailable(env, driver_public_id="driver-1")
+            env.cr.commit()
+        mock_post.assert_called_once_with(
+            "/internal/drivers/unavailable", {"driverId": "driver-1"}
+        )
+
+    def test_notify_driver_available_does_not_call_out_if_the_transaction_rolls_back(self):
+        env = _FakeEnv()
+        with patch.object(realtime_client, "_post") as mock_post:
+            realtime_client.notify_driver_available(env, driver_public_id="driver-1")
+            env.cr.rollback()
+        mock_post.assert_not_called()
+
+    def test_notify_driver_available_calls_out_once_the_transaction_actually_commits(self):
+        env = _FakeEnv()
+        with patch.object(realtime_client, "_post") as mock_post:
+            realtime_client.notify_driver_available(env, driver_public_id="driver-1")
+            env.cr.commit()
+        mock_post.assert_called_once_with(
+            "/internal/drivers/available", {"driverId": "driver-1"}
+        )
+
 
 class TestRealtimeCommitHookLint(HttpCase):
     """Vérifié par le lint (CLAUDE.md, frontière D32) : « Aucun appel sortant vers le service
@@ -444,6 +534,8 @@ class TestRealtimeCommitHookLint(HttpCase):
         "notify_ride_started",
         "notify_ride_completed",
         "notify_ride_cancelled",
+        "notify_driver_unavailable",
+        "notify_driver_available",
     )
 
     def test_every_gated_call_passes_env_as_its_first_argument(self):
