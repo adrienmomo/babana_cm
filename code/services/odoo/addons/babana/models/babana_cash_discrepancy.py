@@ -88,6 +88,61 @@ class BabanaCashDiscrepancy(models.Model):
         "traitement par défaut, exactement comme adjustment_movement_id : c'est ici, et "
         "seulement ici, que le compte d'écart entre en comptabilité (spécification L5-05).",
     )
+    driver_other_discrepancy_ids = fields.Many2many(
+        "babana.cash.discrepancy",
+        "babana_cash_discrepancy_driver_history_rel",
+        "discrepancy_id",
+        "other_discrepancy_id",
+        compute="_compute_driver_other_discrepancy_ids",
+        string="Historique d'écarts du chauffeur",
+        help="Les autres écarts du même chauffeur, les plus récents en tête (L9-05, critère 2) "
+        "-- juxtaposés à celui-ci sur le même écran : « un écart isolé ne dit rien, trois écarts "
+        "dans le même sens disent quelque chose » (spécification). Non stocké : recalculé à "
+        "chaque lecture, même choix que overlap_rule_ids (babana_fare_rule.py).",
+    )
+    same_direction_recent_count = fields.Integer(
+        compute="_compute_driver_other_discrepancy_ids",
+        string="Écarts de même sens récents",
+        help="Nombre d'écarts de même sens (celui-ci compris) sur la fenêtre glissante d'alerte "
+        "(babana.cash_discrepancy_alert_window_days) -- ce que "
+        "_babana_check_alert_thresholds compare déjà au seuil de série, exposé ici pour que le "
+        "superviseur le voie sans consulter le message posté sur la fiche chauffeur.",
+    )
+    part_of_a_series = fields.Boolean(
+        compute="_compute_driver_other_discrepancy_ids",
+        string="Fait partie d'une série",
+        help="same_direction_recent_count a atteint le seuil de série (critère d'acceptation 5) "
+        "-- repère visuel direct, sans faire le calcul de tête.",
+    )
+
+    def _compute_driver_other_discrepancy_ids(self):
+        # L9-05, critères 2 et 5 : même fenêtre et même seuil que _babana_check_alert_thresholds
+        # (l'alerte posée à la création) -- deux lectures indépendantes du même seuil
+        # divergeraient sinon en silence (D23, toujours la même famille de défaut).
+        Params = self.env["ir.config_parameter"].sudo()
+        window_days = int(
+            Params.get_param(
+                DISCREPANCY_ALERT_WINDOW_DAYS_PARAM, DISCREPANCY_ALERT_WINDOW_DAYS_FALLBACK
+            )
+        )
+        series_count = int(
+            Params.get_param(
+                DISCREPANCY_ALERT_SERIES_COUNT_PARAM, DISCREPANCY_ALERT_SERIES_COUNT_FALLBACK
+            )
+        )
+        window_start = fields.Datetime.now() - timedelta(days=window_days)
+        for record in self:
+            all_for_driver = self.sudo().search(
+                [("driver_id", "=", record.driver_id.id)], order="create_date desc"
+            )
+            record.driver_other_discrepancy_ids = all_for_driver - record
+            recent_same_direction = all_for_driver.filtered(
+                lambda d, record=record: d.direction == record.direction
+                and d.create_date
+                and d.create_date >= window_start
+            )
+            record.same_direction_recent_count = len(recent_same_direction)
+            record.part_of_a_series = len(recent_same_direction) >= series_count
 
     @api.constrains("reason_category", "reason_comment")
     def _check_other_requires_comment(self):

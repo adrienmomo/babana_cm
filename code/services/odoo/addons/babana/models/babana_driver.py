@@ -24,6 +24,15 @@ from ..services import realtime_client
 CASH_LIMIT_PARAM = "babana.cash_limit"
 CASH_LIMIT_FALLBACK = 50000.0
 
+# L9-05 (tableau de bord de caisse, "chauffeurs proches du plafond") : même paramètre que celui
+# que L9-06 exposera un jour dans les réglages ("seuil d'alerte de plafond, en pourcentage") --
+# défini ici, à l'usage, plutôt qu'en attendant L9-06, même précédent que CASH_LIMIT_PARAM
+# lui-même. Repère purement visuel pour ce lot ; L7-05 (hors de ce soir) réutilisera le même
+# paramètre pour la notification d'approche. Repli à 80 %, même ordre de grandeur que
+# QUOTA_ALERT_RATIO_DEFAULT (services/routing.py) pour une alerte d'approche.
+CASH_LIMIT_ALERT_RATIO_PARAM = "babana.cash_limit_alert_ratio"
+CASH_LIMIT_ALERT_RATIO_FALLBACK = 0.8
+
 # L1-01, critère 10 : limitation de débit sur la création de candidature -- par adresse IP, le
 # vecteur concret décrit par la spécification (« n'importe quel compte Google appelant
 # /auth/google avec role=driver »). Valeurs paramétrables (invariant 5), jamais codées en dur
@@ -194,6 +203,13 @@ class BabanaDriver(models.Model):
         compute="_compute_document_expired",
         help="Le permis le plus récent est expiré (L1-10). Code couleur de la liste (L9-01).",
     )
+    cash_limit_near = fields.Boolean(
+        string="Plafond proche",
+        compute="_compute_cash_limit_near",
+        help="Le solde dû a franchi babana.cash_limit_alert_ratio du plafond, sans encore "
+        "l'atteindre (L9-05, tableau de bord de caisse). Purement indicatif ici -- L7-05 (hors "
+        "de ce lot) reprendra le même paramètre pour la notification d'approche.",
+    )
 
     _sql_constraints = [
         (
@@ -319,6 +335,20 @@ class BabanaDriver(models.Model):
             if limit and driver.cash_balance >= limit
         ]
         return [("id", "in" if wants_reached else "not in", reached_ids)]
+
+    @api.model
+    def _cash_limit_alert_ratio(self) -> float:
+        return float(
+            self.env["ir.config_parameter"]
+            .sudo()
+            .get_param(CASH_LIMIT_ALERT_RATIO_PARAM, CASH_LIMIT_ALERT_RATIO_FALLBACK)
+        )
+
+    def _compute_cash_limit_near(self):
+        limit = self._cash_limit()
+        ratio = self._cash_limit_alert_ratio()
+        for record in self:
+            record.cash_limit_near = bool(limit) and limit * ratio <= record.cash_balance < limit
 
     def _compute_document_expired(self):
         today = fields.Date.today()

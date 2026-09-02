@@ -11,12 +11,14 @@
         <field name="name">babana.cash.discrepancy.list</field>
         <field name="model">babana.cash.discrepancy</field>
         <field name="arch" type="xml">
-            <list default_order="create_date asc">
+            <list default_order="create_date asc" decoration-danger="part_of_a_series">
                 <field name="create_date" string="Constaté le"/>
                 <field name="remittance_id"/>
                 <field name="driver_id"/>
                 <field name="amount"/>
                 <field name="direction"/>
+                <field name="same_direction_recent_count" string="Série (même sens)"/>
+                <field name="part_of_a_series" string="Série ?"/>
                 <field name="status" decoration-warning="status == 'pending'"/>
             </list>
         </field>
@@ -34,6 +36,13 @@
                     <field name="status" widget="statusbar"/>
                 </header>
                 <sheet>
+                    <div class="alert alert-danger" role="alert" invisible="not part_of_a_series">
+                        <strong>Série d'écarts de même sens.</strong> Ce chauffeur a
+                        <field name="same_direction_recent_count" nolabel="1" readonly="1"/>
+                        écart(s) de sens « <field name="direction" nolabel="1" readonly="1"/> »
+                        sur la fenêtre glissante d'alerte -- un écart isolé ne dit rien, une série
+                        dans le même sens dit quelque chose (spécification L5-06/L9-05).
+                    </div>
                     <group>
                         <group string="Écart">
                             <field name="remittance_id" readonly="1"/>
@@ -52,6 +61,20 @@
                             <field name="write_off_move_id" readonly="1"/>
                         </group>
                     </group>
+                    <notebook>
+                        <page string="Historique d'écarts du chauffeur">
+                            <field name="driver_other_discrepancy_ids" readonly="1" nolabel="1">
+                                <list default_order="create_date desc" decoration-warning="status == 'pending'">
+                                    <field name="create_date" string="Constaté le"/>
+                                    <field name="remittance_id"/>
+                                    <field name="amount"/>
+                                    <field name="direction"/>
+                                    <field name="status"/>
+                                    <field name="decision"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
                 </sheet>
                 <chatter/>
             </form>
@@ -66,6 +89,7 @@
                 <field name="driver_id"/>
                 <field name="remittance_id"/>
                 <filter name="filter_pending" string="En attente" domain="[('status', '=', 'pending')]"/>
+                <filter name="filter_series" string="En série" domain="[('part_of_a_series', '=', True)]"/>
                 <group expand="0" string="Regrouper par">
                     <filter name="group_by_driver" string="Chauffeur" context="{'group_by': 'driver_id'}"/>
                 </group>

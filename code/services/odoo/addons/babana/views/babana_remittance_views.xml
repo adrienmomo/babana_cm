@@ -12,7 +12,10 @@
         <field name="name">babana.cash.remittance.list</field>
         <field name="model">babana.cash.remittance</field>
         <field name="arch" type="xml">
-            <list>
+            <!-- L9-05, critère 4 : les remises en attente sont triées par ancienneté, même
+                 patron que babana_cash_discrepancy.py::_order pour la même raison (ne rien
+                 laisser vieillir en bas d'une liste triée par activité récente). -->
+            <list default_order="create_date asc">
                 <field name="reference"/>
                 <field name="driver_id"/>
                 <field name="expected_amount"/>
@@ -39,6 +42,22 @@
                     <div class="oe_title">
                         <h1><field name="reference" readonly="1"/></h1>
                     </div>
+                    <div class="alert alert-info" role="alert" invisible="state != 'declared'">
+                        <strong>Compter, puis valider.</strong> Le montant compté n'a pas besoin
+                        de correspondre au montant attendu ou déclaré pour que la validation
+                        fonctionne : une concordance donne <code>validated</code>, un écart donne
+                        <code>disputed</code> et ouvre un enregistrement d'écart (L5-06) -- les
+                        deux valident la remise (D29). Compter moins que dû n'est pas une erreur
+                        à corriger avant de valider, c'est un fait à enregistrer.
+                    </div>
+                    <div class="alert alert-warning" role="alert"
+                        invisible="state not in ('validated', 'disputed') or not discrepancy_amount">
+                        <strong>Le chauffeur reste débiteur de <field name="discrepancy_amount" nolabel="1" readonly="1"/>.</strong>
+                        Seul le montant compté a remis le solde à zéro (D29) : le reliquat demeure
+                        au compte courant du chauffeur et continue de peser sur son plafond
+                        d'encaisse -- il ne disparaît pas parce que cette remise est validée. Voir
+                        l'écart lié pour son traitement.
+                    </div>
                     <group>
                         <group string="Chauffeur">
                             <field name="driver_id" readonly="state != 'draft'"/>
@@ -48,7 +67,8 @@
                             <field name="currency_id" invisible="1"/>
                             <field name="expected_amount" readonly="1"/>
                             <field name="declared_amount" readonly="state != 'draft'"/>
-                            <field name="counted_amount" readonly="state not in ('declared',)"/>
+                            <field name="counted_amount" readonly="state not in ('declared',)"
+                                help="Le montant réellement compté -- il n'a pas à égaler le montant attendu ou déclaré pour valider (D29)."/>
                             <field name="discrepancy_amount" readonly="1"/>
                         </group>
                     </group>
@@ -59,6 +79,7 @@
                         </group>
                         <group string="Comptabilité">
                             <field name="move_id" readonly="1"/>
+                            <field name="discrepancy_id" readonly="1" invisible="not discrepancy_id"/>
                         </group>
                     </group>
                     <field name="discrepancy_reason" placeholder="Motif de l'écart, le cas échéant" readonly="state == 'validated'"/>
@@ -105,4 +126,49 @@
 
     <menuitem id="babana_menu_cash_remittance" name="Remises de caisse" parent="babana_menu_root"
         action="babana_cash_remittance_action" sequence="25"/>
+
+    <!-- Tableau de bord de caisse (L9-05, critère 3) -->
+    <record id="babana_cash_dashboard_view_form" model="ir.ui.view">
+        <field name="name">babana.cash.dashboard.form</field>
+        <field name="model">babana.cash.dashboard</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <div class="alert alert-info" role="alert">
+                        Recalculé à chaque ouverture -- utiliser « Actualiser » ci-dessous pour
+                        une lecture à jour sans rouvrir le menu.
+                    </div>
+                    <group>
+                        <field name="currency_id" invisible="1"/>
+                        <field name="total_held_amount"
+                            string="Total détenu par la flotte"
+                            help="L'exposition financière de l'entreprise à cet instant (spécification L9-05) -- l'indicateur le plus important de ce tableau de bord."/>
+                        <field name="cash_limit" string="Plafond d'encaisse (flotte)"/>
+                    </group>
+                    <group string="Situation des chauffeurs">
+                        <field name="drivers_at_limit_count" string="Chauffeurs au plafond"/>
+                        <field name="drivers_near_limit_count" string="Chauffeurs proches du plafond"/>
+                    </group>
+                    <group string="Remises">
+                        <field name="pending_remittances_count" string="Remises en attente de validation"/>
+                        <field name="oldest_pending_remittance_id" string="La plus ancienne en attente"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_refresh" type="object" string="Actualiser" class="oe_highlight"/>
+                    <button string="Fermer" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="babana_cash_dashboard_action" model="ir.actions.act_window">
+        <field name="name">Tableau de bord de caisse</field>
+        <field name="res_model">babana.cash.dashboard</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+    </record>
+
+    <menuitem id="babana_menu_cash_dashboard" name="Tableau de bord de caisse" parent="babana_menu_root"
+        action="babana_cash_dashboard_action" sequence="24"/>
 </odoo>

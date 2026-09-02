@@ -121,6 +121,14 @@ class BabanaCashRemittance(models.Model):
         help="Dérivé de covered_movement_ids.ride_id -- 'on doit pouvoir dire quelles courses "
         "ont été réglées par quelle remise' (spécification L5-03).",
     )
+    discrepancy_id = fields.Many2one(
+        "babana.cash.discrepancy",
+        compute="_compute_discrepancy_id",
+        string="Écart lié",
+        help="L'enregistrement d'écart créé par la validation quand discrepancy_amount est non "
+        "nul (L5-06) -- au plus un par remise (action_validate n'en crée jamais deux). Permet au "
+        "superviseur de rejoindre le traitement de l'écart depuis la remise (L9-05).",
+    )
 
     _sql_constraints = [
         (
@@ -134,6 +142,13 @@ class BabanaCashRemittance(models.Model):
     def _compute_ride_ids(self):
         for record in self:
             record.ride_ids = record.covered_movement_ids.ride_id
+
+    def _compute_discrepancy_id(self):
+        Discrepancy = self.env["babana.cash.discrepancy"].sudo()
+        for record in self:
+            record.discrepancy_id = Discrepancy.search(
+                [("remittance_id", "=", record.id)], limit=1
+            )
 
     @api.depends("counted_amount", "expected_amount", "state")
     def _compute_discrepancy_amount(self):
