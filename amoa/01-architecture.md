@@ -59,6 +59,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D52 | **Les contraintes déclarées sont comparées à celles réellement présentes en base**, après installation | Faire confiance à la déclaration | Odoo journalise l'échec de création d'une contrainte et poursuit. Deux ont ainsi protégé le vide pendant des semaines. Voir §9 quater |
 | D53 | **La base n'installe jamais les données de démonstration d'Odoo, et la devise franc CFA est exigée à l'installation** | Laisser la devise par défaut ; corriger à la main | Les données de démonstration créent des écritures avant qu'on fixe la devise, et Odoo refuse ensuite de la changer : le compte courant et le grand livre étaient libellés en dollars. Voir §7 |
 | D54 | **Les lectures des contrôleurs se font au nom de l'utilisateur**, jamais en `sudo` ; seules les écritures, qui passent par les transitions, l'utilisent | Lire en `sudo` et vérifier dans le contrôleur | Deux gardes pour la même règle, dont une seule s'exécutait. Voir §9 quinquies |
+| D56 | **La non-habilitation d'un dossier chauffeur est un état temps réel**, posé au commit de la transition Odoo : elle retire du vivier et refuse une acceptation en vol. Sa levée ne réintègre pas | Compter sur `is_online` côté Odoo | Le vivier ne dépend pas d'`is_online` : un chauffeur suspendu y restait sélectionnable. Voir §7 bis |
 | D55 | **Une suspension empêche de travailler, pas de voir.** Le chauffeur suspendu garde la lecture de son compte courant, de ses remises et de sa course en cours | Coupure totale et immédiate | Retirer à quelqu'un tout moyen de voir sa dette l'empêche de la régler — et couper au milieu d'une course laisse un passager sans chauffeur. Voir §7 |
 
 ---
@@ -346,6 +347,18 @@ C'est le même raisonnement que celui qui a fait accepter les remises partielles
 **Mais elle doit agir immédiatement là où elle compte (constat du 9 septembre).** Suspendre passe bien `is_online` à faux côté Odoo, et **rien ne le dit au service temps réel** : le chauffeur reste dans le vivier géo-indexé et continue de recevoir des propositions jusqu'à l'expiration de sa position. Le franchissement du plafond d'encaisse, lui, prévient le service explicitement — un mécanisme construit avec soin pour un cas, jamais appliqué au cas voisin.
 
 C'est la forme que ce projet connaît bien : ce qui manque n'est pas le mécanisme, c'est son application au second endroit qui en avait besoin.
+
+---
+
+## 7 bis. Restaurer une disponibilité, ou ne pas la restaurer (D56)
+
+Le câblage de la suspension a posé une question qui paraît un détail et qui ne l'est pas : à la levée d'un blocage, remet-on le chauffeur dans le vivier ?
+
+Deux blocages voisins y répondent différemment, et c'est délibéré. Le franchissement du plafond d'encaisse **interrompt** une disponibilité que le chauffeur avait déclarée : il était en ligne, il travaillait. Lever le blocage lui rend l'état qu'il avait choisi. La suspension, elle, **détruit la session** — les jetons sont révoqués, la connexion tombe. À la réactivation, il n'y a aucune intention antérieure à restaurer : le chauffeur rouvre son application et se redéclare en ligne (D7).
+
+**La règle, énoncée pour qu'on n'ait pas à la redécouvrir** : un blocage qui interrompt une disponibilité la restaure à sa levée ; un blocage qui détruit la session ne la restaure pas. La question n'est jamais « les deux routes doivent-elles se ressembler ? » mais « une intention déclarée survit-elle au blocage ? ».
+
+**Une correction au passage, sur un filet mal identifié.** Le rapport de nuit compte la révocation des jetons parmi les protections contre un chauffeur suspendu resté visible. Elle n'en est pas une : révoquer force une reconnexion, elle ne l'interdit pas — une nouvelle authentification Google produit une session valide, et c'est voulu (L1-01 ne rejette jamais un chauffeur non approuvé, elle lui renvoie son statut). Ce qui l'empêche réellement de repasser en ligne, c'est le contrôle d'éligibilité côté Odoo. La distinction compte : quelqu'un qui croirait la révocation suffisante pourrait retirer ce contrôle un jour, et rouvrir le trou.
 
 **Et elle le dit dans la bonne monnaie (D53, 7 septembre).** La devise de la société était le dollar. Un rapport de nuit l'avait classé « cosmétique — le back-office affiche des dollars » ; ce ne l'était pas. Le mouvement de compte courant prend par défaut la devise de la société, et l'écriture comptable aussi : **le compte courant des chauffeurs et le grand livre étaient donc libellés en dollars**, pendant que l'API annonçait « XAF » en dur. Le nombre était le même, la monnaie ne l'était pas — dans un produit dont l'objet entier est la réconciliation d'espèces en francs CFA.
 

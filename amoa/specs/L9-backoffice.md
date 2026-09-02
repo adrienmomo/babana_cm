@@ -25,7 +25,9 @@ Vue liste : nom, statut, en ligne, moto affectée, note, courses effectuées, so
 
 Vue formulaire : informations, documents avec aperçu, moto, historique d'affectations, courses récentes, mouvements de caisse, boutons d'action de L1-06.
 
-Filtres : par statut, en ligne, plafond atteint, documents expirant, sans moto affectée. Regroupements par statut et par zone d'activité.
+Filtres : par statut, en ligne, plafond atteint, documents expirant, sans moto affectée. Regroupements par statut.
+
+**Correction du 10 septembre : « regroupement par zone d'activité » est retiré.** Un chauffeur n'a pas de zone — D6 le rattache durablement à une moto, jamais à un territoire, et `babana.zone` est un polygone de tarification, pas une affectation. « Zone d'activité » ne peut se calculer qu'a posteriori, depuis les courses : c'est une donnée d'analyse, du même ordre que les indicateurs de L9-07, et elle a besoin des données que le pilote produira. La fabriquer dans une vue de liste demanderait une recherche par ligne — exactement ce que L9-07 proscrit.
 
 Le solde et le statut sont visibles **dans la liste**, pas seulement dans le formulaire : un superviseur doit voir d'un coup d'œil qui doit remettre.
 
@@ -90,7 +92,11 @@ services/odoo/addons/babana/views/babana_ride_views.xml
 
 Liste : référence, date, client, chauffeur, départ, arrivée, distance, montant, état, moyen de paiement.
 
-Formulaire, en **lecture seule** : détail complet, détail tarifaire décomposé, tracé sur carte, chronologie des transitions, refus, incidents et litiges liés.
+Formulaire, en **lecture seule** : détail complet, détail tarifaire décomposé, **lien d'ouverture du tracé dans une carte externe**, chronologie des transitions, refus, incidents et litiges liés.
+
+**Correction du 10 septembre : le tracé ne s'affiche pas dans le back-office, il s'ouvre.** Odoo Communauté n'a pas de widget carte — la vue `map` est une fonction Entreprise — et en embarquer un demanderait d'écrire un composant, de charger une bibliothèque de cartographie et d'appeler un serveur de tuiles depuis le back-office : un travail sans rapport avec une tâche dont la spécification dit elle-même qu'elle est « du paramétrage de vues standard ».
+
+La réponse est celle que D12 a déjà retenue pour la navigation du chauffeur : **ne pas embarquer une carte, passer la main à une carte.** Un lien qui ouvre le tracé dans Google Maps depuis la fiche de course. Le superviseur qui instruit un litige y retrouve un outil qu'il connaît, et le back-office n'acquiert aucune dépendance cartographique.
 
 Le formulaire est en lecture seule y compris pour un administrateur : les modifications passent par les transitions (L4-02). Une course modifiable à la main détruit la valeur du journal d'audit.
 
@@ -101,7 +107,7 @@ Vue liste avec regroupements : par jour, par chauffeur, par zone, par état.
 ### Critères d'acceptation
 
 1. Le formulaire est en lecture seule, y compris en administrateur.
-2. Le tracé s'affiche sur une carte.
+2. Le tracé s'ouvre dans une carte externe depuis la fiche de course, en un clic.
 3. La chronologie des transitions est complète.
 4. Tous les filtres listés fonctionnent.
 5. Les courses à écart signalé sont filtrables.
