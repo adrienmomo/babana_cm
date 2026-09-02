@@ -218,6 +218,8 @@ class TestRideController(HttpCase):
     # --- Critère 2 : un client ne peut pas agir sur la course d'un autre ----------------------
 
     def test_client_cannot_select_driver_on_another_clients_ride(self):
+        # D54 : la course d'un autre client n'est même pas visible au nom de l'appelant --
+        # RIDE_NOT_FOUND (404), pas RIDE_NOT_OWNED (403) : on ne confirme pas qu'elle existe.
         _owner_token, owner_public_id = self._sign_in("sub-ride-owner", "client")
         owner_user = self.env["res.users"].sudo().search(
             [("babana_public_id", "=", owner_public_id)]
@@ -232,8 +234,8 @@ class TestRideController(HttpCase):
             {"driverId": driver.public_id},
         )
 
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()["error"]["code"], "RIDE_NOT_OWNED")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["error"]["code"], "RIDE_NOT_FOUND")
 
     # --- Critère 3 : un chauffeur non affecté ne peut pas être écrit comme acceptant ----------
     # D31 : accept n'a plus de route publique, donc plus d'identité vérifiée par ce contrôleur --
@@ -372,6 +374,7 @@ class TestRideController(HttpCase):
         self.assertEqual(response.json()["state"], "cancelled")
 
     def test_stranger_cannot_cancel_a_ride(self):
+        # D54 : un tiers ne voit pas la course -- RIDE_NOT_FOUND (404), pas RIDE_NOT_OWNED.
         _owner_token, owner_public_id = self._sign_in("sub-ride-cancel-owner", "client")
         owner_user = self.env["res.users"].sudo().search(
             [("babana_public_id", "=", owner_public_id)]
@@ -381,8 +384,8 @@ class TestRideController(HttpCase):
 
         response = self._post(f"/api/v1/rides/{ride.public_id}/cancel", stranger_token)
 
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()["error"]["code"], "RIDE_NOT_OWNED")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["error"]["code"], "RIDE_NOT_FOUND")
 
     # --- Authentification ------------------------------------------------------------------
 
@@ -528,8 +531,11 @@ class TestRideController(HttpCase):
 
         response = self._post(f"/api/v1/rides/{ride_id}/complete", stranger_token, {})
 
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()["error"]["code"], "DRIVER_NOT_IN_PROPOSAL")
+        # D54 : un chauffeur non affecté ne voit pas la course -- RIDE_NOT_FOUND (404).
+        # DRIVER_NOT_IN_PROPOSAL (403) reste pour l'appelant qui VOIT la course sans pouvoir la
+        # conduire (le client, cf. test_client_cannot_drive_own_ride).
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["error"]["code"], "RIDE_NOT_FOUND")
 
     def test_complete_records_the_realtime_measurement_when_one_is_available(self):
         # L3-10 : quand le service temps réel a accumulé un trajet, _complete_ride le lit AVANT la
@@ -688,6 +694,22 @@ class TestRideController(HttpCase):
         response = self._post(
             f"/api/v1/rides/{ride_id}/settle", stranger_token, {"amountCollected": quote.amount}
         )
+
+        # D54 : un chauffeur non affecté ne voit pas la course -- RIDE_NOT_FOUND (404).
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["error"]["code"], "RIDE_NOT_FOUND")
+
+    def test_client_cannot_drive_own_ride(self):
+        # Le pendant de D54 : le client VOIT sa course (branche client_id de la règle) mais n'a
+        # pas de fiche chauffeur -- il ne peut pas la démarrer. Le code reste
+        # DRIVER_NOT_IN_PROPOSAL (403) : ce n'est pas « introuvable », c'est « pas votre rôle ».
+        client_token, client_public_id = self._sign_in("sub-client-drives", "client")
+        client_user = self.env["res.users"].sudo().search(
+            [("babana_public_id", "=", client_public_id)]
+        )
+        ride = self._make_ride(client_user.partner_id)
+
+        response = self._post(f"/api/v1/rides/{ride.public_id}/start", client_token)
 
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()["error"]["code"], "DRIVER_NOT_IN_PROPOSAL")

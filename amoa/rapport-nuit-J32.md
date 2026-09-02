@@ -92,7 +92,92 @@ suspendu garde sa session vivante jusqu'à la fin du trajet en cours.
 
 ## 1. D54 — les lectures passent par l'utilisateur
 
-_(commit suivant)_
+### Le constat de la revue
+
+Les règles d'enregistrement de L8-01 sont justes, et **elles ne s'exécutaient jamais** : chaque
+contrôleur authentifié faisait `env["babana.ride"].sudo().search(...)`, puis re-scopait à la
+main (`ride.client_id == user.partner_id`). Deux gardes pour une règle, une seule sur le chemin
+— la configuration que D26 et D31 ont appris à ce dépôt à redouter, ici sur la sécurité.
+
+### Le correctif
+
+Le lookup de la ressource passe désormais par `with_user(user)` dans tout contrôleur
+authentifié par jeton :
+
+| Contrôleur | Lookup | Avant | Après |
+|---|---|---|---|
+| `ride.py::_find_ride` | `babana.ride` par `public_id` | `sudo` | `with_user` |
+| `ride.py::_find_ride_and_assigned_driver` | idem + fiche chauffeur | `sudo` | `with_user` puis `sudo` |
+| `incident.py::_trigger_incident` | `babana.ride` | `sudo` | `with_user` |
+| `share.py::_find_owned_ride` | `babana.ride` | `sudo` | `with_user` |
+| `documents.py::_signed_url` | `babana.driver.document` par id | `sudo().browse` | `with_user().search` |
+| `documents.py::_list_documents` | `driver.document_ids` | `sudo` | `with_user` |
+| `driver.py::_get_cash` | champs `cash_*` du chauffeur | `sudo` | `with_user` |
+
+Une fois la **porte de visibilité** franchie (la règle a laissé voir la ligne), le contrôleur
+rebascule en `sudo` pour assembler sa réponse en liste blanche — notamment `_summary(ride)`, qui
+lit `assignedDriverId` : le client n'a aucun accès ORM à `babana.driver`, et c'est le contrôleur
+qui sert cette identité avec sa propre projection (L8-01, tableau corrigé). `_signed_url` :
+`exists()` seul ne suffisait pas (il ignore les règles) — remplacé par un `search` au nom de
+l'appelant, qui applique la règle et revient vide pour le document d'un autre. Le contrôle
+explicite qui subsiste dans chaque contrôleur ne dit plus **si** l'accès est permis, seulement
+**pourquoi** il est refusé pour un appelant qui, lui, voit la ressource.
+
+**Cas `sudo` nommés, jamais généralisés :**
+
+- `ride.py::_select_driver` — la recherche du chauffeur choisi par le client
+  (`env["babana.driver"].sudo().search([("public_id","=",driver_id)])`). Le client n'a **aucun**
+  accès ORM à `babana.driver` ; ce chauffeur vient de la liste servie par le service temps réel,
+  et c'est `reserve_and_propose` qui vérifie qu'il figurait bien dans la dernière liste montrée à
+  ce client (`DRIVER_NOT_IN_LAST_LIST` sinon). Chercher ce chauffeur **avant** de savoir si
+  l'appelant y a droit exige `sudo` pour cette recherche-là.
+- `internal.py`, `internal_profiles.py` — canal interne temps réel → Odoo, sans utilisateur
+  humain : restent en `request.env(user=SUPERUSER_ID)`. Hors D54.
+- `auth.py`, `quote.py`, `devices.py` — aucun lookup de ressource appartenant à un *autre*
+  utilisateur. `auth` s'authentifie avant qu'un utilisateur n'existe ; `quote` crée une
+  estimation et ne lit que des données de référence (zones, règles tarifaires) ; `devices`
+  n'écrit que des jetons rattachés à l'appelant. Inchangés.
+
+### Ce que ça change dans les réponses (et les tests qui suivent)
+
+Une ressource que l'appelant **n'a aucun droit de voir** devient **introuvable** (404), pas
+**interdite** (403) — on ne confirme pas son existence. Les codes `*_NOT_OWNED` (403) subsistent
+pour l'appelant qui **voit** la ressource sans droit d'agir. Tests mis à jour dans ce sens
+(jamais l'inverse — aucun 403 rétabli pour faire passer un test) :
+
+| Test | Avant | Après |
+|---|---|---|
+| `test_client_cannot_select_driver_on_another_clients_ride` | 403 `RIDE_NOT_OWNED` | 404 `RIDE_NOT_FOUND` |
+| `test_stranger_cannot_cancel_a_ride` | 403 `RIDE_NOT_OWNED` | 404 `RIDE_NOT_FOUND` |
+| `test_complete_by_unassigned_driver_is_rejected` | 403 `DRIVER_NOT_IN_PROPOSAL` | 404 `RIDE_NOT_FOUND` |
+| `test_settle_by_unassigned_driver_is_rejected` | 403 `DRIVER_NOT_IN_PROPOSAL` | 404 `RIDE_NOT_FOUND` |
+| `test_rejected_for_a_ride_that_is_not_the_caller_s` (incident) | 403 `RIDE_NOT_OWNED` | 404 `RIDE_NOT_FOUND` |
+| `test_driver_cannot_get_url_for_another_drivers_document` | 403 `DOCUMENT_NOT_OWNED` | 404 `DOCUMENT_NOT_FOUND` |
+
+`test_only_the_client_can_create_a_share_not_the_driver` **ne change pas** : le chauffeur
+affecté *voit* la course (branche `driver_id.user_id` de la règle) → 403 `RIDE_NOT_OWNED`, le
+contrôle explicite fait toujours son travail. Nouveau test `test_client_cannot_drive_own_ride` :
+le client voit sa course mais n'a pas de fiche chauffeur → 403 `DRIVER_NOT_IN_PROPOSAL`, le code
+qui distingue « pas votre rôle » de « introuvable » reste couvert.
+
+Contrat : note ajoutée à `code/docs/contracts/http-api.md` (section « Conventions générales »).
+Aucune union d'erreurs modifiée — `RIDE_NOT_FOUND` / `DOCUMENT_NOT_FOUND` figuraient déjà dans
+chacune.
+
+### Un point pour le relecteur
+
+`_get_cash` garde `DRIVER_NOT_APPROVED` pour `pending`/`rejected` (voir aussi §2) : un chauffeur
+`rejected` qui *avait* encaissé avant son rejet ne verrait plus sa dette par cet endpoint, alors
+que la règle d'enregistrement, elle, la lui montrerait. À arbitrer si le cas se présente.
+
+### Fichiers
+
+`code/services/odoo/addons/babana/controllers/ride.py`, `incident.py`, `share.py`,
+`documents.py`, `driver.py` ;
+`code/services/odoo/addons/babana/security/babana_record_rules.xml` (en-tête, §D54) ;
+`code/services/odoo/addons/babana/tests/fixtures/access_matrix.json` (`_comment`) ;
+`code/services/odoo/addons/babana/tests/test_ride_controller.py`, `test_incident.py`,
+`test_documents.py` ; `code/docs/contracts/http-api.md`.
 
 ---
 

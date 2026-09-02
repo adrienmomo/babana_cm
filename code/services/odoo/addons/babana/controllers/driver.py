@@ -51,7 +51,11 @@ class DriverController(http.Controller):
                 "DRIVER_NOT_APPROVED", "le dossier chauffeur n'est pas approuvé"
             ), 403
 
-        driver = driver.sudo()
+        # D54 : lecture au nom de l'utilisateur. `cash_balance` se recalcule alors depuis les
+        # `babana.cash.movement` que la règle d'enregistrement laisse voir à CE chauffeur (les
+        # siens, sans condition d'état depuis D55). `cash_limit` et `_babana_cash_collected_
+        # today` résolvent leur `ir.config_parameter` / journal en interne, inchangés.
+        driver = driver.with_user(user)
         return (
             {
                 "balance": round(driver.cash_balance),

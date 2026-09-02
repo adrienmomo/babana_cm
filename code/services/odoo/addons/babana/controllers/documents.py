@@ -62,8 +62,13 @@ class DriverDocumentsController(http.Controller):
         # Le plus récent par type seulement (L6-15) : renvoyer un permis rejeté PUIS un permis
         # renvoyé (deux lignes en base, l'upload crée toujours) afficherait deux états pour un
         # même document. L'ancien reste en base pour l'audit ; l'app ne voit que le courant.
+        #
+        # D54 : lecture au nom de l'utilisateur -- c'est la règle `babana.driver.document`
+        # (driver_id.user_id = moi, sans condition d'état depuis D55) qui garantit qu'un
+        # chauffeur ne lit que SES documents, y compris pendant que son dossier est `pending`
+        # (c'est justement l'écran qui attend cette validation).
         latest_by_type = {}
-        for document in driver.sudo().document_ids.sorted("create_date", reverse=True):
+        for document in driver.with_user(user).document_ids.sorted("create_date", reverse=True):
             latest_by_type.setdefault(document.document_type, document)
 
         return _common.json_response(
@@ -166,20 +171,30 @@ class DriverDocumentsController(http.Controller):
 
     def _signed_url(self, document_id):
         env, user = _common.authenticated_user()
-        document = env["babana.driver.document"].sudo().browse(document_id)
-        if not document.exists():
+        # D54 (amoa/questions/REPONSES-2026-09-08.md §2) : le lookup passe par l'utilisateur.
+        # `exists()` seul ne suffirait pas -- il ignore les règles d'enregistrement. C'est
+        # `search` au nom de l'appelant qui décide : le document d'un autre chauffeur (et rien
+        # du tout pour un client) revient VIDE -> DOCUMENT_NOT_FOUND 404, jamais
+        # DOCUMENT_NOT_OWNED 403 (on ne confirme pas qu'il existe). Un gestionnaire, lui, voit
+        # tous les documents (droit d'accès `group_babana_manager`, aucune règle portail ne le
+        # restreint) : c'est ce chemin que la validation de dossier L9-01 emprunte pour
+        # l'aperçu des pièces.
+        document = env["babana.driver.document"].with_user(user).search(
+            [("id", "=", document_id)], limit=1
+        )
+        if not document:
             return _common.error_response("DOCUMENT_NOT_FOUND", "document inconnu", 404)
 
         driver = user._babana_driver()
-        is_owner = bool(driver) and document.driver_id == driver
+        is_owner = bool(driver) and document.sudo().driver_id == driver
         is_manager = user.sudo().has_group("babana.group_babana_manager")
         if not is_owner and not is_manager:
-            # Critère d'acceptation 3 : un chauffeur ne peut pas obtenir d'URL signée pour le
-            # document d'un autre chauffeur -- un gestionnaire le peut, pour tous (L1-05).
+            # Défense en profondeur (critère d'acceptation 3) : inatteignable maintenant que le
+            # lookup filtre -- seul le propriétaire ou un gestionnaire voit encore la ligne.
             return _common.error_response(
                 "DOCUMENT_NOT_OWNED", "ce document n'appartient pas à l'appelant", 403
             )
 
         ttl_seconds = storage.default_url_ttl_seconds(env)
-        url = storage.generate_signed_url(document.storage_key, ttl_seconds=ttl_seconds)
+        url = storage.generate_signed_url(document.sudo().storage_key, ttl_seconds=ttl_seconds)
         return _common.json_response({"url": url, "expiresIn": ttl_seconds}, 200)

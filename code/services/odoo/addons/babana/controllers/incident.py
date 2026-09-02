@@ -41,9 +41,12 @@ class IncidentController(http.Controller):
 
     def _trigger_incident(self, ride_id):
         env, user = _common.authenticated_user()
-        ride = env["babana.ride"].sudo().search([("public_id", "=", ride_id)], limit=1)
+        # D54 (amoa/questions/REPONSES-2026-09-08.md §2) : lookup au nom de l'utilisateur. Un
+        # tiers à la course ne la voit pas -> RIDE_NOT_FOUND 404, jamais RIDE_NOT_OWNED 403.
+        ride = env["babana.ride"].with_user(user).search([("public_id", "=", ride_id)], limit=1)
         if not ride:
             return _common.error_payload("RIDE_NOT_FOUND", "course inconnue"), 404
+        ride = ride.sudo()
 
         driver = user._babana_driver()
         if ride.client_id == user.partner_id:
@@ -51,6 +54,8 @@ class IncidentController(http.Controller):
         elif driver and ride.driver_id == driver:
             trigger_actor = "driver"
         else:
+            # Défense en profondeur : l'appelant voit la course (règle) mais n'y est pas partie
+            # -- ne devrait pas arriver, la règle ne rend visible qu'au client ou au chauffeur.
             return _common.error_payload(
                 "RIDE_NOT_OWNED", "cette course n'appartient pas à l'appelant"
             ), 403

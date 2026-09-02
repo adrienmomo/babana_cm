@@ -39,18 +39,23 @@ class ShareController(http.Controller):
     def _find_owned_ride(self, env, user, ride_id):
         """Commun aux deux routes : le partage n'a de sens que déclenché par le client de la
         course (spécification, « le client déclenche le partage »), jamais le chauffeur --
-        contrairement à l'incident (L8-04), symétrique entre les deux parties."""
-        ride = env["babana.ride"].sudo().search([("public_id", "=", ride_id)], limit=1)
+        contrairement à l'incident (L8-04), symétrique entre les deux parties.
+
+        D54 : lookup au nom de l'utilisateur. Un tiers total ne voit pas la course
+        (RIDE_NOT_FOUND 404). Le chauffeur affecté, lui, la voit (branche `driver_id.user_id`
+        de la règle) : c'est pour lui que le RIDE_NOT_OWNED 403 explicite reste utile -- il
+        peut voir la course sans avoir le droit de la partager."""
+        ride = env["babana.ride"].with_user(user).search([("public_id", "=", ride_id)], limit=1)
         if not ride:
             return None, (_common.error_payload("RIDE_NOT_FOUND", "course inconnue"), 404)
-        if ride.client_id != user.partner_id:
+        if ride.sudo().client_id != user.partner_id:
             return None, (
                 _common.error_payload(
                     "RIDE_NOT_OWNED", "cette course n'appartient pas à l'appelant"
                 ),
                 403,
             )
-        return ride, None
+        return ride.sudo(), None
 
     # --- POST /rides/{id}/share (createRideShare) ----------------------------------------------
 

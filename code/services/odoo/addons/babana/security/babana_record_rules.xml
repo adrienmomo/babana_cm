@@ -14,6 +14,16 @@
         décide ; toute écriture passe par un contrôleur ou une transition, en
         super-utilisateur), et ir.model.access.csv ne donne au portail que `perm_read`.
 
+        D54 (amoa/questions/REPONSES-2026-09-08.md §2) : les contrôleurs authentifiés lisent
+        désormais AU NOM DE L'UTILISATEUR (`with_user`), pas en `sudo`. Ces règles sont donc
+        sur le chemin réel de l'API mobile : ce sont elles qui décident SI l'appelant voit
+        une course, un document, un mouvement ; le contrôle écrit dans chaque contrôleur ne
+        dit plus que POURQUOI (403 explicite) quand l'appelant voit la ligne sans y avoir
+        droit d'agir. Les écritures gardent `sudo` : elles passent par les transitions, qui
+        portent leurs préconditions (invariant 2). Cas `sudo` nommé et conservé : la
+        recherche du chauffeur choisi par le client dans `ride.py::_select_driver` (le client
+        n'a aucun accès ORM à `babana.driver`, cf. tableau L8-01 corrigé).
+
         D55 (amoa/questions/REPONSES-2026-09-08.md §3) : ces domaines NE conditionnent PLUS
         l'accès à `state = 'approved'`. Une suspension empêche de travailler, pas de voir :
         elle agit sur la disponibilité (`babana_driver._check_online_eligibility`, la
