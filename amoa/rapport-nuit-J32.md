@@ -220,10 +220,88 @@ Aucun changement de règle : `client` n'avait déjà aucune ligne de résultat s
 
 ## 4. Passe finale
 
-_(complétée après exécution de la passe finale)_
+Quatre commits sur `J31-securite` :
+
+| Commit | |
+|---|---|
+| `cd65339` | D55 — règles assouplies |
+| `3bbf735` | D54 — lectures `with_user` |
+| `acbab96` | L8-01 — tableau réconcilié |
+| `c923ea3` | D54 (correctif) — `_select_driver` repasse en `sudo` avant le contrôle |
+
+Environnement rejoué de zéro : `make reset` (`down -v`) → `make up` (base `babana` recréée,
+`without_demo = all`) → `make seed` → `make test` → `make lint` → `make typecheck` →
+`make secrets-scan`. Docker Desktop, PostgreSQL 16.
+
+### `make test` — base fraîche, aucune édition pendant l'exécution
+
+- **Suite Odoo babana** : `0 failed, 0 error(s) of 685 tests` (683 à J31 : +2 nets —
+  `test_client_cannot_drive_own_ride` et `test_client_has_no_orm_window_onto_drivers_or_
+  motorcycles` ajoutés, `test_suspended_or_rejected_driver_loses_access_immediately` remplacé
+  1-pour-1 par `test_suspension_blocks_working_not_reading`).
+- **npm** : `@babana/api-client` 80, `@babana/contracts` 79, `@babana/maps` 19,
+  `@babana/navigation` 4, `@babana/realtime` 206, `@babana/client` 106, `@babana/driver` 162,
+  `@babana/concurrency-tests` 37 (Redis + Odoo réels, les 4 scénarios de concurrence dont
+  l'encaissement concurrent) — tous verts, `fail 0` partout.
+
+Note de méthode : une première passe avait vu `scénario 3 -- encaissement concurrent` tomber
+sur un `UND_ERR_SOCKET: other side closed`. Cause identifiée : j'éditais encore des fichiers
+`.py`/`.xml` pendant que la suite tournait, et `--dev=reload` redémarrait le serveur 8069 en
+plein test de concurrence. La passe finale a été lancée sans aucune édition concurrente —
+verte, scénario 3 compris.
+
+### `make lint`, `make typecheck`, `make secrets-scan`
+
+`LINT_RC=0`, `TYPECHECK_RC=0`, `SECRETS_RC=0` (« aucun secret détecté dans les fichiers suivis
+par git »).
+
+### Un piège rencontré, corrigé, consigné
+
+Deux commentaires XML que j'ai ajoutés (en-tête de `babana_record_rules.xml`) contenaient un
+`--` (double tiret comme ponctuation) — interdit dans un commentaire XML, `lxml` refuse le
+fichier et le module ne s'installe plus. Vu au premier `make seed` sur base fraîche (jamais
+sur les runs `-u babana` ciblés, faits avant ces ajouts). Les quatre commits ont été
+reconstruits proprement pour qu'aucun n'introduise un module qui ne s'installe pas. Règle
+retenue : dans ce dépôt, une prose de commentaire XML n'utilise jamais `--` — deux-points ou
+tiret cadratin.
 
 ---
 
 ## Ce qui me laisse un doute pour quelqu'un de réel
 
-_(complété au fil des trois commits — voir « point pour le relecteur » de chaque section)_
+1. **La révocation de jeton à la suspension.** D55 rend la lecture, mais `action_suspend`
+   (L1-06) déconnecte quand même : le chauffeur suspendu en course doit re-signer (Google) pour
+   revoir ce qu'il doit et finir son trajet en cours. C'est récupérable, pas transparent —
+   l'app affiche `driverStatus = 'suspended'` mais le solde et la course reviennent seulement
+   après re-signature. Retirer cette révocation dépasse « la suspension agit sur la
+   disponibilité » ; à arbitrer.
+
+2. **`_get_cash` : `suspended` oui, `pending`/`rejected` non.** `DRIVER_NOT_APPROVED` reste
+   pour ces deux états parce qu'ils n'ont jamais encaissé — mais un `rejected` qui *avait*
+   encaissé avant son rejet (rejet après une période d'activité) ne verrait plus sa dette par
+   l'endpoint, alors que la règle d'enregistrement, elle, la lui montre. À aligner si le cas
+   se présente : ne garder `DRIVER_NOT_APPROVED` que pour l'absence de fiche.
+
+3. **Déclarer une remise en étant suspendu.** `POST /remittances` garde `state != 'approved'`.
+   D55 parle de *lecture* ; déclarer une remise est une écriture (L5-04). Un chauffeur suspendu
+   qui veut rendre la caisse pour solder sa dette ne le peut pas par l'app — il passe par un
+   superviseur. Cohérent avec « la suspension empêche de travailler », à confirmer au vu de
+   D29.
+
+4. **Le superviseur qui annule par l'API mobile.** `ride.py::_cancel_ride` gère un
+   `is_supervisor`, et `with_user(superviseur)` fonctionne (droit d'accès ORM, aucune règle
+   portail ne le restreint) — mais aucun test n'exerce ce chemin, et il n'est pas établi qu'un
+   superviseur obtienne un jeton d'accès mobile. Le code reste correct ; le chemin est
+   spéculatif.
+
+5. **Les contrôleurs restent en `env(user=SUPERUSER_ID)` par construction.** `authenticated_
+   user()` renvoie un env `SUPERUSER_ID` ; D54 fait que chaque lookup de ressource repart en
+   `.with_user(user)`, mais un futur endpoint qui oublierait ce `.with_user` retomberait dans
+   la configuration d'avant. Une garde plus forte serait `authenticated_user()` renvoyant
+   directement un env lié à l'utilisateur — refactor plus large, hors périmètre des trois
+   corrections.
+
+6. **L9 n'est pas commencé.** Le back-office superviseur — validation des dossiers avec aperçu
+   signé des pièces (L1-05), motif de refus qui voyage jusqu'au chauffeur, suivi des courses
+   comme outil de travail (courses en cours, mal terminées, chauffeurs au plafond) — reste
+   entier. C'est le chemin par lequel un chauffeur entre au pilote.
