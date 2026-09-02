@@ -43,7 +43,7 @@ class DriverController(http.Controller):
             return _common.error_response("INTERNAL_ERROR", "erreur interne", 500)
 
     def _get_cash(self):
-        _env, user = _common.authenticated_user()
+        env, user = _common.authenticated_user()
         driver = user._babana_driver()
         if not driver:
             return _common.error_payload("UNAUTHORIZED", "compte non rattaché à un chauffeur"), 401
@@ -71,7 +71,7 @@ class DriverController(http.Controller):
         # Le vocabulaire public ('pending'/'validated'/'rejected') est celui déjà établi par
         # POST /remittances (_PUBLIC_STATUS, controllers/remittance.py) -- une seule table de
         # correspondance, jamais une redéclarée ici (D17).
-        remittances = self.env["babana.cash.remittance"].with_user(user).search(
+        remittances = env["babana.cash.remittance"].with_user(user).search(
             [("driver_id", "=", driver.id)], order="declared_at desc", limit=_REMITTANCE_HISTORY_LIMIT
         )
         remittance_history = [
