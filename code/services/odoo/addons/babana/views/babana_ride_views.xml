@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        L9-03 : suivi des courses. Outil de travail du superviseur (« les courses en cours,
+        celles qui ont mal fini, les chauffeurs bloqués au plafond »), pas un tableau de bord
+        (les moyennes sont L9-07).
+
+        Le formulaire est en LECTURE SEULE, y compris pour un administrateur (edit="0") : toute
+        modification passe par une transition (L4-02). Le modèle le garantit déjà côté serveur
+        (babana_ride_state.write : écriture directe de state interdite, immuabilité après
+        settled) ; edit="0" le rend explicite dans l'interface.
+
+        Le tracé sur carte (critère 2) n'est PAS livré : Odoo Communauty n'a pas de widget carte
+        au back-office (la vue `map` est Enterprise). Voir amoa/questions/L9-03.md. Les
+        coordonnées et le polyline encodé sont affichés tels quels.
+    -->
+
+    <record id="babana_ride_view_list" model="ir.ui.view">
+        <field name="name">babana.ride.list</field>
+        <field name="model">babana.ride</field>
+        <field name="arch" type="xml">
+            <list create="false" edit="false" delete="false"
+                  decoration-danger="state == 'cancelled' or distance_deviation_flagged"
+                  decoration-info="state in ('requested', 'proposed', 'assigned', 'in_progress')"
+                  decoration-muted="state == 'rejected'">
+                <field name="reference"/>
+                <field name="create_date" string="Date"/>
+                <field name="client_id"/>
+                <field name="driver_id"/>
+                <field name="pickup_label" string="Départ"/>
+                <field name="dropoff_label" string="Arrivée"/>
+                <field name="reference_distance_km" string="Distance (km)"/>
+                <field name="final_amount"/>
+                <field name="state"/>
+                <field name="payment_method"/>
+                <field name="distance_deviation_flagged" optional="hide"/>
+                <field name="currency_id" column_invisible="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="babana_ride_view_form" model="ir.ui.view">
+        <field name="name">babana.ride.form</field>
+        <field name="model">babana.ride</field>
+        <field name="arch" type="xml">
+            <form create="false" edit="false" delete="false">
+                <sheet>
+                    <widget name="web_ribbon" title="Annulée" bg_color="text-bg-danger"
+                        invisible="state != 'cancelled'"/>
+                    <widget name="web_ribbon" title="Écart de distance signalé"
+                        bg_color="text-bg-warning" invisible="not distance_deviation_flagged"/>
+                    <div class="oe_title">
+                        <h1><field name="reference"/></h1>
+                    </div>
+                    <group>
+                        <group string="Course">
+                            <field name="state"/>
+                            <field name="client_id"/>
+                            <field name="driver_id"/>
+                            <field name="payment_method"/>
+                        </group>
+                        <group string="Trajet">
+                            <field name="pickup_label"/>
+                            <field name="pickup_latitude"/>
+                            <field name="pickup_longitude"/>
+                            <field name="pickup_zone_id"/>
+                            <field name="dropoff_label"/>
+                            <field name="dropoff_latitude"/>
+                            <field name="dropoff_longitude"/>
+                            <field name="dropoff_zone_id"/>
+                        </group>
+                    </group>
+                    <group>
+                        <group string="Distance et durée">
+                            <field name="reference_distance_km"/>
+                            <field name="estimated_duration_minutes"/>
+                            <field name="trip_measured"/>
+                            <field name="actual_distance_km"/>
+                            <field name="actual_duration_minutes"/>
+                            <field name="distance_deviation_km"/>
+                            <field name="distance_deviation_flagged"/>
+                        </group>
+                        <group string="Tarif">
+                            <field name="currency_id" invisible="1"/>
+                            <field name="fare_rule_id"/>
+                            <field name="estimated_amount"/>
+                            <field name="promotion_code"/>
+                            <field name="discount_amount"/>
+                            <field name="final_amount"/>
+                            <field name="invoice_id"/>
+                        </group>
+                    </group>
+                    <group string="Chronologie des transitions">
+                        <field name="requested_at"/>
+                        <field name="proposed_at"/>
+                        <field name="assigned_at"/>
+                        <field name="started_at"/>
+                        <field name="completed_at"/>
+                        <field name="settled_at"/>
+                        <field name="cancelled_at"/>
+                        <field name="cancelled_by_user_id"/>
+                        <field name="cancel_category"/>
+                        <field name="cancel_reason"/>
+                    </group>
+                    <notebook>
+                        <page string="Tracé" name="track">
+                            <field name="track_polyline" readonly="1"
+                                placeholder="Polyline encodé du tracé réel (L4-04), vide si la course s'est terminée sans accumulation temps réel."/>
+                        </page>
+                        <page string="Détail tarifaire figé" name="fare_snapshot">
+                            <field name="fare_rule_snapshot" readonly="1"/>
+                        </page>
+                        <page string="Refus" name="rejections">
+                            <field name="rejection_ids" readonly="1">
+                                <list>
+                                    <field name="driver_id"/>
+                                    <field name="reason"/>
+                                    <field name="rejected_at"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Incidents et litiges" name="incidents">
+                            <field name="incident_ids" readonly="1">
+                                <list>
+                                    <field name="incident_type"/>
+                                    <field name="trigger_actor"/>
+                                    <field name="status"/>
+                                    <field name="triggered_at"/>
+                                    <field name="handled_by_id"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="babana_ride_view_search" model="ir.ui.view">
+        <field name="name">babana.ride.search</field>
+        <field name="model">babana.ride</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="reference"/>
+                <field name="client_id"/>
+                <field name="driver_id"/>
+                <field name="pickup_zone_id"/>
+                <filter name="in_progress" string="En cours"
+                    domain="[('state', 'in', ('requested', 'proposed', 'assigned', 'in_progress'))]"/>
+                <filter name="completed" string="Terminées" domain="[('state', '=', 'completed')]"/>
+                <filter name="settled" string="Encaissées" domain="[('state', '=', 'settled')]"/>
+                <filter name="cancelled" string="Annulées" domain="[('state', '=', 'cancelled')]"/>
+                <filter name="rejected" string="Refusées" domain="[('state', '=', 'rejected')]"/>
+                <separator/>
+                <filter name="deviation_flagged" string="Écart de distance signalé"
+                    domain="[('distance_deviation_flagged', '=', True)]"/>
+                <filter name="abandon_after_rejection" string="Abandon après refus"
+                    domain="[('cancel_category', '=', 'abandon_after_rejection')]"/>
+                <separator/>
+                <filter name="today" string="Aujourd'hui"
+                    domain="[('create_date', '&gt;=', context_today().strftime('%Y-%m-%d'))]"/>
+                <filter name="this_week" string="Cette semaine"
+                    domain="[('create_date', '&gt;=', (context_today() - relativedelta(days=7)).strftime('%Y-%m-%d'))]"/>
+                <group expand="0" string="Regrouper par">
+                    <filter name="group_by_day" string="Jour"
+                        context="{'group_by': 'create_date:day'}"/>
+                    <filter name="group_by_driver" string="Chauffeur"
+                        context="{'group_by': 'driver_id'}"/>
+                    <filter name="group_by_zone" string="Zone de départ"
+                        context="{'group_by': 'pickup_zone_id'}"/>
+                    <filter name="group_by_state" string="État" context="{'group_by': 'state'}"/>
+                    <filter name="group_by_cancelled_by" string="Annulée par"
+                        context="{'group_by': 'cancelled_by_user_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="babana_ride_action" model="ir.actions.act_window">
+        <field name="name">Suivi des courses</field>
+        <field name="res_model">babana.ride</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="babana_ride_view_search"/>
+        <field name="context">{'search_default_in_progress': 1}</field>
+    </record>
+
+    <menuitem id="babana_menu_rides" name="Courses" parent="babana_menu_root"
+        action="babana_ride_action" sequence="18"/>
+</odoo>

@@ -11,6 +11,7 @@ import { clearEngaged } from '../driver/engagement';
 import { endRideSessionForDriver } from '../tracking/session';
 import { reintegrateIfEligible } from '../redis/pool-eligibility';
 import { blockForCash, unblockForCash } from '../driver/cash-guard';
+import { holdDriver, releaseHold } from '../driver/admin-hold';
 import { broadcastRideStarted, broadcastRideCompleted, broadcastRideCancelled } from '../tracking/broadcast';
 import { startAccumulation, getAccumulation, endAccumulation } from '../tracking/accumulator';
 
@@ -34,6 +35,12 @@ import { startAccumulation, getAccumulation, endAccumulation } from '../tracking
  *   sous le plafond (D8, L5-04, critère 5) -- lève le blocage et le réintègre au pool s'il est
  *   par ailleurs toujours éligible (en ligne, positionné, ni engagé ni réservé). Ne le remet
  *   jamais en ligne lui-même -- symétrique de `cash-blocked`, jamais un ajout inconditionnel.
+ * - `POST /internal/drivers/unavailable` : dossier chauffeur non habilité à travailler (D5, D31,
+ *   D55, J33) -- suspension ou rejet côté Odoo. Retire du pool et bloque toute acceptation en vol,
+ *   même patron que `cash-blocked`. Déclenché au COMMIT (D32) par `babana.driver.write()`.
+ * - `POST /internal/drivers/available` : réactivation d'un chauffeur suspendu (J33) -- lève la
+ *   non-habilitation. À la différence de `cash-unblocked`, NE réintègre PAS au pool : un chauffeur
+ *   réactivé se redéclare en ligne lui-même (D7, prompt J33).
  * - `POST /internal/rides/started` / `/internal/rides/completed` (L3-19) : pousse
  *   `ride.started`/`ride.completed` (C-02) au client suivi ET au chauffeur -- déclenché au
  *   COMMIT (D32) par `action_start`/`action_complete`. `started` démarre en plus l'accumulation
@@ -87,6 +94,8 @@ const ReleaseRequestSchema = z.object({ driverId: z.string().min(1) });
 const ClearEngagementRequestSchema = z.object({ driverId: z.string().min(1) });
 const CashBlockedRequestSchema = z.object({ driverId: z.string().min(1) });
 const CashUnblockedRequestSchema = z.object({ driverId: z.string().min(1) });
+const DriverUnavailableRequestSchema = z.object({ driverId: z.string().min(1) });
+const DriverAvailableRequestSchema = z.object({ driverId: z.string().min(1) });
 
 // L3-19 : rideId/clientUserId/driverId transmis directement par Odoo, qui les connaît déjà
 // (babana.ride.client_id/driver_id) -- pas une lecture de tracking/session.ts, qui introduirait
@@ -231,6 +240,29 @@ async function handleCashUnblocked(deps: InternalRouterDeps, rawBody: unknown, r
   sendJson(res, 200, { unblocked: true });
 }
 
+async function handleDriverUnavailable(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
+  const parsed = DriverUnavailableRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    sendJson(res, 400, { error: 'VALIDATION_ERROR', details: parsed.error.issues });
+    return;
+  }
+  await holdDriver(deps.redis, parsed.data.driverId);
+  sendJson(res, 200, { held: true });
+}
+
+async function handleDriverAvailable(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
+  const parsed = DriverAvailableRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    sendJson(res, 400, { error: 'VALIDATION_ERROR', details: parsed.error.issues });
+    return;
+  }
+  // Pas de `reintegrateIfEligible` ici, contrairement à `handleCashUnblocked` (J33, prompt) :
+  // lever la non-habilitation ne recrée pas une disponibilité -- le chauffeur se redéclare en
+  // ligne lui-même via `availability.set`.
+  await releaseHold(deps.redis, parsed.data.driverId);
+  sendJson(res, 200, { released: true });
+}
+
 async function handleRideStarted(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
   const parsed = RideStartedRequestSchema.safeParse(rawBody);
   if (!parsed.success) {
@@ -320,6 +352,12 @@ export function createInternalHandler(deps: InternalRouterDeps) {
         return;
       case '/internal/drivers/cash-unblocked':
         await handleCashUnblocked(deps, body, res);
+        return;
+      case '/internal/drivers/unavailable':
+        await handleDriverUnavailable(deps, body, res);
+        return;
+      case '/internal/drivers/available':
+        await handleDriverAvailable(deps, body, res);
         return;
       case '/internal/rides/started':
         await handleRideStarted(deps, body, res);

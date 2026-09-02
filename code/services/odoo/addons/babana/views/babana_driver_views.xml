@@ -1,25 +1,75 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <!--
-        Vues de lecture et de suivi du dossier chauffeur (L1-06). Comme les autres vues de ce
-        module (motos, affectations, tarifs, zones), aucun bouton n'appelle encore les méthodes
-        action_approve/action_reject/action_suspend/action_reactivate depuis l'écran : ces
-        actions prennent un motif ou un choix de fiche employé (L1-06, critères 1 bis et 3),
-        qu'un simple bouton type="object" ne peut pas collecter sans un assistant (wizard),
-        hors de ce lot, choix d'implémentation non spécifié (voir le message de commit).
-        Utilisables dès maintenant par l'API mobile (L4-03, hors de ce lot) ou en shell Odoo.
+        Vues back-office du dossier chauffeur (L9-01). Les boutons d'action de L1-06
+        (approuver / rejeter / suspendre) passent par l'assistant babana.driver.decision
+        (models/babana_driver_decision.py) : ils exigent un motif ou un choix de fiche employé
+        qu'un simple bouton type="object" ne peut pas collecter. La réactivation, sans argument,
+        reste un bouton direct.
+
+        L'aperçu des pièces (permis, carte d'identité) passe par action_preview sur
+        babana.driver.document : URL signée à durée limitée de L1-05, lecture au nom de
+        l'utilisateur (D54). Un gestionnaire a le droit, un client non.
     -->
+
+    <!-- Assistant de décision (approuver / rejeter / suspendre), défini avant les vues qui le
+         référencent par %(babana_driver_decision_action)d. La décision précise arrive par le
+         contexte du bouton appelant (default_decision). -->
+    <record id="babana_driver_decision_view_form" model="ir.ui.view">
+        <field name="name">babana.driver.decision.form</field>
+        <field name="model">babana.driver.decision</field>
+        <field name="arch" type="xml">
+            <form string="Décision sur le dossier">
+                <field name="decision" invisible="1"/>
+                <field name="driver_id" invisible="1"/>
+                <group>
+                    <field name="driver_state" string="État actuel"/>
+                    <field name="reason" invisible="decision == 'approve'"
+                        required="decision != 'approve'"
+                        placeholder="Motif communiqué au chauffeur"/>
+                    <field name="employee_mode" invisible="decision != 'approve'"
+                        required="decision == 'approve'"/>
+                    <field name="employee_id"
+                        invisible="decision != 'approve' or employee_mode != 'existing'"
+                        required="decision == 'approve' and employee_mode == 'existing'"/>
+                    <field name="new_employee_name"
+                        invisible="decision != 'approve' or employee_mode != 'new'"
+                        required="decision == 'approve' and employee_mode == 'new'"/>
+                </group>
+                <footer>
+                    <button name="action_confirm" type="object" string="Confirmer"
+                        class="oe_highlight"/>
+                    <button string="Annuler" class="btn-secondary" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="babana_driver_decision_action" model="ir.actions.act_window">
+        <field name="name">Décision sur le dossier</field>
+        <field name="res_model">babana.driver.decision</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
     <record id="babana_driver_view_list" model="ir.ui.view">
         <field name="name">babana.driver.list</field>
         <field name="model">babana.driver</field>
         <field name="arch" type="xml">
-            <list>
-                <field name="employee_id"/>
-                <field name="user_id"/>
+            <list decoration-danger="state == 'suspended' or cash_limit_reached or document_expired"
+                  decoration-muted="state == 'rejected'">
+                <field name="display_name" string="Chauffeur"/>
                 <field name="state"/>
-                <field name="motorcycle_id"/>
                 <field name="is_online"/>
-                <field name="ride_count"/>
+                <field name="motorcycle_id"/>
+                <field name="rating_avg" string="Note"/>
+                <field name="ride_count" string="Courses"/>
+                <field name="cash_balance"/>
+                <field name="cash_limit" optional="hide"/>
+                <field name="last_ride_at"/>
+                <field name="cash_limit_reached" optional="hide"/>
+                <field name="document_expired" optional="hide"/>
+                <field name="currency_id" column_invisible="1"/>
             </list>
         </field>
     </record>
@@ -29,39 +79,64 @@
         <field name="model">babana.driver</field>
         <field name="arch" type="xml">
             <form>
+                <header>
+                    <button name="%(babana_driver_decision_action)d" type="action"
+                        string="Approuver" class="oe_highlight"
+                        context="{'default_decision': 'approve'}"
+                        invisible="state == 'approved'"
+                        groups="babana.group_babana_manager"/>
+                    <button name="%(babana_driver_decision_action)d" type="action"
+                        string="Rejeter"
+                        context="{'default_decision': 'reject'}"
+                        invisible="state in ('rejected', 'suspended')"
+                        groups="babana.group_babana_manager"/>
+                    <button name="%(babana_driver_decision_action)d" type="action"
+                        string="Suspendre"
+                        context="{'default_decision': 'suspend'}"
+                        invisible="state != 'approved'"
+                        groups="babana.group_babana_manager"/>
+                    <button name="action_reactivate" type="object"
+                        string="Réactiver" class="oe_highlight"
+                        invisible="state != 'suspended'"
+                        groups="babana.group_babana_manager"/>
+                    <field name="state" widget="statusbar"
+                        statusbar_visible="pending,approved,suspended"/>
+                </header>
                 <sheet>
                     <widget name="web_ribbon" title="Suspendu" bg_color="text-bg-danger"
                         invisible="state != 'suspended'"/>
                     <widget name="web_ribbon" title="Rejeté" bg_color="text-bg-danger"
                         invisible="state != 'rejected'"/>
+                    <widget name="web_ribbon" title="Plafond atteint" bg_color="text-bg-warning"
+                        invisible="not cash_limit_reached"/>
+                    <div class="oe_title">
+                        <h1><field name="display_name" readonly="1"/></h1>
+                    </div>
                     <group>
                         <group string="Dossier">
                             <field name="state"/>
                             <field name="employee_id"/>
                             <field name="user_id"/>
-                            <field name="rejection_reason" invisible="state != 'rejected'"/>
+                            <field name="phone_verified"/>
+                            <field name="rejection_reason"
+                                invisible="state not in ('rejected', 'suspended')"/>
                         </group>
                         <group string="Activité">
                             <field name="motorcycle_id"/>
                             <field name="is_online"/>
-                            <field name="ride_count"/>
+                            <field name="ride_count" string="Courses effectuées"/>
+                            <field name="last_ride_at"/>
                             <field name="rating_avg"/>
                             <field name="rating_count"/>
                         </group>
                     </group>
                     <group string="Caisse">
+                        <field name="currency_id" invisible="1"/>
                         <field name="cash_balance"/>
                         <field name="cash_limit"/>
+                        <field name="cash_limit_reached"/>
                     </group>
                     <notebook>
-                        <!--
-                            Documents du dossier (L1-05, L6-15). Édition inline plutôt qu'un
-                            assistant : un gestionnaire vérifie ou rejette un document en
-                            changeant verification_status / rejection_reason ici même. Le motif
-                            devient obligatoire dès que le statut passe à « rejeté »
-                            (babana_driver_document.py, _check_rejected_requires_reason). Les
-                            boutons dédiés et l'aperçu du fichier par URL signée sont L9-01.
-                        -->
                         <page string="Documents" name="documents">
                             <field name="document_ids">
                                 <list editable="bottom">
@@ -70,6 +145,42 @@
                                     <field name="expires_on"/>
                                     <field name="rejection_reason"/>
                                     <field name="create_date" string="Téléversé le"/>
+                                    <button name="action_preview" type="object" string="Voir la pièce"
+                                        icon="fa-external-link"
+                                        groups="babana.group_babana_manager"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Moto et affectations" name="assignments">
+                            <field name="assignment_ids" readonly="1">
+                                <list>
+                                    <field name="motorcycle_id"/>
+                                    <field name="start_date"/>
+                                    <field name="end_date"/>
+                                    <field name="author_id"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Courses récentes" name="rides">
+                            <field name="ride_ids" readonly="1">
+                                <list>
+                                    <field name="reference"/>
+                                    <field name="create_date" string="Demandée le"/>
+                                    <field name="state"/>
+                                    <field name="pickup_label"/>
+                                    <field name="dropoff_label"/>
+                                    <field name="final_amount"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Mouvements de caisse" name="cash">
+                            <field name="movement_ids" readonly="1">
+                                <list>
+                                    <field name="create_date" string="Date"/>
+                                    <field name="movement_type"/>
+                                    <field name="amount"/>
+                                    <field name="ride_id"/>
+                                    <field name="reason"/>
                                 </list>
                             </field>
                         </page>
@@ -85,12 +196,28 @@
         <field name="model">babana.driver</field>
         <field name="arch" type="xml">
             <search>
+                <field name="display_name" string="Chauffeur"/>
                 <field name="employee_id"/>
                 <field name="user_id"/>
+                <field name="motorcycle_id"/>
                 <filter name="filter_pending" string="En attente" domain="[('state', '=', 'pending')]"/>
                 <filter name="filter_approved" string="Approuvés" domain="[('state', '=', 'approved')]"/>
+                <filter name="filter_suspended" string="Suspendus" domain="[('state', '=', 'suspended')]"/>
+                <filter name="filter_rejected" string="Rejetés" domain="[('state', '=', 'rejected')]"/>
+                <separator/>
+                <filter name="filter_online" string="En ligne" domain="[('is_online', '=', True)]"/>
+                <filter name="filter_cash_limit" string="Plafond atteint"
+                    domain="[('cash_limit_reached', '=', True)]"/>
+                <filter name="filter_no_motorcycle" string="Sans moto affectée"
+                    domain="[('motorcycle_id', '=', False)]"/>
+                <filter name="filter_documents_expiring" string="Documents expirant"
+                    domain="[
+                        ('document_ids.expires_on', '!=', False),
+                        ('document_ids.expires_on', '&lt;=', (context_today() + relativedelta(days=30)).strftime('%Y-%m-%d')),
+                    ]"/>
                 <group expand="0" string="Regrouper par">
                     <filter name="group_by_state" string="État" context="{'group_by': 'state'}"/>
+                    <filter name="group_by_online" string="En ligne" context="{'group_by': 'is_online'}"/>
                 </group>
             </search>
         </field>

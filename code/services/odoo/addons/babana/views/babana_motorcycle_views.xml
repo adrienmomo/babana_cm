@@ -1,18 +1,75 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <!-- L9-02 : gestion de la flotte (D6). Liste, formulaire, filtres, et une vue dédiée des
+         échéances d'assurance à venir (critère 1 : visibles sans construire de filtre). -->
+
+    <!-- Affectation depuis la fiche moto : ouvre une ligne babana.assignment (L1-08), dont le
+         create() pose le miroir babana.motorcycle.driver_id. Défini avant le formulaire qui le
+         référence par %(babana_assignment_new_action)d. -->
+    <record id="babana_assignment_new_form" model="ir.ui.view">
+        <field name="name">babana.assignment.new.form</field>
+        <field name="model">babana.assignment</field>
+        <field name="arch" type="xml">
+            <form string="Affecter un chauffeur">
+                <group>
+                    <field name="motorcycle_id" readonly="1"/>
+                    <field name="driver_id"/>
+                    <field name="start_date"/>
+                </group>
+            </form>
+        </field>
+    </record>
+
+    <record id="babana_assignment_new_action" model="ir.actions.act_window">
+        <field name="name">Affecter un chauffeur</field>
+        <field name="res_model">babana.assignment</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="babana_assignment_new_form"/>
+        <field name="target">new</field>
+    </record>
+
     <record id="babana_motorcycle_view_list" model="ir.ui.view">
         <field name="name">babana.motorcycle.list</field>
         <field name="model">babana.motorcycle</field>
         <field name="arch" type="xml">
-            <list>
+            <list decoration-danger="insurance_expired" decoration-warning="state == 'maintenance'"
+                  decoration-muted="state == 'retired'">
                 <field name="license_plate"/>
-                <field name="brand"/>
-                <field name="model"/>
+                <field name="brand" optional="hide"/>
+                <field name="model" optional="hide"/>
                 <field name="vehicle_class"/>
                 <field name="state"/>
                 <field name="driver_id"/>
                 <field name="insurance_expires_on"/>
+                <field name="insurance_expired" optional="hide"/>
             </list>
+        </field>
+    </record>
+
+    <record id="babana_motorcycle_view_deadlines" model="ir.ui.view">
+        <field name="name">babana.motorcycle.deadlines</field>
+        <field name="model">babana.motorcycle</field>
+        <field name="arch" type="xml">
+            <list default_order="insurance_expires_on asc" decoration-danger="insurance_expired">
+                <field name="license_plate"/>
+                <field name="driver_id"/>
+                <field name="insurer"/>
+                <field name="insurance_policy_number"/>
+                <field name="insurance_expires_on"/>
+                <field name="insurance_expired" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="babana_motorcycle_view_calendar" model="ir.ui.view">
+        <field name="name">babana.motorcycle.calendar</field>
+        <field name="model">babana.motorcycle</field>
+        <field name="arch" type="xml">
+            <calendar string="Échéances d'assurance" date_start="insurance_expires_on"
+                      mode="month" color="state">
+                <field name="license_plate"/>
+                <field name="driver_id"/>
+            </calendar>
         </field>
     </record>
 
@@ -21,10 +78,25 @@
         <field name="model">babana.motorcycle</field>
         <field name="arch" type="xml">
             <form>
+                <header>
+                    <button name="%(babana_assignment_new_action)d" type="action"
+                        string="Affecter un chauffeur"
+                        context="{'default_motorcycle_id': id}"
+                        invisible="driver_id or state in ('maintenance', 'retired')"
+                        groups="babana.group_babana_manager"/>
+                    <button name="action_end_assignment" type="object" string="Fin d'affectation"
+                        invisible="not driver_id" groups="babana.group_babana_manager"/>
+                    <field name="state" widget="statusbar"
+                        statusbar_visible="available,assigned"/>
+                </header>
                 <sheet>
+                    <widget name="web_ribbon" title="Assurance expirée" bg_color="text-bg-danger"
+                        invisible="not insurance_expired"/>
+                    <div class="oe_title">
+                        <h1><field name="license_plate"/></h1>
+                    </div>
                     <group>
-                        <group string="Identité">
-                            <field name="license_plate"/>
+                        <group string="Caractéristiques">
                             <field name="brand"/>
                             <field name="model"/>
                             <field name="year"/>
@@ -32,7 +104,8 @@
                         </group>
                         <group string="Affectation">
                             <field name="state"/>
-                            <field name="driver_id"/>
+                            <field name="driver_id"
+                                readonly="state in ('maintenance', 'retired')"/>
                         </group>
                     </group>
                     <group string="Assurance et carte grise">
@@ -41,8 +114,32 @@
                         <field name="insurer"/>
                         <field name="insurance_policy_number"/>
                         <field name="insurance_expires_on"/>
+                        <field name="insurance_expired"/>
                     </group>
+                    <notebook>
+                        <page string="Historique d'affectations" name="assignments">
+                            <field name="assignment_ids" readonly="1">
+                                <list>
+                                    <field name="driver_id"/>
+                                    <field name="start_date"/>
+                                    <field name="end_date"/>
+                                    <field name="author_id"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Courses (chauffeur affecté)" name="rides">
+                            <field name="ride_ids" readonly="1">
+                                <list>
+                                    <field name="reference"/>
+                                    <field name="create_date" string="Demandée le"/>
+                                    <field name="state"/>
+                                    <field name="final_amount"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
                 </sheet>
+                <chatter/>
             </form>
         </field>
     </record>
@@ -54,22 +151,21 @@
             <search>
                 <field name="license_plate"/>
                 <field name="driver_id"/>
-                <!-- Vue back-office listant les échéances à venir (L1-10, spécification). Le
-                     domaine d'un filtre de recherche s'évalue côté client (pyeval), sans accès à
-                     l'ORM : impossible d'y lire babana.expiry_alert_window_days comme le fait la
-                     tâche planifiée. Fenêtre fixe à 30 jours par défaut, ajustable à la volée par
-                     le gestionnaire depuis la barre de recherche : ce n'est qu'une commodité
-                     d'affichage, pas la logique de blocage elle-même. -->
-                <filter
-                    name="insurance_expiring_soon"
-                    string="Assurance expirant bientôt"
+                <filter name="filter_available" string="Disponible" domain="[('state', '=', 'available')]"/>
+                <filter name="filter_assigned" string="Affectée" domain="[('state', '=', 'assigned')]"/>
+                <filter name="filter_maintenance" string="En maintenance" domain="[('state', '=', 'maintenance')]"/>
+                <separator/>
+                <filter name="insurance_expiring_soon" string="Assurance expirant bientôt"
                     domain="[
                         ('insurance_expires_on', '!=', False),
                         ('insurance_expires_on', '&lt;=', (context_today() + relativedelta(days=30)).strftime('%Y-%m-%d')),
-                    ]"
-                />
+                        ('insurance_expires_on', '&gt;=', context_today().strftime('%Y-%m-%d')),
+                    ]"/>
+                <filter name="insurance_expired" string="Assurance expirée"
+                    domain="[('insurance_expired', '=', True)]"/>
                 <group expand="0" string="Regrouper par">
                     <filter name="group_by_state" string="État" context="{'group_by': 'state'}"/>
+                    <filter name="group_by_class" string="Gamme" context="{'group_by': 'vehicle_class'}"/>
                 </group>
             </search>
         </field>
@@ -78,8 +174,23 @@
     <record id="babana_motorcycle_action" model="ir.actions.act_window">
         <field name="name">Flotte de motos</field>
         <field name="res_model">babana.motorcycle</field>
-        <field name="view_mode">list,form</field>
+        <field name="view_mode">list,form,calendar</field>
         <field name="search_view_id" ref="babana_motorcycle_view_search"/>
+    </record>
+
+    <record id="babana_motorcycle_deadlines_action" model="ir.actions.act_window">
+        <field name="name">Échéances d'assurance</field>
+        <field name="res_model">babana.motorcycle</field>
+        <field name="view_mode">list,calendar,form</field>
+        <field name="domain">[('insurance_expires_on', '!=', False)]</field>
+        <field name="context">{'search_default_insurance_expiring_soon': 1}</field>
+    </record>
+
+    <record id="babana_motorcycle_deadlines_action_list_view" model="ir.actions.act_window.view">
+        <field name="sequence" eval="1"/>
+        <field name="view_mode">list</field>
+        <field name="view_id" ref="babana_motorcycle_view_deadlines"/>
+        <field name="act_window_id" ref="babana_motorcycle_deadlines_action"/>
     </record>
 
     <menuitem id="babana_menu_root" name="Babana" sequence="50"
@@ -87,4 +198,6 @@
     <menuitem id="babana_menu_fleet" name="Flotte" parent="babana_menu_root" sequence="20"/>
     <menuitem id="babana_menu_motorcycle" name="Motos" parent="babana_menu_fleet"
         action="babana_motorcycle_action" sequence="10"/>
+    <menuitem id="babana_menu_motorcycle_deadlines" name="Échéances d'assurance"
+        parent="babana_menu_fleet" action="babana_motorcycle_deadlines_action" sequence="30"/>
 </odoo>

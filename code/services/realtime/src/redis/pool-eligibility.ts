@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type Redis from 'ioredis';
 import { AVAILABLE_DRIVERS_KEY } from './geo-index';
-import { onlineFlagKey, cashBlockedKey } from '../driver/keys';
+import { onlineFlagKey, cashBlockedKey, adminHoldKey } from '../driver/keys';
 import { rideStateKey } from '../ride/state';
 import { getPosition } from './positions';
 
@@ -29,11 +29,12 @@ export async function addEligibleToPool(
 ): Promise<boolean> {
   const result = await redis.eval(
     POOL_ELIGIBILITY_SCRIPT,
-    4,
+    5,
     AVAILABLE_DRIVERS_KEY,
     onlineFlagKey(driverId),
     rideStateKey(driverId),
     cashBlockedKey(driverId),
+    adminHoldKey(driverId),
     driverId,
     longitude,
     latitude
@@ -47,7 +48,9 @@ export async function addEligibleToPool(
  * plus). Partagée par `reservation/reserve.ts::releaseDriver` (L3-06, critères 4 et 5) et par le
  * câblage L3-17 (relâchement d'une réservation sur échec Odoo, effacement de l'engagement en fin
  * de course) : dans les deux cas, "le chauffeur redevient disponible" veut dire "réévalué par le
- * script d'éligibilité avec sa dernière position connue", jamais "réinséré directement".
+ * script d'éligibilité avec sa dernière position connue", jamais "réinséré directement". La
+ * réactivation d'un chauffeur suspendu (J33) n'appelle DÉLIBÉRÉMENT pas cette fonction : lever la
+ * non-habilitation ne recrée pas une disponibilité, le chauffeur se redéclare en ligne lui-même.
  *
  * Sans position connue (jamais émise, ou expirée depuis), il n'y a rien à réintégrer : la
  * prochaine position acceptée (L3-02/`tracking/ingest.ts`) s'en chargera.

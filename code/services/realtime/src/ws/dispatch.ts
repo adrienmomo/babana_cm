@@ -6,6 +6,7 @@ import type { ConnectionContext } from './auth';
 import { ingestPosition, plausibilityConfigFrom, accumulationConfigFrom } from '../tracking/ingest';
 import { setOnline, setOffline } from '../driver/availability';
 import { isCashBlocked } from '../driver/cash-guard';
+import { isOnAdminHold } from '../driver/admin-hold';
 import type { NearbyManager } from '../nearby/handler';
 import type { ProposalLifecycle } from '../proposal/lifecycle';
 import { proposalDeliveryMetrics } from '../proposal/delivery-metrics';
@@ -89,6 +90,15 @@ export function createMessageDispatcher(
         // quel refus, pas rester bloquée sans réponse.
         if (await isCashBlocked(redis, context.driverId)) {
           await proposals.reject(context.driverId, message.payload.rideId, 'plafond d’encaisse atteint (L5-02)');
+          return;
+        }
+        // Même point de blocage (J33) pour un dossier non habilité à travailler -- suspendu ou
+        // rejeté côté Odoo entre l'émission de la proposition et cette acceptation. Le pool l'a
+        // déjà exclu (`holdDriver` -> `removeFromPool`), mais une proposition en vol n'y repasse
+        // pas : sans ce contrôle elle resterait acceptable. Traité comme un refus explicite,
+        // exactement comme le plafond d'encaisse ci-dessus.
+        if (await isOnAdminHold(redis, context.driverId)) {
+          await proposals.reject(context.driverId, message.payload.rideId, 'chauffeur non habilité (suspension/rejet, J33)');
           return;
         }
         await proposals.accept(context.driverId, message.payload.rideId);

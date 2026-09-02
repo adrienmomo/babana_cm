@@ -51,6 +51,7 @@ class BabanaRide(models.Model):
     _name = "babana.ride"
     _description = "Course (L4-01)"
     _order = "create_date desc"
+    _rec_name = "reference"
 
     # --- Identité --------------------------------------------------------------------------
     reference = fields.Char(required=True, readonly=True, copy=False, index=True, default="/")
@@ -182,6 +183,10 @@ class BabanaRide(models.Model):
 
     # --- Refus ---------------------------------------------------------------------------------
     rejection_ids = fields.One2many("babana.ride.rejection", "ride_id", string="Refus")
+    # L9-03 : incidents liés, affichés en lecture seule dans la fiche de suivi des courses.
+    incident_ids = fields.One2many(
+        "babana.incident", "ride_id", string="Incidents et litiges", readonly=True
+    )
 
     _sql_constraints = [
         ("babana_ride_reference_unique", "unique(reference)", "La référence de course doit être unique."),

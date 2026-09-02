@@ -16,9 +16,11 @@ import { proposalRideIdKey } from '../proposal/keys';
  * **Portée de l'unification, arbitrée le 23 août** : seules les trois structures ci-dessus. Le
  * drapeau "en ligne" (`driver/availability.ts`, L3-04) et le blocage pour plafond d'encaisse
  * (`driver/cash-guard.ts`, L5-02) restent des clés séparées -- ce sont des états indépendants
- * d'une course, jamais nommés par le contexte de cette tâche. Le script d'éligibilité du pool
- * (`redis/pool-eligibility.lua`) passe donc de quatre clés lues à trois : en ligne, blocage
- * plafond, et cet état unifié -- pas une seule lecture globale.
+ * d'une course, jamais nommés par le contexte de cette tâche ; la non-habilitation du dossier
+ * (`driver/admin-hold.ts`, suspension/rejet, J33) s'y est ajoutée sur le même principe. Le script
+ * d'éligibilité du pool (`redis/pool-eligibility.lua`) lit donc quatre clés distinctes autour de
+ * cet état unifié : en ligne, blocage plafond, non-habilitation, et cet état unifié -- pas une
+ * seule lecture globale.
  *
  * **Les échéances restent distinctes** (le point délicat de la spécification) : une réservation
  * expire (`EXPIRE`, action `reserve` de `state.lua`) ; un engagement n'expire jamais tout seul

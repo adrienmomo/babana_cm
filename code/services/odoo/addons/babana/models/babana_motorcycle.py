@@ -74,6 +74,30 @@ class BabanaMotorcycle(models.Model):
         "diverger entre les deux sens de la relation.",
     )
 
+    # L9-02 : affichés en lecture seule dans la fiche flotte back-office.
+    assignment_ids = fields.One2many(
+        "babana.assignment",
+        "motorcycle_id",
+        string="Historique d'affectations",
+        readonly=True,
+        help="Historique complet (L1-08), non modifiable : chaque ligne est posée par le "
+        "write() de babana.motorcycle, jamais à la main.",
+    )
+    ride_ids = fields.One2many(
+        related="driver_id.ride_ids",
+        string="Courses du chauffeur affecté",
+        readonly=True,
+        help="Il n'existe pas de lien direct course <-> moto (une course porte un chauffeur, "
+        "L4-01). Ceci reflète les courses du chauffeur actuellement affecté -- indicatif.",
+    )
+    insurance_expired = fields.Boolean(
+        string="Assurance expirée",
+        compute="_compute_insurance_expired",
+        search="_search_insurance_expired",
+        help="Code couleur et filtre de la vue flotte (L9-02). Une moto à l'assurance expirée "
+        "ne peut plus être affectée (L1-07).",
+    )
+
     _sql_constraints = [
         (
             "babana_motorcycle_license_plate_unique",
@@ -81,6 +105,33 @@ class BabanaMotorcycle(models.Model):
             "Cette immatriculation est déjà enregistrée.",
         ),
     ]
+
+    def _compute_insurance_expired(self):
+        for record in self:
+            record.insurance_expired = record._insurance_is_expired()
+
+    def _search_insurance_expired(self, operator, value):
+        if operator not in ("=", "!="):
+            raise ValueError("Filtre 'assurance expirée' : opérateur non supporté.")
+        wants_expired = (operator == "=" and value) or (operator == "!=" and not value)
+        today = fields.Date.today()
+        domain = [("insurance_expires_on", "!=", False), ("insurance_expires_on", "<", today)]
+        return domain if wants_expired else ["!", "&"] + domain
+
+    def action_end_assignment(self):
+        """Fin d'affectation depuis la fiche flotte (L9-02, critère 2) : clôt la ligne
+        d'historique active (babana.assignment), ce qui, via son write(), efface `driver_id` et
+        repasse la moto à 'available' (sauf maintenance / retirée). Repli sur l'écriture directe
+        de `driver_id` si aucune ligne d'historique n'existe (moto affectée par la voie courte
+        `write({'driver_id': ...})`, sans assignment -- cas des jeux de test anciens)."""
+        for record in self:
+            active = self.env["babana.assignment"].search(
+                [("motorcycle_id", "=", record.id), ("end_date", "=", False)], limit=1
+            )
+            if active:
+                active.write({"end_date": fields.Datetime.now()})
+            elif record.driver_id:
+                record.write({"driver_id": False})
 
     def _insurance_is_expired(self) -> bool:
         self.ensure_one()

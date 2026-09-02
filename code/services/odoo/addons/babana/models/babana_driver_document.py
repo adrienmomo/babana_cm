@@ -8,7 +8,9 @@
 from __future__ import annotations
 
 from odoo import api, fields, models
-from odoo.exceptions import ValidationError
+from odoo.exceptions import UserError, ValidationError
+
+from ..services import storage
 
 DOCUMENT_TYPES = [("license", "Permis de conduire"), ("id_card", "Pièce d'identité")]
 VERIFICATION_STATUSES = [
@@ -75,6 +77,29 @@ class BabanaDriverDocument(models.Model):
                 raise ValidationError(
                     "Le motif est obligatoire pour rejeter un document (L6-15, critère 3)."
                 )
+
+    def action_preview(self):
+        """Ouvre le fichier de la pièce (permis, carte d'identité) dans un nouvel onglet, via
+        l'URL signée à durée limitée de L1-05 -- jamais une URL publique, jamais l'accès direct à
+        `storage_key`. C'est le chemin que la validation de dossier L9-01 emprunte : un
+        gestionnaire regarde la pièce avant de la vérifier ou de la rejeter.
+
+        D54 (amoa/questions/REPONSES-2026-09-08.md §2, même patron que
+        controllers/documents.py::_signed_url) : le contrôle d'accès passe par un `search` au nom
+        de l'appelant, pas par `sudo` ni `exists()` -- `exists()` ignorerait les règles
+        d'enregistrement. Un gestionnaire voit la ligne (droit `group_babana_manager`) ; un
+        utilisateur portail (client) n'a aucune ligne `ir.model.access` sur ce modèle et ne peut
+        pas l'atteindre. « Un gestionnaire a le droit, un client non, et c'est la règle qui le
+        dit » (prompt J33)."""
+        self.ensure_one()
+        visible = self.search([("id", "=", self.id)])
+        if not visible:
+            raise UserError("Document introuvable ou accès refusé.")
+        if not visible.storage_key:
+            raise UserError("Ce document n'a pas de fichier associé.")
+        ttl_seconds = storage.default_url_ttl_seconds(self.env)
+        url = storage.generate_signed_url(visible.storage_key, ttl_seconds=ttl_seconds)
+        return {"type": "ir.actions.act_url", "url": url, "target": "new"}
 
     def action_verify(self):
         """Marque le(s) document(s) vérifié(s) (L6-15, back-office). L'écriture sur

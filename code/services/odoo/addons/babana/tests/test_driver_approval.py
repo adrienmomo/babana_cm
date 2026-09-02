@@ -2,8 +2,12 @@
 # réactivation.
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase, tagged
+
+from ..services import realtime_client
 
 
 @tagged("post_install", "-at_install")
@@ -248,3 +252,44 @@ class TestDriverApproval(TransactionCase):
         last_message = driver.message_ids.sorted("id", reverse=True)[0]
         self.assertIn("Chauffeur du fil", last_message.body)
         self.assertEqual(last_message.author_id, self.env.user.partner_id)
+
+    # --- J33 : toute transition d'état qui rend un chauffeur (in)disponible câble le vivier ---
+    # temps réel. Le point d'accroche au commit et le comportement Redis sont prouvés ailleurs
+    # (test_realtime_commit_hook.py, services/realtime/test/admin-hold.test.ts) ; ici on vérifie
+    # seulement que le modèle DÉCLENCHE le bon appel avec le bon identifiant public.
+
+    def test_suspension_notifies_the_realtime_service_to_drop_from_the_pool(self):
+        driver = self._make_approvable_candidate()
+        driver.action_approve(new_employee_name="Chauffeur")
+        with patch.object(realtime_client, "notify_driver_unavailable") as mock_notify:
+            driver.action_suspend(reason="Comportement signalé")
+        mock_notify.assert_called_once_with(
+            self.env, driver_public_id=driver.public_id
+        )
+
+    def test_rejection_notifies_the_realtime_service_to_drop_from_the_pool(self):
+        driver = self._make_candidate()
+        with patch.object(realtime_client, "notify_driver_unavailable") as mock_notify:
+            driver.action_reject(reason="Permis illisible")
+        mock_notify.assert_called_once_with(
+            self.env, driver_public_id=driver.public_id
+        )
+
+    def test_reactivation_notifies_the_realtime_service_without_reintegrating(self):
+        driver = self._make_approvable_candidate()
+        driver.action_approve(new_employee_name="Chauffeur")
+        driver.action_suspend(reason="Motif")
+        with patch.object(realtime_client, "notify_driver_available") as mock_available, patch.object(
+            realtime_client, "notify_driver_unavailable"
+        ) as mock_unavailable:
+            driver.action_reactivate()
+        mock_available.assert_called_once_with(self.env, driver_public_id=driver.public_id)
+        mock_unavailable.assert_not_called()
+
+    def test_a_direct_state_write_out_of_approved_also_notifies(self):
+        # Défense en profondeur : le câblage est dans write(), pas seulement dans les action_*.
+        driver = self._make_approvable_candidate()
+        driver.action_approve(new_employee_name="Chauffeur")
+        with patch.object(realtime_client, "notify_driver_unavailable") as mock_notify:
+            driver.write({"state": "suspended", "rejection_reason": "Écriture directe"})
+        mock_notify.assert_called_once_with(self.env, driver_public_id=driver.public_id)
