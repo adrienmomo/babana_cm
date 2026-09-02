@@ -182,6 +182,12 @@ Ajouté le 10 août 2026, après que L0-03 s'est révélée invérifiable faute 
 - **Le scénario de bout en bout de L10-01 crée ses propres données** et ne s'appuie jamais sur celles d'Odoo. Un test qui dépend des données de démonstration échoue dès qu'on installe sans elles — c'est-à-dire en recette, au pire moment.
 - `make seed` fournit un jeu de démonstration **maison** : chauffeurs, motos, zones, grille tarifaire. C'est celui-là qui sert aux démonstrations, pas celui d'Odoo.
 
+**Compte administrateur — le mécanisme décrit ici n'existait pas (constat du 11 septembre).** Ce paragraphe décrit depuis le premier jour un mot de passe généré depuis une variable d'environnement. Cette variable n'a jamais été créée, et personne ne s'est jamais connecté au back-office : trois nuits de vues Odoo ont été écrites, testées, et **jamais regardées**, faute de pouvoir s'authentifier.
+
+C'est la troisième fois qu'un mécanisme documenté se révèle absent — après `make seed` et la contrainte d'unicité. Le motif est constant : une phrase dans un document ressemble beaucoup à un mécanisme qui fonctionne, et personne ne va vérifier ce qui est déjà écrit.
+
+Le jeu de données pose donc un mot de passe administrateur depuis une variable explicite, sans valeur par défaut en production (D43), et la procédure de mise en production vérifie qu'il a été changé.
+
 **Compte administrateur.** Odoo crée `admin` / `admin` à la création de la base. C'est acceptable sur un poste de développement, jamais au-delà. Le mot de passe est généré aléatoirement au premier démarrage à partir d'une variable d'environnement, et la procédure de mise en production (L0-07) vérifie qu'il a été changé. Un back-office en `admin`/`admin` derrière une liste d'adresses autorisées reste un back-office en `admin`/`admin`.
 
 ---
