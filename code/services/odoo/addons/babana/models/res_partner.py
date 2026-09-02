@@ -3,7 +3,13 @@
 # synchronisation qui dérivera.
 from __future__ import annotations
 
-from odoo import fields, models
+from odoo import api, fields, models
+
+# États d'une course où client et chauffeur sont réellement réunis -- doit rester aligné sur
+# babana_ride.py::TOGETHER_STATES (le chauffeur joint son passager pendant la course, plus
+# après). Recopié plutôt qu'importé : ce module est chargé avant babana_ride, et la règle
+# d'enregistrement L8-01 qui s'appuie sur ce champ doit pouvoir être relue seule.
+_RIDE_TOGETHER_STATES = ("assigned", "in_progress")
 
 
 class ResPartner(models.Model):
@@ -51,3 +57,45 @@ class ResPartner(models.Model):
             record.babana_rides_count = self.env["babana.ride"].search_count(
                 [("client_id", "=", record.id)]
             )
+
+    # --- L8-01, la règle la plus délicate : le chauffeur joint son passager pendant la course,
+    #     jamais après ------------------------------------------------------------------------
+    babana_reachable_by_current_driver = fields.Boolean(
+        string="Joignable par le chauffeur courant",
+        compute="_compute_babana_reachable_by_current_driver",
+        search="_search_babana_reachable_by_current_driver",
+        help="Vrai si l'utilisateur connecté est le chauffeur d'une course ACTIVE "
+        "(assigned/in_progress) dont ce partenaire est le client. Sert uniquement de domaine à "
+        "la règle d'enregistrement res.partner de L8-01 -- jamais affiché. Le calcul est lié à "
+        "une seule et même course : un chauffeur qui a terminé une course avec ce client, puis "
+        "en a une autre active avec un client différent, ne rend pas ce premier client "
+        "joignable (le piège d'une règle écrite en deux conditions indépendantes).",
+    )
+
+    @api.depends_context("uid")
+    def _compute_babana_reachable_by_current_driver(self):
+        reachable = self.env["res.partner"].browse(
+            self._babana_partners_reachable_by_driver_user(self.env.uid)
+        )
+        for record in self:
+            record.babana_reachable_by_current_driver = record in reachable
+
+    def _search_babana_reachable_by_current_driver(self, operator, value):
+        if operator not in ("=", "!=") or not isinstance(value, bool):
+            raise ValueError("babana_reachable_by_current_driver : seul `= True/False` est géré")
+        ids = self._babana_partners_reachable_by_driver_user(self.env.uid)
+        positive = (operator == "=") == bool(value)
+        return [("id", "in" if positive else "not in", ids)]
+
+    @api.model
+    def _babana_partners_reachable_by_driver_user(self, user_id):
+        """Partenaires clients d'une course active conduite par `user_id`. `sudo()` : ce lookup
+        alimente la règle d'enregistrement, il ne doit pas être filtré par elle."""
+        rides = self.env["babana.ride"].sudo().search(
+            [
+                ("state", "in", list(_RIDE_TOGETHER_STATES)),
+                ("driver_id.user_id", "=", user_id),
+                ("driver_id.state", "=", "approved"),
+            ]
+        )
+        return rides.client_id.ids

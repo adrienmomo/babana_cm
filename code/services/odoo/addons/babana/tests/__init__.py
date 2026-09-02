@@ -39,3 +39,4 @@ from . import test_push
 from . import test_devices_controller
 from . import test_sql_constraints_in_db
 from . import test_currency_required
+from . import test_access_rights

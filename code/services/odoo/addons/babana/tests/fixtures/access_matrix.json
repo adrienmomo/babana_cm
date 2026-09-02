@@ -1,0 +1,48 @@
+{
+  "_comment": [
+    "L8-02 -- matrice d'habilitation des utilisateurs mobiles (rôles `client` et `driver`).",
+    "Les tests de test_access_rights.py sont GÉNÉRÉS depuis ce fichier : un modèle babana.*",
+    "absent de `models` fait échouer la suite (test_matrix_covers_every_babana_model).",
+    "",
+    "Valeurs par opération :",
+    "  none  -- aucun accès : toute tentative au nom de l'utilisateur lève AccessError.",
+    "  own   -- accès limité aux lignes de l'utilisateur : il voit les siennes, JAMAIS",
+    "           celles d'un autre (les deux sont testés -- la négative est celle qui compte).",
+    "",
+    "Les utilisateurs mobiles n'ont AUCUN droit d'écriture directe (invariant : l'app affiche",
+    "ce que le serveur décide). write/create/unlink valent `none` partout, sans exception.",
+    "Toute écriture réelle passe par les méthodes de transition et les contrôleurs, qui",
+    "s'exécutent en super-utilisateur -- jamais par l'ORM au nom du mobile.",
+    "",
+    "`own` pour un chauffeur suppose TOUJOURS un dossier `approved` : un compte `suspended`,",
+    "`rejected` ou `pending` perd l'accès immédiatement, pas à l'expiration de son jeton",
+    "(test_suspended_driver_loses_access_immediately)."
+  ],
+  "roles": ["client", "driver"],
+  "models": {
+    "babana.ride":                { "client": ["own", "none", "none", "none"], "driver": ["own", "none", "none", "none"] },
+    "babana.quote":               { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.driver":              { "client": ["none", "none", "none", "none"], "driver": ["own", "none", "none", "none"] },
+    "babana.driver.document":     { "client": ["none", "none", "none", "none"], "driver": ["own", "none", "none", "none"] },
+    "babana.motorcycle":          { "client": ["none", "none", "none", "none"], "driver": ["own", "none", "none", "none"] },
+    "babana.assignment":          { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.cash.movement":       { "client": ["none", "none", "none", "none"], "driver": ["own", "none", "none", "none"] },
+    "babana.cash.remittance":     { "client": ["none", "none", "none", "none"], "driver": ["own", "none", "none", "none"] },
+    "babana.cash.discrepancy":    { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.incident":            { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.ride.share":          { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.ride.rejection":      { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.device.token":        { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.token":               { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.fare.rule":           { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.zone":                { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.route.cache":         { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.idempotency.record":  { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] }
+  },
+  "inherited_models": {
+    "_comment": "Modèles Odoo standard exposés au mobile par héritage ou relation (L8-01, critère 6). Mêmes règles, testés au même titre.",
+    "account.move":  { "client": ["own", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "res.partner":   { "client": ["own", "none", "none", "none"], "driver": ["own", "none", "none", "none"] }
+  },
+  "operations": ["read", "write", "create", "unlink"]
+}

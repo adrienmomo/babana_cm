@@ -1,0 +1,149 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        L8-01 : règles d'enregistrement des utilisateurs mobiles.
+
+        Les comptes clients et chauffeurs sont dans `base.group_portal` (res_users.py) et
+        n'appartiennent à AUCUN groupe métier babana : tout leur accès en lecture passe par
+        ces règles. Les droits d'accès (ir.model.access.csv) ne filtrent que les MODÈLES ;
+        un chauffeur avec le droit de lire `babana.ride` et sans règle les lirait toutes.
+
+        Toutes ces règles sont des règles de GROUPE (`global` = False) : plusieurs règles de
+        groupe sur le même modèle se combinent en OU. Seul `perm_read` est ouvert. Aucun
+        utilisateur mobile n'a de droit d'écriture directe (l'app affiche ce que le serveur
+        décide ; toute écriture passe par un contrôleur ou une transition, en
+        super-utilisateur), et ir.model.access.csv ne donne au portail que `perm_read`.
+
+        `driver_id.state = 'approved'` dans chaque domaine chauffeur : un dossier `suspended`,
+        `rejected` ou `pending` perd l'accès à l'instant où l'état change, pas à l'expiration
+        du jeton (L8-02, test_suspended_or_rejected_driver_loses_access_immediately).
+
+        Les modèles absents d'ici (babana.quote, babana.incident, babana.ride.share,
+        babana.assignment, babana.device.token, babana.token, babana.fare.rule, babana.zone,
+        babana.route.cache, babana.idempotency.record, babana.cash.discrepancy,
+        babana.ride.rejection) n'ont aucune ligne `base.group_portal` dans ir.model.access.csv :
+        un utilisateur mobile ne peut pas les lire du tout par l'ORM. La matrice
+        (tests/fixtures/access_matrix.json) le fige et le prouve.
+    -->
+
+    <record id="babana_ride_rule_mobile" model="ir.rule">
+        <field name="name">babana.ride : mobile ne voit que ses courses</field>
+        <field name="model_id" ref="model_babana_ride"/>
+        <field name="groups" eval="[Command.link(ref('base.group_portal'))]"/>
+        <field name="global" eval="False"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+        <field name="domain_force">
+            ['|',
+                ('client_id', '=', user.partner_id.id),
+                '&amp;', ('driver_id.user_id', '=', user.id), ('driver_id.state', '=', 'approved')]
+        </field>
+    </record>
+
+    <!-- babana.driver : le chauffeur, sa seule fiche. Le client n'y accede jamais par l'ORM :
+         l'identite du chauffeur affecte lui est servie par le controleur (sudo), la liste des
+         chauffeurs proches par le service temps reel (sudo). -->
+    <record id="babana_driver_rule_mobile_self" model="ir.rule">
+        <field name="name">babana.driver : le chauffeur ne voit que sa fiche</field>
+        <field name="model_id" ref="model_babana_driver"/>
+        <field name="groups" eval="[Command.link(ref('base.group_portal'))]"/>
+        <field name="global" eval="False"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+        <field name="domain_force">
+            ['&amp;', ('user_id', '=', user.id), ('state', '=', 'approved')]
+        </field>
+    </record>
+
+    <!-- babana.driver.document : permis, piece d'identite, les donnees les plus sensibles du
+         produit. Un client n'en lit AUCUN (aucune ligne ir.model.access pour le portail) ; le
+         seul chemin legitime est l'acces signe a duree limitee de L1-05. -->
+    <record id="babana_driver_document_rule_mobile" model="ir.rule">
+        <field name="name">babana.driver.document : le chauffeur ne voit que ses documents</field>
+        <field name="model_id" ref="model_babana_driver_document"/>
+        <field name="groups" eval="[Command.link(ref('base.group_portal'))]"/>
+        <field name="global" eval="False"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+        <field name="domain_force">
+            ['&amp;', ('driver_id.user_id', '=', user.id), ('driver_id.state', '=', 'approved')]
+        </field>
+    </record>
+
+    <!-- babana.motorcycle : la moto affectee au chauffeur. -->
+    <record id="babana_motorcycle_rule_mobile" model="ir.rule">
+        <field name="name">babana.motorcycle : le chauffeur ne voit que sa moto affectee</field>
+        <field name="model_id" ref="model_babana_motorcycle"/>
+        <field name="groups" eval="[Command.link(ref('base.group_portal'))]"/>
+        <field name="global" eval="False"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+        <field name="domain_force">
+            ['&amp;', ('driver_id.user_id', '=', user.id), ('driver_id.state', '=', 'approved')]
+        </field>
+    </record>
+
+    <!-- babana.cash.movement : le compte courant du chauffeur. Personne ne lit celui d'un
+         autre : ni un chauffeur celui d'un collegue, ni un client quoi que ce soit. -->
+    <record id="babana_cash_movement_rule_mobile" model="ir.rule">
+        <field name="name">babana.cash.movement : le chauffeur ne voit que ses mouvements</field>
+        <field name="model_id" ref="model_babana_cash_movement"/>
+        <field name="groups" eval="[Command.link(ref('base.group_portal'))]"/>
+        <field name="global" eval="False"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+        <field name="domain_force">
+            ['&amp;', ('driver_id.user_id', '=', user.id), ('driver_id.state', '=', 'approved')]
+        </field>
+    </record>
+
+    <!-- babana.cash.remittance : les remises du chauffeur. -->
+    <record id="babana_cash_remittance_rule_mobile" model="ir.rule">
+        <field name="name">babana.cash.remittance : le chauffeur ne voit que ses remises</field>
+        <field name="model_id" ref="model_babana_cash_remittance"/>
+        <field name="groups" eval="[Command.link(ref('base.group_portal'))]"/>
+        <field name="global" eval="False"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+        <field name="domain_force">
+            ['&amp;', ('driver_id.user_id', '=', user.id), ('driver_id.state', '=', 'approved')]
+        </field>
+    </record>
+
+    <!-- res.partner : le chauffeur joint son passager PENDANT la course, plus apres. Cette
+         regle s'ajoute (OU) a la regle portail native `res_partner_portal_public_rule` qui
+         donne deja a chacun l'acces a sa propre fiche. Le domaine passe par un champ dont le
+         calcul lie les deux conditions (course active ET conduite par moi) a une seule et
+         meme course (res_partner.py). -->
+    <record id="babana_res_partner_rule_driver_active_ride" model="ir.rule">
+        <field name="name">res.partner : le chauffeur joint le client de sa course active</field>
+        <field name="model_id" ref="base.model_res_partner"/>
+        <field name="groups" eval="[Command.link(ref('base.group_portal'))]"/>
+        <field name="global" eval="False"/>
+        <field name="perm_read" eval="True"/>
+        <field name="perm_write" eval="False"/>
+        <field name="perm_create" eval="False"/>
+        <field name="perm_unlink" eval="False"/>
+        <field name="domain_force">[('babana_reachable_by_current_driver', '=', True)]</field>
+    </record>
+
+    <!--
+        account.move (ligne « account.move » du tableau L8-01) : la regle est celle d'Odoo,
+        `account.account_invoice_rule_portal` (factures postees dont le partenaire suit le
+        document). Elle donne deja « ses propres factures » au client et « aucun acces » au
+        chauffeur, jamais partenaire de facture. Rien a ajouter ici ; la matrice L8-02 la met
+        sous test au meme titre que les regles babana.
+    -->
+</odoo>
