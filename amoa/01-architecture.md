@@ -343,6 +343,10 @@ C'est le même raisonnement que celui qui a fait accepter les remises partielles
 
 **Elle ne coupe pas non plus une course en cours.** La règle telle qu'écrite faisait disparaître, pour le chauffeur suspendu, la course qu'il était en train de faire — son application cessait de fonctionner au milieu d'un trajet, avec un passager derrière. Une décision administrative ne doit pas produire cet effet-là.
 
+**Mais elle doit agir immédiatement là où elle compte (constat du 9 septembre).** Suspendre passe bien `is_online` à faux côté Odoo, et **rien ne le dit au service temps réel** : le chauffeur reste dans le vivier géo-indexé et continue de recevoir des propositions jusqu'à l'expiration de sa position. Le franchissement du plafond d'encaisse, lui, prévient le service explicitement — un mécanisme construit avec soin pour un cas, jamais appliqué au cas voisin.
+
+C'est la forme que ce projet connaît bien : ce qui manque n'est pas le mécanisme, c'est son application au second endroit qui en avait besoin.
+
 **Et elle le dit dans la bonne monnaie (D53, 7 septembre).** La devise de la société était le dollar. Un rapport de nuit l'avait classé « cosmétique — le back-office affiche des dollars » ; ce ne l'était pas. Le mouvement de compte courant prend par défaut la devise de la société, et l'écriture comptable aussi : **le compte courant des chauffeurs et le grand livre étaient donc libellés en dollars**, pendant que l'API annonçait « XAF » en dur. Le nombre était le même, la monnaie ne l'était pas — dans un produit dont l'objet entier est la réconciliation d'espèces en francs CFA.
 
 La cause : les données de démonstration d'Odoo créent des écritures comptables dès l'installation, et Odoo refuse ensuite de changer la devise d'une société qui en possède. Le correctif porte donc sur les deux bouts — **ces données n'ont rien à faire dans cette base**, et la devise est exigée à l'installation, vérifiée mécaniquement comme les contraintes de D52.
