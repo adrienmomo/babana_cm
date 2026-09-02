@@ -171,13 +171,13 @@ class RideController(http.Controller):
         ride = self._find_ride(env, user, ride_id)
         if not ride:
             return _common.error_payload("RIDE_NOT_FOUND", "course inconnue"), 404
-        if ride.client_id != user.partner_id:
-            # Atteignable seulement par un chauffeur affecté qui verrait la course par la
-            # branche « driver_id.user_id = moi » de la règle -- sélectionner un chauffeur
-            # n'est pas son geste. Un autre client, lui, ne voit rien : il est déjà sorti en
-            # RIDE_NOT_FOUND ci-dessus.
-            return _common.error_payload("RIDE_NOT_OWNED", "cette course n'appartient pas à l'appelant"), 403
+        # Visibilité tranchée par la règle ci-dessus ; on repasse en `sudo` avant le contrôle
+        # explicite, qui n'est plus là que pour dire POURQUOI (403) à un appelant qui, lui,
+        # voit la course : un chauffeur affecté (branche « driver_id.user_id = moi ») qui
+        # appellerait cet endpoint client. Un autre client est déjà sorti en RIDE_NOT_FOUND.
         ride = ride.sudo()
+        if ride.client_id != user.partner_id:
+            return _common.error_payload("RIDE_NOT_OWNED", "cette course n'appartient pas à l'appelant"), 403
 
         body = _common.parse_json_body()
         driver_id = (body or {}).get("driverId")

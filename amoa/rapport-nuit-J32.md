@@ -170,6 +170,14 @@ chacune.
 `rejected` qui *avait* encaissé avant son rejet ne verrait plus sa dette par cet endpoint, alors
 que la règle d'enregistrement, elle, la lui montrerait. À arbitrer si le cas se présente.
 
+Correctif de suite (commit `D54 (correctif)`) : dans `_select_driver`, le `ride = ride.sudo()`
+est remonté **avant** le test `ride.client_id != user.partner_id`. Sans ça, un chauffeur qui
+appellerait cet endpoint client sur une course `proposed` (état hors `assigned`/`in_progress`,
+donc le client n'est pas « joignable » pour lui) heurtait un `AccessError` en lisant
+`ride.client_id` → `INTERNAL_ERROR 500` au lieu de `RIDE_NOT_OWNED 403`. Les trois autres
+contrôleurs (`cancel`, `incident`, `share`) faisaient déjà le contrôle sur un enregistrement
+`sudo`.
+
 ### Fichiers
 
 `code/services/odoo/addons/babana/controllers/ride.py`, `incident.py`, `share.py`,
