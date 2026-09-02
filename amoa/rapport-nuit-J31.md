@@ -217,29 +217,63 @@ et `test_driver_never_reaches_a_client_of_someone_elses_active_ride` l'attrapera
 
 ## 4. Passe finale
 
-Validation unitaire faite au fil de l'eau, sur bases jetables recréées à chaque fois
-(`babana_t`, `babana_nodemo`) :
+Environnement rejoué de zéro : `make reset` (down -v) → `make up` (base `babana`
+recréée par l'auto-init, `without_demo = all` effectif) → `make seed` → `make test` →
+`make lint` → `make typecheck` → `make secrets-scan`. Docker Desktop, PostgreSQL 16.
 
-- **D53 sur base réellement fraîche sans démo** (`-i babana`, `without_demo` effectif) :
-  `res_company.currency_id = XAF`, `chart_template = generic_coa`, `res_partner` 6 lignes
-  (162 avec démo), `account_move` 0, les comptes `57101/42101/47101` + journal `BCAI`
-  présents, les 4 `ir.config_parameter` résolus.
-- **Suite babana complète** (`-i babana --test-enable --test-tags /babana` sur base fraîche
-  sans démo) : **683 tests, 0 échec, 0 erreur** (612 à J30 + `test_currency_required` +
-  la matrice L8-02 générée + cas particuliers).
+### `make up` + `make seed` sur base réellement fraîche
 
-`make reset` + `make seed` + `make test` complet + vérification visuelle des francs CFA
-au back-office : **commit `amoa: passe finale J31` séparé** (rejoue tout le flux sur la
-base de développement, qui est alors jetée et refaite).
+- `ir_module_module.demo = f` sur `base`, `account`, `hr`, `mail` — **aucune donnée de
+  démonstration** (`res_partner` ne porte plus les 100+ contacts fictifs d'Odoo ; les
+  partenaires présents sont ceux de `make seed`).
+- `res_company.currency_id` → **XAF** (symbole `FCFA`), `chart_template = generic_coa`,
+  `account_move` : **0** au moment où la devise est fixée.
+- Comptes `57101 / 42101 / 47101` + journal `BCAI` présents, xmlids `babana.*` en base,
+  les 4 `ir.config_parameter` de la remise résolvent vers ces enregistrements.
+- `make seed` : vert. `ensure_currency()` passe (devise déjà XAF, posée par le hook).
 
-Note : sur une installation `-i babana` réellement fraîche (sans `--test-tags`), quatre
-tests **du cœur d'Odoo** échouent — `base.tests.test_configmanager` (×4),
-`test_upgrade_code` (×2), `test_overrides.test_unlink` (×1). Ils ne touchent pas babana :
-`test_configmanager` compare la configuration par défaut et bute sur le `odoo.conf`
-personnalisé du dépôt (`addons_path`, `db_name`, `list_db`… présents avant J31) ;
-`test_overrides.test_unlink` bute sur la surcharge `unlink()` de `babana.assignment`
-(L1-08, avant J31). Aucun n'est une régression J31, et le flux `make test` documenté par
-J30 (après `make seed`, seule la suite babana est rejouée) ne les exécute pas.
+### `make test`
+
+**`MAKE_TEST_RC=0`.**
+
+- **Suite Odoo babana** : `0 failed, 0 error(s) of 683 tests` (612 à J30 + les 4 de
+  `test_currency_required` + la matrice L8-02 générée + les cas particuliers +
+  `test_suspended_or_rejected_driver_loses_access_immediately`).
+- `npm test` : `@babana/api-client` 80, `@babana/maps` 19, `@babana/navigation` 4,
+  `@babana/client` 106, `@babana/driver` 162, `@babana/realtime` 206,
+  `@babana/contracts` 79, `@babana/concurrency-tests` (Redis + Odoo réels) — tous verts.
+  Les `TypeError: fetch failed` dans la sortie realtime sont les `console.error` de tests
+  pointant volontairement vers un Odoo injoignable (déjà documenté J30).
+
+### `make lint`, `make typecheck`, `make secrets-scan`
+
+`MAKE_LINT_RC=0`, `TYPECHECK_RC=0`, `SECRETS_RC=0` (« aucun secret détecté »).
+
+### Montants en francs CFA au back-office
+
+Vérifié en base après `make seed` : `babana.cash.movement` et `babana.ride` portent
+tous `currency_id → XAF` ; la société est en XAF (`FCFA`), donc toute vue `Monetary`
+(compte courant chauffeur, grand livre, écriture de remise) s'affiche en francs CFA.
+Le `"currency": "XAF"` des contrôleurs est maintenant garanti par construction.
+
+### Un point pour le relecteur
+
+Sur une installation `-i babana` **réellement fraîche sans `--test-tags`** (chemin qui
+rejoue en plus les ~1700 tests du cœur d'Odoo), sept tests **du cœur** échouent :
+`base.tests.test_configmanager` (×4), `test_upgrade_code` (×2),
+`test_overrides.test_unlink` (×1). Aucun n'est une régression J31 :
+
+- `test_configmanager` compare la configuration Odoo **par défaut** et bute sur le
+  `odoo.conf` personnalisé du dépôt (`addons_path`, `db_name`, `list_db`, `workers`…),
+  présents bien avant J31 ; `without_demo` s'y ajoute mais le test échouait déjà.
+- `test_overrides.test_unlink` fait `browse().unlink()` sur **tous** les modèles et
+  heurte la surcharge `unlink()` de `babana.assignment` (L1-08, avant J31).
+- `test_upgrade_code` teste l'outillage de migration, sans rapport.
+
+Le flux `make test` documenté par J30 (après `make seed`, `-i` ne rejoue que la suite
+babana) ne les exécute pas — d'où `MAKE_TEST_RC=0`. À trancher si le pilote veut un
+`make test` qui parte d'une base vierge : soit isoler `odoo.conf` de ces tests cœur,
+soit les exclure explicitement.
 
 ---
 
