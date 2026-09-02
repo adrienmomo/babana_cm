@@ -110,6 +110,7 @@ class BabanaCashDiscrepancy(models.Model):
     )
     part_of_a_series = fields.Boolean(
         compute="_compute_driver_other_discrepancy_ids",
+        search="_search_part_of_a_series",
         string="Fait partie d'une série",
         help="same_direction_recent_count a atteint le seuil de série (critère d'acceptation 5) "
         "-- repère visuel direct, sans faire le calcul de tête.",
@@ -143,6 +144,16 @@ class BabanaCashDiscrepancy(models.Model):
             )
             record.same_direction_recent_count = len(recent_same_direction)
             record.part_of_a_series = len(recent_same_direction) >= series_count
+
+    def _search_part_of_a_series(self, operator, value):
+        # Non stocké (même raison que driver_other_discrepancy_ids) -- le filtre "En série" de
+        # la vue de recherche passe par un balayage Python, même patron que
+        # babana_fare_rule.py::_search_has_overlap pour "En recouvrement".
+        if operator not in ("=", "!="):
+            raise ValueError("Filtre 'série' : opérateur non supporté.")
+        wants_series = (operator == "=" and value) or (operator == "!=" and not value)
+        series_ids = [record.id for record in self.search([]) if record.part_of_a_series]
+        return [("id", "in" if wants_series else "not in", series_ids)]
 
     @api.constrains("reason_category", "reason_comment")
     def _check_other_requires_comment(self):
