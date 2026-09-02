@@ -5,6 +5,7 @@ import { reverseGeocode } from '@babana/maps';
 import { ApiError, translateApiError } from '@babana/api-client';
 import type { realtime } from '@babana/contracts';
 import { apiClient } from '../auth';
+import { offlineRunner } from '../offline';
 import { getCurrentPosition } from '../location';
 import { CallButton } from '../components/CallButton';
 import { EmergencyButton } from '../components/EmergencyButton';
@@ -33,6 +34,13 @@ import type { DriverParamList } from '../navigation/types';
  * course » envoie `POST /rides/{id}/complete` **avec un corps vide**. Le relevé du trajet
  * (distance, durée, tracé) vient du service temps réel qui l'a accumulé (L3-10), jamais de l'app
  * -- le stopgap `ride/completion.ts` (ligne droite départ -> arrivée) a disparu avec cet arbitrage.
+ *
+ * **La fin de course est autorisée hors connexion** (L6-16, spécification) : `handleFinish`
+ * passe par `offlineRunner` (`../offline.ts`), jamais `apiClient` directement -- `startRide`, à
+ * l'inverse, reste un appel direct : démarrer une course ne fait pas partie des quatre actions
+ * que la spécification autorise en file (un départ non confirmé au serveur ne devrait pas rester
+ * incertain longtemps). Une fin de course mise en file est rejouée automatiquement à la
+ * reconnexion, avec la même clé d'idempotence -- jamais un double `settled`.
  */
 
 type Props = NativeStackScreenProps<DriverParamList, 'ActiveRide'>;
@@ -61,6 +69,10 @@ export function ActiveRideScreen({ route, navigation }: Props) {
   const [busy, setBusy] = useState<null | 'starting' | 'finishing'>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [endedNotice, setEndedNotice] = useState<string | null>(null);
+  // Fin de course mise en file (réseau absent, L6-16) : distinct de `busy === 'finishing'`, qui
+  // ne dure que le temps d'une tentative -- celui-ci peut durer jusqu'à la prochaine
+  // reconnexion.
+  const [finishQueued, setFinishQueued] = useState(false);
 
   // Lu de façon synchrone par les gestionnaires de messages -- `phase` (état React) y serait
   // périmé (l'effet d'abonnement ne s'exécute qu'une fois, dépendances [rideId]).
@@ -139,19 +151,41 @@ export function ActiveRideScreen({ route, navigation }: Props) {
   }
 
   async function handleFinish() {
-    if (busy || phaseRef.current !== 'transit') return;
+    if (busy || finishQueued || phaseRef.current !== 'transit') return;
     setBusy('finishing');
     setErrorMessage(null);
     try {
       // La fin de course ne porte que la décision (J24) : corps vide.
-      await apiClient.request('completeRide', { pathParams: { id: rideId }, body: {} });
+      await offlineRunner.attempt('completeRide', {
+        pathParams: { id: rideId },
+        body: {},
+        // Synchrone, avant que la promesse ci-dessus ne se résolve (échec réseau) -- l'attente
+        // peut durer jusqu'à la prochaine reconnexion, `busy` seul (transitoire) ne suffit pas
+        // à le montrer.
+        onQueued: () => {
+          setBusy(null);
+          setFinishQueued(true);
+        },
+      });
       if (resolvedRef.current) return;
       resolvedRef.current = true;
       replaceWithSettlement(navigation, { rideId, amount });
     } catch (error) {
+      // Une erreur réseau ne fait jamais rejeter cette promesse (mise en file à la place,
+      // ci-dessus) -- seule reste une erreur métier.
       setErrorMessage(error instanceof ApiError ? translateApiError(error) : 'Impossible de terminer la course. Réessayez.');
       setBusy(null);
+      setFinishQueued(false);
     }
+  }
+
+  function handleFinishRetryNow() {
+    // Ne relance pas `handleFinish()` -- la fin de course initiale reste en attente dans
+    // `offlineRunner` avec sa propre clé d'idempotence ; `flush()` retente ce qui est déjà en
+    // file, sans en créer une seconde.
+    // `flush()` ne rejette jamais (manager.ts -- une reconnexion future réessaiera), le `catch`
+    // ici n'est qu'une garde contre un rejet imprévu ; rien de plus à faire depuis un écran.
+    offlineRunner.flush().catch(() => {});
   }
 
   if (endedNotice) {
@@ -223,18 +257,35 @@ export function ActiveRideScreen({ route, navigation }: Props) {
         // du bouton de guidage qu'on touche en roulant -- une fin déclenchée par erreur est
         // pénible à rattraper (spécification L6-13, critère 4).
         <View style={styles.finishZone}>
-          <Text style={styles.finishHint}>Maintenez pour terminer</Text>
-          <Pressable
-            testID="active-ride-finish"
-            accessibilityRole="button"
-            accessibilityLabel="Maintenir pour terminer la course"
-            disabled={busy !== null}
-            delayLongPress={HOLD_TO_FINISH_MS}
-            onLongPress={handleFinish}
-            style={({ pressed }) => [styles.finishButton, pressed ? styles.finishButtonHeld : null]}
-          >
-            <Text style={styles.finishLabel}>{busy === 'finishing' ? 'Fin de course…' : 'Terminer la course'}</Text>
-          </Pressable>
+          {finishQueued ? (
+            <View style={styles.finishQueued} testID="active-ride-finish-queued">
+              <Text style={styles.finishQueuedText}>
+                Fin de course en attente — elle sera confirmée automatiquement au retour du réseau.
+              </Text>
+              <Pressable
+                testID="active-ride-finish-retry"
+                accessibilityRole="button"
+                onPress={handleFinishRetryNow}
+              >
+                <Text style={styles.finishQueuedRetry}>Réessayer maintenant</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              <Text style={styles.finishHint}>Maintenez pour terminer</Text>
+              <Pressable
+                testID="active-ride-finish"
+                accessibilityRole="button"
+                accessibilityLabel="Maintenir pour terminer la course"
+                disabled={busy !== null}
+                delayLongPress={HOLD_TO_FINISH_MS}
+                onLongPress={handleFinish}
+                style={({ pressed }) => [styles.finishButton, pressed ? styles.finishButtonHeld : null]}
+              >
+                <Text style={styles.finishLabel}>{busy === 'finishing' ? 'Fin de course…' : 'Terminer la course'}</Text>
+              </Pressable>
+            </>
+          )}
         </View>
       )}
     </View>
@@ -314,6 +365,23 @@ const styles = StyleSheet.create({
     color: '#DC2626',
     fontSize: 18,
     fontWeight: '700',
+  },
+  finishQueued: {
+    gap: 8,
+    alignItems: 'center',
+    backgroundColor: '#FEF3C7',
+    borderRadius: 12,
+    padding: 14,
+    alignSelf: 'stretch',
+  },
+  finishQueuedText: {
+    color: '#92400E',
+    textAlign: 'center',
+  },
+  finishQueuedRetry: {
+    color: '#92400E',
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
   pressed: {
     opacity: 0.85,

@@ -223,3 +223,114 @@ Le fichier n'avait plus d'import en dehors de son propre paquet (test compris) �
 test et son export (`packages/api-client/src/http/index.ts`), et le commentaire de
 `RemittanceScreen.tsx` qui le citait comme perspective (« l'aller-retour qu'apportera L6-16 »)
 mis à jour pour ne plus pointer vers un fichier disparu.
+
+---
+
+## 4. L6-16 — Mode dégradé réseau
+
+### Ce qui existait déjà, et n'a pas été refait
+
+`ConnectionState` (`offline`/`connecting`/`connected`, `@babana/api-client/realtime/handlers.ts`)
+et la file WebSocket persistante (`realtime/queue.ts`, L6-04) existaient depuis un lot antérieur
+-- leurs commentaires de tête citaient déjà L6-16 comme la raison d'être posés d'avance. Cette
+nuit les a **consommés**, pas réécrits : le bandeau de connexion affiche directement les trois
+états de `ConnectionState` (`connecting` se lit « dégradé », correspondance déjà annoncée par ces
+mêmes commentaires), et la file HTTP neuve (ci-dessous) se déclenche sur le même signal de
+reconnexion que la file WebSocket, sans un second mécanisme de détection réseau.
+
+`HomeScreen.tsx` (client) portait déjà, depuis L3-20, un bandeau « Liste des chauffeurs non mise
+à jour depuis N s » avec compteur vivant pendant un silence de diffusion -- exactement l'esprit du
+critère 5 (« toute donnée en cache porte son horodatage ») appliqué au cas le plus visible de la
+démonstration (les cinq chauffeurs proches). Ce mécanisme n'a pas été dupliqué ni généralisé ce
+soir : c'est un choix de lot, pas un oubli -- voir « Ce qui reste » plus bas.
+
+### La file HTTP hors connexion (critère 2), généralisée depuis un précédent
+
+`packages/api-client/src/offline/` (`queue.ts`, `manager.ts`) : nouveau, sur le patron déjà posé
+par `incident/offlineQueue.ts` (L8-04) -- persistance AsyncStorage, mutex de sérialisation, rejeu
+dans l'ordre qui s'arrête à la première erreur encore réseau. `incident/offlineQueue.ts` documentait
+lui-même pourquoi il n'avait pas généralisé `realtime/queue.ts` pour un seul consommateur (« un
+module minuscule qu'il est plus sûr de dupliquer que d'étirer ») -- ce motif ne tenait plus une
+fois quatre écrans (`SettlementScreen`, `ActiveRideScreen`, `RemittanceScreen`, `RideSummaryScreen`)
+à porter le même besoin. `incident/offlineQueue.ts` reste tel quel (portée différente : position,
+horodatage de déclenchement -- le retoucher n'apportait rien ce soir).
+
+`createOfflineActionRunner({ httpClient })` expose `attempt(endpoint, options)` : tente l'appel
+immédiatement (les réessais réseau/serveur à court terme de `client.ts`, L6-03, restent son
+premier recours) ; sur un échec qui n'est ni une `ApiError` (catalogue C-01, l'état serveur a
+tranché) ni une `ZodError` (réponse mal formée -- rejouer ne répare pas un schéma), l'action est
+mise en file avec sa clé d'idempotence, et la promesse retournée par `attempt()` **reste en
+attente** -- elle ne se résout que lorsque `flush()` réussit, plus tard, éventuellement bien après
+que l'écran d'origine a cessé d'y penser. `onQueued()`, appelé de façon synchrone au moment de la
+mise en file, est ce qui permet à l'écran de basculer son affichage tout de suite plutôt que
+d'attendre un succès qui peut ne jamais arriver pour cette session-là.
+
+Câblée dans chaque app (`apps/*/src/offline.ts`, même patron que `realtime.ts`) : `flush()` se
+déclenche sur `onRealtimeConnectionStateChange('connected')`, aucun second mécanisme de
+détection.
+
+**Les quatre écrans concernés** : `SettlementScreen.tsx` (encaissement), `ActiveRideScreen.tsx`
+(fin de course -- nouveau, cet écran n'avait aucune gestion hors connexion avant ce soir),
+`RemittanceScreen.tsx` (déclaration de remise), `RideSummaryScreen.tsx` (notation). Les trois
+premiers remplacent un patron manuel écrit à la main (clé d'idempotence dans un `useRef`, bouton
+« Réessayer » qui relance tout l'appel) par le gestionnaire partagé -- le bouton « Réessayer
+maintenant » appelle désormais `flush()`, jamais une seconde tentative avec une seconde clé.
+`RideSummaryScreen.tsx` (notation) n'avait aucune gestion d'échec du tout ; `rateRide` reste sans
+modèle côté serveur ce soir (`babana.rating`, L4-09, hors périmètre) -- la file fonctionnera dès
+que ce modèle existera, rien à reprendre côté app à ce moment-là.
+
+### Les actions interdites (critère 3) : un vrai défaut trouvé en les cherchant
+
+`ProposalScreen.tsx` envoyait `proposal.accept`/`proposal.reject` par
+`realtimeClient.send(...)` sans jamais vérifier l'état de connexion. Avant ce soir, un appui hors
+connexion aurait été **mis en file silencieusement** par `connection.ts` (rien ne les en
+excluait) et rejoué à une reconnexion arrivant potentiellement plusieurs minutes plus tard --
+acceptant une proposition presque certainement déjà expirée ou attribuée à quelqu'un d'autre,
+sans que le chauffeur n'ait rien redécidé. Exactement le défaut que la spécification anticipait
+(« les mettre en file produirait des échecs incompréhensibles plus tard »), jamais rencontré en
+pratique faute d'écran qui l'exerçait.
+
+Corrigé à deux niveaux : `ProposalScreen.tsx` refuse l'appui tout de suite si `connectionState !==
+'connected'` (nouveau texte « Hors connexion — impossible de répondre maintenant », les boutons
+restent actifs -- le chauffeur retente dès reconnecté, la proposition n'est jamais abandonnée par
+erreur) ; `NEVER_QUEUED_MESSAGE_TYPES` (`connection.ts`) gagne `proposal.accept`/`proposal.reject`
+en garde défensive, pour qu'un futur appelant qui oublierait la vérification ne rejoue jamais ces
+deux-là à l'aveugle. Un test existant (`connection.test.ts`) utilisait justement
+`proposal.accept` comme témoin de « ce qui doit survivre à la file » -- remplacé par
+`availability.set` (une vraie décision durable), et un nouveau test couvre explicitement que les
+deux messages interdits ne sont plus jamais mis en file.
+
+`selectDriver` (HTTP, sélection d'un chauffeur) n'a pas eu besoin du même correctif structurel :
+n'étant jamais passé par la nouvelle file, un échec réseau y échoue déjà après les réessais courts
+de `client.ts`, sans jamais être mis en attente. Seul le message affiché a été affiné
+(`QuoteScreen.tsx`) : « Hors connexion : la sélection nécessite une connexion » plutôt qu'un
+« réessayez » générique, quand l'état de connexion déjà suivi par cet écran (résilience de
+l'abonnement `nearby.subscribe`, L3-05) confirme l'absence de réseau.
+
+### Tests
+
+`packages/api-client/test/offline/{queue,manager}.test.ts` (11 tests, dont le rejeu à la même
+clé, l'arrêt du rejeu sur un réseau toujours coupé, le retrait sur erreur métier découverte
+tardivement). `connection.test.ts` mis à jour (témoin remplacé, nouveau test « jamais mis en
+file » pour accept/reject). Nouveaux tests dans `SettlementScreen`, `ActiveRideScreen`,
+`RemittanceScreen`, `RideSummaryScreen`, `api/cash.test.ts` (mise en file, rejeu automatique,
+clé d'idempotence stable). `ProposalScreen.test.tsx` : trois nouveaux tests (refus d'accepter,
+refus de refuser, effacement du blocage à la reconnexion). `QuoteScreen.test.tsx` : un nouveau
+test pour le message affiné. `ConnectionBanner.test.tsx` (les deux apps) : les trois états
+distincts, jamais confondus deux à deux, réaction en direct à un changement d'état.
+
+### Ce qui reste, signalé plutôt que fait en silence
+
+Le critère 5 (horodatage des données en cache) n'a été vérifié que pour le cas déjà couvert par
+L3-20 (liste des chauffeurs proches, `HomeScreen.tsx`) -- pas étendu à d'autres lectures qui
+pourraient s'afficher figées sans le dire (le solde de caisse affiché en tête de
+`SettlementScreen`/`CashScreen`, la position d'un chauffeur pendant `TrackingScreen`). Un
+inventaire de tout ce qui affiche une donnée potentiellement périmée, puis une passe dédiée,
+serait le bon calibrage pour une prochaine nuit -- mélanger ça à la file d'écriture ce soir
+aurait dilué les deux.
+
+`make reset && make up && make seed && make test` : suite Odoo 759 tests (0 échec), tous les
+paquets et apps verts (api-client 90, `services/realtime` 213 -- le test instable signalé plus
+haut est passé cette fois, cohérent avec un défaut d'exécution sous charge plutôt que dans le
+code --, client 110, driver 193, concurrency/http-contract/config/auth 37). `make lint`,
+`make typecheck`, `make secrets-scan` verts.

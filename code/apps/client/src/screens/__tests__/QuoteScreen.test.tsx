@@ -14,6 +14,7 @@ jest.mock('../../auth', () => ({
 // que de dépendre d'un cliché figé transmis par HomeScreen.
 let realtimeListener: ((message: unknown) => void) | null = null;
 let connectionStateListener: ((state: string) => void) | null = null;
+let mockConnectionState: 'offline' | 'connecting' | 'connected' = 'connected';
 const mockSend = jest.fn();
 const mockEnsureConnected = jest.fn();
 jest.mock('../../realtime', () => ({
@@ -30,8 +31,16 @@ jest.mock('../../realtime', () => ({
       connectionStateListener = null;
     };
   },
-  realtimeClient: { send: (...args: unknown[]) => mockSend(...args) },
+  realtimeClient: {
+    send: (...args: unknown[]) => mockSend(...args),
+    getState: () => mockConnectionState,
+  },
 }));
+
+function setConnectionState(state: 'offline' | 'connecting' | 'connected') {
+  mockConnectionState = state;
+  connectionStateListener?.(state);
+}
 
 import { QuoteScreen } from '../QuoteScreen';
 
@@ -143,6 +152,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   realtimeListener = null;
   connectionStateListener = null;
+  mockConnectionState = 'connected';
   mockRequest.mockImplementation(async (name: string) => {
     if (name === 'quote') return quoteResponse();
     throw new Error(`unexpected call: ${name}`);
@@ -287,6 +297,24 @@ describe('QuoteScreen (L6-07)', () => {
       'selectDriver',
       expect.objectContaining({ pathParams: { id: 'ride-1' }, body: { driverId: 'second-choice' } })
     );
+  });
+
+  it('L6-16 -- hors connexion, la sélection échoue avec une explication précise, jamais mise en file', async () => {
+    mockRequest.mockImplementation(async (name: string) => {
+      if (name === 'quote') return quoteResponse();
+      if (name === 'createRide') throw new Error('network down');
+      throw new Error(`unexpected call: ${name}`);
+    });
+    const { root } = await renderQuote({ nearbyDrivers: [driver({ driverId: 'chosen' })] });
+
+    await act(async () => {
+      setConnectionState('offline');
+    });
+    await act(async () => {
+      root.root.findByProps({ testID: 'driver-card-chosen' }).props.onPress();
+    });
+
+    expect(texts(root)).toContain('Hors connexion : la sélection nécessite une connexion. Réessayez une fois reconnecté.');
   });
 
   it('critère 2 (L6-08) : un chauffeur déjà refusé sur cette course ne réapparaît plus', async () => {

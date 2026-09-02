@@ -125,7 +125,11 @@ describe('createRealtimeClient -- file d\'actions hors connexion (critères 2 et
     const client = createRealtimeClient(config);
     // Jamais connecté -- aucun socket ouvert.
 
-    client.send('proposal.accept', { rideId: 'r1' });
+    // `availability.set` : une vraie décision durable (passer en/hors ligne), pas une déclaration
+    // d'intérêt courant -- contrairement à `proposal.accept`/`proposal.reject` (L6-16, "actions
+    // interdites hors connexion"), qui ne sont plus mis en file du tout depuis ce soir (voir le
+    // test ci-dessous).
+    client.send('availability.set', { online: true });
 
     await client.connect();
     sockets[0].simulateOpen();
@@ -133,7 +137,7 @@ describe('createRealtimeClient -- file d\'actions hors connexion (critères 2 et
 
     const sent = sockets[0].sent.map((raw) => JSON.parse(raw));
     expect(sent[0].type).toBe('session.resync');
-    expect(sent[1].type).toBe('proposal.accept');
+    expect(sent[1].type).toBe('availability.set');
     // L'identifiant d'origine (posé à l'émission hors connexion) est conservé.
     expect(sent[1].id).toEqual(expect.any(String));
     expect(sent[1].id).toBe(sent[1].id);
@@ -155,14 +159,36 @@ describe('createRealtimeClient -- file d\'actions hors connexion (critères 2 et
     client.send('nearby.subscribe', { position: { latitude: 4.05, longitude: 9.7 }, radiusMeters: 3000, excludeDriverIds: [] });
     client.send('nearby.unsubscribe', {});
     client.send('ride.track', { rideId: 'r1' });
-    client.send('proposal.accept', { rideId: 'r1' }); // témoin : une vraie action métier, elle, doit survivre
+    client.send('availability.set', { online: true }); // témoin : une vraie action métier, elle, doit survivre
 
     await client.connect();
     sockets[0].simulateOpen();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     const sentTypes = sockets[0].sent.map((raw) => JSON.parse(raw).type);
-    expect(sentTypes).toEqual(['session.resync', 'proposal.accept']);
+    expect(sentTypes).toEqual(['session.resync', 'availability.set']);
+  });
+
+  it("proposal.accept et proposal.reject ne sont jamais mis en file hors connexion (L6-16, \"actions interdites hors connexion\")", async () => {
+    // Garde défensive (connection.ts, commentaire de NEVER_QUEUED_MESSAGE_TYPES) : l'écran
+    // appelant (ProposalScreen.tsx) doit refuser ces actions avant même d'appeler send() --
+    // ce test prouve que, même si ce garde-fou applicatif était contourné, le client partagé
+    // n'irait pas rejouer une acceptation ou un refus bien plus tard, pour une proposition
+    // probablement déjà expirée ou attribuée à quelqu'un d'autre.
+    const { sockets, config } = baseConfig();
+    const client = createRealtimeClient(config);
+    // Jamais connecté -- aucun socket ouvert.
+
+    client.send('proposal.accept', { rideId: 'r1' });
+    client.send('proposal.reject', { rideId: 'r2' });
+    client.send('availability.set', { online: true }); // témoin : une vraie action métier, elle, doit survivre
+
+    await client.connect();
+    sockets[0].simulateOpen();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const sentTypes = sockets[0].sent.map((raw) => JSON.parse(raw).type);
+    expect(sentTypes).toEqual(['session.resync', 'availability.set']);
   });
 
   it('les positions ne sont jamais mises en file -- seule la dernière compte (critère 4)', async () => {

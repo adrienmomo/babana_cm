@@ -9,6 +9,16 @@ jest.mock('../../auth', () => ({
   apiClient: { request: (...args: unknown[]) => mockRequest(...args) },
 }));
 
+// `offlineRunner` réel, branché sur le MÊME `mockRequest` (même topologie qu'en production :
+// `../offline.ts` enrobe `apiClient`) -- `rateRide` (notation, L6-16) passe par lui. Voir
+// apps/driver/src/screens/__tests__/SettlementScreen.test.tsx pour le raisonnement complet.
+jest.mock('../../offline', () => ({
+  offlineRunner: require('@babana/api-client').createOfflineActionRunner({
+    httpClient: { request: (...args: unknown[]) => mockRequest(...args) },
+    queueStorage: require('@babana/api-client').createInMemoryOfflineQueue(),
+  }),
+}));
+
 import { RideSummaryScreen } from '../RideSummaryScreen';
 
 const RIDE_ID = asRideId('ride-1');
@@ -128,8 +138,33 @@ describe('RideSummaryScreen (L6-09)', () => {
       root.root.findByProps({ testID: 'submit-rating' }).props.onPress();
     });
 
-    expect(mockRequest).toHaveBeenCalledWith('rateRide', { pathParams: { id: RIDE_ID }, body: { rating: 5 } });
+    expect(mockRequest).toHaveBeenCalledWith(
+      'rateRide',
+      expect.objectContaining({ pathParams: { id: RIDE_ID }, body: { rating: 5 } })
+    );
     expect(root.root.findByProps({ testID: 'rating-thanks' })).toBeTruthy();
+  });
+
+  it('L6-16 -- hors connexion, la note est mise en attente puis envoyée avec succès au retour du réseau', async () => {
+    mockRequest.mockRejectedValueOnce(new Error('network down')).mockResolvedValueOnce({ rideId: RIDE_ID, rating: 5 });
+    const { root } = await renderSummary();
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'rating-star-5' }).props.onPress();
+    });
+    await act(async () => {
+      root.root.findByProps({ testID: 'submit-rating' }).props.onPress();
+    });
+    expect(root.root.findByProps({ testID: 'rating-queued' })).toBeTruthy();
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'rating-retry' }).props.onPress();
+    });
+    expect(root.root.findByProps({ testID: 'rating-thanks' })).toBeTruthy();
+
+    const rateCalls = mockRequest.mock.calls.filter((c) => c[0] === 'rateRide');
+    expect(rateCalls).toHaveLength(2);
+    expect(rateCalls[0][1].idempotencyKey).toBe(rateCalls[1][1].idempotencyKey);
   });
 
   it('un envoi impossible (déjà notée) affiche un message clair, sans bloquer le reste de l’écran', async () => {

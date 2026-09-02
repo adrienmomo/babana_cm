@@ -129,6 +129,11 @@ export function ProposalScreen({ route, navigation }: Props) {
   // État de la connexion temps réel -- affiché comme un fait pendant la revalidation (L7-04,
   // 6 septembre), jamais utilisé pour conclure quoi que ce soit sur la proposition.
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => realtimeClient.getState());
+  // Hors connexion, une acceptation/un refus est interdit (L6-16, spécification) : l'état
+  // serveur qui déciderait qui obtient la course aura changé au moment où ce message
+  // atteindrait enfin le serveur -- le mettre en file produirait un échec incompréhensible bien
+  // plus tard. Refusé tout de suite, avec explication, jamais mis en file.
+  const [offlineActionBlocked, setOfflineActionBlocked] = useState(false);
   const [, forceTick] = useState(0);
   // Lu de façon synchrone par le gestionnaire de proposal.expired et par le délai de grâce de
   // l'acceptation -- `decision` (état React) y serait périmé, même raisonnement que `phaseRef`
@@ -166,7 +171,16 @@ export function ProposalScreen({ route, navigation }: Props) {
   }, [fromNotification, rideId]);
 
   // Suivre l'état de connexion pour l'afficher pendant l'attente -- un fait observé, pas un délai.
-  useEffect(() => onRealtimeConnectionStateChange(setConnectionState), []);
+  useEffect(
+    () =>
+      onRealtimeConnectionStateChange((state) => {
+        setConnectionState(state);
+        // Le refus offline n'est qu'une explication ponctuelle, pas un état durable -- une
+        // reconnexion l'efface, le chauffeur retente son geste lui-même.
+        if (state === 'connected') setOfflineActionBlocked(false);
+      }),
+    []
+  );
 
   // Départ/arrivée affichés comme une approximation lisible, jamais comme un fait précis --
   // même honnêteté que HomeScreen.tsx côté Client (doute L6-06 §1) : c'est le point que le
@@ -304,6 +318,10 @@ export function ProposalScreen({ route, navigation }: Props) {
 
   function handleAccept() {
     if (decision !== 'idle' || !details) return;
+    if (connectionState !== 'connected') {
+      setOfflineActionBlocked(true);
+      return;
+    }
     updateDecision('accepting');
     realtimeClient.send('proposal.accept', { rideId });
     // Aucune bascule optimiste : la navigation vers ActiveRide n'a lieu qu'à la réception de
@@ -312,6 +330,10 @@ export function ProposalScreen({ route, navigation }: Props) {
 
   function handleReject() {
     if (decision !== 'idle') return;
+    if (connectionState !== 'connected') {
+      setOfflineActionBlocked(true);
+      return;
+    }
     updateDecision('rejecting');
     realtimeClient.send('proposal.reject', { rideId });
     // Une proposition refusée peut être re-proposée plus tard (cas rare) : le registre de
@@ -368,28 +390,36 @@ export function ProposalScreen({ route, navigation }: Props) {
           <Text style={styles.resolutionText}>{resolutionMessage}</Text>
         </View>
       ) : details ? (
-        <View style={styles.actionsRow}>
-          <Pressable
-            testID="proposal-reject"
-            accessibilityRole="button"
-            accessibilityLabel="Refuser la proposition"
-            disabled={decision !== 'idle'}
-            onPress={handleReject}
-            style={({ pressed }) => [styles.actionButton, styles.rejectButton, pressed ? styles.pressed : null]}
-          >
-            <Text style={styles.actionLabel}>Refuser</Text>
-          </Pressable>
-          <Pressable
-            testID="proposal-accept"
-            accessibilityRole="button"
-            accessibilityLabel="Accepter la proposition"
-            disabled={decision !== 'idle'}
-            onPress={handleAccept}
-            style={({ pressed }) => [styles.actionButton, styles.acceptButton, pressed ? styles.pressed : null]}
-          >
-            <Text style={styles.actionLabel}>Accepter</Text>
-          </Pressable>
-        </View>
+        <>
+          {offlineActionBlocked ? (
+            <Text style={styles.offlineBlockedText} testID="proposal-offline-blocked">
+              Hors connexion — impossible de répondre maintenant. Réessayez dès que la connexion
+              revient.
+            </Text>
+          ) : null}
+          <View style={styles.actionsRow}>
+            <Pressable
+              testID="proposal-reject"
+              accessibilityRole="button"
+              accessibilityLabel="Refuser la proposition"
+              disabled={decision !== 'idle'}
+              onPress={handleReject}
+              style={({ pressed }) => [styles.actionButton, styles.rejectButton, pressed ? styles.pressed : null]}
+            >
+              <Text style={styles.actionLabel}>Refuser</Text>
+            </Pressable>
+            <Pressable
+              testID="proposal-accept"
+              accessibilityRole="button"
+              accessibilityLabel="Accepter la proposition"
+              disabled={decision !== 'idle'}
+              onPress={handleAccept}
+              style={({ pressed }) => [styles.actionButton, styles.acceptButton, pressed ? styles.pressed : null]}
+            >
+              <Text style={styles.actionLabel}>Accepter</Text>
+            </Pressable>
+          </View>
+        </>
       ) : null}
 
       {decision === 'accepting' ? (
@@ -477,5 +507,10 @@ const styles = StyleSheet.create({
   resolutionText: {
     color: '#92400E',
     textAlign: 'center',
+  },
+  offlineBlockedText: {
+    color: '#92400E',
+    textAlign: 'center',
+    marginBottom: 8,
   },
 });

@@ -3,7 +3,7 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-nat
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '@babana/ui';
 import { asDriverId, asRideId } from '@babana/navigation';
-import { ApiError, USER_MESSAGES, translateApiError } from '@babana/api-client';
+import { ApiError, USER_MESSAGES, translateApiError, type ConnectionState } from '@babana/api-client';
 import type { http, realtime } from '@babana/contracts';
 import { apiClient } from '../auth';
 import { DriverCard } from '../components/DriverCard';
@@ -65,6 +65,10 @@ export function QuoteScreen({ route, navigation }: Props) {
   const [expired, setExpired] = useState(false);
   const [selecting, setSelecting] = useState(false);
   const [selectError, setSelectError] = useState<string | null>(null);
+  // Suivi uniquement pour affiner le message d'échec de `handleSelectDriver` (L6-16, "actions
+  // interdites hors connexion" : la sélection n'est jamais mise en file, elle échoue vite --
+  // mais un chauffeur hors connexion mérite de le savoir plutôt qu'un « réessayez » générique).
+  const [connectionState, setConnectionState] = useState<ConnectionState>(() => realtimeClient.getState());
   // Écarte la réponse d'une requête d'estimation déjà remplacée (changement de gamme, ou
   // réactualisation après expiration) -- même principe que HomeScreen pour nearby.subscribe.
   const requestId = useRef(0);
@@ -123,6 +127,7 @@ export function QuoteScreen({ route, navigation }: Props) {
     // Coupure puis reconnexion (le cas courant) : réémettre l'abonnement, sans quoi la liste se
     // fige silencieusement après la moindre coupure réseau pendant que le client compare.
     const unsubscribeConnectionState = onRealtimeConnectionStateChange((state) => {
+      setConnectionState(state);
       if (state === 'connected') subscribe();
     });
 
@@ -183,7 +188,16 @@ export function QuoteScreen({ route, navigation }: Props) {
         selection: { ...selection, rideId: asRideId(proposal.id) },
       });
     } catch (cause) {
-      setSelectError(cause instanceof ApiError ? translateApiError(cause) : 'La sélection a échoué. Réessayez.');
+      if (cause instanceof ApiError) {
+        setSelectError(translateApiError(cause));
+      } else if (connectionState !== 'connected') {
+        // La sélection d'un chauffeur est interdite hors connexion (L6-16, spécification) :
+        // l'état serveur qui décide qui obtient la course aurait changé au moment où une
+        // tentative tardive l'atteindrait -- jamais mise en file, jamais rejouée seule.
+        setSelectError('Hors connexion : la sélection nécessite une connexion. Réessayez une fois reconnecté.');
+      } else {
+        setSelectError('La sélection a échoué. Réessayez.');
+      }
       setSelecting(false);
     }
   }

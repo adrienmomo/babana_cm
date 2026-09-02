@@ -3,7 +3,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '@babana/ui';
 import { ApiError, translateApiError } from '@babana/api-client';
-import { apiClient } from '../auth';
+import { offlineRunner } from '../offline';
 import { visibleFareLines } from '../components/fareBreakdown';
 import { formatDistance, formatMoney } from '../format';
 import type { ClientParamList } from '../navigation/types';
@@ -18,6 +18,12 @@ import type { ClientParamList } from '../navigation/types';
  * amoa/questions/REPONSES-2026-08-26.md §5) : ces données vivent exclusivement dans les
  * paramètres de route de `Tracking`, qui a disparu de la pile (`navigation.replace`) au moment
  * où cet écran se monte. Rien à effacer explicitement, il n'y a simplement plus rien qui la porte.
+ *
+ * **La notation est autorisée hors connexion** (L6-16, spécification) : `handleSubmitRating`
+ * passe par `offlineRunner`, jamais `apiClient` directement -- mise en file automatique sur un
+ * réseau absent, rejouée à la reconnexion avec la même clé d'idempotence. `rateRide` reste sans
+ * implémentation côté serveur ce soir (`babana.rating`, L4-09, hors périmètre) -- la file
+ * fonctionnera dès que ce modèle existera, rien à refaire côté app à ce moment-là.
  */
 
 type Props = NativeStackScreenProps<ClientParamList, 'RideSummary'>;
@@ -46,23 +52,42 @@ export function RideSummaryScreen({ route, navigation }: Props) {
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
+  const [submitQueued, setSubmitQueued] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   async function handleSubmitRating() {
-    if (rating === null || submitting) return;
+    if (rating === null || submitting || submitQueued) return;
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await apiClient.request('rateRide', {
+      await offlineRunner.attempt('rateRide', {
         pathParams: { id: rideId },
         body: comment.trim() ? { rating, comment: comment.trim() } : { rating },
+        // Synchrone, avant que la promesse ci-dessus ne se résolve (échec réseau) -- l'attente
+        // peut durer jusqu'à la prochaine reconnexion.
+        onQueued: () => {
+          setSubmitting(false);
+          setSubmitQueued(true);
+        },
       });
       setSubmitted(true);
     } catch (cause) {
+      // Une erreur réseau ne fait jamais rejeter cette promesse (mise en file à la place,
+      // ci-dessus) -- seule reste une erreur métier.
       setSubmitError(cause instanceof ApiError ? translateApiError(cause) : "L'envoi de la note a échoué. Réessayez.");
+      setSubmitQueued(false);
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function handleRetryNow() {
+    // Ne relance pas `handleSubmitRating()` -- l'envoi initial reste en attente dans
+    // `offlineRunner` avec sa propre clé d'idempotence ; `flush()` retente ce qui est déjà en
+    // file, sans en créer une seconde.
+    // `flush()` ne rejette jamais (manager.ts -- une reconnexion future réessaiera), le `catch`
+    // ici n'est qu'une garde contre un rejet imprévu ; rien de plus à faire depuis un écran.
+    offlineRunner.flush().catch(() => {});
   }
 
   function handleDone() {
@@ -107,7 +132,18 @@ export function RideSummaryScreen({ route, navigation }: Props) {
           ))}
         </View>
 
-        {!submitted ? (
+        {submitted ? (
+          <Text style={styles.thanksText} testID="rating-thanks">
+            Merci pour votre note !
+          </Text>
+        ) : submitQueued ? (
+          <View testID="rating-queued">
+            <Text style={styles.queuedText}>
+              Note en attente — elle sera envoyée dès que la connexion revient.
+            </Text>
+            <Button testID="rating-retry" label="Réessayer maintenant" variant="secondary" onPress={handleRetryNow} />
+          </View>
+        ) : (
           <>
             <TextInput
               testID="rating-comment"
@@ -128,10 +164,6 @@ export function RideSummaryScreen({ route, navigation }: Props) {
               disabled={rating === null || submitting}
             />
           </>
-        ) : (
-          <Text style={styles.thanksText} testID="rating-thanks">
-            Merci pour votre note !
-          </Text>
         )}
       </View>
 
@@ -215,5 +247,9 @@ const styles = StyleSheet.create({
   thanksText: {
     color: '#0A7D3D',
     fontWeight: '600',
+  },
+  queuedText: {
+    color: '#92400E',
+    marginBottom: 8,
   },
 });

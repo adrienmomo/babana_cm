@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AuthGate, PlaceholderScreen, type SessionState } from '@babana/navigation';
 import { ApiError, type AuthState, type AuthUser } from '@babana/api-client';
 import { apiClient, authClient, onSessionLost } from '../auth';
 import { bootstrap } from '../bootstrap';
+import { ConnectionBanner } from '../components/ConnectionBanner';
 import { SignInScreen } from '../screens/SignInScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { ProposalScreen } from '../screens/ProposalScreen';
@@ -205,8 +207,22 @@ export function AppNavigator() {
         session={session}
         renderLoading={() => <LoadingScreen />}
         renderSignedOut={() => <SignInStack onSignedIn={handleSignedIn} />}
-        renderSignedIn={(user) => <DriverAppSwitch user={user} />}
+        renderSignedIn={(user) => (
+          <View style={styles.signedInRoot}>
+            {/* Permanent (L6-16, critère 1) : monté une fois pour toute la session authentifiée,
+                y compris pendant l'inscription/le suivi de dossier -- un chauffeur qui change
+                d'écran ne doit jamais perdre de vue son état de connexion. */}
+            <ConnectionBanner />
+            <DriverAppSwitch user={user} />
+          </View>
+        )}
       />
     </NavigationContainer>
   );
 }
+
+const styles = StyleSheet.create({
+  signedInRoot: {
+    flex: 1,
+  },
+});
