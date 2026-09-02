@@ -14,6 +14,17 @@
         décide ; toute écriture passe par un contrôleur ou une transition, en
         super-utilisateur), et ir.model.access.csv ne donne au portail que `perm_read`.
 
+        Tableau L8-01 corrigé le 8 septembre : les cellules `client` de `babana.driver` et
+        `babana.motorcycle` valent « AUCUN accès ORM ». « Champs publics des chauffeurs
+        proches » n'était pas exprimable en règle : la proximité est un état temps réel qui
+        vit dans Redis (invariant 1), et « champs publics » filtre des COLONNES quand une
+        règle filtre des LIGNES. La liste des chauffeurs proches vient du service temps réel
+        (liste blanche), l'identité du chauffeur affecté du contrôleur (liste blanche). Un
+        client ne voit donc AUCUNE ligne de ces deux modèles : ni règle de groupe pour lui,
+        ni ligne de résultat. Le portail a bien un `perm_read` sur le MODÈLE (le chauffeur
+        en a besoin pour sa propre fiche et sa moto), mais la règle « fiche du chauffeur =
+        moi » ne rend jamais rien à un client.
+
         D54 (amoa/questions/REPONSES-2026-09-08.md §2) : les contrôleurs authentifiés lisent
         désormais AU NOM DE L'UTILISATEUR (`with_user`), pas en `sudo`. Ces règles sont donc
         sur le chemin réel de l'API mobile : ce sont elles qui décident SI l'appelant voit

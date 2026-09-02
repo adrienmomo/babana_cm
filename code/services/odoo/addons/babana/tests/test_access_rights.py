@@ -376,6 +376,30 @@ class TestAccessSpecialCases(TransactionCase):
         with self.assertRaises(AccessError):
             ride_as_client.mapped("driver_id.document_ids.storage_key")
 
+    # Tableau L8-01 corrigé (8 sept.) -- « champs publics des chauffeurs proches » n'était pas
+    # exprimable en règle d'enregistrement : les deux cellules `client` de `babana.driver` et
+    # `babana.motorcycle` valent « aucun accès ORM ». La liste des chauffeurs proches est
+    # servie par le service temps réel (liste blanche), l'identité du chauffeur affecté par le
+    # contrôleur (liste blanche) -- jamais par l'ORM au nom du client.
+    def test_client_has_no_orm_window_onto_drivers_or_motorcycles(self):
+        Driver = self.env["babana.driver"].with_user(self.client_user)
+        Motorcycle = self.env["babana.motorcycle"].with_user(self.client_user)
+        moto = self.env["babana.motorcycle"].create(
+            {"license_plate": "CC-333-CC", "driver_id": self.driver.id}
+        )
+
+        # Aucune ligne visible -- même celle du chauffeur de sa propre course active.
+        self.assertFalse(Driver.search([("id", "=", self.driver.id)]))
+        self.assertFalse(Motorcycle.search([("id", "=", moto.id)]))
+        # Lecture directe : refusée, pas seulement filtrée.
+        with self.assertRaises(AccessError):
+            self.driver.with_user(self.client_user).read(["public_id"])
+        with self.assertRaises(AccessError):
+            moto.with_user(self.client_user).read(["license_plate"])
+        # Ni par la relation depuis sa propre course.
+        with self.assertRaises(AccessError):
+            self.ride.with_user(self.client_user).mapped("driver_id.public_id")
+
     # 3 -- Chauffeur tentant de modifier son propre solde ----------------------------------
     def test_driver_cannot_touch_own_balance(self):
         # Un mouvement est immuable pour tout le monde (UserError, babana_cash_movement.write),

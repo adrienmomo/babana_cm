@@ -183,7 +183,30 @@ que la règle d'enregistrement, elle, la lui montrerait. À arbitrer si le cas s
 
 ## 3. Tableau L8-01 — deux cellules réconciliées
 
-_(commit suivant)_
+La spécification a été corrigée le 8 septembre (commit `97c29ba`, en amont de cette session) :
+les cellules `client` de `babana.driver` et `babana.motorcycle` passent de « champs publics des
+chauffeurs proches » à « **aucun accès ORM** ». Le code de J31 appliquait déjà la lecture
+stricte (rapport J31, doute n°2) ; il ne restait qu'à la **prouver explicitement** et à
+raccorder les commentaires.
+
+- Nouveau test `TestAccessSpecialCases.test_client_has_no_orm_window_onto_drivers_or_motorcycles` :
+  un client ne voit **aucune** ligne `babana.driver` ni `babana.motorcycle` — pas même celle du
+  chauffeur de sa course active — et toute lecture directe ou par relation lève `AccessError`.
+  La liste des chauffeurs proches vient du service temps réel (liste blanche), l'identité du
+  chauffeur affecté du contrôleur (liste blanche) — jamais de l'ORM au nom du client.
+- L'en-tête de `security/babana_record_rules.xml` porte maintenant un paragraphe « tableau
+  L8-01 corrigé » : pourquoi la formulation d'origine n'était pas exprimable, et pourquoi le
+  portail garde un `perm_read` sur le *modèle* sans qu'un client n'en voie jamais une ligne.
+- La matrice (`access_matrix.json`) note déjà `client` = `none` sur ces deux modèles ; les
+  tests générés (`test_matrix__babana_driver__client__read`, idem motorcycle) le figent, le
+  nouveau cas particulier le rend lisible.
+
+Aucun changement de règle : `client` n'avait déjà aucune ligne de résultat sur ces modèles.
+
+### Fichiers
+
+`code/services/odoo/addons/babana/tests/test_access_rights.py` ;
+`code/services/odoo/addons/babana/security/babana_record_rules.xml` (en-tête).
 
 ---
 
