@@ -8,6 +8,8 @@ from . import babana_driver_decision
 from . import babana_motorcycle
 from . import babana_assignment
 from . import babana_fare_rule
+from . import babana_fare_rule_version_wizard
+from . import babana_fare_simulator
 from . import babana_zone
 from . import babana_route_cache
 from . import babana_quote

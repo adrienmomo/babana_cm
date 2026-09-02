@@ -89,6 +89,26 @@ class TestBabanaFareRule(TransactionCase):
             self.env["babana.fare.rule"]._find_applicable_rule(at_datetime=off_peak), rule
         )
 
+    def test_time_window_is_matched_in_operating_local_time_not_utc(self):
+        # L9-04 (nuit J34) : `at_datetime` arrive en UTC naïf (fields.Datetime.now(), comme
+        # controllers/quote.py en produit), mais time_start/time_end sont saisis par le
+        # superviseur en heure locale de Douala (UTC+1, D45) -- documenté sur le champ
+        # time_start. Sans conversion, une plage 20h-21h locale ne matchait jamais un
+        # at_datetime UTC correspondant à 20h30 locale (19h30 UTC), puisque 19.5 tombe hors de
+        # [20, 21] : c'est le défaut que ce test prouve corrigé.
+        rule = self._make_rule(name="Soirée", time_start=20.0, time_end=21.0, priority=20)
+        today = datetime.now().date()
+        at_1930_utc = datetime(today.year, today.month, today.day, 19, 30)
+
+        found = self.env["babana.fare.rule"]._find_applicable_rule(at_datetime=at_1930_utc)
+
+        self.assertEqual(
+            found,
+            rule,
+            "19h30 UTC == 20h30 heure locale de Douala (UTC+1) : dans la plage 20h-21h locale, "
+            "donc la règle doit s'appliquer même si 19h30 est hors de [20, 21] en UTC brut.",
+        )
+
     def test_weekday_mask_restricts_applicability(self):
         monday_only = 0b0000001  # bit 0
         rule = self._make_rule(name="Lundi seulement", weekday_mask=monday_only, priority=20)

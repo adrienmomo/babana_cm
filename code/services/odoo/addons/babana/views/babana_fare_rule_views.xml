@@ -1,18 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
+    <!--
+        L9-04 : le recouvrement (critère 1) et le verrouillage par usage (critère 5) sont des
+        champs calculés, non stockés (babana_fare_rule.py::_compute_overlap_rule_ids /
+        _compute_locked_by_usage), recalculés à chaque lecture, sur le petit nombre de règles
+        d'un pilote. Ne pas les rendre stockés/recherchables sans relire ce commentaire : un champ
+        stocké se recalculerait, lui, par un déclencheur ORM correct sur TOUTES les règles
+        affectées par un changement, pas seulement celles rouvertes dans la vue.
+    -->
     <record id="babana_fare_rule_view_list" model="ir.ui.view">
         <field name="name">babana.fare.rule.list</field>
         <field name="model">babana.fare.rule</field>
         <field name="arch" type="xml">
-            <list>
+            <list decoration-warning="has_overlap" decoration-muted="active_to">
                 <field name="name"/>
                 <field name="vehicle_class"/>
+                <field name="zone_id"/>
                 <field name="base_fare"/>
                 <field name="price_per_km"/>
                 <field name="minimum_fare"/>
+                <field name="surge_multiplier"/>
                 <field name="priority"/>
                 <field name="active_from"/>
                 <field name="active_to"/>
+                <field name="has_overlap" readonly="1" string="Recouvrement"/>
+                <field name="locked_by_usage" readonly="1" string="Verrouillée"/>
             </list>
         </field>
     </record>
@@ -22,7 +34,147 @@
         <field name="model">babana.fare.rule</field>
         <field name="arch" type="xml">
             <form>
+                <header>
+                    <button name="action_open_new_version_wizard" type="object"
+                        string="Nouvelle version" class="oe_highlight"
+                        invisible="not locked_by_usage"
+                        groups="babana.group_babana_manager"
+                        help="Cette règle a déjà servi à une course : elle ne se modifie plus en place (critère 5). Ce bouton ouvre un formulaire qui crée une nouvelle version et clôt celle-ci."/>
+                </header>
                 <sheet>
+                    <div class="alert alert-warning" role="alert" invisible="not locked_by_usage">
+                        <strong>Règle verrouillée.</strong> Elle a déjà servi à au moins une
+                        course : ses champs tarifaires sont en lecture seule (L2-01, critère 4).
+                        Utiliser « Nouvelle version » ci-dessus pour la faire évoluer -- cela crée
+                        une règle distincte et clôt celle-ci, jamais une modification en place.
+                    </div>
+                    <div class="alert alert-danger" role="alert" invisible="not has_overlap">
+                        <strong>Recouvrement détecté.</strong> Au moins une autre règle encore
+                        valide peut s'appliquer à la même zone, la même gamme, le même jour et la
+                        même plage horaire que celle-ci -- l'erreur de paramétrage la plus
+                        fréquente (L9-04, critère 1). En cas d'égalité de priorité, la plus
+                        récemment créée gagne ; vérifier ci-dessous que c'est bien le
+                        comportement voulu.
+                        <field name="overlap_rule_ids" readonly="1" nolabel="1">
+                            <list>
+                                <field name="name"/>
+                                <field name="priority"/>
+                                <field name="active_from"/>
+                                <field name="active_to"/>
+                            </list>
+                        </field>
+                    </div>
+                    <group>
+                        <group string="Montants">
+                            <field name="name"/>
+                            <field name="base_fare" readonly="locked_by_usage"/>
+                            <field name="price_per_km" readonly="locked_by_usage"/>
+                            <field name="minimum_fare" readonly="locked_by_usage"/>
+                            <field name="surge_multiplier" readonly="locked_by_usage"/>
+                        </group>
+                        <group string="Application">
+                            <field name="vehicle_class" readonly="locked_by_usage"/>
+                            <field name="zone_id" readonly="locked_by_usage"/>
+                            <field name="time_start" readonly="locked_by_usage"/>
+                            <field name="time_end" readonly="locked_by_usage"/>
+                            <field name="weekday_mask" readonly="locked_by_usage"/>
+                            <field name="priority" readonly="locked_by_usage"/>
+                        </group>
+                    </group>
+                    <group string="Validité de la règle">
+                        <field name="active_from"/>
+                        <field name="active_to" readonly="1"
+                            help="Se pose automatiquement à la clôture d'une règle par 'Nouvelle version' -- ne se saisit jamais à la main."/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="babana_fare_rule_view_search" model="ir.ui.view">
+        <field name="name">babana.fare.rule.search</field>
+        <field name="model">babana.fare.rule</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="zone_id"/>
+                <field name="vehicle_class"/>
+                <filter name="filter_open" string="Encore valides"
+                    domain="['|', ('active_to', '=', False), ('active_to', '&gt;=', context_today().strftime('%Y-%m-%d'))]"/>
+                <filter name="filter_overlap" string="En recouvrement" domain="[('has_overlap', '=', True)]"/>
+                <group expand="0" string="Regrouper par">
+                    <filter name="group_by_zone" string="Zone" context="{'group_by': 'zone_id'}"/>
+                    <filter name="group_by_vehicle_class" string="Gamme" context="{'group_by': 'vehicle_class'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="babana_fare_rule_action" model="ir.actions.act_window">
+        <field name="name">Grille tarifaire</field>
+        <field name="res_model">babana.fare.rule</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="babana_fare_rule_view_search"/>
+        <field name="context">{'search_default_filter_open': 1}</field>
+    </record>
+
+    <!-- Simulateur de tarif (critère 2) -->
+    <record id="babana_fare_simulator_view_form" model="ir.ui.view">
+        <field name="name">babana.fare.simulator.form</field>
+        <field name="model">babana.fare.simulator</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group string="Départ">
+                            <field name="pickup_latitude"/>
+                            <field name="pickup_longitude"/>
+                        </group>
+                        <group string="Arrivée">
+                            <field name="dropoff_latitude"/>
+                            <field name="dropoff_longitude"/>
+                        </group>
+                    </group>
+                    <group>
+                        <field name="vehicle_class"/>
+                        <field name="simulated_at"/>
+                    </group>
+                    <group string="Résultat" invisible="not simulated">
+                        <field name="pickup_zone_id"/>
+                        <field name="fare_rule_id"/>
+                        <field name="distance_meters"/>
+                        <field name="amount"/>
+                        <field name="breakdown_text" widget="text"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_simulate" type="object" string="Simuler" class="oe_highlight"/>
+                    <button string="Fermer" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="babana_fare_simulator_action" model="ir.actions.act_window">
+        <field name="name">Simulateur de tarif</field>
+        <field name="res_model">babana.fare.simulator</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <!-- Assistant "nouvelle version" (critère 5) -->
+    <record id="babana_fare_rule_version_wizard_view_form" model="ir.ui.view">
+        <field name="name">babana.fare.rule.version.wizard.form</field>
+        <field name="model">babana.fare.rule.version.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Nouvelle version de la règle tarifaire">
+                <sheet>
+                    <div class="alert alert-info" role="alert">
+                        Ceci crée une <strong>nouvelle</strong> règle tarifaire et clôt la règle
+                        d'origine à la date du jour (L2-01, critère 4) -- ce n'est pas une
+                        modification en place. La règle d'origine reste inchangée et continue de
+                        décrire les courses déjà tarifées avec elle.
+                    </div>
                     <group>
                         <group string="Montants">
                             <field name="name"/>
@@ -33,28 +185,26 @@
                         </group>
                         <group string="Application">
                             <field name="vehicle_class"/>
+                            <field name="zone_id"/>
                             <field name="time_start"/>
                             <field name="time_end"/>
                             <field name="weekday_mask"/>
                             <field name="priority"/>
                         </group>
                     </group>
-                    <group string="Validité de la règle">
-                        <field name="active_from"/>
-                        <field name="active_to"/>
-                    </group>
+                    <field name="source_rule_id" invisible="1"/>
                 </sheet>
+                <footer>
+                    <button name="action_confirm" type="object" string="Créer la nouvelle version" class="oe_highlight"/>
+                    <button string="Annuler" special="cancel"/>
+                </footer>
             </form>
         </field>
-    </record>
-
-    <record id="babana_fare_rule_action" model="ir.actions.act_window">
-        <field name="name">Grille tarifaire</field>
-        <field name="res_model">babana.fare.rule</field>
-        <field name="view_mode">list,form</field>
     </record>
 
     <menuitem id="babana_menu_pricing" name="Tarification" parent="babana_menu_root" sequence="30"/>
     <menuitem id="babana_menu_fare_rule" name="Grille tarifaire" parent="babana_menu_pricing"
         action="babana_fare_rule_action" sequence="10"/>
+    <menuitem id="babana_menu_fare_simulator" name="Simulateur de tarif" parent="babana_menu_pricing"
+        action="babana_fare_simulator_action" sequence="15"/>
 </odoo>
