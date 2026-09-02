@@ -58,6 +58,8 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D51 | **Une proposition porte la distance à parcourir à vide** jusqu'au client, pas seulement celle de la course | La distance de la course seule | C'est le chiffre le plus déterminant pour un chauffeur qui décide en trente secondes, et le serveur le connaît déjà |
 | D52 | **Les contraintes déclarées sont comparées à celles réellement présentes en base**, après installation | Faire confiance à la déclaration | Odoo journalise l'échec de création d'une contrainte et poursuit. Deux ont ainsi protégé le vide pendant des semaines. Voir §9 quater |
 | D53 | **La base n'installe jamais les données de démonstration d'Odoo, et la devise franc CFA est exigée à l'installation** | Laisser la devise par défaut ; corriger à la main | Les données de démonstration créent des écritures avant qu'on fixe la devise, et Odoo refuse ensuite de la changer : le compte courant et le grand livre étaient libellés en dollars. Voir §7 |
+| D54 | **Les lectures des contrôleurs se font au nom de l'utilisateur**, jamais en `sudo` ; seules les écritures, qui passent par les transitions, l'utilisent | Lire en `sudo` et vérifier dans le contrôleur | Deux gardes pour la même règle, dont une seule s'exécutait. Voir §9 quinquies |
+| D55 | **Une suspension empêche de travailler, pas de voir.** Le chauffeur suspendu garde la lecture de son compte courant, de ses remises et de sa course en cours | Coupure totale et immédiate | Retirer à quelqu'un tout moyen de voir sa dette l'empêche de la régler — et couper au milieu d'une course laisse un passager sans chauffeur. Voir §7 |
 
 ---
 
@@ -335,6 +337,12 @@ Un chauffeur salarié qui encaisse des espèces détient des fonds appartenant �
 
 Le plafond bloquant est ce qui empêche cette dette de croître indéfiniment : elle se heurte au plafond, et le chauffeur doit régulariser pour reprendre.
 
+**Et une suspension ne coupe pas cette vue (D55, 8 septembre).** Les règles d'habilitation exigeaient que le chauffeur soit approuvé pour lire quoi que ce soit — donc un chauffeur suspendu ne voyait plus son compte courant ni ses remises. Il devait de l'argent et n'avait plus aucun moyen de savoir combien, ni de suivre sa régularisation.
+
+C'est le même raisonnement que celui qui a fait accepter les remises partielles : retirer à quelqu'un tout moyen de voir sa dette l'empêche de la régler. Une suspension retire le droit de travailler ; elle ne retire pas le droit de savoir ce qu'on doit.
+
+**Elle ne coupe pas non plus une course en cours.** La règle telle qu'écrite faisait disparaître, pour le chauffeur suspendu, la course qu'il était en train de faire — son application cessait de fonctionner au milieu d'un trajet, avec un passager derrière. Une décision administrative ne doit pas produire cet effet-là.
+
 **Et elle le dit dans la bonne monnaie (D53, 7 septembre).** La devise de la société était le dollar. Un rapport de nuit l'avait classé « cosmétique — le back-office affiche des dollars » ; ce ne l'était pas. Le mouvement de compte courant prend par défaut la devise de la société, et l'écriture comptable aussi : **le compte courant des chauffeurs et le grand livre étaient donc libellés en dollars**, pendant que l'API annonçait « XAF » en dur. Le nombre était le même, la monnaie ne l'était pas — dans un produit dont l'objet entier est la réconciliation d'espèces en francs CFA.
 
 La cause : les données de démonstration d'Odoo créent des écritures comptables dès l'installation, et Odoo refuse ensuite de changer la devise d'une société qui en possède. Le correctif porte donc sur les deux bouts — **ces données n'ont rien à faire dans cette base**, et la devise est exigée à l'installation, vérifiée mécaniquement comme les contraintes de D52.
@@ -396,6 +404,20 @@ Exigences du CDC §VII.2 et §VII.3, à traiter comme des tâches et non comme d
 - **Rôles** : le mobile n'accède jamais à un modèle Odoo hors de ce que les règles d'enregistrement autorisent pour son utilisateur. Un chauffeur ne lit pas la course d'un autre chauffeur ; un client ne lit pas les documents d'un chauffeur. À vérifier par des tests, pas par relecture.
 - **Journalisation** : toute transition de course et toute opération sur le compte courant chauffeur sont journalisées de manière non modifiable. C'est ce qui permettra de trancher un litige.
 - **L'export web ne persiste aucune session (D39, 24 août).** Un navigateur n'a pas de trousseau système à qui déléguer : tout ce qu'on y range est lisible par n'importe quelle injection de script. Le jeton de renouvellement, qui vaut une session entière et survit à l'expiration du jeton d'accès, n'y a donc pas sa place. La session web vit en mémoire ; fermer l'onglet déconnecte, rouvrir demande une reconnexion Google — deux clics, puisque la session Google du navigateur est déjà ouverte. C'est le coût réel de D22, et il est acceptable précisément parce que l'export web est un complément de démonstration, pas le canal principal. Un cookie inaccessible au script serait la bonne réponse pour une vraie application web ; il exigerait un second mécanisme d'authentification à côté du porteur, ce que D35 vient d'écarter.
+
+---
+
+## 9 quinquies. Deux gardes, dont une seule s'exécute (D54)
+
+Le lot des habilitations a livré des règles d'enregistrement correctes : un chauffeur ne voit que ses courses, un client aucun document de chauffeur, personne le compte courant d'un autre. Chacune testée, y compris par la négative.
+
+**Et aucune ne s'exécute sur le chemin mobile.** Les contrôleurs lisent tous en `sudo`, donc les règles sont contournées à chaque requête. La protection réelle est le contrôle explicite écrit dans chaque contrôleur — « l'appelant est-il partie à cette course ? » — posé par L4-03.
+
+Rien ne fuit aujourd'hui : les deux mécanismes disent la même chose. Mais c'est exactement la configuration que ce projet a appris à redouter — deux gardes pour une même règle, dont une seule tourne. Le jour où un contrôleur oublie son contrôle, la seconde ligne ne le rattrapera pas, parce qu'elle n'est pas sur le chemin.
+
+**Les lectures se font donc au nom de l'utilisateur.** Les règles deviennent la garantie, et le contrôle du contrôleur devient ce qu'il aurait toujours dû être : la façon de dire *pourquoi* c'est refusé, pas *si* c'est refusé. Les écritures gardent `sudo` — elles passent par les transitions, qui portent leurs propres préconditions (invariant 2).
+
+Effet secondaire souhaitable : la course d'un autre ne se distingue plus d'une course inexistante. On ne confirme même pas qu'elle existe.
 
 ---
 
