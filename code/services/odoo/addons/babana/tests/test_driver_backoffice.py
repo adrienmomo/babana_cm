@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import date, timedelta
 
 from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase, tagged
@@ -84,6 +85,35 @@ class TestDriverBackoffice(TransactionCase):
         not_reached = self.env["babana.driver"].search([("cash_limit_reached", "=", False)])
         self.assertIn(under, not_reached)
         self.assertNotIn(at_limit, not_reached)
+
+    def test_filter_documents_expiring(self):
+        soon = self._driver()
+        self.env["babana.driver.document"].create(
+            {
+                "driver_id": soon.id,
+                "document_type": "license",
+                "storage_key": "test/soon-%s.jpg" % uuid.uuid4().hex,
+                "expires_on": date.today() + timedelta(days=10),
+            }
+        )
+        far = self._driver()
+        self.env["babana.driver.document"].create(
+            {
+                "driver_id": far.id,
+                "document_type": "license",
+                "storage_key": "test/far-%s.jpg" % uuid.uuid4().hex,
+                "expires_on": date.today() + timedelta(days=300),
+            }
+        )
+        window_end = date.today() + timedelta(days=30)
+        found = self.env["babana.driver"].search(
+            [
+                ("document_ids.expires_on", "!=", False),
+                ("document_ids.expires_on", "<=", window_end),
+            ]
+        )
+        self.assertIn(soon, found)
+        self.assertNotIn(far, found)
 
     def test_filter_online_and_state(self):
         driver = self._driver()
