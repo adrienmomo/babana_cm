@@ -16,7 +16,6 @@ racine du dépôt pour le contexte complet.
         'security/ir.model.access.csv',
         'data/babana_ride_sequence.xml',
         'data/babana_cash_remittance_sequence.xml',
-        'data/accounting_config.xml',
         'data/cron.xml',
         'views/babana_motorcycle_views.xml',
         'views/babana_driver_views.xml',
@@ -35,4 +34,8 @@ racine du dépôt pour le contexte complet.
     # D52 : remplit babana_public_id ligne par ligne sur res_users (table déjà peuplée) AVANT
     # que _add_sql_constraints ne pose unique(babana_public_id). Voir __init__.py.
     'pre_init_hook': '_pre_init_backfill_unique_defaults',
+    # D53 : charge generic_coa et pose les comptes de remise de caisse APRÈS le ménage que
+    # `account` fait en fin de chargement, puis impose la devise XAF. Voir __init__.py et
+    # code/docs/odoo-pitfalls.md.
+    'post_init_hook': '_post_init_currency_and_accounting',
 }

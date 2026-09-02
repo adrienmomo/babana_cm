@@ -137,25 +137,23 @@ def get_or_create(model, domain, vals, label):
 
 
 # --------------------------------------------------------------------------------------------
-# 1. Devise : XAF si la base l'autorise (pas d'écriture comptable existante). Sinon on garde la
-#    devise de la société -- les montants restent plausibles, seul le symbole change.
+# 1. Devise : XAF est désormais EXIGÉE à l'installation du module (D53,
+#    addons/babana/__init__.py::_require_xaf_currency). Ce n'est donc plus au seed de la poser
+#    -- il ne fait plus que vérifier, et échoue bruyamment si quelque chose l'a défaite. Une
+#    base qui arrive ici en USD a chargé des données de démonstration (without_demo doit valoir
+#    `all`) ou n'est pas fraîche : autant le savoir avant de semer 700 « XAF » qui n'en sont pas.
 # --------------------------------------------------------------------------------------------
 
 def ensure_currency():
     xaf = env.ref("base.XAF", raise_if_not_found=False)
-    if not xaf:
-        info("devise XAF absente de la base -- on garde %s", env.company.currency_id.name)
-        return
-    if env.company.currency_id == xaf:
-        return
-    try:
-        with env.cr.savepoint():
-            if not xaf.active:
-                xaf.active = True
-            env.company.write({"currency_id": xaf.id})
-        info("devise de la société -> XAF")
-    except Exception as exc:  # noqa: BLE001
-        info("devise laissée à %s (XAF refusé : %s)", env.company.currency_id.name, exc)
+    if not xaf or env.company.currency_id != xaf:
+        raise SystemExit(
+            "seed : la devise de la société est %s, pas XAF -- le hook D53 aurait dû l'imposer "
+            "à l'installation. Base non fraîche, ou données de démonstration chargées "
+            "(services/odoo/config/odoo.conf : without_demo = all). `make reset` puis "
+            "réinstaller." % (env.company.currency_id.name or "absente")
+        )
+    info("devise de la société : XAF (exigée par D53)")
 
 
 # --------------------------------------------------------------------------------------------

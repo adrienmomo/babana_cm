@@ -121,6 +121,35 @@ enregistrer l'appel une fois qu'on sait que l'effet a vraiment eu lieu.
 
 ---
 
+## Le chargement d'un plan comptable sur une société sans écriture supprime d'abord tous les comptes et journaux existants
+
+Quand `account` s'installe sur une société qui n'a pas encore de plan comptable, il **programme**
+le chargement du plan générique (`generic_coa`) pour la fin du chargement des modules :
+`ir.module.module.write()` pose `registry._auto_install_template`, exécuté par
+`ir.module.module._register_hook()` une fois tous les modules chargés. Ce chargement
+(`account/models/chart_template.py::_load`) commence, si la société **n'a aucune écriture**
+(`_existing_accounting()` faux), par `unlink()` sur **tous** les `account.account`,
+`account.journal`, `account.tax`… existants, avant de poser ceux du modèle.
+
+Avec les données de démonstration d'Odoo, ça ne se voyait pas : la démo `account` chargeait
+`generic_coa` **et** créait des écritures très tôt, donc quand le module babana posait ses trois
+comptes de remise de caisse et son journal (ancien `data/accounting_config.xml`, `noupdate`),
+la société avait déjà un plan et des écritures — pas de ménage, les comptes babana survivaient.
+
+Découvert le 2 septembre en implémentant D53 (`without_demo = all`). Sur une base fraîche **sans
+démo** : `account` s'installe sans plan → programme `generic_coa` → babana crée ses comptes via
+XML → fin du chargement → `_auto_install_template` s'exécute, supprime les comptes babana avec
+les autres, charge `generic_coa`. Résultat : les quatre `ir.config_parameter` de la remise de
+caisse pointaient vers des ids supprimés, et toute validation de remise (L5-05) aurait échoué.
+
+**Règle** : un enregistrement `account.account` / `account.journal` propre à un module ne se
+crée pas dans un XML `noupdate` ni dans un `post_init_hook` naïf — il serait détruit juste
+après. Il se crée **après** le chargement du plan comptable : soit en s'enchaînant à
+`registry._auto_install_template` (ce que fait `babana/__init__.py::_post_init_currency_and_accounting`),
+soit en chargeant soi-même le plan d'abord puis en créant ses comptes par-dessus.
+
+---
+
 ## `cr.postcommit` ne s'exécute jamais dans un test `--test-enable`, `HttpCase` compris
 
 `Registry.cursor()` renvoie un `TestCursor` dès que `registry.test_cr` est posé -- ce qui couvre
