@@ -29,6 +29,7 @@
     "babana.quote":               { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.driver":              { "client": ["none", "none", "none", "none"], "driver": ["own", "none", "none", "none"] },
     "babana.driver.document":     { "client": ["none", "none", "none", "none"], "driver": ["own", "none", "none", "none"] },
+    "babana.driver.decision":     { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.motorcycle":          { "client": ["none", "none", "none", "none"], "driver": ["own", "none", "none", "none"] },
     "babana.assignment":          { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.cash.movement":       { "client": ["none", "none", "none", "none"], "driver": ["own", "none", "none", "none"] },

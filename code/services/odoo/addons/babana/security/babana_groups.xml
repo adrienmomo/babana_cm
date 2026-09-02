@@ -20,6 +20,12 @@
     <record id="group_babana_manager" model="res.groups">
         <field name="name">Gestionnaire</field>
         <field name="category_id" ref="module_category_babana"/>
+        <!-- Un chauffeur approuvé EST un salarié (D5) : la validation de dossier (L1-06,
+             action_approve) crée ou rattache une fiche hr.employee, et la fiche back-office
+             (L9-01) l'affiche. Le gestionnaire a donc besoin des droits d'agent RH ; sans
+             quoi « Approuver / créer une fiche » lève AccessError sur hr.employee /
+             resource.calendar, et le formulaire chauffeur ne peut pas montrer employee_id. -->
+        <field name="implied_ids" eval="[(4, ref('hr.group_hr_user'))]"/>
         <field name="comment">Valide les chauffeurs, gère la flotte et les tarifs.</field>
     </record>
 

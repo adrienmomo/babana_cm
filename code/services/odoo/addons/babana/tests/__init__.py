@@ -5,6 +5,7 @@ from . import test_token
 from . import test_driver
 from . import test_documents
 from . import test_driver_approval
+from . import test_driver_backoffice
 from . import test_driver_availability
 from . import test_motorcycle
 from . import test_assignment

@@ -50,10 +50,12 @@ class BabanaDriver(models.Model):
         "babana.motorcycle",
         string="Moto affectée",
         compute="_compute_motorcycle_id",
+        search="_search_motorcycle_id",
         help="Affectation courante (L1-07). Miroir calculé de babana.motorcycle.driver_id, seule "
         "source écrite de la relation, pour qu'une affectation ne puisse jamais diverger entre "
         "les deux sens. L'historique complet des affectations vit dans babana.assignment "
-        "(L1-08).",
+        "(L1-08). `search` : permet le filtre « sans moto affectée » de la vue back-office "
+        "(L9-01), le champ n'étant pas stocké.",
     )
 
     employee_id = fields.Many2one(
@@ -166,6 +168,32 @@ class BabanaDriver(models.Model):
         "ligne, l'ancienne reste pour l'audit. GET /api/v1/driver/documents ne renvoie que la "
         "plus récente par type.",
     )
+    # L9-01 : affichés en lecture seule dans la fiche back-office (courses récentes, historique
+    # d'affectations). Aucune écriture ne passe par ces One2many -- les courses par les
+    # transitions (L4-02), les affectations par babana.motorcycle (L1-08).
+    ride_ids = fields.One2many("babana.ride", "driver_id", string="Courses", readonly=True)
+    assignment_ids = fields.One2many(
+        "babana.assignment", "driver_id", string="Historique d'affectations", readonly=True
+    )
+    last_ride_at = fields.Datetime(
+        string="Dernière activité",
+        compute="_compute_last_ride_at",
+        help="Date de la course la plus récente confiée à ce chauffeur (L9-01). Non stocké : "
+        "recalculé à l'affichage -- suffisant à l'échelle du pilote, l'indicateur d'activité "
+        "agrégé est L9-07.",
+    )
+    cash_limit_reached = fields.Boolean(
+        string="Plafond atteint",
+        compute="_compute_cash_limit_reached",
+        search="_search_cash_limit_reached",
+        help="Le solde dû atteint ou dépasse le plafond d'encaisse de la flotte (D8, D28). "
+        "Filtrable et utilisé pour le code couleur de la liste back-office (L9-01).",
+    )
+    document_expired = fields.Boolean(
+        string="Document expiré",
+        compute="_compute_document_expired",
+        help="Le permis le plus récent est expiré (L1-10). Code couleur de la liste (L9-01).",
+    )
 
     _sql_constraints = [
         (
@@ -240,6 +268,18 @@ class BabanaDriver(models.Model):
             self.env["ir.config_parameter"].sudo().get_param(CASH_LIMIT_PARAM, CASH_LIMIT_FALLBACK)
         )
 
+    @api.depends("employee_id.name", "user_id.name")
+    def _compute_display_name(self):
+        # Pas de champ `name` sur babana.driver : sans ceci, la liste back-office (L9-01)
+        # afficherait « babana.driver,3 ». Priorité à la fiche employé (chauffeur approuvé),
+        # repli sur le compte de connexion (candidature), puis un libellé neutre.
+        for record in self:
+            record.display_name = (
+                record.employee_id.name
+                or record.user_id.name
+                or (f"Candidature #{record.id}" if record.id else "Nouvelle candidature")
+            )
+
     def _compute_rating(self):
         # Champ-pont : voir amoa/questions/L1-03.md. Recalcul réel à brancher sur babana.rating
         # (L4-09) -- le critère d'acceptation 3 de L1-03 n'est pas vérifiable avant cette tâche.
@@ -253,11 +293,62 @@ class BabanaDriver(models.Model):
                 [("driver_id", "=", record.id)]
             )
 
+    def _compute_last_ride_at(self):
+        for record in self:
+            last_ride = self.env["babana.ride"].search(
+                [("driver_id", "=", record.id)], order="create_date desc", limit=1
+            )
+            record.last_ride_at = last_ride.create_date if last_ride else False
+
+    def _compute_cash_limit_reached(self):
+        limit = self._cash_limit()
+        for record in self:
+            record.cash_limit_reached = bool(limit) and record.cash_balance >= limit
+
+    def _search_cash_limit_reached(self, operator, value):
+        # cash_balance n'est pas stocké (D8, L5-01) : le filtre « plafond atteint » de L9-01
+        # passe donc par un balayage Python. Acceptable à l'échelle du pilote -- l'agrégat de
+        # caisse temps réel est L9-05/L9-07.
+        if operator not in ("=", "!="):
+            raise ValueError("Filtre 'plafond atteint' : opérateur non supporté.")
+        wants_reached = (operator == "=" and value) or (operator == "!=" and not value)
+        limit = self._cash_limit()
+        reached_ids = [
+            driver.id
+            for driver in self.search([])
+            if limit and driver.cash_balance >= limit
+        ]
+        return [("id", "in" if wants_reached else "not in", reached_ids)]
+
+    def _compute_document_expired(self):
+        today = fields.Date.today()
+        for record in self:
+            expires_on = record._current_license_expires_on()
+            record.document_expired = bool(expires_on) and expires_on < today
+
     def _compute_motorcycle_id(self):
         for record in self:
             record.motorcycle_id = self.env["babana.motorcycle"].search(
                 [("driver_id", "=", record.id)], limit=1
             )
+
+    def _search_motorcycle_id(self, operator, value):
+        # Utilisé par le filtre « sans moto affectée » de L9-01 : uniquement les formes
+        # motorcycle_id = / != False. Toute autre forme (moto précise) retombe sur la relation
+        # inverse babana.motorcycle.driver_id.
+        assigned_driver_ids = (
+            self.env["babana.motorcycle"]
+            .search([("driver_id", "!=", False)])
+            .mapped("driver_id")
+            .ids
+        )
+        if not value and operator in ("=", "!=", "in", "not in"):
+            has_no_moto = operator in ("=", "in")
+            return [("id", "not in" if has_no_moto else "in", assigned_driver_ids)]
+        matching = self.env["babana.motorcycle"].search(
+            [("driver_id", "!=", False), ("id", operator, value)]
+        )
+        return [("id", "in", matching.mapped("driver_id").ids)]
 
     @api.depends("movement_ids.amount")
     def _compute_cash_balance(self):

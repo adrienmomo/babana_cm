@@ -4,6 +4,7 @@ from . import res_partner
 from . import babana_token
 from . import babana_driver
 from . import babana_driver_document
+from . import babana_driver_decision
 from . import babana_motorcycle
 from . import babana_assignment
 from . import babana_fare_rule

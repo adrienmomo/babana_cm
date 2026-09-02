@@ -103,3 +103,84 @@ l'encaisse) — filets décrits dans l'écart, pire cas ~60 s de visibilité ré
 (aucune règle métier dans les apps) : intact — Odoo décide, le service temps réel applique. 4
 (réservation atomique) : intact — le cinquième `EXISTS` est en lecture seule, un seul écrivain
 sur le pool. 5 (aucune config en dur) : intact — pas de nouvelle valeur.
+
+---
+
+## 2. L9-01 — Vues chauffeurs (back-office)
+
+L'écran par lequel un chauffeur entre au pilote : un gestionnaire y valide un dossier **après
+avoir regardé les pièces**, et un refus y prend son motif.
+
+### Liste
+
+`display_name` (nouveau `_compute_display_name` : fiche employé, sinon compte de connexion,
+sinon « Candidature #id » — plus jamais « babana.driver,3 »), état, en ligne, moto, note,
+courses effectuées, **solde**, dernière activité (`last_ride_at`, calculé). Codes couleur :
+`decoration-danger` si suspendu / plafond atteint / document expiré, `decoration-muted` si
+rejeté.
+
+### Formulaire
+
+Boutons **Approuver / Rejeter / Suspendre** (assistant `babana.driver.decision`, qui collecte
+le motif ou le choix de fiche employé — un bouton `type="object"` ne peut pas) et **Réactiver**
+(direct). Onglets en lecture seule : Documents (bouton **Voir la pièce**), Moto et affectations,
+Courses récentes, Mouvements de caisse (nouveaux One2many `ride_ids`, `assignment_ids`).
+Bandeaux Suspendu / Rejeté / Plafond atteint.
+
+### Aperçu des pièces (critère 3, le doute de L6-15)
+
+`babana.driver.document.action_preview` : `search` au nom de l'appelant (D54, même patron que
+`controllers/documents.py::_signed_url` — `exists()` ignorerait les règles), puis
+`storage.generate_signed_url` (L1-05, TTL `babana.document_url_ttl_seconds`), renvoie une
+`ir.actions.act_url target=new`. Un gestionnaire voit la pièce ; un utilisateur portail obtient
+« introuvable », jamais l'URL, jamais la confirmation que la ligne existe.
+
+### Filtres (critère 2)
+
+Par statut (4), en ligne, **plafond atteint** (`cash_limit_reached`, compute + `search` —
+`cash_balance` non stocké, balayage Python assumé à l'échelle du pilote), **documents expirant**
+(domaine sur `document_ids.expires_on`, fenêtre 30 j comme la vue motos), **sans moto affectée**
+(`_search_motorcycle_id` ajouté au champ calculé, traduit vers `babana.motorcycle.driver_id`).
+Regroupements : état, en ligne.
+
+### Motif de refus qui voyage
+
+Aucun code nouveau : `action_reject` / `action_suspend` posent déjà `rejection_reason`, et
+`controllers/auth.py::_build_user_payload` le ship déjà dans `driverRejectionReason`.
+L'assistant rend seulement la saisie possible depuis l'écran.
+
+### Correctif de permission tiré par la tâche
+
+`group_babana_manager` gagne `hr.group_hr_user` (`implied_ids`). Sans lui, « Approuver / créer
+une fiche » lève `AccessError` sur `hr.employee` / `resource.calendar` (action_approve crée la
+fiche salariée, D5) et le formulaire ne peut pas afficher `employee_id`. Latent jusqu'ici :
+`action_approve` n'était testé que sous l'utilisateur admin.
+
+### Modèle
+
+`babana.driver` : `+ ride_ids`, `+ assignment_ids`, `+ last_ride_at`, `+ cash_limit_reached`
+(compute + search), `+ document_expired`, `_compute_display_name`, `_search_motorcycle_id`.
+Nouveau `babana.driver.decision` (TransientModel) + ACL manager + entrée `none/none/none/none`
+dans `access_matrix.json` (sinon la suite L8-02 échoue — filet voulu).
+
+### Tests
+
+`tests/test_driver_backoffice.py` (12 tests) : champs de liste lisibles sans le formulaire ;
+chaque filtre ; aperçu → URL signée pour un gestionnaire, refus pour un non-gestionnaire ;
+assistant reject / suspend / approve (nouvelle fiche) + motif obligatoire ; drapeaux de
+décoration. Suite Odoo complète : **714 tests, 0 échec** (`-u babana`). `make lint` /
+`make typecheck` verts.
+
+### Écart déposé
+
+`amoa/questions/L9-01.md` (sur master) : le regroupement « par zone d'activité » de la
+spécification n'a pas de modèle — un chauffeur n'est rattaché à aucune `babana.zone` (D6 =
+moto, pas zone). Groupement par état + en ligne livré ; la zone d'activité est une donnée que
+le pilote produira (L9-07/L9-08), signalée plutôt que fabriquée.
+
+### Invariants
+
+2 : intact — l'assistant délègue aux `action_*`, aucune écriture directe de `state`. 3 : intact
+— aucune règle métier ajoutée. 5 : intact — la fenêtre « documents expirant » (30 j) est une
+commodité d'affichage, pas une règle de blocage ; le TTL de l'URL signée reste le paramètre
+`babana.document_url_ttl_seconds`.
