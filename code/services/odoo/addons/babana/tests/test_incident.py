@@ -230,8 +230,9 @@ class TestIncidentController(HttpCase):
         outsider_token, _ = self._make_client_user(sub="sub-incident-client-outsider")
         response = self._post(ride.public_id, outsider_token, self._BODY)
 
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()["error"]["code"], "RIDE_NOT_OWNED")
+        # D54 : un tiers ne voit pas la course -- RIDE_NOT_FOUND (404), pas RIDE_NOT_OWNED.
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["error"]["code"], "RIDE_NOT_FOUND")
 
     # --- Validation ------------------------------------------------------------------------
 

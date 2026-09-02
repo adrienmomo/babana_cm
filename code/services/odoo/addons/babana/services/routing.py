@@ -7,8 +7,14 @@
 # l'identique six mois plus tard, amoa/specs/L2-tarification.md, L2-05).
 #
 # D19 : on simule le fournisseur, jamais notre logique. GOOGLE_ROUTING_URL pointe vers
-# mock-maps en développement (services/mocks/maps, L0-08), une vraie API de routage en
-# production -- ce module ne contient aucune branche conditionnelle sur l'environnement.
+# mock-maps en développement (services/mocks/maps, L0-08, valeur posée par
+# infra/compose.dev.yaml), une vraie API de routage en production -- ce module ne contient
+# aucune branche conditionnelle sur l'environnement.
+#
+# D43 retournée (amoa/questions/REPONSES-2026-09-06.md §2) : plus de valeur par défaut vers le
+# simulateur. Une adresse de fournisseur externe non configurée doit échouer bruyamment (comme
+# GOOGLE_JWKS_URL, google_identity.py::_jwks_url), jamais retomber silencieusement sur mock-maps
+# -- un défaut qui ne se verrait qu'en regardant le trafic réseau.
 from __future__ import annotations
 
 import logging
@@ -21,7 +27,6 @@ from odoo import fields
 
 _logger = logging.getLogger(__name__)
 
-DEFAULT_ROUTING_URL = "http://mock-maps:4001/route"
 ROUTING_TIMEOUT_SECONDS = 5
 # ~111 m à l'équateur pour 0.001° -- "de l'ordre de cent mètres" (L2-05).
 GRID_DECIMALS = 3
@@ -118,8 +123,18 @@ def get_reference_route(
     return result
 
 
+def _routing_url() -> str:
+    """Adresse de l'API de routage -- plus de repli implicite vers mock-maps si la variable est
+    absente (D43 retournée). Non configurée, on échoue ici plutôt que d'appeler silencieusement
+    un simulateur (ou pire, un fournisseur réel) avec un destinataire différent de l'attendu."""
+    url = os.environ.get("GOOGLE_ROUTING_URL")
+    if not url:
+        raise RuntimeError("GOOGLE_ROUTING_URL n'est pas configurée")
+    return url
+
+
 def _fetch_from_api(*, origin, destination) -> RouteResult:
-    routing_url = os.environ.get("GOOGLE_ROUTING_URL", DEFAULT_ROUTING_URL)
+    routing_url = _routing_url()
     try:
         response = requests.get(
             routing_url,

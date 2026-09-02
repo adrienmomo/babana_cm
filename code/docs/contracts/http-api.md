@@ -43,6 +43,16 @@ répétés dans chaque section : `VALIDATION_ERROR` (corps de requête invalide)
 `INTERNAL_ERROR`. `UNAUTHORIZED` est possible sur tout endpoint authentifié (tous, sauf
 `/auth/google`).
 
+**Ressource d'un autre = introuvable, pas interdite (D54, `amoa/questions/REPONSES-2026-09-08.md`
+§2).** Depuis J32, les contrôleurs cherchent course et document *au nom de l'appelant* : les
+règles d'enregistrement L8-01 sont sur le chemin réel. Conséquence sur les codes — une course
+ou un document que l'appelant n'a **aucun** droit de voir renvoie `RIDE_NOT_FOUND` /
+`DOCUMENT_NOT_FOUND` (404), pas `RIDE_NOT_OWNED` / `DOCUMENT_NOT_OWNED` (403) : on ne confirme
+pas son existence. Les codes `*_NOT_OWNED` (403) subsistent pour le cas où l'appelant **voit**
+la ressource sans avoir le droit d'agir dessus — typiquement le chauffeur affecté qui appelle
+`select-driver` ou `share` sur sa course, ou le client qui appelle `start` / `complete` /
+`settle` (`DRIVER_NOT_IN_PROPOSAL`).
+
 ### Versionnement
 
 `/v1` est figé. Toute rupture de compatibilité (suppression de champ, changement de type,

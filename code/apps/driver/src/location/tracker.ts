@@ -158,7 +158,11 @@ export class LocationTracker {
       } else if (isSessionSyncedMessage(message)) {
         // Filet de resynchronisation (même raisonnement que ProposalScreen/HomeScreen) : reprend
         // l'état réel après une reconnexion, une app tuée puis relancée en pleine course.
-        this.setRideActive(ASSIGNED_RIDE_STATES.has(message.payload.activeRideState));
+        // `rideStateKnown: false` (Odoo injoignable) -> état indéterminé, on ne touche à rien
+        // (L7-04, 6 septembre).
+        if (message.payload.rideStateKnown) {
+          this.setRideActive(ASSIGNED_RIDE_STATES.has(message.payload.activeRideState));
+        }
       }
     });
     // Session perdue (déconnexion, jeton de renouvellement révoqué) : un chauffeur qui n'est plus

@@ -6,13 +6,17 @@ import type { ConnectionState } from '@babana/api-client';
 import type { realtime } from '@babana/contracts';
 import { AvailabilityToggle } from '../components/AvailabilityToggle';
 import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
+import { isProposalHandled, markProposalHandled } from '../proposalDedup';
+import { consumePendingProposalNavigation } from '../push/handlers';
 import type { DriverParamList } from '../navigation/types';
 
 /**
  * Écran d'accueil (L6-11) : l'écran permanent de l'app Chauffeur (`navigation/types.ts`), que
  * les événements interrompent -- proposition reçue (L6-12), course en cours (L6-13). Il porte
  * donc deux responsabilités : la bascule en ligne/hors ligne elle-même, et l'écoute des messages
- * qui font quitter cet écran (`proposal.new`), puisque `Proposal` n'a pas d'autre point d'entrée.
+ * qui font quitter cet écran (`proposal.new`, et `session.synced.activeProposal` -- une
+ * proposition retrouvée après reconnexion ou relance, L7-04), puisque `Proposal` n'a pas d'autre
+ * point d'entrée depuis l'app.
  */
 
 type Props = NativeStackScreenProps<DriverParamList, 'Home'>;
@@ -40,23 +44,66 @@ export function HomeScreen({ navigation }: Props) {
   useEffect(() => {
     ensureRealtimeConnected();
 
+    // Deux propositions ne peuvent pas s'afficher simultanément (L6-12, critère 5) : si l'écran
+    // affiché est déjà Proposal, on n'en ouvre pas un second. Le registre partagé
+    // (`proposalDedup`) couvre en plus le cas où le WebSocket et la notification annoncent la
+    // même proposition (L7-04, critère 2).
+    function alreadyShowingAProposal(): boolean {
+      return navigation.getState().routes.some((route) => route.name === 'Proposal');
+    }
+
+    function openProposalFromRealtime(params: Extract<DriverParamList['Proposal'], { source?: 'realtime' }>): void {
+      if (isProposalHandled(params.rideId) || alreadyShowingAProposal()) return;
+      markProposalHandled(params.rideId);
+      navigation.navigate('Proposal', params);
+    }
+
+    // Démarrage à froid depuis un appui sur la notification, avant que la navigation ne soit
+    // prête (`push/handlers.ts`) : la proposition en attente est ouverte ici, une fois montés.
+    const pending = consumePendingProposalNavigation();
+    if (pending) {
+      navigation.navigate('Proposal', {
+        source: 'notification',
+        rideId: asRideId(pending.rideId),
+        expiresAt: pending.expiresAt,
+      });
+    }
+
     const unsubscribeConnectionState = onRealtimeConnectionStateChange(setConnectionState);
 
     const unsubscribeMessages = onRealtimeMessage((message) => {
       if (isSessionSyncedMessage(message)) {
-        setInCourse(ACTIVE_RIDE_STATES.has(message.payload.activeRideState));
+        // `rideStateKnown: false` -> Odoo était injoignable : l'état de course est indéterminé,
+        // on garde celui qu'on a (L7-04, 6 septembre). `activeProposal`, lui, est fiable quel que
+        // soit ce drapeau -- il est lu en Redis.
+        if (message.payload.rideStateKnown) {
+          setInCourse(ACTIVE_RIDE_STATES.has(message.payload.activeRideState));
+        }
+        // L7-04 : une proposition active retrouvée par resynchronisation (app relancée en pleine
+        // proposition, ou reconnexion réseau) -- l'app n'a jamais reçu `proposal.new`, c'est
+        // `session.synced` qui la lui apprend, avec sa **véritable** échéance. `null` explicite
+        // quand il n'y en a pas : rien à ouvrir, aucune inférence.
+        const active = message.payload.activeProposal;
+        if (active) {
+          openProposalFromRealtime({
+            source: 'realtime',
+            rideId: asRideId(active.rideId),
+            origin: active.origin,
+            destination: active.destination,
+            amount: active.amount,
+            distanceMeters: active.distanceMeters,
+            distanceToOriginMeters: active.distanceToOriginMeters,
+            expiresAt: active.expiresAt,
+            emittedAt: active.emittedAt,
+          });
+        }
       } else if (isProposalNewMessage(message)) {
-        // Deux propositions ne peuvent pas s'afficher simultanément (L6-12, critère 5) : si
-        // l'écran affiché est déjà Proposal (même pile, présenté par-dessus Home), cette nouvelle
-        // proposition n'a rien à faire ici -- un chauffeur déjà engagé sur une proposition sort
-        // du pool avant qu'une seconde ne puisse lui être envoyée (L3-06/L3-17), mais un message
-        // en double ou en retard reste possible sur un réseau intermittent.
-        const alreadyOnProposal = navigation.getState().routes.some((route) => route.name === 'Proposal');
-        if (alreadyOnProposal) return;
         // Le message entier est transmis (pas seulement rideId) : `proposal.new` ne repasse
         // jamais deux fois sur `onRealtimeMessage`, un abonnement posé au montage de `Proposal`
-        // ne le recevrait donc jamais (voir navigation/types.ts).
-        navigation.navigate('Proposal', {
+        // ne le recevrait donc jamais (voir navigation/types.ts). `emittedAt` vient de
+        // l'enveloppe -- signalé au serveur à l'affichage réel (`proposal.seen`, L7-04).
+        openProposalFromRealtime({
+          source: 'realtime',
           rideId: asRideId(message.payload.rideId),
           origin: message.payload.origin,
           destination: message.payload.destination,
@@ -64,6 +111,7 @@ export function HomeScreen({ navigation }: Props) {
           distanceMeters: message.payload.distanceMeters,
           distanceToOriginMeters: message.payload.distanceToOriginMeters,
           expiresAt: message.payload.expiresAt,
+          emittedAt: message.emittedAt,
         });
       }
     });

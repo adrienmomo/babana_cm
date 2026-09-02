@@ -214,6 +214,9 @@ class TestDriverDocumentsController(HttpCase):
     # --- Critère 3 : un chauffeur ne peut pas obtenir l'URL du document d'un autre -------------
 
     def test_driver_cannot_get_url_for_another_drivers_document(self):
+        # D54 : le lookup passe par l'appelant -- le document d'un autre chauffeur ne lui est
+        # pas visible du tout : DOCUMENT_NOT_FOUND (404), pas DOCUMENT_NOT_OWNED (403). On ne
+        # confirme pas qu'il existe.
         owner_token = self._sign_in_as_driver("sub-doc-owner-2")
         upload_response = self._upload(
             owner_token, document_type="id_card", content_type="image/jpeg", data=_A_JPEG
@@ -226,8 +229,8 @@ class TestDriverDocumentsController(HttpCase):
             headers={"Authorization": f"Bearer {other_token}"},
         )
 
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(response.json()["error"]["code"], "DOCUMENT_NOT_OWNED")
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["error"]["code"], "DOCUMENT_NOT_FOUND")
 
     # --- Critère 4 : un fichier dont le MIME réel ne correspond pas au type déclaré échoue -----
 

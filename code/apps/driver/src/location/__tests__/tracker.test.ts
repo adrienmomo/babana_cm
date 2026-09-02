@@ -91,6 +91,23 @@ function rideCompleted(rideId = 'ride-1'): realtime.RideCompletedMessage {
     payload: { rideId, distanceMeters: 100, durationSeconds: 60, measured: true, amount: 500, breakdown: {} as never },
   };
 }
+function sessionSynced(
+  over: Partial<realtime.SessionSyncedMessage['payload']> = {}
+): realtime.SessionSyncedMessage {
+  return {
+    type: 'session.synced',
+    id: 'm',
+    emittedAt: new Date().toISOString(),
+    payload: {
+      activeRideId: null,
+      activeRideState: null,
+      activeProposal: null,
+      rideStateKnown: true,
+      serverTime: new Date().toISOString(),
+      ...over,
+    },
+  };
+}
 
 describe('LocationTracker (L6-05)', () => {
   beforeEach(() => {
@@ -154,6 +171,23 @@ describe('LocationTracker (L6-05)', () => {
     expect(tracker.getState()).toBe('in_ride');
 
     deps.emit(rideCompleted());
+    expect(tracker.getState()).toBe('online_idle');
+  });
+
+  test('session.synced rideStateKnown:false (Odoo injoignable) ne fait pas sortir de course -- l’absence n’est pas inférée (L7-04)', async () => {
+    const deps = fakeDeps();
+    const tracker = new LocationTracker(deps, CONFIG);
+    tracker.start();
+    tracker.setOnline(true);
+    deps.emit(proposalAccepted());
+    expect(tracker.getState()).toBe('in_ride');
+
+    // Odoo injoignable : activeRideState à null mais rideStateKnown false -> on garde l'état.
+    deps.emit(sessionSynced({ activeRideId: null, activeRideState: null, rideStateKnown: false }));
+    expect(tracker.getState()).toBe('in_ride');
+
+    // Odoo répond « aucune course » de façon fiable -> là, on sort.
+    deps.emit(sessionSynced({ activeRideId: null, activeRideState: null, rideStateKnown: true }));
     expect(tracker.getState()).toBe('online_idle');
   });
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { createNavigationContainerRef, NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AuthGate, PlaceholderScreen, type SessionState } from '@babana/navigation';
 import { ApiError, type AuthState, type AuthUser } from '@babana/api-client';
@@ -18,18 +18,16 @@ import { defaultImageSource } from '../screens/onboarding/imageSource';
 import { useOnboarding } from '../screens/onboarding/useOnboarding';
 import { documentUploader } from '../onboarding';
 import { ONBOARDING_MAX_DOCUMENT_BYTES } from '../../config';
+import { navigationRef } from './ref';
 import type { AuthParamList, DriverParamList, DriverOnboardingParamList } from './types';
+
+// Réexporté d'ici : posé à l'origine dans ce module, `navigation/__tests__/AppNavigator.test.tsx`
+// et d'anciens imports le prennent encore ici. La définition vit dans `./ref` (voir ce fichier).
+export { navigationRef };
 
 const AuthStack = createNativeStackNavigator<AuthParamList>();
 const DriverStack = createNativeStackNavigator<DriverParamList>();
 const OnboardingStack = createNativeStackNavigator<DriverOnboardingParamList>();
-
-/**
- * Réf partagée -- `./transitions.ts` (L6-12, L6-14) l'utilise pour `reset()`. Typée
- * `DriverParamList` seulement : valide uniquement quand `DriverNavigator` est monté (chauffeur
- * `approved`), exactement le cas où ces transitions ont un sens.
- */
-export const navigationRef = createNavigationContainerRef<DriverParamList>();
 
 /**
  * Racine de navigation de l'app Chauffeur (L6-00) -- même bootstrap de session que

@@ -6,6 +6,17 @@ services:
   odoo:
     ports: ["8069:8069"]
     command: ["odoo", "--dev=reload,qweb,xml"]
+    environment:
+      # Adresses qui désignent un fournisseur réel ou son simulateur (D43 retournée,
+      # amoa/questions/REPONSES-2026-09-06.md §2). Elles n'ont plus de valeur par défaut dans
+      # infra/env/.env.example : c'est ICI qu'elles sont posées, explicitement, pour le
+      # développement -- vers les simulateurs (L0-08) et vers mailpit (SMTP de test).
+      # infra/compose.yaml les passe sans défaut ; en production, la plateforme d'hébergement
+      # les injecte vers les vrais fournisseurs. Non configurées, on échoue bruyamment.
+      GOOGLE_JWKS_URL: http://mock-google-identity:4000/.well-known/jwks.json
+      GOOGLE_ROUTING_URL: http://mock-maps:4001/route
+      SMTP_HOST: mailpit
+      SMTP_PORT: "1025"
   realtime:
     ports: ["3000:3000"]
     volumes:

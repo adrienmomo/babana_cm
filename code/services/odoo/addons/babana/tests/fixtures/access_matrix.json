@@ -1,0 +1,53 @@
+{
+  "_comment": [
+    "L8-02 -- matrice d'habilitation des utilisateurs mobiles (rôles `client` et `driver`).",
+    "Les tests de test_access_rights.py sont GÉNÉRÉS depuis ce fichier : un modèle babana.*",
+    "absent de `models` fait échouer la suite (test_matrix_covers_every_babana_model).",
+    "",
+    "Valeurs par opération :",
+    "  none  -- aucun accès : toute tentative au nom de l'utilisateur lève AccessError.",
+    "  own   -- accès limité aux lignes de l'utilisateur : il voit les siennes, JAMAIS",
+    "           celles d'un autre (les deux sont testés -- la négative est celle qui compte).",
+    "",
+    "Les utilisateurs mobiles n'ont AUCUN droit d'écriture directe (invariant : l'app affiche",
+    "ce que le serveur décide). write/create/unlink valent `none` partout, sans exception.",
+    "Toute écriture réelle passe par les méthodes de transition et les contrôleurs.",
+    "",
+    "D54 (REPONSES-2026-09-08 §2) : les LECTURES des contrôleurs passent par l'utilisateur",
+    "(`with_user`), pas par `sudo` -- ces règles sont donc sur le chemin réel de l'API, pas",
+    "seulement une défense en profondeur. La suite ci-dessous les teste au nom de l'utilisateur",
+    "depuis le début (critère 3), ce qui vaut maintenant aussi pour la production.",
+    "",
+    "D55 (REPONSES-2026-09-08 §3) : `own` pour un chauffeur NE suppose PLUS `approved`. Une",
+    "suspension empêche de travailler, pas de voir : un compte `suspended`, `rejected` ou",
+    "`pending` garde la lecture de SES lignes (course en cours, compte courant, remises,",
+    "documents). Le blocage vit côté disponibilité (test_suspension_blocks_working_not_reading)."
+  ],
+  "roles": ["client", "driver"],
+  "models": {
+    "babana.ride":                { "client": ["own", "none", "none", "none"], "driver": ["own", "none", "none", "none"] },
+    "babana.quote":               { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.driver":              { "client": ["none", "none", "none", "none"], "driver": ["own", "none", "none", "none"] },
+    "babana.driver.document":     { "client": ["none", "none", "none", "none"], "driver": ["own", "none", "none", "none"] },
+    "babana.motorcycle":          { "client": ["none", "none", "none", "none"], "driver": ["own", "none", "none", "none"] },
+    "babana.assignment":          { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.cash.movement":       { "client": ["none", "none", "none", "none"], "driver": ["own", "none", "none", "none"] },
+    "babana.cash.remittance":     { "client": ["none", "none", "none", "none"], "driver": ["own", "none", "none", "none"] },
+    "babana.cash.discrepancy":    { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.incident":            { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.ride.share":          { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.ride.rejection":      { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.device.token":        { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.token":               { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.fare.rule":           { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.zone":                { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.route.cache":         { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.idempotency.record":  { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] }
+  },
+  "inherited_models": {
+    "_comment": "Modèles Odoo standard exposés au mobile par héritage ou relation (L8-01, critère 6). Mêmes règles, testés au même titre.",
+    "account.move":  { "client": ["own", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "res.partner":   { "client": ["own", "none", "none", "none"], "driver": ["own", "none", "none", "none"] }
+  },
+  "operations": ["read", "write", "create", "unlink"]
+}

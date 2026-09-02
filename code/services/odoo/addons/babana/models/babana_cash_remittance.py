@@ -13,8 +13,11 @@ from odoo.exceptions import UserError
 from ..services import realtime_client
 
 # L5-05 : comptes et journal paramétrables (invariant 5), jamais codés en dur -- voir
-# data/accounting_config.xml pour les valeurs par défaut (provisoires, plan comptable générique
-# de démonstration, pas OHADA -- même réserve que CASH_LIMIT_FALLBACK, babana_driver.py).
+# __init__.py::_ensure_babana_accounting (post_init_hook, D53) pour les valeurs par défaut
+# (provisoires, plan comptable générique generic_coa, pas OHADA -- même réserve que
+# CASH_LIMIT_FALLBACK, babana_driver.py). Elles y sont posées, et non plus dans un XML
+# `noupdate`, parce que le chargement de generic_coa par `account` en fin d'installation
+# supprime tout compte préexistant sur une base sans écriture (code/docs/odoo-pitfalls.md).
 CASH_REMITTANCE_JOURNAL_PARAM = "babana.cash_remittance_journal_id"
 CASH_REMITTANCE_CASH_ACCOUNT_PARAM = "babana.cash_remittance_cash_account_id"
 CASH_REMITTANCE_RECEIVABLE_ACCOUNT_PARAM = "babana.cash_remittance_receivable_account_id"

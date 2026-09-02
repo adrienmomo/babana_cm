@@ -31,6 +31,12 @@ _ROUTE = {"type": "http", "auth": "none", "methods": ["POST"], "csrf": False, "r
 
 
 def _summary(ride) -> dict:
+    # Projection en liste blanche, servie APRÈS que la visibilité de la course a été tranchée
+    # par le lookup au nom de l'utilisateur (D54) : une fois cette porte franchie, le contrôleur
+    # assemble la réponse en `sudo` -- notamment `assignedDriverId`, que l'appelant client n'a
+    # aucun accès ORM pour lire (L8-01, tableau corrigé : « l'identité du chauffeur affecté par
+    # le contrôleur, avec sa propre liste blanche »).
+    ride = ride.sudo()
     return {
         "id": ride.public_id,
         "state": ride.state,
@@ -93,8 +99,15 @@ class RideController(http.Controller):
             _logger.exception("erreur interne dans %s", endpoint)
             return _common.error_response("INTERNAL_ERROR", "erreur interne", 500)
 
-    def _find_ride(self, env, ride_id):
-        return env["babana.ride"].sudo().search([("public_id", "=", ride_id)], limit=1)
+    def _find_ride(self, env, user, ride_id):
+        # D54 (amoa/questions/REPONSES-2026-09-08.md §2) : la recherche passe par l'utilisateur,
+        # pas par `sudo`. C'est la règle d'enregistrement `babana.ride` (client_id = moi, OU
+        # driver_id.user_id = moi) qui décide SI l'appelant voit cette course -- une course qui
+        # ne lui appartient pas revient VIDE (RIDE_NOT_FOUND 404), jamais « interdite » (403) :
+        # on ne confirme pas son existence. Les contrôles explicites qui suivent ne disent plus
+        # que POURQUOI c'est refusé pour un appelant qui, lui, voit la course (client vs
+        # chauffeur affecté).
+        return env["babana.ride"].with_user(user).search([("public_id", "=", ride_id)], limit=1)
 
     # --- POST /rides (createRide, L4-03R) ------------------------------------------------------
 
@@ -155,14 +168,23 @@ class RideController(http.Controller):
 
     def _select_driver(self, ride_id):
         env, user = _common.authenticated_user()
-        ride = self._find_ride(env, ride_id)
+        ride = self._find_ride(env, user, ride_id)
         if not ride:
             return _common.error_payload("RIDE_NOT_FOUND", "course inconnue"), 404
+        # Visibilité tranchée par la règle ci-dessus ; on repasse en `sudo` avant le contrôle
+        # explicite, qui n'est plus là que pour dire POURQUOI (403) à un appelant qui, lui,
+        # voit la course : un chauffeur affecté (branche « driver_id.user_id = moi ») qui
+        # appellerait cet endpoint client. Un autre client est déjà sorti en RIDE_NOT_FOUND.
+        ride = ride.sudo()
         if ride.client_id != user.partner_id:
             return _common.error_payload("RIDE_NOT_OWNED", "cette course n'appartient pas à l'appelant"), 403
 
         body = _common.parse_json_body()
         driver_id = (body or {}).get("driverId")
+        # `sudo` ASSUMÉ ici (D54, cas nommé) : le client n'a aucun accès ORM à `babana.driver`
+        # (L8-01, tableau corrigé). Ce chauffeur a été choisi dans la liste servie par le
+        # service temps réel ; c'est `reserve_and_propose` qui vérifie qu'il figurait bien dans
+        # la dernière liste montrée à CE client (outcome DRIVER_NOT_IN_LAST_LIST sinon).
         driver = (
             env["babana.driver"].sudo().search([("public_id", "=", driver_id)], limit=1)
             if driver_id
@@ -329,15 +351,21 @@ class RideController(http.Controller):
         }, 200
 
     def _find_ride_and_assigned_driver(self, env, user, ride_id):
-        """Commun à start/complete (D31 a retiré accept/reject d'ici -- StartRideErrors/
-        CompleteRideErrors du contrat C-01 partagent tous DRIVER_NOT_IN_PROPOSAL pour le même cas :
-        l'appelant n'est pas le chauffeur affecté). Renvoie (ride, driver, None) ou
-        (None, None, (payload, status))."""
-        ride = self._find_ride(env, ride_id)
+        """Commun à start/complete/settle. Renvoie (ride, driver, None) ou
+        (None, None, (payload, status)).
+
+        D54 : un chauffeur qui n'est PAS l'affecté ne voit pas la course (la branche
+        `driver_id.user_id = moi` de la règle ne le concerne pas) -- il ressort en
+        RIDE_NOT_FOUND 404, pas en DRIVER_NOT_IN_PROPOSAL 403 : on ne lui confirme pas que
+        cette course existe. DRIVER_NOT_IN_PROPOSAL reste pour le cas où l'appelant VOIT la
+        course sans pouvoir la conduire -- le client de la course qui appelle /start, /complete
+        ou /settle (il la voit par la branche `client_id = moi`, mais n'a pas de fiche
+        chauffeur)."""
+        ride = self._find_ride(env, user, ride_id)
         if not ride:
             return None, None, (_common.error_payload("RIDE_NOT_FOUND", "course inconnue"), 404)
         driver = user._babana_driver()
-        if not driver or ride.driver_id != driver:
+        if not driver or ride.sudo().driver_id != driver:
             return None, None, (
                 _common.error_payload(
                     "DRIVER_NOT_IN_PROPOSAL",
@@ -345,7 +373,7 @@ class RideController(http.Controller):
                 ),
                 403,
             )
-        return ride, driver, None
+        return ride.sudo(), driver, None
 
     # --- POST /rides/{id}/cancel ----------------------------------------------------------------
 
@@ -355,9 +383,14 @@ class RideController(http.Controller):
 
     def _cancel_ride(self, ride_id):
         env, user = _common.authenticated_user()
-        ride = self._find_ride(env, ride_id)
+        ride = self._find_ride(env, user, ride_id)
+        # D54 : un tiers (ni client, ni chauffeur affecté, ni superviseur) ne voit pas la
+        # course -- RIDE_NOT_FOUND, pas RIDE_NOT_OWNED. Un superviseur, lui, la voit : les
+        # groupes back-office ont un droit d'accès ORM sur `babana.ride` et aucune règle
+        # d'enregistrement ne les restreint (seules les règles portail existent).
         if not ride:
             return _common.error_payload("RIDE_NOT_FOUND", "course inconnue"), 404
+        ride = ride.sudo()
 
         driver = user._babana_driver()
         is_supervisor = user.sudo().has_group(

@@ -38,6 +38,21 @@ export const ProposalNewPayloadSchema = z.object({
 export const ProposalNewMessageSchema = envelopeSchema('proposal.new', ProposalNewPayloadSchema);
 export type ProposalNewMessage = z.infer<typeof ProposalNewMessageSchema>;
 
+/**
+ * Une proposition active retrouvée par resynchronisation (L7-04, `session.synced.activeProposal`
+ * ci-dessous) : le cas d'une app qui n'a **jamais** reçu `proposal.new` -- fermée à l'émission,
+ * ouverte depuis la notification push. Même forme que `proposal.new` (une seule définition du
+ * détail d'une proposition), plus `emittedAt` : l'enveloppe de `session.synced` date de la
+ * resynchronisation, pas de l'émission d'origine, or c'est bien celle-ci qu'il faut pour un
+ * délai d'acheminement honnête (`proposal.seen`, critère 4) et un compte à rebours honnête --
+ * `expiresAt` porte l'échéance réelle (le délai d'acceptation restant, pas trente secondes
+ * fraîches, pas le TTL de la réservation qui est une autre durée).
+ */
+export const ActiveProposalSchema = ProposalNewPayloadSchema.extend({
+  emittedAt: IsoDateTimeSchema,
+});
+export type ActiveProposal = z.infer<typeof ActiveProposalSchema>;
+
 /** Destinataire : chauffeur. Le délai d'acceptation a expiré sans réponse (transition proposed -> rejected). */
 export const ProposalExpiredPayloadSchema = z.object({
   rideId: RideIdSchema,
@@ -272,10 +287,31 @@ export type RideCompletedMessage = z.infer<typeof RideCompletedMessageSchema>;
 /**
  * Destinataire : client ou chauffeur, en réponse à session.resync. Resynchronisation complète,
  * jamais un différentiel (politique de reconnexion, docs/contracts/realtime-events.md).
+ *
+ * `activeProposal` (L7-04, 5 septembre -- `amoa/questions/L7-04.md`, Option A retenue) : la
+ * proposition active du chauffeur, avec ses détails et sa **véritable échéance**, ou `null`
+ * explicite s'il n'y en a pas. C'est la réponse à « application fermée, le chauffeur ouvre la
+ * notification » : l'app n'a jamais reçu `proposal.new`, cette réponse lui apprend s'il reste une
+ * course à prendre. L'absence se **dit** (`null`) plutôt que se déduire d'un silence -- l'app
+ * n'attend pas un `proposal.new` qui pourrait ne jamais venir pour conclure qu'il n'y a rien
+ * (l'inférence par le silence que D49 a supprimée). Toujours `null` pour un client (une
+ * proposition ne vise qu'un chauffeur).
+ *
+ * `rideStateKnown` (L7-04, 6 septembre -- `amoa/questions/REPONSES-2026-09-06.md` §4) : `false`
+ * quand Odoo était injoignable au moment de la resynchronisation. Odoo est seul juge de l'état
+ * d'une course (D27) ; ne pas l'avoir joint ne veut **pas** dire « aucune course active ». Avant,
+ * ce cas se traduisait par un silence (aucun `session.synced`), ce qui privait le chauffeur d'une
+ * proposition pourtant connue localement (Redis). Désormais la réponse part quand même :
+ * `activeProposal` porte ce qu'on sait, `rideStateKnown: false` dit ce qu'on ignore --
+ * `activeRideId`/`activeRideState` sont alors `null` faute d'information, jamais parce qu'on a
+ * confirmé l'absence. L'app ne doit rien conclure de l'état de course tant que ce drapeau est
+ * `false` (elle garde son état courant), mais elle peut ouvrir la proposition portée.
  */
 export const SessionSyncedPayloadSchema = z.object({
   activeRideId: RideIdSchema.nullable(),
   activeRideState: RideStateSchema.nullable(),
+  activeProposal: ActiveProposalSchema.nullable(),
+  rideStateKnown: z.boolean(),
   serverTime: IsoDateTimeSchema,
 });
 export const SessionSyncedMessageSchema = envelopeSchema('session.synced', SessionSyncedPayloadSchema);

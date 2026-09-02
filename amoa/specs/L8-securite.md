@@ -28,13 +28,21 @@ Règles à définir, modèle par modèle :
 | Modèle | Client | Chauffeur |
 |---|---|---|
 | `babana.ride` | Ses courses uniquement | Ses courses uniquement |
-| `babana.driver` | Champs publics des chauffeurs proches | Sa propre fiche |
+| `babana.driver` | **Aucun accès ORM** — servi par le service temps réel et les contrôleurs, en liste blanche | Sa propre fiche |
 | `babana.driver.document` | Aucun accès | Ses propres documents |
-| `babana.motorcycle` | Champs publics de la moto de sa course | Sa moto affectée |
+| `babana.motorcycle` | **Aucun accès ORM** — même raison | Sa moto affectée |
 | `babana.cash.movement` | Aucun accès | Ses propres mouvements |
 | `babana.cash.remittance` | Aucun accès | Ses propres remises |
 | `account.move` | Ses propres factures | Aucun accès |
 | `res.partner` | Sa propre fiche | Fiche du client de sa course active uniquement |
+
+**Correction du 8 septembre : deux cellules de ce tableau demandaient l'impossible.** « Les champs publics des chauffeurs proches » n'est pas exprimable en règle d'enregistrement, pour deux raisons qui tiennent chacune : la proximité est un état géographique temps réel qui vit dans Redis et n'existe pas côté Odoo (invariant 1), et « champs publics » est un filtrage **par colonne**, quand une règle d'enregistrement filtre des **lignes**.
+
+La bonne réponse n'était pas d'affaiblir la règle, c'était de ne rien ouvrir : côté client, ces deux modèles n'ont aucun accès ORM. La liste des chauffeurs proches est servie par le service temps réel avec sa propre liste blanche, l'identité du chauffeur affecté par le contrôleur avec la sienne. Un seul chemin, une projection explicite — plutôt qu'un accès large et l'espoir qu'une couche au-dessus filtre.
+
+**Et les lectures passent par l'utilisateur (D54)**, pas par `sudo` : sans quoi ces règles ne s'exécuteraient jamais sur le chemin mobile, et la seule garde réelle serait le contrôle écrit dans chaque contrôleur.
+
+**Une suspension ne retire pas la lecture (D55).** Le chauffeur suspendu garde la vue sur son compte courant, ses remises et la course qu'il est en train de faire.
 
 **La dernière ligne est la plus délicate** : le chauffeur doit joindre son passager pendant la course, et ne doit plus y accéder après. La règle doit être conditionnée à l'existence d'une course active, pas à un historique.
 

@@ -38,3 +38,9 @@ access_babana_incident_admin,babana.incident admin,model_babana_incident,group_b
 access_babana_ride_share_admin,babana.ride.share admin,model_babana_ride_share,group_babana_admin,1,1,1,1
 access_babana_device_token_supervisor,babana.device.token supervisor,model_babana_device_token,group_babana_supervisor,1,0,0,0
 access_babana_device_token_admin,babana.device.token admin,model_babana_device_token,group_babana_admin,1,1,1,1
+access_babana_ride_portal,babana.ride portal read-only (ir.rule filtered),model_babana_ride,base.group_portal,1,0,0,0
+access_babana_driver_portal,babana.driver portal read-only own record,model_babana_driver,base.group_portal,1,0,0,0
+access_babana_driver_document_portal,babana.driver.document portal read-only own docs,model_babana_driver_document,base.group_portal,1,0,0,0
+access_babana_motorcycle_portal,babana.motorcycle portal read-only assigned,model_babana_motorcycle,base.group_portal,1,0,0,0
+access_babana_cash_movement_portal,babana.cash.movement portal read-only own,model_babana_cash_movement,base.group_portal,1,0,0,0
+access_babana_cash_remittance_portal,babana.cash.remittance portal read-only own,model_babana_cash_remittance,base.group_portal,1,0,0,0

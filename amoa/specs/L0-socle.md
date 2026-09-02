@@ -262,6 +262,16 @@ En production, les secrets viennent d'un gestionnaire de secrets ou de variables
 
 **Rotation** : documenter la procédure pour chaque secret. Un secret dont personne ne sait comment le remplacer ne sera jamais remplacé, y compris après une fuite.
 
+**Aucune valeur par défaut ne pointe vers un service simulé** (application de D43, constatée le 6 septembre). `SMTP_HOST=mailpit` figurait dans le fichier d'exemple, que la commande de démarrage recopie quand aucune configuration n'existe. Une mise en production qui suit le chemin documenté enverrait donc ses factures à un simulateur — qui les **accepte** et les garde, sans erreur, sans trace côté client.
+
+C'est le symétrique exact de D43 : là une configuration absente retombait sur le vrai fournisseur, ici elle retombe sur le simulateur. Le défaut est le même — une valeur par défaut qui produit un comportement faux au lieu d'un échec bruyant — et il est pire dans ce sens-là, parce qu'un simulateur répond « envoyé ».
+
+Les réglages qui désignent un fournisseur réel n'ont donc **pas de valeur par défaut** : vides dans le fichier d'exemple, renseignés explicitement par la configuration de développement pour les simulateurs. Non configuré, on échoue à l'envoi, bruyamment.
+
+**Le jeu de données de démonstration n'est complet que s'il se montre.** Une position de chauffeur ne vit que dans Redis, et le pool n'a qu'un seul écrivain (D26) : aucun script de données ne peut poser un chauffeur sur la carte sans violer cette frontière. Cette tâche livre donc aussi **l'outil qui met en ligne les chauffeurs du jeu de données par le vrai chemin** — authentification, connexion, déclaration de disponibilité, émission de positions — et les fait se déplacer dans Douala.
+
+Ce n'est pas un utilitaire de circonstance : les nuits de vérification le réécrivent à la main depuis un mois, et chaque répétition avant le pilote en aura besoin.
+
 ### Critères d'acceptation
 
 1. `.env.example` est complet : un nouveau développeur le copie et `make up` fonctionne.

@@ -38,6 +38,7 @@ jest.mock('../../location', () => ({
 }));
 
 import { HomeScreen } from '../HomeScreen';
+import { resetProposalDedup } from '../../proposalDedup';
 
 function fakeNavigation() {
   return { navigate: jest.fn(), getState: jest.fn(() => ({ routes: [{ name: 'Home' }] })) };
@@ -69,13 +70,36 @@ function texts(root: ReactTestRenderer): string {
     .join(' ');
 }
 
-function emitSessionSynced(activeRideState: string | null) {
+function emitSessionSynced(
+  activeRideState: string | null,
+  activeProposal: Record<string, unknown> | null = null,
+  rideStateKnown = true
+) {
   realtimeListener?.({
     type: 'session.synced',
     id: 's1',
     emittedAt: new Date().toISOString(),
-    payload: { activeRideId: activeRideState ? 'r1' : null, activeRideState, serverTime: new Date().toISOString() },
+    payload: {
+      activeRideId: activeRideState ? 'r1' : null,
+      activeRideState,
+      activeProposal,
+      rideStateKnown,
+      serverTime: new Date().toISOString(),
+    },
   });
+}
+
+function anActiveProposal(rideId = 'ride-resync') {
+  return {
+    rideId,
+    origin: { latitude: 4.05, longitude: 9.7 },
+    destination: { latitude: 4.06, longitude: 9.71 },
+    amount: 1500,
+    distanceMeters: 2400,
+    distanceToOriginMeters: 700,
+    expiresAt: new Date(Date.now() + 6_000).toISOString(),
+    emittedAt: new Date(Date.now() - 24_000).toISOString(),
+  };
 }
 
 function emitProposal(rideId = 'r1') {
@@ -100,6 +124,7 @@ beforeEach(() => {
   realtimeListener = null;
   connectionStateListener = null;
   mockConnectionState = 'offline';
+  resetProposalDedup();
 });
 
 describe('HomeScreen (L6-11)', () => {
@@ -145,6 +170,22 @@ describe('HomeScreen (L6-11)', () => {
     expect(root.root.findByProps({ testID: 'availability-toggle' }).props.disabled).toBe(false);
   });
 
+  it("L7-04 -- session.synced avec rideStateKnown false (Odoo injoignable) ne change pas l'état de course : il n'est pas inféré d'un null", async () => {
+    const { root } = await renderHome();
+
+    await act(async () => {
+      emitSessionSynced('assigned');
+    });
+    expect(root.root.findByProps({ testID: 'availability-toggle' }).props.disabled).toBe(true);
+
+    // Odoo injoignable : activeRideState arrive à null, mais rideStateKnown est false -- l'app
+    // garde ce qu'elle sait, la bascule reste verrouillée.
+    await act(async () => {
+      emitSessionSynced(null, null, false);
+    });
+    expect(root.root.findByProps({ testID: 'availability-toggle' }).props.disabled).toBe(true);
+  });
+
   it('une proposition reçue navigue vers l’écran Proposal avec son rideId', async () => {
     const { navigation } = await renderHome();
 
@@ -168,5 +209,59 @@ describe('HomeScreen (L6-11)', () => {
     });
 
     expect(navigation.navigate).not.toHaveBeenCalled();
+  });
+
+  it('proposal.new est ouvert en mode realtime avec emittedAt (pour proposal.seen, L7-04)', async () => {
+    const { navigation } = await renderHome();
+
+    await act(async () => {
+      emitProposal('ride-77');
+    });
+
+    expect(navigation.navigate).toHaveBeenCalledWith(
+      'Proposal',
+      expect.objectContaining({ source: 'realtime', rideId: 'ride-77', emittedAt: expect.any(String) })
+    );
+  });
+
+  it('L7-04 -- une proposition active retrouvée dans session.synced.activeProposal ouvre l’écran (app relancée / reconnexion)', async () => {
+    const { navigation } = await renderHome();
+    const active = anActiveProposal('ride-resync');
+
+    await act(async () => {
+      emitSessionSynced(null, active);
+    });
+
+    expect(navigation.navigate).toHaveBeenCalledWith(
+      'Proposal',
+      expect.objectContaining({
+        source: 'realtime',
+        rideId: 'ride-resync',
+        amount: 1500,
+        expiresAt: active.expiresAt,
+        emittedAt: active.emittedAt,
+      })
+    );
+  });
+
+  it("L7-04 -- session.synced sans activeProposal n'ouvre aucun écran (l'absence est un fait, pas un silence)", async () => {
+    const { navigation } = await renderHome();
+
+    await act(async () => {
+      emitSessionSynced('assigned', null);
+    });
+
+    expect(navigation.navigate).not.toHaveBeenCalled();
+  });
+
+  it('L7-04 -- déduplication : le WebSocket puis session.synced pour la même course n’ouvrent qu’un écran', async () => {
+    const { navigation } = await renderHome();
+
+    await act(async () => {
+      emitProposal('ride-dup');
+      emitSessionSynced(null, anActiveProposal('ride-dup'));
+    });
+
+    expect(navigation.navigate).toHaveBeenCalledTimes(1);
   });
 });

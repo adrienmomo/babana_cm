@@ -247,7 +247,7 @@ describe('ActiveRideScreen (L6-13)', () => {
   it('session.synced in_progress fait reprendre en trajet après un redémarrage de l’app', async () => {
     const { root } = await renderActiveRide();
     await act(async () => {
-      emit({ type: 'session.synced', payload: { activeRideId: RIDE_ID, activeRideState: 'in_progress', serverTime: new Date().toISOString() } });
+      emit({ type: 'session.synced', payload: { activeRideId: RIDE_ID, activeRideState: 'in_progress', activeProposal: null, rideStateKnown: true, serverTime: new Date().toISOString() } });
     });
     expect(texts(root)).toContain('Course en cours');
   });

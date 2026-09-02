@@ -7,6 +7,7 @@ import {
   AvailabilitySetMessageSchema,
   ProposalAcceptMessageSchema,
   ProposalRejectMessageSchema,
+  ProposalSeenMessageSchema,
   NearbySubscribeMessageSchema,
   NearbyUnsubscribeMessageSchema,
   RideTrackMessageSchema,
@@ -102,6 +103,21 @@ describe('exemples valides — chauffeur vers serveur', () => {
     );
     assert.doesNotThrow(() =>
       ProposalRejectMessageSchema.parse({ type: 'proposal.reject', id: randomUUID(), emittedAt: now, payload: { rideId } })
+    );
+  });
+
+  test('proposal.seen (L7-04) -- porte l\'emittedAt d\'origine de la proposition', () => {
+    assert.doesNotThrow(() =>
+      ProposalSeenMessageSchema.parse({
+        type: 'proposal.seen',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: { rideId, emittedAt: now },
+      })
+    );
+    // `emittedAt` de la charge utile est requis : sans lui, aucun délai à mesurer.
+    assert.throws(() =>
+      ProposalSeenMessageSchema.parse({ type: 'proposal.seen', id: randomUUID(), emittedAt: now, payload: { rideId } })
     );
   });
 });
@@ -367,7 +383,72 @@ describe('exemples valides — serveur vers client', () => {
         type: 'session.synced',
         id: randomUUID(),
         emittedAt: now,
-        payload: { activeRideId: rideId, activeRideState: 'in_progress', serverTime: now },
+        payload: {
+          activeRideId: rideId,
+          activeRideState: 'in_progress',
+          activeProposal: null,
+          rideStateKnown: true,
+          serverTime: now,
+        },
+      })
+    );
+    // L7-04 : une proposition active retrouvée par resynchronisation -- même forme que
+    // proposal.new, plus emittedAt (l'échéance portée est la véritable, pas trente secondes).
+    assert.doesNotThrow(() =>
+      SessionSyncedMessageSchema.parse({
+        type: 'session.synced',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: {
+          activeRideId: null,
+          activeRideState: null,
+          activeProposal: {
+            rideId,
+            origin: { latitude: 4.05, longitude: 9.7 },
+            destination: { latitude: 4.06, longitude: 9.71 },
+            amount: 1500,
+            distanceMeters: 2400,
+            distanceToOriginMeters: 800,
+            expiresAt: now,
+            emittedAt: now,
+          },
+          rideStateKnown: true,
+          serverTime: now,
+        },
+      })
+    );
+    // L7-04 (6 septembre) : Odoo injoignable -- la réponse part quand même, elle porte la
+    // proposition connue localement et dit que l'état de course est indéterminé.
+    assert.doesNotThrow(() =>
+      SessionSyncedMessageSchema.parse({
+        type: 'session.synced',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: {
+          activeRideId: null,
+          activeRideState: null,
+          activeProposal: null,
+          rideStateKnown: false,
+          serverTime: now,
+        },
+      })
+    );
+    // `activeProposal` est requis (jamais implicite) : l'absence se dit avec `null`.
+    assert.throws(() =>
+      SessionSyncedMessageSchema.parse({
+        type: 'session.synced',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: { activeRideId: rideId, activeRideState: 'in_progress', rideStateKnown: true, serverTime: now },
+      })
+    );
+    // `rideStateKnown` est requis lui aussi : dire explicitement si l'état est connu.
+    assert.throws(() =>
+      SessionSyncedMessageSchema.parse({
+        type: 'session.synced',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: { activeRideId: rideId, activeRideState: 'in_progress', activeProposal: null, serverTime: now },
       })
     );
   });

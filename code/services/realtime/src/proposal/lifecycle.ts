@@ -5,9 +5,10 @@ import { realtime } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ConnectionRegistry } from '../ws/auth';
 import { reserveDriver, releaseDriver } from '../reservation/reserve';
-import { resolve as resolveRideState } from '../ride/state';
+import { resolve as resolveRideState, getState as getRideState } from '../ride/state';
 import { proposalRideIdKey, proposalRecordKey } from './keys';
 import { ProposalTimeoutTimers } from './timeout';
+import { notifyDriverOfProposal, type ProposalNotifier } from './notify';
 import { reportDriverAccepted, reportDriverRejected } from '../odoo/rides';
 import { getDriverProfiles } from '../redis/driver-profiles';
 import { startRideSession } from '../tracking/session';
@@ -48,6 +49,27 @@ export interface ProposalDetails {
 export type ProposeOutcome = { proposed: true; expiresAt: string } | { proposed: false };
 
 /**
+ * Ce qui est réellement écrit dans `proposalRecordKey` : le détail de la proposition, plus trois
+ * champs que seule cette écriture connaît et qu'une resynchronisation devra restituer (L7-04) --
+ *
+ * - `expiresAt` : la **véritable** échéance d'acceptation (`Date.now() +
+ *   PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS`). Stockée explicitement, jamais redérivée du TTL Redis de
+ *   `proposalRideIdKey` : ce TTL est `RESERVATION_TTL_SECONDS`, une durée VOISINE mais distincte
+ *   (marge de sécurité qui doit survivre au minuteur JS, voir config.ts `.refine`). Prendre l'une
+ *   pour l'autre donnerait un compte à rebours « honnête » honnêtement faux -- trente-cinq
+ *   secondes affichées quand il en reste vingt.
+ * - `emittedAt` : l'instant d'émission d'origine, pour le délai d'acheminement (`proposal.seen`,
+ *   critère 4) mesuré même quand l'app n'a jamais reçu `proposal.new`.
+ * - `distanceToOriginMeters` : calculée une fois à l'émission depuis la position Redis du chauffeur
+ *   (D51) -- une resynchronisation ne la recalcule pas (la position a pu bouger, ou expirer).
+ */
+interface StoredProposal extends ProposalDetails {
+  expiresAt: string;
+  emittedAt: string;
+  distanceToOriginMeters: number | null;
+}
+
+/**
  * Décision et écriture dans le MÊME script Lua (`ride/state.lua`, action `resolve`, L3-18) :
  * aucune condition en TypeScript entre la lecture de l'état d'une proposition et sa résolution.
  * Un driverId passe par ici trois fois au plus dans la vie d'une proposition -- acceptation,
@@ -68,7 +90,13 @@ export class ProposalLifecycle {
   constructor(
     private readonly config: Config,
     private readonly redis: Redis,
-    private readonly registry: ConnectionRegistry
+    private readonly registry: ConnectionRegistry,
+    /**
+     * Notification push haute priorité, émise EN PARALLÈLE de `proposal.new` (L7-04, critère 1 --
+     * jamais à sa place). Injectable pour les tests ; en production c'est `notifyDriverOfProposal`
+     * (délègue à Odoo, qui porte l'unique émetteur FCM et le registre de jetons -- invariant 1).
+     */
+    private readonly notifier: ProposalNotifier = notifyDriverOfProposal
   ) {}
 
   /**
@@ -83,6 +111,7 @@ export class ProposalLifecycle {
       return { proposed: false };
     }
 
+    const emittedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + this.config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS * 1000).toISOString();
 
     // D51 (31 août) : distance à vide jusqu'au client -- calculée ici depuis la position du
@@ -95,15 +124,20 @@ export class ProposalLifecycle {
       ? Math.round(haversineDistanceMeters(driverPosition, details.origin))
       : null;
 
+    // Enregistrement enrichi (L7-04) : `expiresAt`/`emittedAt`/`distanceToOriginMeters` en plus du
+    // détail, pour qu'une resynchronisation (`peekActiveProposal`) restitue une proposition
+    // qu'aucun `proposal.new` n'a jamais atteinte -- app fermée, ouverte depuis la notification.
+    const stored: StoredProposal = { ...details, expiresAt, emittedAt, distanceToOriginMeters };
+
     await Promise.all([
       this.redis.set(proposalRideIdKey(driverId), details.rideId, 'EX', this.config.RESERVATION_TTL_SECONDS),
-      this.redis.set(proposalRecordKey(driverId), JSON.stringify(details), 'EX', this.config.RESERVATION_TTL_SECONDS),
+      this.redis.set(proposalRecordKey(driverId), JSON.stringify(stored), 'EX', this.config.RESERVATION_TTL_SECONDS),
     ]);
 
     this.sendToDriver(driverId, {
       type: 'proposal.new',
       id: randomUUID(),
-      emittedAt: new Date().toISOString(),
+      emittedAt,
       payload: {
         rideId: details.rideId,
         origin: details.origin,
@@ -114,6 +148,13 @@ export class ProposalLifecycle {
         expiresAt,
       },
     });
+
+    // Notification push EN PARALLÈLE du message WebSocket, jamais à sa place (L7-04, critère 1) :
+    // si le chauffeur est connecté, le WebSocket arrive en premier et l'app ignore la notification
+    // redondante (déduplication par identifiant de proposition, côté app). S'il ne l'est pas,
+    // c'est le seul canal qui l'atteint. Non bloquant -- une notification perdue ne bloque aucun
+    // parcours (L7-06), et un envoi lent ne doit pas retarder la réservation.
+    this.notifier(this.config, { driverId, rideId: details.rideId, expiresAt });
 
     this.timers.schedule(driverId, this.config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS, () => {
       this.expire(driverId).catch(() => {
@@ -266,11 +307,49 @@ export class ProposalLifecycle {
     }
   }
 
-  private async consumeRecord(driverId: string): Promise<ProposalDetails | null> {
+  private async consumeRecord(driverId: string): Promise<StoredProposal | null> {
     const raw = await this.redis.get(proposalRecordKey(driverId));
     if (!raw) return null;
     await this.redis.del(proposalRecordKey(driverId));
-    return JSON.parse(raw) as ProposalDetails;
+    return JSON.parse(raw) as StoredProposal;
+  }
+
+  /**
+   * Proposition active de ce chauffeur, restituée à une resynchronisation (L7-04, `ws/resync.ts`)
+   * -- SANS la consommer, contrairement à `consumeRecord` : une resynchronisation relit, elle ne
+   * résout pas. `null` quand il n'y en a pas *ou* qu'elle est déjà échue -- l'absence se dit
+   * explicitement (`session.synced.activeProposal: null`), jamais déduite d'un silence.
+   *
+   * Trois gardes : le record doit exister, l'état de course du chauffeur doit toujours être
+   * `reserved` (une acceptation le fait passer `engaged` dans le même script Lua ; un refus ou
+   * une expiration l'efface -- `proposalRecordKey`, lui, n'est effacé qu'ensuite, à un `await`
+   * près : lire l'état referme cette fenêtre), et `expiresAt` ne doit pas être échu. Une
+   * notification ouverte vingt secondes trop tard n'affiche donc pas des boutons pour une course
+   * qui n'est plus à prendre (critère 3).
+   */
+  async peekActiveProposal(
+    driverId: string,
+    nowMs: number = Date.now()
+  ): Promise<realtime.ActiveProposal | null> {
+    const [raw, state] = await Promise.all([
+      this.redis.get(proposalRecordKey(driverId)),
+      getRideState(this.redis, driverId),
+    ]);
+    if (!raw || state !== 'reserved') return null;
+
+    const stored = JSON.parse(raw) as StoredProposal;
+    if (Date.parse(stored.expiresAt) <= nowMs) return null;
+
+    return {
+      rideId: stored.rideId,
+      origin: stored.origin,
+      destination: stored.destination,
+      amount: stored.amount,
+      distanceMeters: stored.distanceMeters,
+      distanceToOriginMeters: stored.distanceToOriginMeters,
+      expiresAt: stored.expiresAt,
+      emittedAt: stored.emittedAt,
+    };
   }
 
   private sendToDriver(driverId: string, message: realtime.ServerToClientMessage): void {

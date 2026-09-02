@@ -8,6 +8,7 @@ import { setOnline, setOffline } from '../driver/availability';
 import { isCashBlocked } from '../driver/cash-guard';
 import type { NearbyManager } from '../nearby/handler';
 import type { ProposalLifecycle } from '../proposal/lifecycle';
+import { proposalDeliveryMetrics } from '../proposal/delivery-metrics';
 import type { TrackingManager } from '../tracking/broadcast';
 import { handleSessionResync } from './resync';
 
@@ -96,6 +97,20 @@ export function createMessageDispatcher(
         if (context.role !== 'driver' || !context.driverId) return;
         await proposals.reject(context.driverId, message.payload.rideId, message.payload.reason);
         return;
+      case 'proposal.seen': {
+        // Émetteur : chauffeur (C-02). Purement télémétrique (L7-04, critère 4) -- aucune réponse,
+        // aucun effet sur l'état d'une course. `emittedAt` vient de la charge utile (émission
+        // d'origine de la proposition), jamais de l'enveloppe de CE message qui date de
+        // l'affichage. Un client qui forgerait ce message est ignoré (garde de rôle, L3-01).
+        if (context.role !== 'driver') return;
+        const emittedAtMs = Date.parse(message.payload.emittedAt);
+        if (Number.isNaN(emittedAtMs)) return;
+        proposalDeliveryMetrics.record(
+          Date.now() - emittedAtMs,
+          config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS * 1000
+        );
+        return;
+      }
       case 'ride.track':
         // Émetteur : client (C-02). L'identité vient du contexte de connexion (invariant L3-01) ;
         // rideId est une donnée métier, jamais une identité -- l'appartenance réelle est vérifiée
@@ -105,8 +120,9 @@ export function createMessageDispatcher(
         return;
       case 'session.resync':
         // Émetteur : client ou chauffeur (C-02) -- pas de garde-fou de rôle ici, les deux ont le
-        // droit de resynchroniser leur propre session.
-        await handleSessionResync(config, context, socket, message.payload);
+        // droit de resynchroniser leur propre session. `proposals` sert la relecture de
+        // proposition active (L7-04), qui ne concerne qu'un chauffeur.
+        await handleSessionResync(config, proposals, context, socket, message.payload);
         return;
       default:
         return;

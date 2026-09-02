@@ -30,6 +30,13 @@
       "consumer": "réel et testé : dispatch.ts -> proposal/lifecycle.ts::reject, services/realtime/test/proposal.test.ts."
     },
     {
+      "name": "proposal.seen",
+      "direction": "client-to-server",
+      "status": "wired",
+      "emitter": "apps/driver/src/screens/ProposalScreen.tsx (L7-04, 5 septembre) -- émis une seule fois, quand l'écran de proposition s'est réellement affiché (boutons + compte à rebours), quelle que soit la source (proposal.new ou session.synced.activeProposal). Porte l'emittedAt d'origine de la proposition, jamais celui de l'enveloppe de ce message. apps/driver/src/screens/__tests__/ProposalScreen.test.tsx.",
+      "consumer": "réel et testé : services/realtime/src/ws/dispatch.ts (case 'proposal.seen') -> proposal/delivery-metrics.ts (ProposalDeliveryMetrics : délai émission -> affichage, compteur de dépassement du budget d'acceptation). services/realtime/test/proposal-delivery.test.ts."
+    },
+    {
       "name": "nearby.subscribe",
       "direction": "client-to-server",
       "status": "wired",
@@ -154,9 +161,9 @@
       "name": "session.synced",
       "direction": "server-to-client",
       "status": "pending",
-      "emitter": "réel et testé : services/realtime/src/ws/resync.ts, services/realtime/test/resync.test.ts.",
-      "consumer": "partiel : apps/driver/src/screens/HomeScreen.tsx lit activeRideState pour désactiver la bascule en ligne/hors ligne pendant une course (L6-11, L3-04 critère 2) ; ProposalScreen.tsx s'en sert comme filet si proposal.accepted (D49) s'est perdu ; ActiveRideScreen.tsx (L6-13) s'en sert pour reprendre en phase trajet si l'app a été tuée puis relancée en pleine course (activeRideState == in_progress). Mais aucun écran n'applique encore activeRideId pour reprendre la navigation depuis zéro après reconnexion dans le cas général (le cas que cette entrée nommait à l'origine).",
-      "reason": "Reprise de navigation après reconnexion toujours non câblée -- candidat naturel : L6-16 (mode dégradé réseau, apps/client), non commencée. Voir amoa/questions/C-02R.md."
+      "emitter": "réel et testé : services/realtime/src/ws/resync.ts, services/realtime/test/resync.test.ts. Porte depuis L7-04 (5 septembre) `activeProposal` : la proposition active du chauffeur avec sa véritable échéance, lue localement (ProposalLifecycle.peekActiveProposal), ou `null` explicite. Depuis L7-04 (6 septembre) `rideStateKnown` : `false` si Odoo était injoignable -- la réponse part quand même, elle porte `activeProposal` et dit que l'état de course est indéterminé (activeRideId/activeRideState null faute d'information, pas parce que l'absence est confirmée).",
+      "consumer": "partiel : apps/driver/src/screens/HomeScreen.tsx lit activeRideState pour désactiver la bascule en ligne/hors ligne pendant une course (L6-11, L3-04 critère 2), SEULEMENT si rideStateKnown ET ouvre l'écran de proposition sur `activeProposal` non nul -- une proposition retrouvée après reconnexion ou relance (L7-04) ; apps/driver/src/location/tracker.ts applique la même garde rideStateKnown ; ProposalScreen.tsx s'en sert pour la revalidation en mode notification (activeProposal), et comme filet si proposal.accepted (D49) s'est perdu ; ActiveRideScreen.tsx (L6-13) s'en sert pour reprendre en phase trajet si l'app a été tuée puis relancée en pleine course (activeRideState == in_progress, garde par match positif -- insensible au cas indéterminé). Mais aucun écran n'applique encore activeRideId pour reprendre la navigation vers une course en cours depuis zéro après reconnexion dans le cas général.",
+      "reason": "Reprise de navigation vers une course EN COURS après reconnexion toujours non câblée (activeRideId + activeRideState 'assigned'/'in_progress' -> ActiveRideScreen depuis n'importe quel écran) -- candidat naturel : L6-16 (mode dégradé réseau, apps/client), non commencée. Le volet proposition (activeProposal) est câblé par L7-04. Voir amoa/questions/C-02R.md."
     }
   ]
 }

@@ -32,11 +32,16 @@ fi
 # 4. Valeur à forte entropie assignée à une variable *_SECRET/*_PASSWORD/*_TOKEN/*_KEY,
 # à l'exclusion des marqueurs de substitution volontairement factices utilisés dans ce dépôt
 # (voir infra/env/.env.example) et des schémas de contrat qui nomment ces champs sans leur
-# donner de valeur.
+# donner de valeur. `babana-dev-keychain-stub` est le NOM de clé localStorage du stub de
+# trousseau web (apps/client/webpack-stubs/react-native-keychain.web.js), pas un secret --
+# faux positif de l'heuristique d'entropie (mots du dictionnaire), traité comme les deux
+# marqueurs ci-dessus. Trouvé J29 : `make secrets-scan` échouait en silence depuis le 21 août
+# (le stub n'existait pas avant), une commande documentée qui échoue est pire qu'absente.
 if git ls-files -z \
   | xargs -0 grep -nEi -- '(SECRET|PASSWORD|TOKEN|_KEY)[A-Z_]*[[:space:]]*[:=][[:space:]]*["'"'"']?[A-Za-z0-9+/=_-]{20,}' 2>/dev/null \
   | grep -v -- 'dev-only-not-a-real-secret' \
   | grep -v -- 'dev-client-id.apps.googleusercontent.com' \
+  | grep -v -- 'babana-dev-keychain-stub' \
   | grep -v -- '\.env\.example:' \
   | grep -v -- '\.ts:' \
   | grep -v -- '\.md:'; then
