@@ -3,6 +3,7 @@ from . import models
 from . import controllers
 
 import logging
+import os
 
 _logger = logging.getLogger(__name__)
 
@@ -39,6 +40,48 @@ def _pre_init_backfill_unique_defaults(env):
         "UPDATE res_users SET babana_public_id = gen_random_uuid()::text "
         "WHERE babana_public_id IS NULL"
     )
+
+
+# --------------------------------------------------------------------------------------------
+# D43 -- mot de passe administrateur (constat du 11 septembre,
+# amoa/questions/REPONSES-2026-09-11.md §1 ; amoa/05-prerequis-et-simulation.md §4 ter)
+# --------------------------------------------------------------------------------------------
+#
+# Trois nuits de vues back-office (L9-01 à L9-05) sont restées écrites, testées, et jamais
+# ouvertes : le mécanisme que §4 ter décrivait depuis le premier jour -- un mot de passe posé
+# depuis une variable d'environnement -- n'avait jamais été construit, et `admin`/`admin`
+# n'est acceptable que sur un poste de développement. Comme les adresses de fournisseur externe
+# (D43, GOOGLE_JWKS_URL et consorts) : aucune valeur de repli. Une variable absente ici est une
+# base qui reste en `admin`/`admin` sans que personne ne le sache -- pire qu'un échec bruyant.
+
+
+def _post_init_admin_password(env):
+    """post_init_hook : pose le mot de passe administrateur depuis `ADMIN_PASSWORD`.
+
+    Ne tourne qu'à la première installation (Odoo n'exécute pas post_init_hook sur `-u`), comme
+    `_post_init_currency_and_accounting` juste en dessous. Un déploiement de production qui
+    change ce mot de passe après coup passe par la procédure de rotation documentée
+    (infra/env/README.md), pas par une réinstallation du module.
+    """
+    password = os.environ.get("ADMIN_PASSWORD")
+    if not password:
+        raise ValueError(
+            "D43 : ADMIN_PASSWORD est requis à l'installation du module babana, sans valeur "
+            "par défaut. Développement : posée par infra/compose.dev.yaml. Production : à "
+            "fournir dans infra/env/.env avant `infra/production/deploy.sh` (qui refuse de "
+            "partir sans elle)."
+        )
+    env.ref("base.user_admin").sudo().write({"password": password})
+    _logger.info("babana D43 : mot de passe administrateur posé depuis ADMIN_PASSWORD")
+
+
+def _post_init_hook(env):
+    """Point d'entrée unique du manifeste (Odoo n'appelle qu'un seul `post_init_hook`,
+    `getattr(py_module, post_init)(env)` -- pas de liste). Enchaîne les deux hooks de première
+    installation dans l'ordre où ils sont apparus : D43 puis D53.
+    """
+    _post_init_admin_password(env)
+    _post_init_currency_and_accounting(env)
 
 
 # --------------------------------------------------------------------------------------------

@@ -41,6 +41,7 @@ injecte les variables directement dans l'environnement du conteneur au démarrag
 | `NODE_ENV` | Bascule dev/production des services Node ; garde-fou des mocks (D19) | `development` \| `production` \| `test` | `development` | `production` |
 | `POSTGRES_USER` | Utilisateur PostgreSQL | texte | `odoo` | Choisi à la création de l'instance, sans droits superutilisateur superflus |
 | `POSTGRES_PASSWORD` | Mot de passe PostgreSQL | texte, secret | `dev-only-not-a-real-secret` | Généré aléatoirement, stocké dans le gestionnaire de secrets |
+| `ADMIN_PASSWORD` | Mot de passe du compte administrateur Odoo (`admin`), posé à l'installation du module babana (constat du 11 septembre — `amoa/questions/REPONSES-2026-09-11.md` §1). Lue aussi par des outils hôte (`test/concurrency/helpers/odoo-session.ts`), donc pas d'exception D43 : la valeur de développement vit dans `.env.example`, pas seulement dans `infra/compose.dev.yaml` | texte, secret | `dev-only-not-a-real-secret` | Généré aléatoirement, gestionnaire de secrets — explicite, aucun repli (`_post_init_admin_password` lève, `deploy.sh` bloque une valeur vide ou recopiée du développement) |
 | `GOOGLE_OAUTH_CLIENT_IDS` | Audiences (`aud`) de jeton acceptées, un ou plusieurs identifiants clients OAuth séparés par des virgules (Android, iOS, Web) | liste `xxx.apps.googleusercontent.com` | `dev-client-id.apps.googleusercontent.com` | Console Google Cloud, écran de consentement OAuth du projet babana.cm |
 | `GOOGLE_JWKS_URL` | URL du jeu de clés servant à vérifier la signature des jetons Google (D19 : seul ce qui change entre dev et prod) | URL | **vide** dans `.env.example` ; `infra/compose.dev.yaml` pose `http://mock-google-identity:4000/.well-known/jwks.json` | `https://www.googleapis.com/oauth2/v3/certs` — explicite, aucun repli (`_jwks_url` lève, `deploy.sh` bloque) |
 | `JWT_SECRET` | Signe les jetons applicatifs (accessToken de C-01) | texte, secret, haute entropie | `dev-only-not-a-real-secret` | Généré aléatoirement (256 bits), gestionnaire de secrets |
@@ -77,6 +78,13 @@ le mot de passe dans PostgreSQL (`ALTER USER ... WITH PASSWORD ...`), puis la va
 gestionnaire de secrets, puis relancer le service `odoo` (et `realtime` s'il devait un jour s'y
 connecter directement — aujourd'hui non, invariant 1). Aucune coupure de service si fait dans cet
 ordre : PostgreSQL accepte l'ancien et le nouveau mot de passe jusqu'au redémarrage d'Odoo.
+
+**`ADMIN_PASSWORD`** — Se connecter au back-office (`admin.<domaine>`) avec l'ancien mot de
+passe, changer le mot de passe du compte `admin` depuis son profil (Odoo le hache
+immédiatement), puis mettre à jour la variable dans le gestionnaire de secrets pour qu'un futur
+`docker compose up` ne recrée pas de divergence. Ne redéclenche pas d'installation : le
+`post_init_hook` qui pose cette variable ne rejoue pas sur une base existante (D43) — c'est ici,
+depuis l'interface, que la rotation se fait, pas en réinstallant le module.
 
 **`JWT_SECRET`** — Générer une nouvelle valeur (`openssl rand -base64 32`). **Invalide tous les
 jetons applicatifs en circulation** : chaque utilisateur connecté est déconnecté et doit se

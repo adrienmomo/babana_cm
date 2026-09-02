@@ -17,7 +17,7 @@ import type { DriverParamList } from '../navigation/types';
  * CETTE déclaration -- une déclaration rejouée ne crée jamais une seconde remise (Odoo,
  * `babana.idempotency.record`). Même patron que `SettlementScreen.tsx` : mise en file avec un
  * bouton de nouvelle tentative manuelle, pas encore le remplacement automatique à la reconnexion
- * qu'apportera L6-16 (hors de ce lot, voir `packages/api-client/src/http/rpc.ts`).
+ * qu'apporte L6-16.
  */
 
 type Props = NativeStackScreenProps<DriverParamList, 'Remittance'>;

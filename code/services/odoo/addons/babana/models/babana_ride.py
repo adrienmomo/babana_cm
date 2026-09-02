@@ -54,7 +54,9 @@ class BabanaRide(models.Model):
     _rec_name = "reference"
 
     # --- Identité --------------------------------------------------------------------------
-    reference = fields.Char(required=True, readonly=True, copy=False, index=True, default="/")
+    reference = fields.Char(
+        string="Référence", required=True, readonly=True, copy=False, index=True, default="/"
+    )
     public_id = fields.Char(
         string="Identifiant public",
         index=True,
@@ -66,6 +68,7 @@ class BabanaRide(models.Model):
     )
     state = fields.Selection(
         RIDE_STATES,
+        string="État",
         default="requested",
         required=True,
         index=True,
@@ -74,17 +77,21 @@ class BabanaRide(models.Model):
 
     # --- Parties -----------------------------------------------------------------------------
     client_id = fields.Many2one("res.partner", required=True, index=True, ondelete="restrict")
-    driver_id = fields.Many2one("babana.driver", index=True, ondelete="restrict")
+    driver_id = fields.Many2one(
+        "babana.driver", string="Chauffeur", index=True, ondelete="restrict"
+    )
     # Moto (babana.motorcycle, L1-07) omise : le modèle n'existe pas encore, un Many2one vers un
     # modèle absent empêcherait l'installation. Voir amoa/questions/L4-01.md.
 
     # --- Géographie ----------------------------------------------------------------------------
     pickup_latitude = fields.Float(required=True, digits=(10, 6))
     pickup_longitude = fields.Float(required=True, digits=(10, 6))
-    pickup_label = fields.Char(help="Repère ou adresse saisie par le client (Douala, D-quoi).")
+    pickup_label = fields.Char(
+        string="Départ", help="Repère ou adresse saisie par le client (Douala, D-quoi)."
+    )
     dropoff_latitude = fields.Float(required=True, digits=(10, 6))
     dropoff_longitude = fields.Float(required=True, digits=(10, 6))
-    dropoff_label = fields.Char()
+    dropoff_label = fields.Char(string="Arrivée")
     # pickup_zone_id / dropoff_zone_id (babana.zone, L2-02) : posés par L2-04 (affectation du 13
     # août -- L9-07 doit produire les zones les plus actives, impossible sans elles). Résolus une
     # fois à la cotation (controllers/quote.py) et copiés sur la course à sa création (L4-03R) --
@@ -162,11 +169,12 @@ class BabanaRide(models.Model):
         help="[PONT — remplacé par L2-06] Remplace un Many2one babana.promotion, absent ce soir.",
     )
     discount_amount = fields.Monetary(currency_field="currency_id")
-    final_amount = fields.Monetary(currency_field="currency_id")
+    final_amount = fields.Monetary(string="Montant final", currency_field="currency_id")
 
     # --- Paiement ------------------------------------------------------------------------------
     payment_method = fields.Selection(
-        [("cash", "Espèces")], default="cash", required=True, help="D9 : espèces uniquement en v1."
+        [("cash", "Espèces")], string="Moyen de paiement", default="cash", required=True,
+        help="D9 : espèces uniquement en v1."
     )
     invoice_id = fields.Many2one("account.move", copy=False, ondelete="restrict")
     settled_at = fields.Datetime()
@@ -304,8 +312,12 @@ class BabanaRideRejection(models.Model):
     _order = "rejected_at desc"
 
     ride_id = fields.Many2one(
-        "babana.ride", required=True, index=True, ondelete="cascade"
+        "babana.ride", string="Course", required=True, index=True, ondelete="cascade"
     )
-    driver_id = fields.Many2one("babana.driver", required=True, ondelete="restrict")
-    reason = fields.Char()
-    rejected_at = fields.Datetime(default=lambda self: fields.Datetime.now(), required=True)
+    driver_id = fields.Many2one(
+        "babana.driver", string="Chauffeur", required=True, ondelete="restrict"
+    )
+    reason = fields.Char(string="Motif")
+    rejected_at = fields.Datetime(
+        string="Refusé à", default=lambda self: fields.Datetime.now(), required=True
+    )

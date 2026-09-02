@@ -195,7 +195,13 @@
 
     <menuitem id="babana_menu_root" name="Babana" sequence="50"
         groups="babana.group_babana_supervisor,babana.group_babana_manager,babana.group_babana_admin"/>
-    <menuitem id="babana_menu_fleet" name="Flotte" parent="babana_menu_root" sequence="20"/>
+    <!-- Sans ce groups=, le superviseur verrait ce menu de gestion dès qu'il a un accès en
+         lecture sur babana.motorcycle (nécessaire pour afficher motorcycle_id dans la liste et
+         le formulaire chauffeur, security/ir.model.access.csv) : Odoo masque un menu par défaut
+         seulement si l'utilisateur n'a AUCUN droit sur le modèle de son action, pas s'il n'a que
+         la lecture. Constaté en revue visuelle du 2 septembre. -->
+    <menuitem id="babana_menu_fleet" name="Flotte" parent="babana_menu_root" sequence="20"
+        groups="babana.group_babana_manager"/>
     <menuitem id="babana_menu_motorcycle" name="Motos" parent="babana_menu_fleet"
         action="babana_motorcycle_action" sequence="10"/>
     <menuitem id="babana_menu_motorcycle_deadlines" name="Échéances d'assurance"

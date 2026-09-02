@@ -3,6 +3,7 @@ access_babana_token_admin,babana.token admin,model_babana_token,group_babana_adm
 access_babana_driver_supervisor,babana.driver supervisor,model_babana_driver,group_babana_supervisor,1,0,0,0
 access_babana_driver_manager,babana.driver manager,model_babana_driver,group_babana_manager,1,1,1,0
 access_babana_driver_admin,babana.driver admin,model_babana_driver,group_babana_admin,1,1,1,1
+access_babana_driver_document_supervisor,babana.driver.document supervisor read-only,model_babana_driver_document,group_babana_supervisor,1,0,0,0
 access_babana_driver_document_manager,babana.driver.document manager,model_babana_driver_document,group_babana_manager,1,1,1,0
 access_babana_driver_decision_manager,babana.driver.decision manager,model_babana_driver_decision,group_babana_manager,1,1,1,1
 access_babana_driver_document_admin,babana.driver.document admin,model_babana_driver_document,group_babana_admin,1,1,1,1
@@ -12,12 +13,16 @@ access_babana_ride_admin,babana.ride admin,model_babana_ride,group_babana_admin,
 access_babana_ride_rejection_supervisor,babana.ride.rejection supervisor,model_babana_ride_rejection,group_babana_supervisor,1,0,0,0
 access_babana_ride_rejection_manager,babana.ride.rejection manager,model_babana_ride_rejection,group_babana_manager,1,1,1,0
 access_babana_ride_rejection_admin,babana.ride.rejection admin,model_babana_ride_rejection,group_babana_admin,1,1,1,1
+access_babana_motorcycle_supervisor,babana.motorcycle supervisor read-only,model_babana_motorcycle,group_babana_supervisor,1,0,0,0
 access_babana_motorcycle_manager,babana.motorcycle manager,model_babana_motorcycle,group_babana_manager,1,1,1,0
 access_babana_motorcycle_admin,babana.motorcycle admin,model_babana_motorcycle,group_babana_admin,1,1,1,1
+access_babana_assignment_supervisor,babana.assignment supervisor read-only,model_babana_assignment,group_babana_supervisor,1,0,0,0
 access_babana_assignment_manager,babana.assignment manager,model_babana_assignment,group_babana_manager,1,1,1,0
 access_babana_assignment_admin,babana.assignment admin,model_babana_assignment,group_babana_admin,1,1,1,0
+access_babana_fare_rule_supervisor,babana.fare.rule supervisor read-only,model_babana_fare_rule,group_babana_supervisor,1,0,0,0
 access_babana_fare_rule_manager,babana.fare.rule manager,model_babana_fare_rule,group_babana_manager,1,1,1,0
 access_babana_fare_rule_admin,babana.fare.rule admin,model_babana_fare_rule,group_babana_admin,1,1,1,1
+access_babana_zone_supervisor,babana.zone supervisor read-only,model_babana_zone,group_babana_supervisor,1,0,0,0
 access_babana_zone_manager,babana.zone manager,model_babana_zone,group_babana_manager,1,1,1,0
 access_babana_zone_admin,babana.zone admin,model_babana_zone,group_babana_admin,1,1,1,1
 access_babana_fare_rule_version_wizard_manager,babana.fare.rule.version.wizard manager,model_babana_fare_rule_version_wizard,group_babana_manager,1,1,1,1

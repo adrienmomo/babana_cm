@@ -18,17 +18,23 @@ class BabanaAssignment(models.Model):
     _order = "start_date desc"
 
     motorcycle_id = fields.Many2one(
-        "babana.motorcycle", required=True, index=True, ondelete="restrict"
+        "babana.motorcycle", string="Moto", required=True, index=True, ondelete="restrict"
     )
-    driver_id = fields.Many2one("babana.driver", required=True, index=True, ondelete="restrict")
-    start_date = fields.Datetime(required=True, default=lambda self: fields.Datetime.now())
+    driver_id = fields.Many2one(
+        "babana.driver", string="Chauffeur", required=True, index=True, ondelete="restrict"
+    )
+    start_date = fields.Datetime(
+        string="Date de début", required=True, default=lambda self: fields.Datetime.now()
+    )
     end_date = fields.Datetime(
+        string="Date de fin",
         help="Vide tant que l'affectation est active. La clore ouvre potentiellement une "
         "nouvelle affectation pour la même moto ou le même chauffeur -- jamais les deux "
         "simultanément (voir les index partiels ci-dessous).",
     )
     author_id = fields.Many2one(
-        "res.users", required=True, default=lambda self: self.env.user, copy=False
+        "res.users", string="Auteur", required=True, default=lambda self: self.env.user,
+        copy=False
     )
 
     _sql_constraints = [

@@ -26,6 +26,7 @@ class BabanaCashMovement(models.Model):
             ("remittance", "Remise"),
             ("adjustment", "Ajustement"),
         ],
+        string="Type de mouvement",
         required=True,
     )
     amount = fields.Monetary(
@@ -42,6 +43,7 @@ class BabanaCashMovement(models.Model):
     )
     ride_id = fields.Many2one(
         "babana.ride",
+        string="Course",
         ondelete="restrict",
         help="Course à l'origine d'un mouvement `collection`. Vide pour une remise ou un "
         "ajustement -- babana.cash.remittance (L5-03) porte la référence équivalente pour les "

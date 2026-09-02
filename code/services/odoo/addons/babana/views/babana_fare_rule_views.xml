@@ -202,7 +202,12 @@
         </field>
     </record>
 
-    <menuitem id="babana_menu_pricing" name="Tarification" parent="babana_menu_root" sequence="30"/>
+    <!-- Même motif que babana_menu_fleet (babana_motorcycle_views.xml) : le superviseur a
+         désormais un accès en lecture à babana.fare.rule (nécessaire pour afficher fare_rule_id
+         sur le formulaire d'une course), ce qui suffirait à faire apparaître ce menu de gestion
+         sans ce groups= explicite. -->
+    <menuitem id="babana_menu_pricing" name="Tarification" parent="babana_menu_root" sequence="30"
+        groups="babana.group_babana_manager"/>
     <menuitem id="babana_menu_fare_rule" name="Grille tarifaire" parent="babana_menu_pricing"
         action="babana_fare_rule_action" sequence="10"/>
     <menuitem id="babana_menu_fare_simulator" name="Simulateur de tarif" parent="babana_menu_pricing"

@@ -28,7 +28,7 @@ class BabanaDriverDocument(models.Model):
     driver_id = fields.Many2one(
         "babana.driver", required=True, index=True, ondelete="cascade"
     )
-    document_type = fields.Selection(DOCUMENT_TYPES, required=True)
+    document_type = fields.Selection(DOCUMENT_TYPES, string="Type de document", required=True)
     storage_key = fields.Char(
         required=True,
         readonly=True,
@@ -41,13 +41,17 @@ class BabanaDriverDocument(models.Model):
         "l'extension ni le type déclaré par l'appelant."
     )
     expires_on = fields.Date(
+        string="Expire le",
         help="Date d'expiration. Obligatoire pour un permis (critère d'acceptation 5) -- "
         "contrainte ci-dessous."
     )
     verification_status = fields.Selection(
-        VERIFICATION_STATUSES, default="pending", required=True
+        VERIFICATION_STATUSES, string="État de vérification", default="pending", required=True
     )
-    rejection_reason = fields.Text(help="Motif, renseigné quand verification_status='rejected'.")
+    rejection_reason = fields.Text(
+        string="Motif de rejet",
+        help="Motif, renseigné quand verification_status='rejected'.",
+    )
     alert_sent_on = fields.Date(
         help="Idempotence de la tâche planifiée d'alerte d'échéance (L1-10, critère "
         "d'acceptation 4) -- porté par le document plutôt que par babana.driver : un chauffeur "
