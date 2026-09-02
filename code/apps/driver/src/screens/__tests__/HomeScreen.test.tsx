@@ -264,4 +264,14 @@ describe('HomeScreen (L6-11)', () => {
 
     expect(navigation.navigate).toHaveBeenCalledTimes(1);
   });
+
+  it("L5-07 -- « Ma caisse » navigue vers l'écran de recette, accessible en permanence depuis l'accueil", async () => {
+    const { root, navigation } = await renderHome();
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'home-go-to-cash' }).props.onPress();
+    });
+
+    expect(navigation.navigate).toHaveBeenCalledWith('Cash');
+  });
 });

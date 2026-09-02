@@ -79,9 +79,13 @@ export type DriverParamList = {
     clientPhoneNumber: string | null;
   };
   Settlement: { rideId: RideId; amount: number };
-  /** Déclaration de remise (L5-07, écran pas encore construit -- `amoa/questions/L6-11.md`) :
-   * réservée dès L6-11, qui doit déjà pouvoir y proposer un accès direct quand le motif de refus
-   * de passage en ligne est le plafond d'encaisse (L3-04). */
+  /** Écran de recette (L5-07) : encaissé du jour, solde dû, marge avant plafond, historique des
+   * remises. Point d'entrée permanent depuis Home, pas seulement quand le plafond bloque -- à la
+   * différence de `Remittance` ci-dessous. */
+  Cash: undefined;
+  /** Déclaration de remise (L5-07) -- réservée dès L6-11, qui y propose déjà un accès direct
+   * quand le motif de refus de passage en ligne est le plafond d'encaisse (L3-04), et `Cash`
+   * ci-dessus y mène aussi depuis le bouton « Déclarer une remise ». */
   Remittance: undefined;
 };
 
