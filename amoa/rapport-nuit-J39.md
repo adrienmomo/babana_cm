@@ -89,3 +89,85 @@ que `backup.sh`), pas un module testé par `make test` — cohérent avec le tra
 le vrai bucket, ouverture réelle de l'écran. `make test` complet lancé en fin de nuit (§4) —
 aucune régression introduite par ce changement.
 
+---
+
+## 2. D62 / critère 6 de L8-08 — `restore.sh` exécuté comme script, en entier
+
+### Le point signalé hier soir, tranché
+
+L'en-tête de `restore.sh` annonce `infra/env/.env` comme prérequis, alors que le script le
+déchiffre lui-même (`env-<TS>.age`) quelques lignes plus bas si le fichier est absent. Vérifié
+en exécutant : ce n'était **pas** une contradiction — `$ENV_FILE` n'existant pas dans le projet
+`docker compose` isolé (`babana-restore-test`), le script l'a effectivement reconstitué depuis
+la sauvegarde chiffrée, sans intervention. L'en-tête reste correct au sens strict (« ou laisser
+ce script le faire, il le déchiffre lui-même plus bas »), seulement ambigu à la première lecture
+— rien à corriger dans le script, la lecture d'hier soir avait raison de douter et l'exécution
+tranche en dix secondes exactement comme prévu.
+
+### Séquence réellement lancée
+
+```sh
+docker compose -f infra/compose.yaml -f infra/compose.dev.yaml --env-file infra/env/.env stop caddy
+age-keygen -o /tmp/restore-test-key.txt
+BACKUP_REMOTE=<répertoire local> BACKUP_AGE_RECIPIENTS=<clé publique> sh infra/production/backup.sh
+BACKUP_REMOTE=<même répertoire> RESTORE_TS=20260903T154913Z \
+  BACKUP_AGE_IDENTITY_FILE=/tmp/restore-test-key.txt RESTORE_COMPOSE_PROJECT=babana-restore-test \
+  sh infra/production/restore.sh
+```
+
+`backup.sh` d'abord (réel, contre la pile de développement vivante, jeu de démonstration D63
+compris) — préalable nécessaire pour avoir une sauvegarde chiffrée à restaurer. Puis
+`restore.sh` **lancé comme script, une seule invocation, sans en extraire une commande** :
+`sh infra/production/restore.sh`, code de sortie 0.
+
+**`age` et `rclone` sont maintenant de vrais binaires sur cette machine** (§3 ci-dessous) — le
+contournement par image Docker de la nuit dernière n'existe plus, `backup.sh`/`restore.sh`
+tournent contre les mêmes exécutables qu'un VPS provisionné par `bootstrap.sh` aurait.
+
+### Le vrai piège trouvé en exécutant, invisible à la lecture
+
+Le script a échoué net à sa première tentative, à l'étape qui amène la pile complète
+(`$COMPOSE up -d --build --wait --wait-timeout 300`, celle qui inclut Caddy) : `Bind for
+0.0.0.0:80 failed: port is already allocated`. `RESTORE_COMPOSE_PROJECT` isole les conteneurs,
+les volumes et le réseau du projet de restauration — **pas les ports hôte**. Caddy publie 80/443
+sans condition dans `infra/compose.yaml` (le fichier de base, utilisé par les deux projets), et
+la pile de développement principale les tenait déjà. Sur un hôte vraiment vierge, ce cas ne se
+produirait jamais (rien d'autre n'écoute sur ces ports) — mais quiconque rejoue cet exercice sur
+une machine de développement où `make up` tourne déjà doit le savoir : `docker compose … stop
+caddy` avant, `start caddy` après. Ajouté à `docs/operations/production.md` (§7).
+
+Relancé après avoir libéré les ports : réussi d'un bout à l'autre, sans aucune autre surprise.
+
+### Résultat
+
+Smoke-test intégré au script (`infra/smoke-test.sh`) : 4 `OK` (Odoo, temps réel, back-office,
+métadonnée publique) + 1 refus attendu (lecture directe d'un objet MinIO sans URL signée, 403) +
+1 `Info` (le critère 7 du smoke-test, IP hors liste, se vérifie à la main — inchangé depuis J38).
+Contrôle de cohérence métier intégré : `RESTORE-CHECK rides=39 approved_drivers=29
+cash_movements=9`. Vérifié en plus, à la main, que les pièces de D63 survivent elles aussi au
+cycle complet : objet MinIO `seed/babana-demo-driver-1/license.pdf`, même ETag avant/après
+(`d25d8429965d99443455aad98e478051`).
+
+Conteneurs et volumes du projet de restauration démontés ensuite (`down -v`), Caddy de la pile
+de développement principale redémarré. Journal `docs/operations/production.md` §7 mis à jour
+avec la ligne J39, à côté de celle de J38 (gardée, distincte : J38 avait rejoué les commandes,
+pas le script).
+
+### Ce que ça ne prouve toujours pas
+
+Même frontière que J38, inchangée : un **hôte vierge chez un autre hébergeur** reste hors de
+portée d'une session de développement. Ce que J39 ajoute, c'est que le *script* — pas seulement
+son contenu recopié à la main — a réellement tourné, une fois, avec les vrais outils. La ligne
+du journal dédiée au critère réel de L8-08 reste à sa première ligne vide.
+
+### Tests
+
+Aucun test intégré à `make test`, même choix que J38 (la spécification définit la preuve comme
+un exercice avec compte rendu daté, pas une assertion automatisée). Vérifié : `sh -n` /
+`dash -n` propres sur les deux scripts (déjà vrai depuis J38), exécution réelle ci-dessus, code
+de sortie 0 capturé explicitement (pas déduit d'un pipeline — la première tentative de
+vérification de cette nuit avait elle-même trébuché sur exactement le piège que
+`docs/odoo-pitfalls.md`/le commentaire de `backup.sh` documentent déjà pour `pipefail` : un
+`sh restore.sh | tee fichier` sans `pipefail` masque l'échec de `restore.sh` derrière le succès
+de `tee`. Corrigé en capturant `$?` explicitement après une exécution sans pipe.)
+

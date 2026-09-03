@@ -127,23 +127,32 @@ succès ci-dessous.
 
 #### Restauration prouvée — mécanique (conteneur neuf, ce dépôt)
 
-Ce que cette session pouvait prouver cette nuit-là, et rien de plus : que `backup.sh`/`restore.sh`
+Ce que cette session pouvait prouver, et rien de plus : que `backup.sh`/`restore.sh`
 fonctionnent réellement — chiffrement compris — de bout en bout, contre des conteneurs **neufs**
 (projet `docker compose` isolé, volumes vides), pas contre un hôte vierge chez un autre hébergeur.
 Ce second geste reste entièrement hors de portée d'une session de développement (pas de compte
 chez un hébergeur tiers, pas de seconde machine) et reste à faire par vous — voir le journal
 ci-dessous, toujours à sa première ligne.
 
+**J38 avait prouvé la mécanique en rejouant les commandes de `restore.sh` une à une — pas le
+script.** J39 (ci-dessous) l'a relancé comme script, d'un bout à l'autre, avec
+`sh infra/production/restore.sh` tel quel (D62, critère 6 de L8-08).
+
 | Date | Sauvegarde restaurée | Cible | Résultat | Par |
 |---|---|---|---|---|
-| 2026-09-03 (J38) | `20260903T130122Z` (pile de développement vivante, 101 courses) | conteneurs `docker compose -p babana-restore-test -f infra/compose.yaml` (volumes neufs, projet isolé de la pile de développement -- démonté après la preuve, reproductible avec la séquence ci-dessous) | Réussi. `backup.sh` réel exécuté (pg_dump + miroir MinIO, chacun chiffré age avant `rclone copy` -- vérifié : seuls des `.age` atteignent la destination) ; déchiffrement + `pg_restore` + rechargement MinIO réels dans les conteneurs neufs. 4 éléments retrouvés, vérifiés par requête directe : course **C2026000355** (`state=settled`) et sa facture **BINV/2026/00029** (`state=posted`, 1425 FCFA) ; document chauffeur **id 189** (chauffeur 421, permis) et son objet MinIO `drivers/421/id_card/24f2394…jpg` -- même somme de contrôle (ETag) avant/après ; solde de compte courant du chauffeur 410 : mouvement `collection` de 425 FCFA retrouvé intact. Détail complet : `amoa/rapport-nuit-J38.md` §3. | session J38 |
+| 2026-09-03 (J38) | `20260903T130122Z` (pile de développement vivante, 101 courses) | conteneurs `docker compose -p babana-restore-test -f infra/compose.yaml` (volumes neufs, projet isolé de la pile de développement -- démonté après la preuve, reproductible avec la séquence ci-dessous) | Réussi. `backup.sh` réel exécuté (pg_dump + miroir MinIO, chacun chiffré age avant `rclone copy` -- vérifié : seuls des `.age` atteignent la destination) ; déchiffrement + `pg_restore` + rechargement MinIO réels dans les conteneurs neufs, **commandes rejouées une à une, pas le script `restore.sh` lui-même** (constaté par la session, voir D62). 4 éléments retrouvés, vérifiés par requête directe : course **C2026000355** (`state=settled`) et sa facture **BINV/2026/00029** (`state=posted`, 1425 FCFA) ; document chauffeur **id 189** (chauffeur 421, permis) et son objet MinIO `drivers/421/id_card/24f2394…jpg` -- même somme de contrôle (ETag) avant/après ; solde de compte courant du chauffeur 410 : mouvement `collection` de 425 FCFA retrouvé intact. Détail complet : `amoa/rapport-nuit-J38.md` §3. | session J38 |
+| 2026-09-03 (J39) | `20260903T154913Z` (pile de développement vivante, jeu de démonstration D63 compris) | `RESTORE_COMPOSE_PROJECT=babana-restore-test sh infra/production/restore.sh` -- **le script lui-même, tel quel**, `age`/`rclone` réellement installés sur l'hôte (`age` 1.3.2, `rclone` 1.75.0 -- plus de contournement par image Docker) | Réussi, code de sortie 0. Smoke-test intégré au script vert (4 `OK`, la vérification manuelle du critère 7 signalée comme à faire à la main) ; `RESTORE-CHECK rides=39 approved_drivers=29 cash_movements=9`. Objet MinIO du permis de démonstration `seed/babana-demo-driver-1/license.pdf` retrouvé avec le **même ETag** avant/après (`d25d8429965d99443455aad98e478051`) -- les pièces de D63 survivent elles aussi à la sauvegarde/restauration. Contradiction de l'en-tête signalée par la nuit précédente vérifiée en pratique : `infra/env/.env` n'était **pas** un prérequis, le script l'a déchiffré lui-même depuis `env-<TS>.age` sans intervention -- l'en-tête reste correct (« ou laisser ce script le faire »), seulement ambigu à la première lecture. **Un vrai piège trouvé en exécutant, invisible à la lecture** : `$COMPOSE up -d --build --wait --wait-timeout 300` (ligne qui amène Caddy) échoue si la pile de développement principale tourne déjà sur ce même hôte -- les deux projets `docker compose` sont isolés (conteneurs, volumes, réseau) mais **pas les ports hôte** 80/443, que Caddy publie sans condition dans les deux. `docker compose … stop caddy` sur le projet principal avant l'exercice, `start caddy` après -- geste sans objet sur un hôte vraiment vierge (rien d'autre n'y tourne), mais à connaître pour quiconque rejoue cet exercice sur cette même machine de développement. | session J39 |
 
-**Reproduire cette preuve** (`age`/`rclone` indisponibles sur cette machine de développement au moment de J38 -- réseau restreint ; contournés par deux images Docker officielles servant de binaires, voir le rapport) :
+**Reproduire cette preuve** (`age`/`rclone` maintenant de vrais binaires hôte -- `brew install rclone` ; `age`/`age-keygen` depuis les archives officielles `github.com/FiloSottile/age/releases`, le bottle Homebrew d'`age` exigeant une compilation Go que l'Xcode installé ici ne permet pas. `bootstrap.sh` installe les deux par `apt-get` sur un vrai VPS Debian/Ubuntu, critère 7 de L8-08) :
 ```sh
-BACKUP_REMOTE=<répertoire local> BACKUP_AGE_RECIPIENTS=<clé publique age> sh infra/production/backup.sh
-docker compose -p babana-restore-test -f infra/compose.yaml --env-file infra/env/.env up -d --wait postgres minio
-# déchiffrer les .age récupérés (age -d -i <clé privée>), puis pg_restore + mc mirror comme ci-dessus
-docker compose -p babana-restore-test -f infra/compose.yaml --env-file infra/env/.env down -v   # nettoyage
+docker compose -f infra/compose.yaml -f infra/compose.dev.yaml --env-file infra/env/.env stop caddy   # libère 80/443, uniquement si la pile de développement tourne déjà
+age-keygen -o /tmp/restore-test-key.txt   # clé jetable, jamais commitée
+BACKUP_REMOTE=<répertoire local> BACKUP_AGE_RECIPIENTS=<clé publique ci-dessus> sh infra/production/backup.sh
+BACKUP_REMOTE=<même répertoire> RESTORE_TS=<horodatage imprimé par backup.sh> \
+  BACKUP_AGE_IDENTITY_FILE=/tmp/restore-test-key.txt RESTORE_COMPOSE_PROJECT=babana-restore-test \
+  sh infra/production/restore.sh
+docker compose -p babana-restore-test -f infra/compose.yaml down -v   # nettoyage
+docker compose -f infra/compose.yaml -f infra/compose.dev.yaml --env-file infra/env/.env start caddy
 ```
 
 #### Restauration prouvée — hôte vierge, autre hébergeur (le critère réel de L8-08)
