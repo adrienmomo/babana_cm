@@ -163,3 +163,65 @@ visibilité qui PROVOQUENT l'échec (SMTP simulé en panne, adresse manquante) p
 vérifier qu'un envoi réussi réussit — critère d'acceptation 7, la question du soir de J36.
 
 ---
+
+## 3. Le test instable — remplacé par un fait déterministe, pas un délai plus long
+
+`test_realtime_commit_hook.py` : trois tests (`test_clear_engagement_does_nothing_if_the_
+transaction_rolls_back`, `test_notify_driver_unavailable_does_nothing_if_the_transaction_rolls_
+back`, `test_notify_cancellation_async_touches_no_redis_key_if_the_transaction_rolls_back`) —
+signalé le 13 septembre pour deux d'entre eux — reposaient sur un `time.sleep(1.0)` après un
+rollback simulé, puis une lecture de l'état Redis. Un délai fixe ne prouve ni ne borne rien :
+allonger l'attente aurait rendu l'échec plus rare, jamais impossible.
+
+Ce que ces tests veulent prouver — « aucun appel n'a eu lieu » — se constate sur un fait
+déterministe : `_FakeCursor.rollback()` vide `postcommit` **sans exécuter** ses callbacks (le
+contrat documenté de `sql_db.Cursor`), donc `_post` n'est jamais invoqué. Les trois tests
+patchent maintenant `realtime_client._post` et vérifient `assert_not_called()` immédiatement après
+le rollback, sans réseau, sans délai — même technique que
+`test_notify_ride_started_does_not_call_out_if_the_transaction_rolls_back`, déjà dans ce fichier,
+jamais instable. Un doublon exact (`notify_driver_unavailable`, rollback) a été fusionné avec la
+version déjà déterministe de la section J33 plutôt que dupliqué.
+
+### Tests
+
+Le fichier passe de 22 à 21 méthodes (un doublon retiré), les trois cas rollback restent couverts,
+maintenant sans aucune dépendance au temps.
+
+---
+
+## Non-régression
+
+`make reset && make up`, `make test` en entier sur base fraîche : suite Odoo **2 580 tests, 0
+échec, 0 erreur** ; `services/realtime` 226/226 ; les autres paquets/apps + `test/concurrency`
+43/43 (dont `config/config-coherence.test.ts` et `config/env-example.test.ts`) ;
+`test/config/build-web-bundle.test.sh` : les trois scénarios passent. `make seed` : 29 courses
+réglées, 29 facturées, 8 emails automatiques nouvellement envoyés (rattrapés après le correctif
+de latence). Après le correctif du bouton manuel (trouvé en ouvrant l'écran), suite Odoo rejouée
+sur la même base : **780/780** (module babana seul).
+
+`npm run lint`/`npm run typecheck` sur tout l'arbre : propres.
+
+---
+
+## Ce qui laisse un doute pour quelqu'un de réel
+
+**La latence du fil démon sous `workers = 0` n'a été mesurée que sur ce poste, juste après une
+suite de tests qui vient de solliciter le même processus.** Trente secondes et plus pour un envoi
+automatique de facture est sans conséquence (personne ne regarde l'écran cette seconde-là), mais
+je n'ai aucune mesure de ce que ça donne sous une charge de production réelle (`workers` à
+plusieurs, pas de suite de tests qui vient de tourner) — seulement la certitude que ce n'est pas
+instantané, et une hypothèse (ordonnancement du processus, pas le réseau) jamais vérifiée en
+profondeur.
+
+**Le filtre « Échec d'envoi de la facture » n'a pas pu être cliqué de bout en bout ce soir** — la
+liste déroulante des filtres du back-office s'est révélée difficile à piloter par automatisation
+du navigateur (les positions se décalent d'un clic à l'autre), et je n'ai pas voulu y passer
+davantage de temps une fois le formulaire (ruban, badge, motif) vérifié pour de vrai. Le domaine
+du filtre porte sur des champs stockés, syntaxe validée, mais je n'ai pas vu la liste filtrée de
+mes propres yeux — quelqu'un devrait le faire au prochain passage dans le back-office.
+
+**Le certificat TLS local de Caddy n'est pas accepté par le Chrome piloté par automatisation** (
+`admin.localhost` renvoie une interstitielle de sécurité que l'extension ne peut pas franchir) —
+contourné ce soir en passant par le port HTTP direct d'Odoo (`localhost:8069`), qui fonctionne
+mais qui n'est pas le chemin qu'un vrai superviseur emprunte. Si un prochain outillage de revue
+visuelle automatisée doit passer par `admin.localhost`, ce blocage reviendra.

@@ -166,24 +166,21 @@ class TestRealtimeCommitHook(HttpCase):
     # --- clear_engagement -----------------------------------------------------------------
 
     def test_clear_engagement_does_nothing_if_the_transaction_rolls_back(self):
-        driver_public_id = self._really_engaged_driver_public_id()
-        key = self._engagement_key(driver_public_id)
-        self.addCleanup(_redis_delete, key)
-        _redis_hset(key, "state", "engaged")
-
+        # Ce que ce test prouve -- "aucun appel n'a eu lieu" -- se constate sur un fait
+        # déterministe (le point d'accroche n'a rien enregistré), jamais en laissant passer un
+        # délai pour voir si quelque chose arrive : un `time.sleep` avant d'observer Redis rendait
+        # ce test instable (échec au hasard selon la charge de la machine, signalé le 13
+        # septembre) sans pouvoir jamais le rendre impossible -- allonger l'attente aurait rendu
+        # l'échec plus rare, pas moins possible. `_FakeCursor.rollback()` vide `postcommit` SANS
+        # exécuter ses callbacks (sql_db.py, voir _FakeCursor ci-dessus) : le fait déterministe à
+        # vérifier est donc que `_post` n'a jamais été invoqué, pas un état Redis observé après
+        # coup -- même technique que test_notify_ride_started_does_not_call_out_if_the_
+        # transaction_rolls_back plus bas dans ce fichier, qui n'a jamais été instable.
         env = _FakeEnv()
-        realtime_client.clear_engagement(env, driver_public_id=driver_public_id)
-        env.cr.rollback()
-
-        # Laisse le temps à un éventuel appel HTTP mal programmé de partir et d'être traité --
-        # généreux plutôt que fragile, même raisonnement que _realtime_ws.py.
-        import time
-
-        time.sleep(1.0)
-        self.assertTrue(
-            _redis_exists(key),
-            "le marqueur d'engagement ne doit pas disparaître : la transaction n'a jamais commité",
-        )
+        with patch.object(realtime_client, "_post") as mock_post:
+            realtime_client.clear_engagement(env, driver_public_id="driver-1")
+            env.cr.rollback()
+        mock_post.assert_not_called()
 
     def test_clear_engagement_fires_once_the_transaction_actually_commits(self):
         driver_public_id = self._really_engaged_driver_public_id()
@@ -241,21 +238,13 @@ class TestRealtimeCommitHook(HttpCase):
             "un vrai commit doit poser la clé de non-habilitation -- sinon ce test ne prouve rien",
         )
 
-    def test_notify_driver_unavailable_does_nothing_if_the_transaction_rolls_back(self):
-        driver_public_id = str(uuid.uuid4())
-        key = self._hold_key(driver_public_id)
-        self.addCleanup(_redis_delete, key)
-
-        env = _FakeEnv()
-        realtime_client.notify_driver_unavailable(env, driver_public_id=driver_public_id)
-        env.cr.rollback()
-
-        import time
-
-        time.sleep(1.0)
-        self.assertFalse(
-            _redis_exists(key), "aucune clé ne doit être posée si la transaction n'a pas commité"
-        )
+    # Le cas rollback ("aucune clé posée si la transaction n'a pas commité") vivait ici contre
+    # un vrai Redis + `time.sleep(1.0)` -- rendu instable pour rien (échec au hasard selon la
+    # charge de la machine, signalé le 13 septembre) : "aucun appel n'a eu lieu" est un fait
+    # déterministe (le point d'accroche n'a rien enregistré), jamais un état à observer après un
+    # délai. Fusionné avec test_notify_driver_unavailable_does_not_call_out_if_the_transaction_
+    # rolls_back (section J33 plus bas), qui prouvait déjà exactement la même chose sans jamais
+    # avoir été instable -- pas la peine d'un second test identique une fois la technique alignée.
 
     # --- notify_cancellation_async (relâche réservation ET engagement) ---------------------
     #
@@ -267,22 +256,17 @@ class TestRealtimeCommitHook(HttpCase):
     # l'unification, où les deux clés distinctes disparaissaient chacune à leur tour.
 
     def test_notify_cancellation_async_touches_no_redis_key_if_the_transaction_rolls_back(self):
-        driver_public_id = self._really_engaged_driver_public_id()
-        engagement_key = self._engagement_key(driver_public_id)
-        reservation_key = self._reservation_key(driver_public_id)
-        self.addCleanup(_redis_delete, engagement_key)
-        self.addCleanup(_redis_delete, reservation_key)
-        _redis_hset(engagement_key, "state", "engaged")
-
+        # Même correction que clear_engagement ci-dessus (voir sa note) : un `time.sleep` avant
+        # d'observer Redis ne pouvait qu'échouer au hasard, jamais prouver l'absence d'appel.
+        # `notify_cancellation_async` démarre un fil de fond DEPUIS son callback postcommit
+        # (voir realtime_client.py) -- un rollback qui vide `postcommit` sans l'exécuter (voir
+        # _FakeCursor) empêche ce fil d'exister du tout, donc `_post` n'est jamais invoqué : le
+        # même fait déterministe que pour un appel direct.
         env = _FakeEnv()
-        realtime_client.notify_cancellation_async(env, driver_public_id)
-        env.cr.rollback()
-
-        import time
-
-        time.sleep(1.0)
-        self.assertTrue(_redis_exists(engagement_key), "aucune clé Redis ne doit être touchée")
-        self.assertTrue(_redis_exists(reservation_key), "aucune clé Redis ne doit être touchée")
+        with patch.object(realtime_client, "_post") as mock_post:
+            realtime_client.notify_cancellation_async(env, "driver-1")
+            env.cr.rollback()
+        mock_post.assert_not_called()
 
     def test_notify_cancellation_async_clears_both_keys_once_committed(self):
         driver_public_id = self._really_engaged_driver_public_id()
