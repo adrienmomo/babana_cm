@@ -66,3 +66,15 @@ admin.{$BABANA_DOMAIN:localhost} {
 	}
 	respond 403
 }
+
+# Point d'entrée PUBLIC du stockage (D64, L1-05 critères 6 et 7, amoa/01-architecture.md
+# §9 octies) -- une origine dédiée, distincte de S3_ENDPOINT (nom de service Docker interne,
+# jamais résolu par un navigateur). Ne proxifie QUE le port S3 de MinIO (9000, API de lecture
+# signée) -- jamais 9001 (console d'administration), qui n'apparaît nulle part dans ce fichier et
+# n'est donc atteignable par AUCUNE route publique (critère 7). Ouvert, sans liste d'adresses
+# (contrairement à admin. ci-dessus) : un chauffeur ou un client doit pouvoir atteindre ses
+# propres pièces depuis n'importe quel réseau mobile -- la sécurité est portée par la signature
+# de l'URL et son expiration (services/storage.py), pas par l'origine de l'appelant.
+storage.{$BABANA_DOMAIN:localhost} {
+	reverse_proxy minio:9000
+}

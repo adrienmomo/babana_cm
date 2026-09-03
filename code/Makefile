@@ -10,6 +10,7 @@ up:              ## Démarre tous les services et attend qu'ils soient sains
 	@echo "API          https://api.localhost"
 	@echo "Back-office  https://admin.localhost"
 	@echo "Partage      https://localhost/s/<token>"
+	@echo "Stockage     https://storage.localhost (API S3 signée uniquement, D64)"
 	@echo "MinIO        http://localhost:9001"
 	@echo "Mailpit      http://localhost:8025"
 

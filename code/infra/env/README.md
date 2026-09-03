@@ -14,6 +14,8 @@ même désactivée ou de test.
 **Exception : les adresses de fournisseur externe n'ont pas de valeur dans `.env.example`**
 (D43 retournée, `amoa/questions/REPONSES-2026-09-06.md` §2). `GOOGLE_JWKS_URL`,
 `GOOGLE_ROUTING_URL`, `SMTP_HOST`, `SMTP_PORT` y sont **vides** ; `BABANA_MAPS_SEARCH_URL` aussi.
+`S3_PUBLIC_ENDPOINT` (D64, 16 septembre) rejoint la liste pour le même motif : c'est une
+destination, jamais un réglage — voir la ligne dédiée dans la table plus bas.
 La valeur de développement (vers les simulateurs `L0-08`, vers `mailpit`) est posée
 explicitement — par `infra/compose.dev.yaml` pour ce qu'Odoo consomme, par les cibles `make
 client` / `make client-web` pour ce qui est lu au build. Motif : une mise en production qui
@@ -62,6 +64,7 @@ directe dans l'environnement du conteneur au démarrage. Documenté en détail d
 | `REALTIME_SHARED_SECRET` | Authentifie les appels du service temps réel vers Odoo | texte, secret, haute entropie | `dev-only-not-a-real-secret` | Généré aléatoirement, distinct de `JWT_SECRET` |
 | `MINIO_ROOT_USER` | Identifiant racine MinIO / S3 | texte | `babana-dev` | Généré à la création de l'instance |
 | `MINIO_ROOT_PASSWORD` | Mot de passe racine MinIO / S3 | texte, secret | `dev-only-not-a-real-secret` | Généré aléatoirement, gestionnaire de secrets |
+| `S3_PUBLIC_ENDPOINT` | Point d'entrée PUBLIC du stockage (D64) -- utilisé pour SIGNER une URL destinée à un navigateur, distinct de `S3_ENDPOINT` (nom de service Docker interne, jamais dans cette table -- voir plus bas) | URL | **vide** dans `.env.example` ; `infra/compose.dev.yaml` pose `http://localhost:9000` (port MinIO déjà publié à l'hôte) | `https://storage.babana.cm` (Caddy, API S3 uniquement, jamais la console) -- explicite, aucun repli (`generate_signed_url()` lève, `deploy.sh` bloque une valeur vide ou interne) |
 | `SMTP_HOST`, `SMTP_PORT` | Adresse du relais SMTP pour l'envoi de facture (CDC §III.3) | nom d'hôte, port | **vides** dans `.env.example` ; `infra/compose.dev.yaml` pose `mailpit` / `1025` (L0-08) | Relais SMTP retenu (fournisseur à choisir) — explicite, jamais `mailpit` (`deploy.sh` bloque) ; voir l'écart ci-dessous |
 | `SMTP_USER`, `SMTP_PASSWORD` | Identifiants du relais SMTP | texte, secret | vides (mailpit n'authentifie pas) | Fournisseur SMTP retenu, gestionnaire de secrets |
 | `SMTP_FROM` | Adresse d'expédition des emails de facture | adresse email | `no-reply@babana.cm` | Adresse définitive du domaine `babana.cm` |

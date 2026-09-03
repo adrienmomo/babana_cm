@@ -5,6 +5,11 @@
 # Aucun objet n'est public (compartiment babana-documents créé sans accès anonyme par
 # infra/minio/bootstrap.sh, L0-01). Toute lecture passe par generate_signed_url() : une URL
 # signée à durée limitée, jamais un accès direct à la clé de l'objet.
+#
+# D64 (amoa/01-architecture.md §9 octies) -- l'adresse qui ÉCRIT (S3_ENDPOINT, le nom de service
+# Docker interne) n'est pas celle qui SIGNE une URL destinée à un navigateur (S3_PUBLIC_ENDPOINT,
+# joignable depuis l'extérieur du réseau interne). upload() garde le premier ; generate_signed_url()
+# utilise le second, via _public_client() ci-dessous.
 from __future__ import annotations
 
 import os
@@ -49,6 +54,25 @@ def _client():
     )
 
 
+def _public_client():
+    # D64 (amoa/01-architecture.md §9 octies) -- l'adresse qui écrit n'est pas celle qui signe.
+    # Un client boto3 distinct, construit sur S3_PUBLIC_ENDPOINT (le point d'entrée PUBLIC du
+    # stockage : storage.<domaine> derrière Caddy en production, le port MinIO déjà publié en
+    # développement -- infra/env/.env.example) plutôt que S3_ENDPOINT (le nom de service Docker
+    # interne, jamais résolu par un navigateur). SigV4 inclut l'en-tête Host dans la signature :
+    # c'est cet endpoint, pas celui de _client(), qui doit apparaître dans l'URL renvoyée. Aucun
+    # repli vers S3_ENDPOINT (D43) : une configuration incomplète doit échouer, pas retomber en
+    # silence sur l'adresse interne qui a produit le défaut du 16 septembre.
+    return boto3.client(
+        "s3",
+        endpoint_url=os.environ["S3_PUBLIC_ENDPOINT"],
+        aws_access_key_id=os.environ["S3_ACCESS_KEY"],
+        aws_secret_access_key=os.environ["S3_SECRET_KEY"],
+        config=BotoConfig(signature_version="s3v4"),
+        region_name="us-east-1",
+    )
+
+
 def _bucket() -> str:
     return os.environ["S3_BUCKET"]
 
@@ -65,7 +89,8 @@ def upload(key: str, data: bytes, content_type: str) -> None:
 
 
 def generate_signed_url(key: str, *, ttl_seconds: int) -> str:
-    return _client().generate_presigned_url(
+    # _public_client(), pas _client() : cette URL part vers un navigateur (D64).
+    return _public_client().generate_presigned_url(
         "get_object", Params={"Bucket": _bucket(), "Key": key}, ExpiresIn=ttl_seconds
     )
 

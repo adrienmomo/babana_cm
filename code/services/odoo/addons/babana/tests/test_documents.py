@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from unittest import mock
 
 import requests
 
@@ -55,6 +56,23 @@ class TestStoragePrivateAccess(TransactionCase):
 
             return _super_send(s, r, **kw)
         return super()._request_handler(s, r, **kw)
+
+    def setUp(self):
+        super().setUp()
+        # D64 (amoa/01-architecture.md §9 octies) : generate_signed_url() signe désormais pour
+        # S3_PUBLIC_ENDPOINT, jamais S3_ENDPOINT -- exactement le point de la correction. Depuis
+        # CE conteneur (Odoo, où ce test s'exécute), S3_PUBLIC_ENDPOINT (http://localhost:9000 en
+        # développement) ne route vers rien : c'est le loopback du conteneur odoo, pas celui de
+        # minio. Reproduire ici la même erreur que celle trouvée le 16 septembre reviendrait à
+        # revérifier une propriété du mauvais côté de la frontière (§9 octies) -- le critère que
+        # ce test-ci NE prouve PAS. Ce qu'il prouve : le MÉCANISME de signature/expiration
+        # (SigV4, ExpiresIn), indépendant de l'hôte visé -- posé ici sur S3_ENDPOINT (joignable
+        # depuis ce conteneur) pour la durée de cette classe seulement. La joignabilité du VRAI
+        # point d'entrée public, elle, est prouvée depuis l'EXTÉRIEUR de tout conteneur --
+        # critère 6, test/storage/public-entrypoint.test.ts.
+        patcher = mock.patch.dict(os.environ, {"S3_PUBLIC_ENDPOINT": os.environ["S3_ENDPOINT"]})
+        patcher.start()
+        self.addCleanup(patcher.stop)
 
     def _upload_test_object(self) -> str:
         key = storage.build_storage_key(999999, "id_card", "piece.jpg")

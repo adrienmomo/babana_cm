@@ -19,6 +19,8 @@
 #   - GOOGLE_ROUTING_URL, BABANA_MAPS_SEARCH_URL, BABANA_GOOGLE_WEB_CLIENT_ID et
 #     BABANA_GOOGLE_MAPS_API_KEY = vraies valeurs (le défaut compose/développement pointe
 #     mock-maps ou l'identifiant de développement, qui n'existent pas en prod) ;
+#   - S3_PUBLIC_ENDPOINT = https://storage.babana.cm (D64) -- jamais minio:9000 (injoignable
+#     hors du réseau Docker) ni localhost:9000 (valeur de développement) ;
 #   - PUSH_PROVIDER=fcm + les trois FCM_* si les notifications doivent partir ;
 #   - DNS des trois hôtes résolu (sinon Caddy n'obtiendra pas de certificat).
 set -eu
@@ -64,6 +66,13 @@ case "${SMTP_HOST:-}" in
   ""|mailpit) die "SMTP_HOST vide ou =mailpit dans $ENV_FILE -- poser le relais SMTP réel (mailpit accepte les factures et ne signale rien)." ;;
 esac
 [ -n "${SMTP_PORT:-}" ] || die "SMTP_PORT vide dans $ENV_FILE -- le poser (587 ou 465 selon le relais retenu)."
+# D64 (amoa/01-architecture.md §9 octies) : l'URL signée renvoyée à un navigateur portait
+# jusqu'ici le nom de service Docker interne, injoignable en production. Même discipline D43 --
+# vide ou pointant vers l'interne/le développement, on refuse de déployer plutôt que de servir un
+# bouton « Voir la pièce » qui ne charge rien.
+case "${S3_PUBLIC_ENDPOINT:-}" in
+  ""|*minio*|*localhost*) die "S3_PUBLIC_ENDPOINT vide ou vers une adresse interne/de développement dans $ENV_FILE -- poser https://storage.$BABANA_DOMAIN (Caddy, D64)." ;;
+esac
 # Même motif D43, appliqué à un secret (constat du 11 septembre --
 # amoa/questions/REPONSES-2026-09-11.md §1) : ADMIN_PASSWORD vide ou recopié du fichier
 # d'exemple laisserait le back-office en `admin`/`admin`, ou en un mot de passe de

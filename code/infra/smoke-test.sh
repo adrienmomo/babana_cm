@@ -48,4 +48,16 @@ else
   bad "docker indisponible, impossible de vérifier le critère 5"
 fi
 
+# D64 : le point d'entrée public du stockage ne sert jamais la console d'administration --
+# n'importe quel appel à travers storage.<domaine> doit atteindre l'API S3 (une erreur XML),
+# jamais une page HTML « MinIO Console ». Complète (ne remplace pas) test/storage/
+# public-entrypoint.test.ts, qui prouve en plus la joignabilité réelle d'une vraie URL signée
+# depuis l'extérieur -- ce script-ci ne fait que confirmer que le routage Caddy reste correct
+# juste après `make up`, au même titre que le critère 5 ci-dessus.
+type=$(curl -ks -o /dev/null -w '%{content_type}' https://storage.localhost/)
+case "$type" in
+  text/html*) bad "GET https://storage.localhost/ a répondu du HTML (signature de la console MinIO) -- la route publique ne doit jamais l'atteindre (D64)" ;;
+  *) pass "GET https://storage.localhost/ ne sert pas la console (Content-Type: $type)" ;;
+esac
+
 exit "$fail"

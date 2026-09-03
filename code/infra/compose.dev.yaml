@@ -17,6 +17,11 @@ services:
       GOOGLE_ROUTING_URL: http://mock-maps:4001/route
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"
+      # D64 : le point d'entrée public du stockage, pour signer les URL destinées à un
+      # navigateur. En développement c'est le port MinIO déjà publié à l'hôte par le service
+      # minio ci-dessous (9000:9000) -- aucun proxy Caddy nécessaire pour la signature elle-même,
+      # même mécanisme que BABANA_MAPS_SEARCH_URL vers mock-maps.
+      S3_PUBLIC_ENDPOINT: http://localhost:9000
   realtime:
     ports: ["3000:3000"]
     volumes:

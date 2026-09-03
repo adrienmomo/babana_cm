@@ -16,7 +16,7 @@ de `infra/production/` sont écrits et relisibles ; leur première exécution r�
 | 1 | Provisionner le VPS | Dimensionnement fixé (§9 : 6 vCPU / 16 Go / 200 Go **NVMe**, Europe) | Compte hébergeur, commande de la machine, choix Contabo vs Hetzner |
 | 2 | Durcir l'accès (SSH, pare-feu) | `bootstrap.sh` complet et idempotent | Root sur le VPS ; la liste `SSH_ADMIN_IPS` réelle |
 | 3 | MAJ de sécurité auto | `bootstrap.sh` (unattended-upgrades) | idem étape 2 |
-| 4 | DNS | Noms fixés (`babana.cm`, `api.`, `admin.` + recette) | Accès registrar ; **propagation à vérifier avant l'étape 5** |
+| 4 | DNS | Noms fixés (`babana.cm`, `api.`, `admin.`, `storage.` (D64) + recette) | Accès registrar ; **propagation à vérifier avant l'étape 5** |
 | 5 | Déployer la pile | `deploy.sh` (compose.yaml seul, build web, module Odoo) | `infra/env/.env` de production avec les vrais secrets ; DNS résolu |
 | 6 | Vérifier certificats + `admin.` fermé | `deploy.sh` lance `infra/smoke-test.sh` ; le critère 7 (403 hors liste) se teste depuis une IP hors liste | Une vraie IP hors liste pour le test complet du 403 |
 | 7 | Sauvegardes externes + **restauration prouvée** | `backup.sh`, `restore.sh` -- chiffrement (age) et mécanique de restauration (pg_restore + miroir MinIO) prouvés le 14/09/2026 contre des conteneurs neufs de ce dépôt (voir plus bas) | Un stockage objet chez un **autre** hébergeur ; un hôte **vierge** ; l'exécution réelle de `restore.sh` contre les deux -- seul ce geste-là clôt le critère 4 de L8-08 |
@@ -55,10 +55,11 @@ login par mot de passe refusé, `ufw status` montre 80 + 443 ouverts et SSH rest
 
 ### 4. DNS
 
-Enregistrements A pour `babana.cm`, `api.babana.cm`, `admin.babana.cm`, et les sous-domaines de
-recette. `dig +short babana.cm` doit renvoyer l'IP du VPS **partout** avant l'étape 5 — Caddy
-échoue à obtenir un certificat pour un nom non encore résolu, et l'échec ressemble à une erreur
-de configuration.
+Enregistrements A pour `babana.cm`, `api.babana.cm`, `admin.babana.cm`, `storage.babana.cm`
+(D64 — point d'entrée public du stockage, `amoa/01-architecture.md` §9 octies), et les
+sous-domaines de recette. `dig +short babana.cm` doit renvoyer l'IP du VPS **partout** avant
+l'étape 5 — Caddy échoue à obtenir un certificat pour un nom non encore résolu, et l'échec
+ressemble à une erreur de configuration.
 
 ### 5. Déployer
 
@@ -78,7 +79,11 @@ si l'un manque ou pointe vers un simulateur :
   ici enverrait les factures dans le vide sans erreur — `deploy.sh` le refuse) ;
 - `PUSH_PROVIDER=fcm` + `FCM_*` si les notifications doivent partir ;
 - `ADMIN_ALLOWED_IPS` et `WEB_ALLOWED_IPS` = adresses réelles (le pilote reste fermé tant que
-  L8-01/L8-02 n'existent pas).
+  L8-01/L8-02 n'existent pas) ;
+- `S3_PUBLIC_ENDPOINT=https://storage.babana.cm` (D64 — vide dans `.env.example` ; le
+  développement pose `http://localhost:9000` dans `compose.dev.yaml`. Un repli vers l'adresse
+  interne (`minio:9000`) ou vers `localhost` produirait le défaut trouvé le 16 septembre : un
+  bouton « Voir la pièce » qui ne charge rien pour personne en dehors du réseau Docker).
 
 ```sh
 sh infra/production/deploy.sh

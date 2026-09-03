@@ -9,6 +9,7 @@
     "auth/**/*.ts",
     "http-contract/**/*.ts",
     "config/**/*.ts",
+    "storage/**/*.ts",
     "../tools/config-coherence/**/*.ts"
   ]
 }

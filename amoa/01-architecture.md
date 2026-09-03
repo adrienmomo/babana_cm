@@ -576,6 +576,13 @@ La règle qui en découle : **toute valeur qui traverse la frontière vers un cl
 
 **Et D61 ne s'arrête pas aux applications mobiles.** `controllers/share.py::_share_base_url()` retombe sur `https://babana.cm` si `BABANA_DOMAIN` est absente — une adresse de production en repli, exactement ce que D61 interdit, appliquée jusqu'ici au seul `apps/*/config.ts`. Le risque est faible (`deploy.sh` exige `BABANA_DOMAIN`), la règle est la même : une adresse absente échoue, elle ne se devine pas.
 
+**Portée le soir même (J40).** Un point d'entrée public dédié (`storage.<domaine>`, Caddy, API
+S3 seule — jamais la console), une variable `S3_PUBLIC_ENDPOINT` distincte de `S3_ENDPOINT`
+(protocole des trois moments, D59), `generate_signed_url()` signe désormais pour elle. Vérifié
+depuis l'extérieur de tout conteneur (`test/storage/public-entrypoint.test.ts`) — la vraie
+preuve, là où `test_documents.py` ne pouvait pas aller. Et le bouton « Voir la pièce » cliqué
+pour de vrai, dans un navigateur, sur la fiche d'un chauffeur du jeu de démonstration.
+
 ---
 
 ## 10. Risques ouverts
@@ -671,10 +678,12 @@ spécifications.
 
 | Décision | Arbitrée le | Portée par |
 |---|---|---|
-| **D64** — point d'entrée public du stockage, distinct de l'interne | 16 septembre 2026 | J40 (`amoa/specs/L1-identite.md`, L1-05 critères 6 et 7) |
 | **D61 étendue** — le repli `https://babana.cm` de `share.py` | 16 septembre 2026 | J40 |
 
-**D62 et D63 ont été portées la nuit J39**, comme D60/D61 la nuit d'avant et D57/D59 celle encore avant — retirées de ce tableau, qui liste ce qui reste à faire et non un historique. **D58** est portée par le code livré la nuit J36.
+**D64 a été portée la nuit J40** (`amoa/specs/L1-identite.md`, L1-05 critères 6 et 7), comme
+D62/D63 la nuit J39, D60/D61 la nuit d'avant, D57/D59 celle encore avant — retirée de ce tableau,
+qui liste ce qui reste à faire et non un historique. **D58** est portée par le code livré la nuit
+J36.
 
 Quatre nuits de suite où une décision arbitrée le matin est portée le soir même. Le registre a rempli son office : ce qu'il liste part dans le prompt de la nuit qui suit, jamais dans un rappel qu'on relira plus tard.
 

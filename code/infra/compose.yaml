@@ -57,6 +57,12 @@ services:
       S3_BUCKET: babana-documents
       S3_ACCESS_KEY: ${MINIO_ROOT_USER}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
+      # D64 (amoa/01-architecture.md §9 octies) : adresse de fournisseur externe au sens de D43,
+      # comme GOOGLE_JWKS_URL ci-dessus -- sans valeur par défaut ici. infra/compose.dev.yaml la
+      # pose vers le port MinIO déjà publié à l'hôte ; deploy.sh refuse de partir si elle est
+      # vide ou pointe vers un nom de service interne. Consommée par services/storage.py pour
+      # signer, jamais pour écrire (S3_ENDPOINT ci-dessus reste l'adresse d'écriture).
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT}
       SMTP_HOST: ${SMTP_HOST}
       SMTP_PORT: ${SMTP_PORT}
       SMTP_USER: ${SMTP_USER}
