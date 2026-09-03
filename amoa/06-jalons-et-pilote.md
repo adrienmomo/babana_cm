@@ -135,6 +135,35 @@ En partant du 31 août, à cinq points par nuit et sans interruption :
 | **Déploiement et recette** | ~22 septembre | Sur le VPS réel, avec de vrais comptes externes, données de pilote chargées |
 | **Pilote — premières courses** | **~29 septembre**, avec une marge au **6 octobre** | Chauffeurs inscrits et validés, superviseur formé, sauvegardes testées |
 
+### Révision du 13 septembre — quatre tâches que personne n'avait jamais programmées
+
+**86 tâches sur 123 portent un commit de code. Reste 37, dont l'essentiel est hors périmètre pilote** (calibration d'après-pilote, promotions, analyses). Le décompte par étiquette de commit est approximatif dans les deux sens : L4-07 (annulations) est bien en place — route, règles par acteur, journalisation — sans qu'aucun commit ne porte son identifiant.
+
+En vérifiant le périmètre pilote tâche par tâche plutôt qu'en le recopiant, j'ai trouvé quatre tâches qu'aucune nuit n'a faites, qu'aucun prompt n'a demandées, et qu'aucun rapport n'a jamais mentionnées :
+
+| Tâche | Ce qu'elle devait garantir | État réel |
+|---|---|---|
+| **L0-05** Intégration continue | « L'intégration continue est bloquante. Aucune fusion avec une suite rouge » (`CLAUDE.md`) | **Aucune IC n'existe.** Pas de `.github/workflows`, rien ailleurs. Jamais citée dans un rapport de nuit |
+| **L0-09** Harnais de non-régression | Détection des tests instables, seuils de couverture sur les modules sensibles | Jamais faite — c'est pourquoi le test instable de J36 n'avait aucun mécanisme pour le voir venir |
+| **L3-14** Test de résilience | Tuer le service temps réel en pleine course, la course se retrouve. **C'est la vérification de l'invariant 1** | Jamais faite. `test/concurrency` existe (L3-13), pas son jumeau |
+| **L3-15** Canal de configuration | Les valeurs de dispatch poussées d'Odoo vers le service temps réel | Jamais construite — et le code le dit lui-même, en commentaire |
+
+**Arbitrage du 14 septembre — L3-14 entre au périmètre pilote, L0-05 non.**
+
+Le test de résilience trouve une classe de défaut qu'aucun autre test ne voit : il tue le service temps réel en pleine course et vérifie qu'elle se retrouve. C'est la seule vérification de l'invariant 1, celui dont dépend toute la règle de partition, et une nuit suffit. Il entre.
+
+L'intégration continue automatise une discipline que les nuits tiennent déjà à la main — `make test` en entier, sur base fraîche, avant chaque commit, et les rapports le montrent nuit après nuit. Elle ne trouverait rien de plus tant qu'une seule session travaille sur ce dépôt. **Elle redevient nécessaire le jour où quelqu'un d'autre y touche**, et c'est à ce moment-là qu'il faudra la faire, pas avant. Noté ici pour que ce soit un choix daté et non un oubli qui se perpétue.
+
+L0-09 et L3-15 restent hors périmètre pour les mêmes raisons.
+
+**`CLAUDE.md` énumère quatre suites qui protègent l'ensemble. Trois n'existent pas.** Les tests générés depuis des données et les tests de concurrence sont là ; les scénarios de bout en bout (L10-01), la résilience (L3-14) et le harnais (L0-09) ne le sont pas. Et l'intégration continue censée les exécuter à chaque commit non plus.
+
+C'est le quatrième cas du motif décrit en §9 sexies de l'architecture, et le plus large : **une règle écrite dans le document que chaque nuit lit en entier, appliquée par rien.** Les nuits ont fait tourner `make test` à la main, consciencieusement, et c'est la seule raison pour laquelle ça n'a rien coûté encore.
+
+**Et une spécification de périmètre pilote est périmée** : L4-08 (historique des courses et des factures) décrit une exposition « en JSON-RPC natif », mécanisme aboli par D35 le 22 août et dont le client mort a été retiré en J35. À réécrire en REST avant que quelqu'un l'implémente tel quel.
+
+Aucune de ces cinq lignes ne change la date par elle-même — ce sont des filets, pas des fonctions. Mais elles changent ce que « prêt pour le pilote » veut dire : aujourd'hui, rien n'empêche mécaniquement une nuit de fusionner une suite rouge.
+
 ### Révision du 12 septembre — le chemin critique a changé de côté
 
 **Le développement n'est plus ce qui fixe la date.**

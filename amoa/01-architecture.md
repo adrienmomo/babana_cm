@@ -64,6 +64,8 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D57 | **La facture part automatiquement à l'encaissement**, et l'échec d'un envoi se voit là où un superviseur regarde déjà | Envoi à la demande du client | Une facture sert le jour d'une contestation ; personne ne réclame ce qu'il ignore. Et un envoi automatique qui échoue en silence est pire qu'un envoi manuel : plus personne ne constate l'absence. Voir §7 ter |
 | D58 | **Une écriture PostgreSQL ordinaire se pose dans le savepoint, avec les effets qu'elle accompagne ; seul un appel sortant vers le service temps réel se pose au commit** | Étendre D32/D33 à tout effet secondaire | D32/D33 protègent d'une donnée Redis qu'un `ROLLBACK` ne peut pas défaire. Une facture, elle, doit échouer *avec* l'encaissement — sinon « course encaissée sans facture » revient par la porte du correctif. Voir §2 quater |
 | D59 | **Une variable de configuration n'existe que si un test relie sa déclaration, sa livraison et sa consommation** | La documenter et la garder | Trois fois, une variable documentée, gardée par un contrôle, et jamais délivrée au code qui la lit. Le garde-fou lisait la valeur puis ne la transmettait pas. Voir §9 sexies |
+| D60 | **Un gestionnaire qui doit garder la trace d'un échec ne commite pas la transaction de la requête : il renvoie une notification au lieu de lever** | `env.cr.commit()` avant de lever | Un commit sur le curseur de la requête exécute au passage tous les points d'accroche au commit en attente — D32 à l'envers, sur une requête qui se termine en erreur. Voir §2 quinquies |
+| D61 | **Aucune adresse de production en repli dans le code.** Une adresse absente échoue ; elle ne se devine pas | `\|\| 'https://api.babana.cm'` | Un binaire de recette construit sans cette variable écrirait dans la base du pilote sans que rien ne le signale. Même famille que D43 : un repli plausible est plus dangereux qu'une absence |
 
 ---
 
@@ -161,6 +163,18 @@ J'ai écrit dans le prompt de la nuit J36 que la facture devait rejoindre « le 
 La règle générale, donc : **l'atomicité se juge sur la nature de l'effet, pas sur son rang dans la séquence.** Ce qui peut être annulé par la transaction reste dedans et échoue avec elle ; ce qui ne le peut pas attend le commit. La remise de caisse posait déjà sa pièce comptable dans le savepoint, et `test_settlement.py` nommait la facture comme le futur occupant de ce même bloc. Deux sources du dépôt disaient juste, et mon prompt disait le contraire.
 
 C'est la deuxième fois qu'une affirmation fausse de ma part voyage dans un prompt de nuit (la première le 27 août). Une erreur dans un débrief se discute ; une erreur dans un prompt s'exécute. La consigne de `CLAUDE.md` — vérifier dans le dépôt plutôt que dans le prompt — vaut d'abord pour moi.
+
+---
+
+## 2 quinquies. Enregistrer un échec sans commiter la requête (D60)
+
+Le bouton d'envoi manuel de la facture écrivait le motif de l'échec, puis levait une erreur pour l'afficher — et Odoo, qui annule la transaction entière dès qu'une exception s'échappe d'un appel RPC, emportait l'écriture avec elle. L'écran affichait bien le message d'erreur, et gardait l'état d'avant le clic. Trouvé en ouvrant l'écran, jamais par un test : les tests appellent la méthode interne, jamais le bouton.
+
+Le correctif retenu la nuit J37 — `env.cr.commit()` juste avant de lever — fonctionne, et c'est le seul `commit()` sur le curseur d'une requête dans tout ce dépôt. Il ne doit pas rester, pour une raison qui n'a rien à voir avec ce bouton : **`Cursor.commit()` exécute au passage les points d'accroche au commit en attente.** Un gestionnaire qui commite puis lève déclenche donc les effets externes d'une requête qui se termine en erreur — exactement le risque que D32 existe pour écarter, pris par l'autre bout. Aujourd'hui rien n'est enregistré avant ce bouton ; la garantie tient au fait que personne n'a encore ajouté de ligne au-dessus.
+
+**La forme juste est de ne pas lever.** Une action qui renvoie une notification (`ir.actions.client`) affiche le même message à l'écran et laisse la transaction se terminer normalement, avec l'écriture dedans. L'erreur n'a jamais eu besoin d'être une exception : elle avait besoin d'être visible.
+
+La règle générale : **dans un gestionnaire, lever est une façon d'annuler, pas une façon d'afficher.** Si un échec doit laisser une trace, il ne peut pas être signalé par une exception.
 
 ---
 
@@ -525,6 +539,8 @@ Trois fois le même défaut, sous trois formes, et il faut le nommer parce qu'il
 
 Et le motif est plus large que la configuration : c'est celui de `make seed`, de la contrainte d'unicité, du mot de passe administrateur. **Une phrase dans un document ressemble beaucoup à un mécanisme qui fonctionne.** La différence ne se voit qu'en tirant sur le fil jusqu'au bout — ce que fait un test, jamais une relecture.
 
+**Suite, le 14 septembre.** L0-10 est faite, et le mécanisme tient — mais il a fallu lui donner deux listes d'exclusion pour qu'il ne hurle pas sur cinquante réglages métier légitimes. Ces listes sont honnêtes, commentées, et chacune se défend. Une seule entrée me gêne : `BABANA_API_URL` et `BABANA_REALTIME_WS_URL` y figurent au motif que leur repli est « une adresse de production réelle ». C'est vrai, et c'est le problème — **un binaire de recette construit sans ces variables parlerait au serveur de production**, et écrirait de vraies courses dans la base du pilote sans que rien ne le signale. Le repli plausible est plus dangereux que l'absence : c'est exactement D43, appliqué à une adresse qu'on a jugée inoffensive parce qu'elle est juste. D'où D61.
+
 D'où D59, et la tâche L0-10 qui le rend mécanique : une suite qui parcourt les trois moments et échoue dès que l'un manque. C'est la même famille de filet que la poignée de main sur le jeton, la cartographie des messages et la comparaison des contraintes SQL — chacune née d'un défaut que la relecture avait laissé passer.
 
 ---
@@ -622,10 +638,10 @@ spécifications.
 
 | Décision | Arbitrée le | Portée par |
 |---|---|---|
-| **D57** — envoi automatique de la facture, et échec d'envoi visible | 13 septembre 2026 | J37 (`amoa/specs/L4-course.md`, L4-06 critères 6 et 7) |
-| **D59** — une variable de configuration reliée de sa déclaration à sa consommation | 13 septembre 2026 | J37 (L0-10) |
+| **D60** — un gestionnaire renvoie une notification plutôt que de commiter puis lever | 14 septembre 2026 | J38 |
+| **D61** — aucune adresse de production en repli dans le code | 14 septembre 2026 | J38 |
 
-**D58** (savepoint contre commit) est portée par le code livré la nuit J36 — elle ne figure ici que pour mémoire, et n'y figure donc pas.
+**D57 et D59 ont été portées la nuit J37**, la nuit même de leur arbitrage — retirées de ce tableau, qui liste ce qui reste à faire et non un historique. **D58** est portée par le code livré la nuit J36.
 
 **Registre vide, vérifié le 2 septembre (J25).** D42 (numéros de téléphone révélés à
 l'affectation), seule ligne depuis la création du registre, a été portée ce soir-là
