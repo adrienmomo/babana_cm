@@ -137,6 +137,71 @@ def get_or_create(model, domain, vals, label):
 
 
 # --------------------------------------------------------------------------------------------
+# Pièces de démonstration (D63) : un PDF généré à la volée, jamais un binaire commité, jamais
+# une pièce crédible -- « DOCUMENT DE DÉMONSTRATION » en toutes lettres, le nom du chauffeur, le
+# type de pièce. Construit à la main (aucune dépendance nouvelle : pas de Pillow pour trois
+# lignes de texte -- CLAUDE.md, "Pas de dépendance nouvelle sans nécessité"). Un PDF plutôt qu'un
+# JPEG/PNG : `action_preview` (babana_driver_document.py) ouvre la pièce dans un nouvel onglet
+# via une URL signée -- le navigateur rend un PDF directement, sans viewer dédié à écrire pour
+# autant. Choix d'implémentation, pas un écart : à signaler si un usage futur exige un format
+# raster (miniature intégrée, par exemple).
+# --------------------------------------------------------------------------------------------
+
+def _pdf_escape(text):
+    data = text.encode("latin-1", errors="replace")
+    return data.replace(b"\\", b"\\\\").replace(b"(", b"\\(").replace(b")", b"\\)")
+
+
+def _pdf_content_stream(lines):
+    parts = [b"BT"]
+    for text, font, size, y in lines:
+        parts.append(b"/%s %d Tf" % (font.encode("ascii"), size))
+        parts.append(b"1 0 0 1 40 %d Tm" % y)
+        parts.append(b"(%s) Tj" % _pdf_escape(text))
+    parts.append(b"ET")
+    return b"\n".join(parts)
+
+
+def build_demo_document_pdf(driver_name, document_label):
+    """PDF minimal, valide (xref explicite), une page, deux polices standard (aucune police à
+    embarquer -- Helvetica/Helvetica-Bold font partie du jeu de 14 polices que tout lecteur PDF
+    doit fournir). Encodage WinAnsi : couvre les accents des noms de chauffeurs (é, è)."""
+    lines = [
+        ("DOCUMENT DE DÉMONSTRATION", "F2", 22, 250),
+        (driver_name, "F1", 16, 200),
+        (document_label, "F1", 14, 170),
+        ("babana.cm -- jeu de données de démonstration, aucune valeur réelle",
+         "F1", 9, 40),
+    ]
+    content = _pdf_content_stream(lines)
+    objects = [
+        b"<< /Type /Catalog /Pages 2 0 R >>",
+        b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+        b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 320] "
+        b"/Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> /Contents 4 0 R >>",
+        b"<< /Length %d >>\nstream\n%s\nendstream" % (len(content), content),
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+        b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>",
+    ]
+
+    buf = bytearray(b"%PDF-1.4\n")
+    offsets = []
+    for i, obj in enumerate(objects, start=1):
+        offsets.append(len(buf))
+        buf += b"%d 0 obj\n" % i
+        buf += obj
+        buf += b"\nendobj\n"
+    xref_offset = len(buf)
+    n = len(objects) + 1
+    buf += b"xref\n0 %d\n" % n
+    buf += b"0000000000 65535 f \n"
+    for off in offsets:
+        buf += b"%010d 00000 n \n" % off
+    buf += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF" % (n, xref_offset)
+    return bytes(buf)
+
+
+# --------------------------------------------------------------------------------------------
 # 1. Devise : XAF est désormais EXIGÉE à l'installation du module (D53,
 #    addons/babana/__init__.py::_require_xaf_currency). Ce n'est donc plus au seed de la poser
 #    -- il ne fait plus que vérifier, et échoue bruyamment si quelque chose l'a défaite. Une
@@ -248,7 +313,10 @@ def ensure_supervisor():
 
 def ensure_fleet():
     from odoo import fields as odoo_fields
+    from odoo.addons.babana.models.babana_driver_document import DOCUMENT_TYPES
+    from odoo.addons.babana.services import storage
 
+    document_labels = dict(DOCUMENT_TYPES)
     drivers = []
     for suffix, name, plate, brand, model, vclass, phone in DRIVERS:
         sub = "babana-demo-driver-%d" % suffix
@@ -263,17 +331,23 @@ def ensure_fleet():
             user.partner_id.sudo().write({"phone": phone})
 
         if driver.state != "approved":
-            # a. documents vérifiés (permis daté, pièce d'identité)
+            # a. documents vérifiés (permis daté, pièce d'identité), avec un fichier réel
+            #    téléversé derrière -- D63 : un enregistrement qui pointe vers rien remplit une
+            #    ligne, pas un écran. Même chemin que l'application (storage.upload()), jamais un
+            #    appel direct au client S3.
             for dtype in ("license", "id_card"):
                 exists = env["babana.driver.document"].sudo().search_count(
                     [("driver_id", "=", driver.id), ("document_type", "=", dtype)]
                 )
                 if not exists:
+                    key = "seed/%s/%s.pdf" % (sub, dtype)
+                    pdf_bytes = build_demo_document_pdf(name, document_labels[dtype])
+                    storage.upload(key, pdf_bytes, "application/pdf")
                     vals = {
                         "driver_id": driver.id,
                         "document_type": dtype,
-                        "storage_key": "seed/%s/%s.jpg" % (sub, dtype),
-                        "mime_type": "image/jpeg",
+                        "storage_key": key,
+                        "mime_type": "application/pdf",
                         "verification_status": "verified",
                     }
                     if dtype == "license":
