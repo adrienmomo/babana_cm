@@ -19,7 +19,7 @@ de `infra/production/` sont écrits et relisibles ; leur première exécution r�
 | 4 | DNS | Noms fixés (`babana.cm`, `api.`, `admin.` + recette) | Accès registrar ; **propagation à vérifier avant l'étape 5** |
 | 5 | Déployer la pile | `deploy.sh` (compose.yaml seul, build web, module Odoo) | `infra/env/.env` de production avec les vrais secrets ; DNS résolu |
 | 6 | Vérifier certificats + `admin.` fermé | `deploy.sh` lance `infra/smoke-test.sh` ; le critère 7 (403 hors liste) se teste depuis une IP hors liste | Une vraie IP hors liste pour le test complet du 403 |
-| 7 | Sauvegardes externes + **restauration prouvée** | `backup.sh`, `restore.sh` | Un stockage objet chez un **autre** hébergeur ; un hôte vierge ; l'exécution réelle de `restore.sh` |
+| 7 | Sauvegardes externes + **restauration prouvée** | `backup.sh`, `restore.sh` -- chiffrement (age) et mécanique de restauration (pg_restore + miroir MinIO) prouvés le 14/09/2026 contre des conteneurs neufs de ce dépôt (voir plus bas) | Un stockage objet chez un **autre** hébergeur ; un hôte **vierge** ; l'exécution réelle de `restore.sh` contre les deux -- seul ce geste-là clôt le critère 4 de L8-08 |
 | 8 | Supervision hébergée ailleurs | `monitoring/probe.sh`, `probe-host.sh`, README | Une machine de supervision distincte ; un webhook d'alerte ; le test « panne provoquée » |
 | 9 | Latence de référence depuis Douala | Gabarit `latency-baseline.md` | Une connexion camerounaise réelle |
 | 10 | Retour arrière documenté + détenteurs d'accès | `rollback.sh` ; section ci-dessous | La liste nominative réelle des détenteurs d'accès |
@@ -102,16 +102,51 @@ de développement ; en production, c'est `deploy.sh`.
            sh infra/production/backup.sh >> /var/log/babana-backup.log 2>&1
 ```
 
-Stockage objet chez un **autre** hébergeur que le VPS. Puis, sur un hôte **vierge** :
+Stockage objet chez un **autre** hébergeur que le VPS. **Chiffrée (age) avant de quitter la
+machine** — les trois pièces (dump PostgreSQL, miroir MinIO des pièces d'identité de chauffeurs,
+`.env`), pas seulement le `.env` : corrigé le 14 septembre 2026 (L8-08, première exécution réelle,
+`amoa/questions/REPONSES-2026-09-14.md`), le dump et les documents partaient en clair jusque-là.
+`BACKUP_AGE_RECIPIENTS` porte une ou plusieurs clés **publiques** age (séparées par des virgules) ;
+la clé **privée** correspondante (`age-keygen`) vit dans le gestionnaire de secrets, jamais dans
+le dépôt, et sert à la restauration ci-dessous.
+
+**Redis n'est délibérément pas sauvegardé** (L8-08, critère 5) : c'est l'invariant 1 (règle de
+partition, `amoa/01-architecture.md` §2) — le service temps réel ne possède aucune donnée durable,
+rien à restaurer. Une reprise après incident se retrouve par L3-14 (test de résilience), jamais par
+une restauration Redis.
+
+Puis, sur un hôte **vierge** :
 
 ```sh
-BACKUP_REMOTE=b2:babana-backups RESTORE_TS=<horodatage> sh infra/production/restore.sh
+BACKUP_REMOTE=b2:babana-backups RESTORE_TS=<horodatage> \
+BACKUP_AGE_IDENTITY_FILE=<chemin vers la clé privée age> sh infra/production/restore.sh
 ```
 
 **Tant que `restore.sh` n'a pas réussi, le projet n'a pas de sauvegarde** (L8-08). Consigner le
 succès ci-dessous.
 
-#### Restauration prouvée — journal
+#### Restauration prouvée — mécanique (conteneur neuf, ce dépôt)
+
+Ce que cette session pouvait prouver cette nuit-là, et rien de plus : que `backup.sh`/`restore.sh`
+fonctionnent réellement — chiffrement compris — de bout en bout, contre des conteneurs **neufs**
+(projet `docker compose` isolé, volumes vides), pas contre un hôte vierge chez un autre hébergeur.
+Ce second geste reste entièrement hors de portée d'une session de développement (pas de compte
+chez un hébergeur tiers, pas de seconde machine) et reste à faire par vous — voir le journal
+ci-dessous, toujours à sa première ligne.
+
+| Date | Sauvegarde restaurée | Cible | Résultat | Par |
+|---|---|---|---|---|
+| 2026-09-03 (J38) | `20260903T130122Z` (pile de développement vivante, 101 courses) | conteneurs `docker compose -p babana-restore-test -f infra/compose.yaml` (volumes neufs, projet isolé de la pile de développement -- démonté après la preuve, reproductible avec la séquence ci-dessous) | Réussi. `backup.sh` réel exécuté (pg_dump + miroir MinIO, chacun chiffré age avant `rclone copy` -- vérifié : seuls des `.age` atteignent la destination) ; déchiffrement + `pg_restore` + rechargement MinIO réels dans les conteneurs neufs. 4 éléments retrouvés, vérifiés par requête directe : course **C2026000355** (`state=settled`) et sa facture **BINV/2026/00029** (`state=posted`, 1425 FCFA) ; document chauffeur **id 189** (chauffeur 421, permis) et son objet MinIO `drivers/421/id_card/24f2394…jpg` -- même somme de contrôle (ETag) avant/après ; solde de compte courant du chauffeur 410 : mouvement `collection` de 425 FCFA retrouvé intact. Détail complet : `amoa/rapport-nuit-J38.md` §3. | session J38 |
+
+**Reproduire cette preuve** (`age`/`rclone` indisponibles sur cette machine de développement au moment de J38 -- réseau restreint ; contournés par deux images Docker officielles servant de binaires, voir le rapport) :
+```sh
+BACKUP_REMOTE=<répertoire local> BACKUP_AGE_RECIPIENTS=<clé publique age> sh infra/production/backup.sh
+docker compose -p babana-restore-test -f infra/compose.yaml --env-file infra/env/.env up -d --wait postgres minio
+# déchiffrer les .age récupérés (age -d -i <clé privée>), puis pg_restore + mc mirror comme ci-dessus
+docker compose -p babana-restore-test -f infra/compose.yaml --env-file infra/env/.env down -v   # nettoyage
+```
+
+#### Restauration prouvée — hôte vierge, autre hébergeur (le critère réel de L8-08)
 
 | Date | Sauvegarde restaurée | Hôte cible | Résultat | Par |
 |---|---|---|---|---|

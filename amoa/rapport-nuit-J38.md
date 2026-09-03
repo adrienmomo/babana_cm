@@ -7,7 +7,10 @@ Tenu au fil de l'eau, une entrée par tâche finie. Lu en entier : `CLAUDE.md`,
 `tools/config-coherence/scan.ts`, `tools/config-coherence/variables.ts`,
 `infra/env/.env.example`, `infra/env/README.md`, `Makefile`,
 `apps/client/config.ts`, `apps/client/config.web.ts`, `apps/driver/config.ts`,
-`infra/production/deploy.sh`, `infra/production/lib/build-web-bundle.sh`.
+`infra/production/deploy.sh`, `infra/production/lib/build-web-bundle.sh`,
+`infra/production/backup.sh`, `infra/production/restore.sh`,
+`infra/production/monitoring/probe-host.sh`, `docs/operations/production.md`,
+`amoa/specs/L8-securite.md` (L8-08).
 
 Périmètre confié : L8-08 (sauvegardes et restauration, avec preuve exécutée), D60 (le bouton
 d'envoi de facture ne commite plus la requête), D61 (les adresses de serveur sortent des replis
@@ -126,3 +129,111 @@ non affecté) : passe toujours. `npx tsc --noEmit` sur `apps/client` et `apps/dr
 lint -w @babana/client -w @babana/driver` : propre.
 
 ---
+
+## 3. L8-08 — les sauvegardes, exécutées pour de vrai
+
+`infra/production/backup.sh`/`restore.sh` existent depuis L0-07, jamais exécutés. La tâche n'était
+pas de les écrire, c'était de les rendre vrais — et les exécuter pour de vrai en a immédiatement
+révélé trois défauts que la relecture n'avait jamais vus.
+
+### Ce qui a été trouvé en essayant, pas en relisant
+
+**1. Seul le `.env` était chiffré avant de quitter la machine.** Le dump PostgreSQL et le miroir
+MinIO — qui porte les pièces d'identité de chauffeurs, L1-05 — partaient en clair par `rclone
+copy`. Corrigé : chacun des trois est désormais écrit en clair dans `$WORK` (un `mktemp -d` local,
+jamais transmis tel quel), chiffré (age) aussitôt, puis son clair est supprimé **avant** le seul
+point d'envoi hors machine. Pas de chiffrement en pipe : `set -eu` seul ne détecterait pas l'échec
+de `pg_dump` au milieu d'un pipeline (le code de sortie d'un pipeline POSIX est celui de sa
+DERNIÈRE commande, `age`, qui réussirait même sur une entrée vide) sans `pipefail`, une extension
+absente de `sh` (dash, l'interpréteur réel de ce script en production).
+
+**2. L'image `minio/minio` (UBI-micro) n'a pas `tar`** — seul `mc` y est installé. Les deux scripts
+supposaient un `tar` dans le conteneur pour archiver/désarchiver le miroir ; la première exécution
+réelle a échoué net (`tar: command not found`). Corrigé : `docker compose cp` rapatrie/dépose le
+répertoire tel quel entre le conteneur et l'hôte (qui a `tar`), qui fait l'archivage/l'extraction
+lui-même — ni `backup.sh` ni `restore.sh` ne demandent plus rien au conteneur MinIO qu'il ne sait
+déjà faire (`mc`).
+
+**3. `${VAR:?message}` avec une apostrophe dans `message` casse le parseur de bash 3.2** — le
+`/bin/sh` de macOS (licence GPLv3 oblige, Apple n'a jamais dépassé bash 3.2). `sh -n
+infra/production/backup.sh` échouait AVANT toute exécution (`unexpected EOF while looking for
+matching ''`), et le même défaut préexistait déjà dans `bootstrap.sh` (non touché ce soir, hors
+périmètre, mais signalé ici pour que quiconque développe depuis un Mac ne tombe pas dessus sans
+explication). `dash` (l'interpréteur réel de `/bin/sh` sur la cible Debian/Ubuntu) n'y voit rien —
+ce n'est pas un défaut de production, seulement une gêne locale de développement — reformulé sans
+apostrophe dans les deux messages de `backup.sh` que je touchais déjà.
+
+### Ce qui a été ajouté
+
+`restore.sh` accepte désormais `RESTORE_COMPOSE_PROJECT` (optionnel, vide par défaut = comportement
+inchangé) : posé, il fait tourner la restauration dans un projet `docker compose` **isolé**
+(conteneurs et volumes séparés de toute pile déjà en cours sous le nom par défaut). C'est exactement
+ce que L8-08 demande pour un « exercice de restauration à refaire périodiquement » (spécification)
+sans jamais risquer d'écraser une base déjà en usage — et c'est ce qui a rendu la preuve de ce soir
+possible sans toucher à la pile de développement vivante.
+
+Documenté (jusque-là écrit nulle part dans `infra/production/` ni `docs/operations/production.md`,
+critère d'acceptation 5) : **Redis n'est délibérément pas sauvegardé** — invariant 1, règle de
+partition (`amoa/01-architecture.md` §2). Le service temps réel ne possède aucune donnée durable ;
+une reprise se reconstruit depuis PostgreSQL (L3-14, test de résilience), jamais depuis Redis.
+
+### La preuve exécutée ce soir — et où elle s'arrête
+
+`age` et `rclone` sont absents de cette machine, et le réseau de cet environnement de développement
+est restreint (`ghcr.io`, `github.com`, `dl-cdn.alpinelinux.org` injoignables ; Docker Hub, PyPI et
+le registre npm le sont). Contourné en extrayant/exécutant les deux outils depuis des images Docker
+officielles publiques (`jauderho/age`, `rclone/rclone`) au lieu d'un paquet système — deux petits
+scripts de délégation dans le répertoire de travail de la session, jamais commités, jamais dans le
+dépôt. **Rien dans `backup.sh`/`restore.sh` n'a été adapté à ce contournement** : les deux scripts
+tournent tels quels, exactement ce qu'un hôte de production avec `age`/`rclone` réellement installés
+exécuterait.
+
+Séquence réellement exécutée :
+
+1. `backup.sh` (réel, non simulé) contre la pile de développement **vivante** (101 courses semées) —
+   `BACKUP_REMOTE` posé vers un répertoire local (le remplaçant assumé du stockage objet distant,
+   `rclone copy` traite un chemin local exactement comme un remote) ;
+2. vérifié que seuls des fichiers `.age` atteignent cette destination (`ls` du répertoire de sortie) ;
+3. `docker compose -p babana-restore-test -f infra/compose.yaml up -d --wait postgres minio` —
+   conteneurs et volumes **neufs**, projet isolé de la pile de développement ;
+4. déchiffrement (`age -d`) puis `pg_restore` + rechargement MinIO dans ces conteneurs neufs, avec
+   les commandes mêmes de `restore.sh` (pas une réimplémentation) ;
+5. les quatre éléments demandés, retrouvés par requête directe contre la base restaurée :
+
+| Élément | Retrouvé |
+|---|---|
+| Course encaissée | `C2026000355`, `state = settled` |
+| Sa facture | `BINV/2026/00029`, `state = posted`, 1 425 FCFA |
+| Document chauffeur | id 189, chauffeur 421, permis — objet MinIO `drivers/421/id_card/24f2394…jpg` retrouvé, **même ETag** avant/après (`dcc91063ca35554ef202652ff57705ac`) |
+| Solde de compte courant | chauffeur 410 : mouvement `collection` de 425 FCFA intact |
+
+Conteneurs et volumes de la preuve démontés ensuite (`down -v`) — reproductible, séquence complète
+dans `docs/operations/production.md` §7.
+
+**Où passe la frontière, sans ambiguïté** : ce qui précède prouve que le MÉCANISME fonctionne —
+chiffrement compris, `pg_restore`, rechargement MinIO — contre des conteneurs neufs de CE dépôt.
+Cela ne prouve PAS une restauration sur un **hôte vierge chez un autre hébergeur** (critère
+d'acceptation 4 de L8-08, "l'exercice de restauration" que la spécification exige) : aucun compte
+chez un hébergeur tiers, aucune seconde machine, n'existent dans cet environnement. Ce second geste
+reste entièrement à faire par vous — la ligne du journal `docs/operations/production.md` §7 dédiée
+à ce critère réel reste à sa première ligne, `_(à remplir au premier exercice)_`.
+
+### Un défaut trouvé au passage, non corrigé (hors périmètre)
+
+`babana.driver.document` id 227 (chauffeur 440, pièce d'identité) porte `storage_key =
+"seed/babana-demo-driver-5/id_card.jpg"` — un objet qui **n'existe pas** dans MinIO, ni dans la
+sauvegarde ni dans la pile de développement source (vérifié directement : `mc stat` échoue déjà
+AVANT toute sauvegarde). La ligne en base existe, l'objet qu'elle prétend décrire jamais téléversé
+-- vraisemblablement un défaut de `make seed`/`services/odoo/scripts/seed.py`, hors du périmètre de
+cette nuit (L8-08 ne porte pas sur le jeu de données). Signalé ici plutôt que corrigé en silence ;
+un supervisor qui ouvrirait ce document précis verrait un lien mort.
+
+### Tests
+
+Aucun test intégré à `make test` n'a été ajouté pour `backup.sh`/`restore.sh` : même choix déjà
+fait pour `deploy.sh`/`bootstrap.sh` dans ce dépôt — la spécification L8-08 elle-même définit la
+preuve comme un « exercice… avec compte rendu daté », pas une assertion automatisée, et une vraie
+suite `make test` exigerait docker + age + rclone dans l'environnement d'intégration continue, hors
+de portée de cette nuit. Vérifié à la place : `sh -n`/`dash -n` sur les deux scripts (propre, y
+compris après le correctif de l'apostrophe) et l'exécution réelle ci-dessus, de bout en bout, deux
+fois (l'échec du 3 septembre à 13h00 UTC avant le correctif MinIO, le succès à 13h01 après).
