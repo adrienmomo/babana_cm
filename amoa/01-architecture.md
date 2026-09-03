@@ -68,6 +68,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D61 | **Aucune adresse de production en repli dans le code.** Une adresse absente échoue ; elle ne se devine pas | `\|\| 'https://api.babana.cm'` | Un binaire de recette construit sans cette variable écrirait dans la base du pilote sans que rien ne le signale. Même famille que D43 : un repli plausible est plus dangereux qu'une absence |
 | D62 | **Un script d'exploitation n'est vérifié que s'il a été exécuté comme script**, d'un bout à l'autre | Rejouer ses commandes une à une | Rejouer les commandes prouve la mécanique, jamais le script — l'ordre, les gardes, les variables, les codes de retour restent non exercés. Et c'est le script qu'on lance à trois heures du matin. Voir §9 septies |
 | D63 | **Le jeu de démonstration porte ce que l'écran affiche**, pas seulement les enregistrements qui le référencent | Semer les lignes, pas les fichiers | Cent chauffeurs semés, deux cents documents, zéro image téléversée : l'écran de validation d'un permis n'a jamais été vu. Un enregistrement qui pointe vers rien peuple une liste, pas un écran. Voir §9 septies |
+| D64 | **L'adresse qui sert à écrire n'est pas celle qui sert à signer une URL destinée à un navigateur.** Le stockage a un point d'entrée interne et un point d'entrée public, distincts | Un seul `S3_ENDPOINT` | L'URL signée renvoyée au navigateur portait `http://minio:9000`, injoignable hors du réseau Docker — en production comme en développement. La route publique n'expose que l'API S3, jamais la console. Voir §9 octies |
 
 ---
 
@@ -561,6 +562,22 @@ Conséquence concrète : **l'écran où un superviseur regarde un permis pour ap
 
 ---
 
+## 9 octies. Un test qui s'exécute du mauvais côté de la frontière (D64)
+
+`generate_signed_url()` construit son client S3 sur `S3_ENDPOINT`, c'est-à-dire `http://minio:9000` — le nom du service dans le réseau Docker interne. Cette URL est renvoyée telle quelle au navigateur qui clique sur « Voir la pièce ». Aucun navigateur, nulle part, ne résout ce nom. En production non plus : `compose.yaml` ne publie aucun port MinIO et le Caddyfile ne proxifie rien vers lui.
+
+**L'écran où un gestionnaire vérifie un permis avant d'approuver un chauffeur n'aurait pas fonctionné le premier jour du pilote.** C'est le geste central de L6-15 et de L9-01, deux tâches de périmètre pilote, toutes les deux déclarées finies.
+
+Et `test_documents.py` était vert depuis des semaines. Il appelle `generate_signed_url()` **depuis l'intérieur du conteneur Odoo**, où `minio` se résout parfaitement. Le test ne mentait pas : il prouvait une propriété vraie à l'endroit où il s'exécutait, et fausse partout ailleurs.
+
+C'est une variante de D38 qu'on n'avait pas encore rencontrée. Jusqu'ici, le motif était « la chaîne de production s'est terminée sans erreur » contre « quelqu'un l'a ouvert ». Ici la vérification était bien une exécution, pas une compilation — mais elle s'exécutait du mauvais côté d'une frontière réseau. **La question à poser n'est pas seulement « est-ce que ça a tourné », c'est « est-ce que ça a tourné là où le vrai utilisateur se tient ».**
+
+La règle qui en découle : **toute valeur qui traverse la frontière vers un client se vérifie depuis l'extérieur.** Une adresse, un lien, une URL signée, une redirection. Vérifié le 16 septembre que `S3_ENDPOINT` est le seul cas dans ce dépôt : `ODOO_INTERNAL_URL`, `REALTIME_INTERNAL_URL` et `REDIS_URL` restent de service à service, et le lien de partage de trajet se construit sur `BABANA_DOMAIN`. Un seul cas, donc — mais il portait le geste d'approbation d'un chauffeur.
+
+**Et D61 ne s'arrête pas aux applications mobiles.** `controllers/share.py::_share_base_url()` retombe sur `https://babana.cm` si `BABANA_DOMAIN` est absente — une adresse de production en repli, exactement ce que D61 interdit, appliquée jusqu'ici au seul `apps/*/config.ts`. Le risque est faible (`deploy.sh` exige `BABANA_DOMAIN`), la règle est la même : une adresse absente échoue, elle ne se devine pas.
+
+---
+
 ## 10. Risques ouverts
 
 | Risque | Impact | Traitement proposé |
@@ -654,10 +671,12 @@ spécifications.
 
 | Décision | Arbitrée le | Portée par |
 |---|---|---|
-| **D62** — un script d'exploitation exécuté comme script | 15 septembre 2026 | J39 (`amoa/specs/L8-securite.md`, L8-08 critères 6 et 7) |
-| **D63** — le jeu de démonstration porte ce que l'écran affiche | 15 septembre 2026 | J39 |
+| **D64** — point d'entrée public du stockage, distinct de l'interne | 16 septembre 2026 | J40 (`amoa/specs/L1-identite.md`, L1-05 critères 6 et 7) |
+| **D61 étendue** — le repli `https://babana.cm` de `share.py` | 16 septembre 2026 | J40 |
 
-**D60 et D61 ont été portées la nuit J38**, la nuit même de leur arbitrage, comme D57 et D59 la nuit d'avant — retirées de ce tableau, qui liste ce qui reste à faire et non un historique. **D58** est portée par le code livré la nuit J36.
+**D62 et D63 ont été portées la nuit J39**, comme D60/D61 la nuit d'avant et D57/D59 celle encore avant — retirées de ce tableau, qui liste ce qui reste à faire et non un historique. **D58** est portée par le code livré la nuit J36.
+
+Quatre nuits de suite où une décision arbitrée le matin est portée le soir même. Le registre a rempli son office : ce qu'il liste part dans le prompt de la nuit qui suit, jamais dans un rappel qu'on relira plus tard.
 
 **Registre vide, vérifié le 2 septembre (J25).** D42 (numéros de téléphone révélés à
 l'affectation), seule ligne depuis la création du registre, a été portée ce soir-là

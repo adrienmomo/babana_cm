@@ -234,6 +234,10 @@ Le téléversement passe par le serveur, qui valide le type MIME réel — pas s
 
 Une URL signée générée pour un gestionnaire ne doit pas rester valide au-delà de sa fenêtre, même si elle est partagée.
 
+**L'adresse qui sert à signer n'est pas celle qui sert à écrire** (D64, ajouté le 16 septembre 2026 après `amoa/questions/L1-05-signed-url-unreachable.md`). Le serveur écrit sur le point d'entrée interne du stockage ; l'URL signée qu'il renvoie à un navigateur porte le point d'entrée **public**, servi par le proxy sur son propre hôte. Ce proxy n'expose que l'API S3 de lecture — jamais la console d'administration du stockage. La sécurité reste portée par la signature et son expiration, comme ci-dessus : c'est déjà le modèle, il lui manquait seulement d'être joignable.
+
+En développement, le point d'entrée public est le port déjà publié localement ; en production, l'hôte servi par Caddy. Aucune valeur par défaut ne pointe vers l'autre (D43) : une configuration incomplète échoue.
+
 ### Critères d'acceptation
 
 1. Un objet stocké n'est pas accessible sans URL signée. Vérifié par un appel direct qui échoue.
@@ -241,6 +245,8 @@ Une URL signée générée pour un gestionnaire ne doit pas rester valide au-del
 3. Un chauffeur ne peut pas obtenir d'URL signée pour le document d'un autre chauffeur.
 4. Un fichier dont le type MIME réel ne correspond pas au type déclaré est rejeté.
 5. La date d'expiration du permis est obligatoire.
+6. **L'URL signée est joignable depuis l'extérieur du réseau interne** — vérifiée depuis un client qui ne résout aucun nom de service, jamais depuis l'intérieur d'un conteneur. C'est le critère que les cinq précédents n'exerçaient pas : ils s'exécutaient tous du bon côté de la frontière (§9 octies).
+7. **La console d'administration du stockage n'est atteignable par aucune route publique.** Vérifié par un appel qui échoue, au même titre que le critère 1.
 
 ---
 
