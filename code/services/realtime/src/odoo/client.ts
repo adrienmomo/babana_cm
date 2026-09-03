@@ -68,3 +68,42 @@ export async function callOdoo(
   }
   throw lastError;
 }
+
+export interface CallOdooOnceResult {
+  ok: boolean;
+  status: number;
+  body: unknown;
+}
+
+/**
+ * Une seule tentative, sans réessai ni délai -- réservée à `odoo/outbox.ts` (L3-12), qui porte
+ * lui-même sa propre temporisation croissante, persistante à travers un redémarrage du service
+ * (`callOdoo` ci-dessus réessaie en mémoire, ce qui ne survivrait pas). Ne lève jamais sur une
+ * réponse HTTP d'erreur (contrairement à `callOdoo`) : l'appelant a besoin du statut et du corps
+ * pour distinguer un échec à rejouer d'un rejeu déjà appliqué (409 RIDE_INVALID_TRANSITION,
+ * silencieusement absorbé par l'idempotence d'Odoo, L4-03) -- seule une erreur réseau (Odoo
+ * injoignable, timeout) lève encore, il n'y a alors ni statut ni corps à distinguer.
+ */
+export async function callOdooOnce(
+  config: Config,
+  path: string,
+  body: unknown,
+  headers: Record<string, string> = {}
+): Promise<CallOdooOnceResult> {
+  const response = await fetch(`${config.ODOO_INTERNAL_URL}${path}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Realtime-Secret': config.REALTIME_SHARED_SECRET,
+      ...headers,
+    },
+    body: JSON.stringify(body),
+  });
+  let parsed: unknown = null;
+  try {
+    parsed = await response.json();
+  } catch {
+    parsed = null;
+  }
+  return { ok: response.ok, status: response.status, body: parsed };
+}

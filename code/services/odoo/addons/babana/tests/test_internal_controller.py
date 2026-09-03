@@ -22,10 +22,12 @@ def _internal_url(path: str) -> str:
 
 @tagged("post_install", "-at_install")
 class TestInternalController(HttpCase):
-    def _post(self, path, body=None, secret=None):
+    def _post(self, path, body=None, secret=None, idempotency_key=None):
         headers = {"Content-Type": "application/json"}
         if secret is not None:
             headers["X-Realtime-Secret"] = secret
+        if idempotency_key is not None:
+            headers["Idempotency-Key"] = idempotency_key
         return self.url_open(_internal_url(path), data=json.dumps(body or {}).encode(), headers=headers)
 
     def _real_secret(self) -> str:
@@ -137,6 +139,74 @@ class TestInternalController(HttpCase):
     def test_driver_accepted_on_a_ride_not_proposed_is_invalid_transition(self):
         ride, driver = self._ride_at_proposed()
         ride.sudo().action_accept(by_driver=driver)  # déjà 'assigned'
+
+        response = self._post(
+            f"/rides/{ride.public_id}/driver-accepted", {"driverId": driver.public_id}, secret=self._real_secret()
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"]["code"], "RIDE_INVALID_TRANSITION")
+
+    # --- L3-12 : idempotence par Idempotency-Key (L4-03, C-01R), désormais câblée ici pour la
+    # file persistante du service temps réel (services/realtime/src/odoo/outbox.ts) ------------
+
+    def test_driver_accepted_replayed_with_the_same_idempotency_key_is_not_reapplied(self):
+        ride, driver = self._ride_at_proposed()
+
+        first = self._post(
+            f"/rides/{ride.public_id}/driver-accepted",
+            {"driverId": driver.public_id},
+            secret=self._real_secret(),
+            idempotency_key="outbox-entry-1",
+        )
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(ride.state, "assigned")
+
+        # Rejeu -- exactement ce que fait odoo/outbox.ts après un échec ou un redémarrage du
+        # service : même chemin, même identifiant. Sans le câblage de ce soir, ceci ré-exécuterait
+        # action_accept sur une course déjà 'assigned' et échouerait en RIDE_INVALID_TRANSITION --
+        # toléré par la file (traité comme "déjà appliqué"), mais ce n'est plus ce qui se passe :
+        # la réponse mise en cache par le premier appel est renvoyée telle quelle.
+        second = self._post(
+            f"/rides/{ride.public_id}/driver-accepted",
+            {"driverId": driver.public_id},
+            secret=self._real_secret(),
+            idempotency_key="outbox-entry-1",
+        )
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.json(), first.json())
+        self.assertEqual(ride.state, "assigned", "le rejeu ne doit pas avoir ré-exécuté la transition")
+
+    def test_driver_rejected_replayed_with_the_same_idempotency_key_is_not_reapplied(self):
+        ride, driver = self._ride_at_proposed()
+
+        first = self._post(
+            f"/rides/{ride.public_id}/driver-rejected",
+            {"driverId": driver.public_id, "reason": "trop loin", "expired": False},
+            secret=self._real_secret(),
+            idempotency_key="outbox-entry-2",
+        )
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(ride.state, "rejected")
+        self.assertEqual(len(ride.rejection_ids), 1)
+
+        second = self._post(
+            f"/rides/{ride.public_id}/driver-rejected",
+            {"driverId": driver.public_id, "reason": "trop loin", "expired": False},
+            secret=self._real_secret(),
+            idempotency_key="outbox-entry-2",
+        )
+        self.assertEqual(second.status_code, 200)
+        self.assertEqual(
+            len(ride.rejection_ids), 1, "le rejeu ne doit pas avoir ajouté une seconde ligne de refus"
+        )
+
+    def test_driver_accepted_replayed_without_an_idempotency_key_keeps_the_old_409_safety_net(self):
+        # Comportement inchangé pour un appelant qui n'envoie pas la clé (aucun aujourd'hui, hors
+        # de la file) -- même filet que celui documenté avant ce soir : un rejeu ré-exécute
+        # action_accept, qui échoue proprement sur une course déjà 'assigned'.
+        ride, driver = self._ride_at_proposed()
+        ride.sudo().action_accept(by_driver=driver)
 
         response = self._post(
             f"/rides/{ride.public_id}/driver-accepted", {"driverId": driver.public_id}, secret=self._real_secret()

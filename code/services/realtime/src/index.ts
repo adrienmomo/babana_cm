@@ -3,6 +3,7 @@ import { createRedisClient } from './redis/client';
 import { createServer } from './server';
 import { startReservationExpiryWatcher } from './reservation/reserve';
 import { startEngagementReconciliation } from './driver/reconcile';
+import { startOutboxWorker } from './odoo/outbox';
 
 function main() {
   let config;
@@ -25,6 +26,10 @@ function main() {
   // Odoo (L3-17, critère 7) -- le marqueur n'expirant jamais tout seul (D26), c'est le seul filet
   // contre un marqueur orphelin laissé par un échec de l'appel accept -> Odoo.
   startEngagementReconciliation(config, redis);
+  // File persistante des appels sortants vers Odoo (L3-12) : reprend au démarrage les entrées
+  // posées avant un arrêt du service (échéance déjà dépassée), et poursuit la temporisation
+  // croissante pour toute entrée encore en échec.
+  startOutboxWorker(config, redis);
 
   server.listen(config.PORT, () => {
     console.log(`service temps réel à l'écoute sur le port ${config.PORT} (${config.NODE_ENV})`);

@@ -218,7 +218,7 @@ export class ProposalLifecycle {
     // Sens temps réel -> Odoo (L3-17) : écrit la transition proposed -> assigned. Volontairement
     // non attendu -- voir odoo/rides.ts pour le raisonnement complet -- la résolution Redis
     // ci-dessus fait déjà foi pour les deux parties connectées.
-    reportDriverAccepted(this.config, rideId, driverId);
+    reportDriverAccepted(this.config, this.redis, rideId, driverId);
 
     if (record) {
       // L3-09 : pose l'association course/client/chauffeur que le suivi (`ride.track`) exige --
@@ -267,7 +267,7 @@ export class ProposalLifecycle {
     if (!resolved) return false;
 
     await releaseDriver(this.redis, driverId);
-    reportDriverRejected(this.config, rideId, driverId, { expired: false, reason });
+    reportDriverRejected(this.config, this.redis, rideId, driverId, { expired: false, reason });
     const record = await this.consumeRecord(driverId);
     if (record) {
       this.sendToClient(record.clientUserId, {
@@ -291,7 +291,7 @@ export class ProposalLifecycle {
     await releaseDriver(this.redis, driverId);
     const record = await this.consumeRecord(driverId);
     if (record) {
-      reportDriverRejected(this.config, record.rideId, driverId, { expired: true });
+      reportDriverRejected(this.config, this.redis, record.rideId, driverId, { expired: true });
       this.sendToClient(record.clientUserId, {
         type: 'ride.rejected',
         id: randomUUID(),

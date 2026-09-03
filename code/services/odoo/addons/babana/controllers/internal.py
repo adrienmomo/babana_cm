@@ -38,7 +38,22 @@ class InternalController(http.Controller):
     def _dispatch(self, endpoint: str, handler):
         try:
             _common.authenticated_internal_call()
-            payload, status = handler()
+            # L3-12 : même mécanisme d'idempotence que RideController._dispatch (L4-03,
+            # C-01R) -- désormais un appelant réel en a besoin, la file persistante du service
+            # temps réel (services/realtime/src/odoo/outbox.ts), qui rejoue une entrée avec le
+            # même en-tête Idempotency-Key après un échec ou un redémarrage. Sans clé fournie
+            # (aucun appelant hors la file aujourd'hui), run_idempotent exécute directement le
+            # handler -- comportement inchangé pour tout le reste.
+            #
+            # Avant ce soir, accept/reject comptaient sur le filet plus grossier documenté par
+            # PG_CONCURRENCY_EXCEPTIONS_TO_RETRY ci-dessous : un rejeu sans clé ré-exécute la
+            # méthode de transition, qui échoue proprement en RIDE_INVALID_TRANSITION sur un état
+            # déjà transitionné (jamais en double effet). Ce filet reste vrai et reste le
+            # comportement pour un rejeu sans Idempotency-Key ; avec une clé, le rejeu ne
+            # réexécute plus rien du tout, il renvoie la réponse déjà mise en cache par Odoo --
+            # exactement la formulation de L3-12 ("Odoo rejette silencieusement un identifiant
+            # déjà traité").
+            payload, status = _common.run_idempotent(endpoint, handler)
             return _common.json_response(payload, status)
         except _common.AuthenticationFailed as exc:
             return _common.error_response(exc.code, "authentification requise", exc.status)
@@ -48,12 +63,8 @@ class InternalController(http.Controller):
             return _common.error_response("VALIDATION_ERROR", str(exc), 400)
         except PG_CONCURRENCY_EXCEPTIONS_TO_RETRY:
             # Même politique que controllers/ride.py::_dispatch (D25) : ne jamais attraper cette
-            # famille d'exceptions ici, la laisser remonter jusqu'au rejeu d'Odoo. Ces routes
-            # n'ont pas les mêmes préoccupations d'idempotence que select-driver -- accept/reject
-            # sont idempotents par construction côté temps réel (resolve.lua ne résout qu'une
-            # fois), un rejeu de driver-accepted/driver-rejected ré-exécute action_accept/
-            # action_reject sur un état déjà transitionné et échoue proprement en
-            # RIDE_INVALID_TRANSITION, jamais en double effet.
+            # famille d'exceptions ici, la laisser remonter jusqu'au rejeu d'Odoo -- run_idempotent
+            # la laisse déjà passer telle quelle (voir sa propre docstring, _common.py).
             raise
         except Exception:
             _logger.exception("erreur interne dans %s", endpoint)

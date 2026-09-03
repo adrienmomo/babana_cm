@@ -1,7 +1,9 @@
+import type Redis from 'ioredis';
 import { http } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ConnectionContext } from '../ws/auth';
 import { callOdoo } from './client';
+import { reportOutboxWrite } from './outbox';
 
 /**
  * Sens temps réel -> Odoo pour l'acceptation, le refus et l'expiration (L3-17). Volontairement
@@ -9,30 +11,34 @@ import { callOdoo } from './client';
  * (`resolve.lua`) a déjà eu lieu et fait foi pour le chauffeur et pour le client, connectés en
  * temps réel -- les faire attendre un aller-retour HTTP vers Odoo avant de recevoir
  * `ride.assigned`/`ride.rejected` ajouterait une latence perceptible pour un bénéfice qui n'est
- * pas le leur. L'écriture Odoo elle-même se fait en tâche de fond, avec les réessais déjà portés
- * par `callOdoo` (L0-04).
+ * pas le leur.
+ *
+ * **L3-12, comblé le 3 septembre** : l'écriture ne part plus par `callOdoo` (trois réessais EN
+ * MÉMOIRE, perdus si le service redémarre) mais par la file persistante `odoo/outbox.ts` --
+ * `reportOutboxWrite` persiste l'entrée dans Redis avant toute tentative, puis en tente une tout
+ * de suite (même latence que l'ancien comportement dans le cas courant, Odoo joignable). Si
+ * l'appel échoue durablement, l'entrée reste en file et le passage périodique la reprend avec un
+ * délai croissant, y compris après un redémarrage du service (amoa/questions/L3-17.md §1 : un
+ * refus dont l'appel Odoo échouait laissait jusqu'ici la course bloquée en `proposed` pour
+ * toujours, `action_propose` n'acceptant que `requested`/`rejected` en état source).
  *
  * Ce découplage est la même idée que l'option "sortir l'appel de la transaction rejouable" du
  * piège de select-driver (voir http/internal.ts), appliquée ici à un appel qui n'a de toute façon
  * jamais lieu dans une transaction Odoo rejouable -- c'est un appel SORTANT de ce service, initié
  * par un message WebSocket, jamais par un contrôleur Odoo.
- *
- * **Ce que cette absence de blocage coûte, en connaissance de cause** : si l'appel Odoo échoue
- * durablement (Odoo injoignable plus longtemps que les réessais de `callOdoo`), l'engagement posé
- * côté Redis (accept) ou le retour au pool (reject/expire) reste correct, mais la course Odoo ne
- * transitionne jamais -- jusqu'à ce que la réconciliation (`driver/reconcile.ts`) constate l'écart
- * et l'aligne. C'est précisément ce que L3-12 (file d'attente persistante avec rejeu, hors
- * périmètre de cette tâche -- amoa/questions/L3-17.md) doit fermer pour de bon.
  */
-export function reportDriverAccepted(config: Config, rideId: string, driverId: string): void {
-  callOdoo(config, `/api/internal/rides/${encodeURIComponent(rideId)}/driver-accepted`, { driverId }).catch(
-    (err: unknown) => {
-      console.error(
-        `[L3-17] échec de la notification d'acceptation à Odoo (ride ${rideId}, chauffeur ${driverId}) -- ` +
-          "la réconciliation périodique corrigera l'écart si Odoo ne voit jamais cette transition :",
-        err
-      );
-    }
+export function reportDriverAccepted(
+  config: Config,
+  redis: Redis,
+  rideId: string,
+  driverId: string
+): void {
+  reportOutboxWrite(
+    config,
+    redis,
+    'driver-accepted',
+    `/api/internal/rides/${encodeURIComponent(rideId)}/driver-accepted`,
+    { driverId }
   );
 }
 
@@ -43,20 +49,18 @@ export interface DriverRejectedOptions {
 
 export function reportDriverRejected(
   config: Config,
+  redis: Redis,
   rideId: string,
   driverId: string,
   options: DriverRejectedOptions
 ): void {
-  callOdoo(config, `/api/internal/rides/${encodeURIComponent(rideId)}/driver-rejected`, {
-    driverId,
-    reason: options.reason ?? null,
-    expired: options.expired,
-  }).catch((err: unknown) => {
-    console.error(
-      `[L3-17] échec de la notification de refus/expiration à Odoo (ride ${rideId}, chauffeur ${driverId}) :`,
-      err
-    );
-  });
+  reportOutboxWrite(
+    config,
+    redis,
+    'driver-rejected',
+    `/api/internal/rides/${encodeURIComponent(rideId)}/driver-rejected`,
+    { driverId, reason: options.reason ?? null, expired: options.expired }
+  );
 }
 
 export interface EngagedDriver {

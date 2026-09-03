@@ -159,6 +159,26 @@ const ConfigSchema = z.object({
    * flux applicatif à surveiller finement, seulement un filet contre un registre qui grossirait
    * indéfiniment vers des connexions mortes. */
   WS_HEARTBEAT_INTERVAL_SECONDS: z.coerce.number().positive().default(30),
+
+  /** File d'attente persistante des appels sortants vers Odoo (L3-12) : un refus dont l'appel
+   * `driver-rejected` échoue durablement laissait jusqu'ici une course bloquée en `proposed`
+   * pour toujours (amoa/questions/L3-17.md §1) -- cette file ferme ce trou. Cadence à laquelle
+   * le passage périodique reprend les entrées dont l'échéance de rejeu est atteinte ; `enqueue`
+   * tente en plus un envoi immédiat (voir odoo/outbox.ts), ce passage est donc un filet, pas le
+   * chemin nominal de latence. */
+  OUTBOX_POLL_INTERVAL_SECONDS: z.coerce.number().positive().default(5),
+  /** Temporisation croissante entre deux tentatives d'une même entrée (doublée à chaque échec,
+   * plafonnée par OUTBOX_MAX_DELAY_MS) -- même principe que `callOdoo` (L0-04), mais persistant
+   * à travers un redémarrage puisque porté par la file Redis, pas par un `setTimeout` en
+   * mémoire. */
+  OUTBOX_BASE_DELAY_MS: z.coerce.number().int().positive().default(1_000),
+  OUTBOX_MAX_DELAY_MS: z.coerce.number().int().positive().default(60_000),
+  /** Seuils d'alerte (spécification L3-12, critère 5) : au-delà, la file elle-même grossit sans
+   * se vider (Odoo durablement injoignable), ou une entrée précise échoue trop souvent pour être
+   * un incident passager -- les deux se journalisent, jamais en silence (même principe que
+   * `driver/reconcile.ts`, qui répare ET dénonce). */
+  OUTBOX_ALERT_QUEUE_SIZE_THRESHOLD: z.coerce.number().int().positive().default(20),
+  OUTBOX_ALERT_ATTEMPTS_THRESHOLD: z.coerce.number().int().positive().default(5),
 }).refine((config) => config.RESERVATION_TTL_SECONDS > config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS, {
   // Sans cette marge, le filet de sécurité Redis (RESERVATION_TTL_SECONDS) pourrait expirer une
   // réservation AVANT le minuteur JS qui doit normalement trancher en premier (proposal/timeout.ts)
