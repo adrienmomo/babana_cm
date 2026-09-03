@@ -15,6 +15,7 @@ from . import babana_route_cache
 from . import babana_quote
 from . import babana_ride
 from . import babana_ride_state
+from . import babana_ride_invoice
 from . import babana_idempotency_record
 from . import babana_cash_movement
 from . import babana_cash_remittance

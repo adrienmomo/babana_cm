@@ -75,13 +75,64 @@ def _post_init_admin_password(env):
     _logger.info("babana D43 : mot de passe administrateur posé depuis ADMIN_PASSWORD")
 
 
+# --------------------------------------------------------------------------------------------
+# L4-06 -- relais SMTP (CDC §III.3, infra/env/README.md)
+# --------------------------------------------------------------------------------------------
+#
+# Constat du 3 septembre, en vérifiant l'envoi de facture par email de bout en bout (Mailpit) --
+# pas supposé : `SMTP_HOST`/`SMTP_PORT`/`SMTP_USER`/`SMTP_PASSWORD`/`SMTP_FROM` sont posées sur
+# le conteneur depuis `infra/compose.yaml` (qui les documente comme "pour l'envoi de facture"),
+# `infra/production/deploy.sh` refuse même de partir si `SMTP_HOST` est vide ou vaut `mailpit` --
+# mais rien, nulle part dans ce dépôt, ne les traduisait en `ir.mail_server`. `mail.mail.send()`
+# tombait donc sur le repli d'Odoo (connexion locale, port 25) et échouait en silence
+# ("Connection refused", visible seulement dans `mail.mail.failure_reason`, jamais remonté à
+# l'écran) -- pour CETTE tâche comme pour tout email que ce module enverrait un jour. Même
+# défaut que celui déjà consigné pour `ADMIN_PASSWORD` le 11 septembre (une variable
+# documentée, jamais branchée) -- ici découvert avant le pilote plutôt qu'après.
+def _post_init_mail_server(env):
+    """post_init_hook : pose le relais SMTP depuis les variables d'environnement, si fournies.
+
+    Contrairement à `_post_init_admin_password` (D43, sans repli), une absence n'est pas une
+    erreur bloquante : `infra/env/.env.example` laisse `SMTP_HOST` délibérément vide (D43
+    retournée -- recopier `mailpit` en production enverrait les factures au simulateur), et
+    `deploy.sh` est déjà le garde-fou qui empêche un déploiement de production sans relais réel.
+    Une base de développement ou de CI sans `SMTP_HOST` doit simplement s'installer sans envoyer
+    de courrier, pas échouer.
+
+    Ne tourne qu'à la première installation, comme les deux hooks ci-dessus -- un `make reset`
+    est le chemin normal pour rejouer ce câblage si le relais change en développement.
+    """
+    host = os.environ.get("SMTP_HOST")
+    if not host:
+        _logger.info(
+            "babana L4-06 : SMTP_HOST absent -- aucun ir.mail_server posé, l'envoi de facture "
+            "par email échouera jusqu'à ce qu'un relais soit configuré."
+        )
+        return
+    env["ir.mail_server"].sudo().create({
+        "name": "babana (SMTP_HOST)",
+        "smtp_host": host,
+        "smtp_port": int(os.environ.get("SMTP_PORT") or 25),
+        "smtp_user": os.environ.get("SMTP_USER") or False,
+        "smtp_pass": os.environ.get("SMTP_PASSWORD") or False,
+        # Pas de valeur "none" dans ce champ (Odoo 18 : login/certificate/cli/gmail) --
+        # "login" avec smtp_user vide fonctionne pour Mailpit, qui n'authentifie pas : Odoo
+        # n'appelle smtp.login() que si smtp_user est renseigné (ir_mail_server.py::connect).
+        "smtp_authentication": "login",
+        "from_filter": os.environ.get("SMTP_FROM") or False,
+        "sequence": 1,
+    })
+    _logger.info("babana L4-06 : relais SMTP posé depuis SMTP_HOST=%s", host)
+
+
 def _post_init_hook(env):
     """Point d'entrée unique du manifeste (Odoo n'appelle qu'un seul `post_init_hook`,
-    `getattr(py_module, post_init)(env)` -- pas de liste). Enchaîne les deux hooks de première
-    installation dans l'ordre où ils sont apparus : D43 puis D53.
+    `getattr(py_module, post_init)(env)` -- pas de liste). Enchaîne les hooks de première
+    installation dans l'ordre où ils sont apparus : D43, puis D53, puis L4-06.
     """
     _post_init_admin_password(env)
     _post_init_currency_and_accounting(env)
+    _post_init_mail_server(env)
 
 
 # --------------------------------------------------------------------------------------------
@@ -155,14 +206,40 @@ _BABANA_ACCOUNTS = [
         "reconcile": True,
         "param": "babana.cash_remittance_discrepancy_account_id",
     },
+    {
+        # L4-06 : compte de produit des courses, porté par chaque ligne de facture. "income",
+        # pas "asset_*" comme les trois comptes ci-dessus -- ceux-là suivaient un mouvement de
+        # trésorerie/créance, celui-ci reconnaît un produit. Même réserve OHADA que le reste de
+        # ce fichier (numérotation "classe 7" indicative, provisoire au sens de D21).
+        "xmlid": "babana_invoice_income_account",
+        "name": "Prestations de transport (babana)",
+        "code": "70601",
+        "account_type": "income",
+        "param": "babana.invoice_income_account_id",
+    },
 ]
-_BABANA_JOURNAL = {
-    "xmlid": "babana_cash_remittance_journal",
-    "name": "Caisse chauffeurs (babana)",
-    "code": "BCAI",
-    "type": "cash",
-    "param": "babana.cash_remittance_journal_id",
-}
+# Deux journaux : celui de la remise de caisse (existant, D8) et celui de la facturation des
+# courses (L4-06). `default_account_xmlid` remplace un indexage dans _BABANA_ACCOUNTS (fragile
+# dès qu'on y ajoute une entrée, comme ci-dessus) par une référence explicite au compte que
+# chaque journal doit porter par défaut.
+_BABANA_JOURNALS = [
+    {
+        "xmlid": "babana_cash_remittance_journal",
+        "name": "Caisse chauffeurs (babana)",
+        "code": "BCAI",
+        "type": "cash",
+        "param": "babana.cash_remittance_journal_id",
+        "default_account_xmlid": "babana_cash_remittance_cash_account",
+    },
+    {
+        "xmlid": "babana_invoice_journal",
+        "name": "Facturation courses (babana)",
+        "code": "BINV",
+        "type": "sale",
+        "param": "babana.invoice_journal_id",
+        "default_account_xmlid": "babana_invoice_income_account",
+    },
+]
 
 
 def _post_init_currency_and_accounting(env):
@@ -233,23 +310,26 @@ def _ensure_babana_accounting(env):
             }])
         Param.set_param(spec["param"], str(account.id))
 
-    journal = _ref(_BABANA_JOURNAL["xmlid"])
-    if not journal:
-        journal = Journal.search([("code", "=", _BABANA_JOURNAL["code"])], limit=1) or Journal.create(
-            {
-                "name": _BABANA_JOURNAL["name"],
-                "code": _BABANA_JOURNAL["code"],
-                "type": _BABANA_JOURNAL["type"],
-                "company_id": company.id,
-                "default_account_id": _ref(_BABANA_ACCOUNTS[0]["xmlid"]).id,
-            }
-        )
-        ModelData._update_xmlids([{
-            "xml_id": "babana.%s" % _BABANA_JOURNAL["xmlid"],
-            "record": journal,
-            "noupdate": True,
-        }])
-    Param.set_param(_BABANA_JOURNAL["param"], str(journal.id))
+    for journal_spec in _BABANA_JOURNALS:
+        journal = _ref(journal_spec["xmlid"])
+        if not journal:
+            journal = Journal.search(
+                [("code", "=", journal_spec["code"])], limit=1
+            ) or Journal.create(
+                {
+                    "name": journal_spec["name"],
+                    "code": journal_spec["code"],
+                    "type": journal_spec["type"],
+                    "company_id": company.id,
+                    "default_account_id": _ref(journal_spec["default_account_xmlid"]).id,
+                }
+            )
+            ModelData._update_xmlids([{
+                "xml_id": "babana.%s" % journal_spec["xmlid"],
+                "record": journal,
+                "noupdate": True,
+            }])
+        Param.set_param(journal_spec["param"], str(journal.id))
 
 
 def _require_xaf_currency(env):

@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        L4-06 : gabarit d'impression de la facture de course. `account.move` porte déjà la
+        numérotation légale, le partenaire, les lignes et le total (report/babana_invoice_
+        template.xml n'a donc qu'à les afficher), mais aucune des mentions propres à une
+        course (référence, départ, arrivée, distance, chauffeur, immatriculation) n'existe sur
+        `account.move` nativement, d'où `babana_ride_id` (models/babana_ride_invoice.py) et le
+        bloc dédié ci-dessous. `web.external_layout` fournit l'en-tête (société, logo) et le
+        pied de page communs à tout document imprimé par Odoo, pas réinventé ici.
+    -->
+    <template id="report_ride_invoice_document">
+        <t t-call="web.external_layout">
+            <div class="page">
+                <h2>Facture <span t-field="o.name"/></h2>
+                <div class="row mt32 mb32">
+                    <div class="col-6">
+                        <strong>Client</strong>
+                        <div t-field="o.partner_id"
+                             t-options="{'widget': 'contact', 'fields': ['name', 'address'], 'no_marker': True}"/>
+                    </div>
+                    <div class="col-6 text-end">
+                        <div><strong>Date</strong> : <span t-field="o.invoice_date"/></div>
+                        <div t-if="o.babana_ride_id">
+                            <strong>Référence de course</strong> :
+                            <span t-field="o.babana_ride_id.reference"/>
+                        </div>
+                    </div>
+                </div>
+
+                <div t-if="o.babana_ride_id" class="mb32">
+                    <h4>Détails de la course</h4>
+                    <table class="table table-sm">
+                        <tbody>
+                            <tr>
+                                <td>Départ</td>
+                                <td><span t-field="o.babana_ride_id.pickup_label"/></td>
+                            </tr>
+                            <tr>
+                                <td>Arrivée</td>
+                                <td><span t-field="o.babana_ride_id.dropoff_label"/></td>
+                            </tr>
+                            <tr>
+                                <td>Distance facturée</td>
+                                <td>
+                                    <span t-esc="'%.1f' % o.babana_ride_id.reference_distance_km"/> km
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>Chauffeur</td>
+                                <td><span t-field="o.babana_ride_id.driver_id.display_name"/></td>
+                            </tr>
+                            <tr>
+                                <td>Immatriculation</td>
+                                <td><span t-field="o.babana_ride_id.driver_id.motorcycle_id.license_plate"/></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <h4>Détail du calcul</h4>
+                <table class="table table-sm o_main_table">
+                    <thead>
+                        <tr>
+                            <th>Composante</th>
+                            <th class="text-end">Montant</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr t-foreach="o.invoice_line_ids" t-as="line">
+                            <td><span t-field="line.name"/></td>
+                            <td class="text-end">
+                                <span t-field="line.price_subtotal"
+                                    t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/>
+                            </td>
+                        </tr>
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td><strong>Total</strong></td>
+                            <td class="text-end">
+                                <strong t-field="o.amount_total"
+                                    t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/>
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+        </t>
+    </template>
+
+    <template id="report_ride_invoice">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="o">
+                <t t-call="babana.report_ride_invoice_document" t-lang="o.partner_id.lang"/>
+            </t>
+        </t>
+    </template>
+
+    <record id="action_report_ride_invoice" model="ir.actions.report">
+        <field name="name">Facture de course</field>
+        <field name="model">account.move</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">babana.report_ride_invoice</field>
+        <field name="report_file">babana.report_ride_invoice</field>
+        <field name="print_report_name">'Facture - %s' % (object.name or 'Brouillon')</field>
+        <field name="binding_model_id" ref="account.model_account_move"/>
+        <field name="binding_type">report</field>
+    </record>
+</odoo>

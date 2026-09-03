@@ -44,6 +44,12 @@
         <field name="model">babana.ride</field>
         <field name="arch" type="xml">
             <form create="false" edit="false" delete="false">
+                <header>
+                    <!-- L4-06 : envoi sur demande, jamais automatique (spécification). Un
+                         client qui redemande sa facture le fait en contactant l'exploitant. -->
+                    <button name="button_send_invoice_email" string="Envoyer la facture par email"
+                        type="object" invisible="not invoice_id"/>
+                </header>
                 <sheet>
                     <widget name="web_ribbon" title="Annulée" bg_color="text-bg-danger"
                         invisible="state != 'cancelled'"/>

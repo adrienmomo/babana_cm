@@ -25,6 +25,7 @@ from . import test_internal_profiles_controller
 from . import test_realtime_commit_hook
 from . import test_cash_balance
 from . import test_settlement
+from . import test_invoice
 from . import test_cash_limit
 from . import test_partition_invariant
 from . import test_routing
@@ -44,3 +45,4 @@ from . import test_sql_constraints_in_db
 from . import test_currency_required
 from . import test_access_rights
 from . import test_admin_password
+from . import test_smtp_server

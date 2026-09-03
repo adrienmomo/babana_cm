@@ -381,11 +381,14 @@ class BabanaRideState(models.Model):
     # --- 8. completed -> settled ---------------------------------------------------------------
 
     def action_settle(self, *, by_driver, amount_collected):
-        """Encaissement espèces (L4-05, D9). Trois effets dans une transaction unique : la
-        transition elle-même, l'incrément du compte courant (L5-01), le contrôle de plafond
-        (L5-02). **La génération de facture (L4-06) n'est pas ici** -- hors du lot qui a construit
-        cette méthode, voir amoa/questions/L4-05.md ; `invoice_id` reste vide jusqu'à cette tâche,
-        le champ existe déjà (babana_ride.py) précisément pour l'accueillir sans migration.
+        """Encaissement espèces (L4-05, D9). Quatre effets dans une transaction unique : la
+        transition elle-même, la génération de la facture (L4-06), l'incrément du compte
+        courant (L5-01), le contrôle de plafond (L5-02) -- L4-06 rejoint enfin ce savepoint,
+        comme amoa/questions/L4-05.md le recommandait (option 1) : la facture est composée
+        AVANT la transition (voir babana_ride_invoice.py::_babana_generate_invoice pour la
+        raison -- `write()` interdit toute écriture, y compris `invoice_id`, une fois `state`
+        posé à 'settled'), et `invoice_id` voyage dans le même `_babana_write_transition` que
+        `state`/`settled_at`, jamais un second write() après coup.
 
         **Renvoie un dict `{"ride": self, "cash_limit_crossed": bool}`** plutôt que `self` seul
         (J24, amoa/questions/L6-14.md) : franchir le plafond n'est pas une erreur, la transition
@@ -415,13 +418,22 @@ class BabanaRideState(models.Model):
         if self.currency_id.compare_amounts(amount_collected, expected_amount) != 0:
             raise UserError("SETTLEMENT_AMOUNT_MISMATCH")
 
-        # Savepoint : si un effet échoue (le mouvement de compte courant refuse un solde négatif,
-        # improbable pour un encaissement toujours positif mais vérifié par construction plutôt
-        # que par confiance), AUCUN des trois n'est appliqué -- même mécanisme que
-        # action_propose ci-dessus (critère d'acceptation 2 de L4-05 : "l'échec d'un effet annule
-        # tous les autres").
+        # Savepoint : si un effet échoue (compte non configuré pour la facture, mouvement de
+        # compte courant qui refuse un solde négatif -- improbable pour un encaissement toujours
+        # positif mais vérifié par construction plutôt que par confiance), AUCUN des quatre n'est
+        # appliqué -- même mécanisme que action_propose ci-dessus (critère d'acceptation 2 de
+        # L4-05 : "l'échec d'un effet annule tous les autres").
         with self.env.cr.savepoint():
-            self._babana_write_transition({"state": "settled", "settled_at": fields.Datetime.now()})
+            # En premier, et AVANT la transition (voir le docstring ci-dessus) : la facture ne
+            # dépend d'aucun effet qui suit, et son échec ne doit rien avoir laissé derrière lui.
+            invoice = self._babana_generate_invoice()
+            self._babana_write_transition(
+                {
+                    "state": "settled",
+                    "settled_at": fields.Datetime.now(),
+                    "invoice_id": invoice.id,
+                }
+            )
             self.env["babana.cash.movement"].sudo().create(
                 {
                     "driver_id": by_driver.id,

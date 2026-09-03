@@ -32,6 +32,8 @@ _ACCOUNTING_PARAMS = [
     ("babana.cash_remittance_cash_account_id", "account.account"),
     ("babana.cash_remittance_receivable_account_id", "account.account"),
     ("babana.cash_remittance_discrepancy_account_id", "account.account"),
+    ("babana.invoice_journal_id", "account.journal"),
+    ("babana.invoice_income_account_id", "account.account"),
 ]
 
 
