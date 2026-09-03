@@ -76,3 +76,41 @@ dû contourner ; ce soir c'est le bouton lui-même.
 inchangée en nombre (18 tests, 0 échec après le correctif ci-dessus), `infra/smoke-test.sh` :
 nouvelle ligne (console jamais servie par la route publique). `make test` complet en fin de nuit
 (voir la dernière entrée de ce rapport pour les chiffres consolidés).
+
+---
+
+## 2. D61 étendue — le repli de `share.py`, et le reste du même défaut
+
+### Le correctif signalé hier
+
+`controllers/share.py::_share_base_url()` : `os.environ['BABANA_DOMAIN']`, plus de
+`.get(..., 'babana.cm')`.
+
+### Ce que le balayage a trouvé derrière — deux maillons de plus
+
+**En cherchant *pourquoi* ce repli s'exécutait** (pas seulement en le supprimant) :
+`infra/compose.yaml` ne délivrait `BABANA_DOMAIN` **qu'au service `caddy`**, jamais au conteneur
+`odoo` qui exécute `share.py`. Ce n'était donc pas un filet de sécurité pour un cas rare — c'était
+le SEUL chemin qui ait jamais existé : chaque lien de partage de trajet, dans tous les
+environnements, portait `babana.cm` en dur, jamais la valeur réelle. Un déploiement de recette
+(`staging.babana.cm`) aurait toujours envoyé des liens vers la production. Corrigé en délivrant
+`BABANA_DOMAIN` à `odoo` comme à `caddy` (`infra/compose.yaml`).
+
+**Troisième cas, hors de l'application** : `infra/production/monitoring/probe.sh` posait
+`DOMAIN="${DOMAIN:-babana.cm}"` — une sonde de supervision externe qui, lancée sans son
+paramètre pour surveiller la recette, surveillerait silencieusement la production à la place.
+Son propre voisin, `probe-host.sh`, avait déjà la bonne discipline pour `SSH_TARGET` (`:?`
+obligatoire, aucun repli) : l'incohérence entre les deux scripts a été le signal qui a fait
+chercher plus loin. Corrigé de la même façon (`: "${DOMAIN:?...}"`).
+
+Balayé le reste du dépôt (`grep` sur les replis `||`/`.get(..., 'http...')`/`${VAR:-...}` vers
+une adresse plausible, hors `test/`/`tests/` déjà exclus par convention) : rien d'autre. Trois
+cas, cette nuit : `share.py`, sa propre livraison manquante, `probe.sh`.
+
+### Tests
+
+`test/config/config-coherence.test.ts` : `BABANA_DOMAIN` reste cohérent (déclarée, livrée deux
+fois désormais — `caddy` et `odoo` —, consommée) ; aucun problème remonté. Pas de test dédié pour
+`probe.sh` (script d'exploitation hors périmètre testé, même famille que `backup.sh`/
+`bootstrap.sh` — `sh -n` propre). `make test` complet en fin de nuit (voir la dernière entrée de
+ce rapport).

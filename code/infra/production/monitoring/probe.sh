@@ -13,7 +13,12 @@
 # alerte. Si ALERT_CMD est défini, il est appelé une fois par alerte avec le message en $1.
 set -u
 
-DOMAIN="${DOMAIN:-babana.cm}"
+# D61 étendue (amoa/01-architecture.md §9 octies, 16 septembre 2026) : `${DOMAIN:-babana.cm}`
+# était le troisième repli de ce genre trouvé ce soir-là (après controllers/share.py et le
+# maillon manquant de BABANA_DOMAIN vers le conteneur odoo) -- une sonde de RECETTE qui oublie de
+# poser DOMAIN surveillerait silencieusement la PRODUCTION, en pensant surveiller staging. Même
+# discipline que SSH_TARGET dans probe-host.sh ci-contre, jamais un repli plausible.
+: "${DOMAIN:?DOMAIN obligatoire -- ex. babana.cm ou staging.babana.cm}"
 CERT_WARN_DAYS="${CERT_WARN_DAYS:-14}"
 ALERT_CMD="${ALERT_CMD:-}"
 fail=0

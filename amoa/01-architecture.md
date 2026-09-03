@@ -576,6 +576,21 @@ La règle qui en découle : **toute valeur qui traverse la frontière vers un cl
 
 **Et D61 ne s'arrête pas aux applications mobiles.** `controllers/share.py::_share_base_url()` retombe sur `https://babana.cm` si `BABANA_DOMAIN` est absente — une adresse de production en repli, exactement ce que D61 interdit, appliquée jusqu'ici au seul `apps/*/config.ts`. Le risque est faible (`deploy.sh` exige `BABANA_DOMAIN`), la règle est la même : une adresse absente échoue, elle ne se devine pas.
 
+**Portée la nuit J40, et le repli n'était pas un simple filet de sécurité.** Corrigé
+(`os.environ['BABANA_DOMAIN']`, plus de `.get(..., 'babana.cm')`). Mais en creusant *pourquoi*
+ce repli s'exécutait TOUJOURS plutôt que rarement, un maillon plus grave est apparu :
+`infra/compose.yaml` ne délivrait `BABANA_DOMAIN` **qu'au service `caddy`**, jamais au
+conteneur `odoo` qui exécute `share.py`. Ce n'était pas un filet de sécurité pour un cas rare —
+c'était le seul chemin qui ait jamais existé. Un lien de partage de trajet construit en recette
+(`staging.babana.cm`) aurait toujours pointé vers la production. Corrigé en délivrant
+`BABANA_DOMAIN` à `odoo` comme à `caddy`.
+
+**Troisième cas, hors de l'application** : `infra/production/monitoring/probe.sh`
+(`DOMAIN="${DOMAIN:-babana.cm}"`) — une sonde de supervision externe qui, sans son paramètre,
+surveillerait silencieusement la PRODUCTION en croyant surveiller la recette. Son propre voisin,
+`probe-host.sh`, avait déjà la bonne discipline pour `SSH_TARGET` (`:?` obligatoire, aucun repli)
+— l'incohérence entre les deux scripts était le signal. Corrigé de la même façon.
+
 **Portée le soir même (J40).** Un point d'entrée public dédié (`storage.<domaine>`, Caddy, API
 S3 seule — jamais la console), une variable `S3_PUBLIC_ENDPOINT` distincte de `S3_ENDPOINT`
 (protocole des trois moments, D59), `generate_signed_url()` signe désormais pour elle. Vérifié
@@ -676,14 +691,11 @@ que le prompt de la nuit vit dans l'action. Ce registre existe pour que l'écart
 visible d'un coup, et il se vérifie chaque matin au même titre que la parité entre tâches et
 spécifications.
 
-| Décision | Arbitrée le | Portée par |
-|---|---|---|
-| **D61 étendue** — le repli `https://babana.cm` de `share.py` | 16 septembre 2026 | J40 |
-
-**D64 a été portée la nuit J40** (`amoa/specs/L1-identite.md`, L1-05 critères 6 et 7), comme
-D62/D63 la nuit J39, D60/D61 la nuit d'avant, D57/D59 celle encore avant — retirée de ce tableau,
-qui liste ce qui reste à faire et non un historique. **D58** est portée par le code livré la nuit
-J36.
+**D64 et D61 étendue ont toutes deux été portées la nuit J40** (`amoa/specs/L1-identite.md`,
+L1-05 critères 6 et 7 ; `controllers/share.py` et `infra/compose.yaml`), comme D62/D63 la nuit
+J39, D60/D61 la nuit d'avant, D57/D59 celle encore avant — retirées de ce tableau, qui liste ce
+qui reste à faire et non un historique. **D58** est portée par le code livré la nuit J36. Aucune
+décision en attente d'arbitrage ce soir.
 
 Quatre nuits de suite où une décision arbitrée le matin est portée le soir même. Le registre a rempli son office : ce qu'il liste part dans le prompt de la nuit qui suit, jamais dans un rappel qu'on relira plus tard.
 

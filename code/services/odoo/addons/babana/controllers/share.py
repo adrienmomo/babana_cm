@@ -22,7 +22,13 @@ _ROUTE = {"type": "http", "auth": "none", "methods": ["POST"], "csrf": False, "r
 def _share_base_url() -> str:
     # Apex, jamais un sous-domaine (spécification -- brièveté du lien collé dans un SMS).
     # BABANA_DOMAIN, même variable que le reste de la pile (infra/env/.env.example, D18).
-    return f"https://{os.environ.get('BABANA_DOMAIN', 'babana.cm')}"
+    #
+    # D61 étendue (amoa/01-architecture.md §9 octies, 16 septembre 2026) : `.get(..., 'babana.cm')`
+    # retombait sur l'adresse de PRODUCTION en l'absence de la variable -- exactement ce que D61
+    # interdit, jusqu'ici appliqué au seul `apps/*/config.ts`. `os.environ[...]` lève désormais
+    # (KeyError) au lieu de deviner ; BABANA_DOMAIN=localhost en développement
+    # (infra/env/.env.example) couvre le cas courant sans qu'aucun repli ne soit nécessaire ici.
+    return f"https://{os.environ['BABANA_DOMAIN']}"
 
 
 class ShareController(http.Controller):

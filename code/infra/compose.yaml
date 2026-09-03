@@ -51,6 +51,16 @@ services:
       # __init__.py::_post_init_admin_password lève à l'installation du module si elle est vide.
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
       JWT_SECRET: ${JWT_SECRET}
+      # D61 étendue (amoa/01-architecture.md §9 octies, 16 septembre 2026) : ce conteneur ne
+      # recevait jamais BABANA_DOMAIN -- seul le service caddy ci-dessous la reçoit. Le repli
+      # `os.environ.get('BABANA_DOMAIN', 'babana.cm')` de controllers/share.py::_share_base_url()
+      # s'exécutait donc TOUJOURS, dans tous les environnements : un lien de partage de trajet en
+      # recette (`staging.babana.cm`) aurait pointé vers le domaine de production. Maillon manquant
+      # trouvé en balayant le dépôt pour d'autres replis du même genre que celui corrigé sur cette
+      # même variable dans share.py. Pas de défaut ici (`${VAR}`, jamais `${VAR:-babana.cm}`) :
+      # infra/env/.env.example fournit déjà une valeur réelle (`localhost`), comme
+      # GOOGLE_OAUTH_CLIENT_IDS ci-dessus.
+      BABANA_DOMAIN: ${BABANA_DOMAIN}
       REALTIME_INTERNAL_URL: http://realtime:3000
       REALTIME_SHARED_SECRET: ${REALTIME_SHARED_SECRET}
       S3_ENDPOINT: http://minio:9000
