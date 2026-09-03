@@ -2,10 +2,13 @@
 
 Tenu au fil de l'eau, une entrée par tâche finie. Lu en entier : `CLAUDE.md`,
 `amoa/questions/REPONSES-2026-09-16.md`, `amoa/01-architecture.md` §9 octies,
-`amoa/specs/L1-identite.md` (L1-05), `services/odoo/addons/babana/services/storage.py`,
-`services/odoo/addons/babana/controllers/documents.py`, `infra/compose.yaml`,
+`amoa/specs/L1-identite.md` (L1-05), `amoa/specs/L3-temps-reel.md` (L3-10, L3-11, L3-12, L3-14),
+`services/odoo/addons/babana/services/storage.py`,
+`services/odoo/addons/babana/controllers/{documents,share}.py`, `infra/compose.yaml`,
 `infra/compose.dev.yaml`, `infra/caddy/Caddyfile`, `infra/env/{.env.example,README.md}`,
-`docs/operations/configuration.md`, `tools/config-coherence/{scan,variables}.ts`.
+`docs/operations/configuration.md`, `tools/config-coherence/{scan,variables}.ts`,
+`services/realtime/src/{odoo/outbox.ts,odoo/rides.ts,tracking/accumulator.ts,ws/resync.ts}`,
+`test/concurrency/helpers/{odoo-session,realtime}.ts`.
 
 Périmètre confié : D64 (point d'entrée public du stockage), D61 étendue (le repli de
 `share.py`, et le reste du même défaut), L3-14 (test de résilience).
@@ -114,3 +117,127 @@ fois désormais — `caddy` et `odoo` —, consommée) ; aucun problème remont�
 `probe.sh` (script d'exploitation hors périmètre testé, même famille que `backup.sh`/
 `bootstrap.sh` — `sh -n` propre). `make test` complet en fin de nuit (voir la dernière entrée de
 ce rapport).
+
+---
+
+## 3. L3-14 — le test de résilience
+
+### Le choix de forme
+
+`test/resilience/restart.test.ts` (pas `services/realtime/test/resilience/`, l'emplacement
+littéral de la spécification — celle-ci date d'avant les aides de `test/concurrency/helpers/`
+qui rendent le scénario complet possible sans les réécrire ; choix d'implémentation non
+spécifié, mentionné ici plutôt qu'un arrêt). Isolé du reste de la suite (`npm run test:resilience`,
+étape séparée du Makefile, après `npm test`) : c'est le seul fichier du dépôt qui tue pour de
+vrai un service partagé (`docker compose kill`, SIGKILL) — le faire tourner concurremment avec
+le reste casserait des tests qui supposent `realtime`/`redis` continûment sains.
+
+### Écart trouvé en écrivant le test, déposé (`amoa/questions/L3-14.md`)
+
+La variante de la spécification (« tuer entre la fin de course et l'écriture Odoo, l'événement
+doit être en file ») nomme un événement que L3-12, corrigé le 13 septembre, dit explicitement ne
+plus jamais mettre en file : la fin de course est **lue** par Odoo (`fetch_ride_measurement`)
+avant sa propre transition, jamais poussée par ce service. Vérifié dans le code ce soir :
+`OUTBOX_ENTRY_TYPES` ne porte que `driver-accepted`/`driver-rejected`. La variante exerce donc
+cet événement — le seul que la file porte réellement — plutôt que celui que la spécification
+nommait. Spécification non touchée (le protocole d'écart l'interdit) ; correction proposée dans
+le fichier déposé.
+
+### Les trois scénarios
+
+**1. Redémarrage brutal en pleine course (critères 1 et 2).** Course menée jusqu'à `in_progress`,
+positions envoyées (segments ~12 m, ~1 s d'écart — assez pour franchir le seuil de bruit sans
+dépasser la vitesse implicite maximale, L3-02 ; un premier essai avec des sauts plus grands,
+envoyés toutes les 300 ms, se faisait rejeter en silence par le filtre de plausibilité — trouvé
+en lisant `accepted: false` dans les métriques d'ingestion, pas supposé). `docker compose kill
+realtime` (SIGKILL réel, pas un arrêt propre), attente d'injoignabilité, redémarrage, nouvelle
+connexion WebSocket (l'ancienne est morte avec le processus). `session.resync` retrouve la course
+`in_progress`, reconstruite depuis Odoo (D27) — rien de local n'aurait pu répondre juste après un
+redémarrage. Encore des positions après reprise, puis fin de course, encaissement. Preuve côté
+Odoo (`trip_measured=true`, `actual_distance_km` > ce qu'aucune des deux moitiés seule
+n'aurait produit) que l'accumulation d'avant la coupure n'a pas été perdue et que celle d'après a
+repris dessus, pas repartie de zéro — exactement ce que `tracking/accumulator.ts` promet
+(« Restart-safe (L3-14) », tout l'état dans un seul HASH Redis, jamais en mémoire du processus).
+
+**2. Événement en file au moment de la coupure (critère 3, sur `driver-accepted` — voir
+l'écart).** Course en `proposed`, service tué, l'entrée de file posée directement via
+`enqueueOutboxEntry` — la fonction RÉELLE (`services/realtime/src/odoo/outbox.ts`), jamais une
+réimplémentation à la main de son format : c'est exactement ce que le processus tué aurait
+exécuté juste avant de disparaître (l'entrée est persistée dans Redis avant toute tentative
+HTTP). Vérifié que la course reste `proposed` (l'écriture n'a pas eu lieu). Service redémarré :
+sans aucune action supplémentaire, le passage périodique du **nouveau** processus
+(`startOutboxWorker`) reprend l'entrée et la course passe à `assigned`.
+
+**3. Perte de Redis pendant une course affectée (critère 4).** Course `assigned`, `redis` tué et
+redémarré (aucune persistance configurée, `--appendonly no` — tout est perdu). La course reste
+`assigned` dans Odoo : la perte des positions/du pool/de la réservation est acceptable, celle de
+la course ne l'est pas — elle vit dans Odoo (D27), jamais dans Redis (invariant 1).
+
+### Vérifié à blanc, une fois chacun (même exigence que L3-13)
+
+- **Scénario 2** : `startOutboxWorker(config, redis)` commenté dans `index.ts`, service
+  reconstruit — le test échoue au délai dépassé (l'entrée n'est jamais reprise). Ligne remise,
+  reconstruit, repasse au vert.
+- **Scénario 1** : `fetchActiveRide()` (`odoo/rides.ts`) forcée à renvoyer `{rideId: null, state:
+  null}` — le test échoue exactement sur l'assertion de resynchronisation (`activeRideId`
+  attendu, `null` reçu). Code remis en place (aucun changement net dans `services/realtime/src`,
+  vérifié par `git diff`), rebuild propre, repasse au vert.
+
+Les deux vérifications confirment que ces tests détectent réellement une régression du mécanisme
+qu'ils prétendent couvrir — pas seulement qu'ils accompagnent un chemin déjà vert.
+
+### Ce que je ne peux pas revendiquer
+
+Le critère 5 (« tourne en intégration continue, ou au minimum avant chaque livraison ») est
+satisfait par construction (étape dédiée du Makefile) mais jamais exécuté sur une vraie CI cette
+nuit — aucune n'existe encore dans ce dépôt (hors de portée de cette tâche).
+
+### Tests
+
+`test/resilience/restart.test.ts`, 3 scénarios, exécutés en fin de nuit contre la pile réelle —
+verts. Détail au §4.
+
+---
+
+## 4. Non-régression
+
+`make reset && make up && make seed` sur base fraîche, puis suite complète :
+
+- **Odoo** (module `babana`) : **782 tests, 0 échec, 0 erreur**.
+- **apps/client** : 19/19 suites, 110/110 tests. **apps/driver** : 28/28 suites, 193/193 tests.
+  Paquets partagés (`@babana/maps`, `@babana/navigation`, `@babana/ui`) : 90/90.
+- **services/realtime** (`test/*.test.ts` + `test/concurrency/*.test.ts`) : **226/226**, 53
+  suites. Un échec transitoire (`reservation.test.ts`, critère 5 D26, timing sur une attente de
+  1,5 s) est apparu une fois pendant la longue exécution complète de cette nuit ; aucun fichier
+  de `services/realtime/` n'a été touché par ce lot (`git diff` vide). Rejoué isolément (3×) puis
+  en fichier complet (2×) puis en suite complète (1×) : **6/6 verts**, aucune reproduction — un
+  incident de machine chargée (Docker, navigateur automatisé et tests en parallèle toute la
+  nuit), pas un défaut du code. Signalé plutôt que passé sous silence ; à surveiller si ça revient
+  sur une machine dédiée.
+- **test/** (concurrency + auth + http-contract + config + storage, nouveau) : **45/45**, 9
+  suites — comprend les 2 tests de D64 (critères 6 et 7).
+- **test/resilience** (L3-14, étape séparée) : **3/3**.
+- `test/config/build-web-bundle.test.sh` : vert.
+- `make lint` et `npm run typecheck --workspaces` sur tout l'arbre : propres.
+- `infra/smoke-test.sh` : 4 `OK` + 1 `Info` (critère 7 de L0-01, IP hors liste, manuel) + 1 `OK`
+  (critère 5, objet MinIO sans URL signée) + 1 `OK` nouveau (console jamais servie par la route
+  publique, D64).
+
+---
+
+## Ce qui laisse un doute pour quelqu'un de réel
+
+**Le geste de L3-14 reste un exercice de développement, pas une preuve de production.** Le
+service tué ce soir tourne sur la même machine que celle qui l'a redémarré, un dixième de
+seconde plus tard, sans latence réseau, sans utilisateur réel accroché à une connexion mobile au
+moment de la coupure. Ce que le test prouve : le MÉCANISME survit (l'état se reconstruit,
+l'accumulation reprend, la file rejoue). Ce qu'il ne prouve pas : combien de temps un chauffeur
+verrait son application « déconnectée » avant la reconnexion réelle (le délai de gigue,
+L3-11, n'a jamais été mesuré en conditions réelles), ni ce qui se passe si le redémarrage prend
+plus longtemps que le délai de grâce de déconnexion (45 s par défaut) pendant lequel un
+chauffeur resterait engagé sans jamais confirmer sa présence.
+
+**L'écart de L3-14/L3-12** (`amoa/questions/L3-14.md`) reste à arbitrer : la spécification
+nomme un événement qui n'existe plus sous cette forme. Rien de grave — le test couvre le
+mécanisme réel — mais une spécification qui décrit un chemin disparu depuis trois semaines est le
+genre de décalage qui, laissé sans correction, finira par tromper une prochaine lecture pressée.

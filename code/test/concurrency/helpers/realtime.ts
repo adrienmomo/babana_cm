@@ -37,7 +37,10 @@ export interface LatLng {
 // suivante -- exactement ce qu'un vrai chauffeur évite en continuant d'émettre.
 const POSITION_REFRESH_INTERVAL_MS = 20_000;
 
-function sendPosition(ws: WebSocket, position: LatLng): void {
+/** Exportée pour test/resilience/restart.test.ts (L3-14) : envoyer une position supplémentaire
+ * sur une connexion déjà ouverte (avant ou après un redémarrage du service), sans rouvrir de
+ * connexion -- bringDriverOnline() en envoie déjà une à l'ouverture, ce n'est que la suite. */
+export function sendPosition(ws: WebSocket, position: LatLng): void {
   ws.send(
     JSON.stringify(
       envelope('position.update', {
@@ -239,4 +242,40 @@ export async function acceptProposalOverWs(driverSocket: WebSocket, rideId: stri
   // laisse le temps au serveur de résoudre avant de continuer, même principe que
   // bringDriverOnline ci-dessus.
   await new Promise((resolve) => setTimeout(resolve, 500));
+}
+
+export interface SessionSynced {
+  activeRideId: string | null;
+  activeRideState: string | null;
+  rideStateKnown: boolean;
+}
+
+/**
+ * `session.resync` (L3-11) -- exportée pour test/resilience/restart.test.ts (L3-14) : après un
+ * redémarrage brutal du service, c'est ce message qui prouve que l'état de la course a été
+ * RECONSTRUIT depuis Odoo (D27, `ws/resync.ts::handleSessionResync`), pas retrouvé dans un état
+ * en mémoire qui n'aurait pas dû survivre au redémarrage -- puisqu'aucun ne le pourrait
+ * (invariant 1). Un état complet en réponse, jamais un différentiel (spécification L3-11).
+ */
+export async function resync(socket: WebSocket, lastKnownRideId: string | null): Promise<SessionSynced> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off('message', onMessage);
+      reject(new Error('session.resync : aucune réponse session.synced reçue dans le délai imparti'));
+    }, 10_000);
+    const onMessage = (data: WebSocket.RawData) => {
+      let message: { type?: string; payload?: SessionSynced };
+      try {
+        message = JSON.parse(data.toString());
+      } catch {
+        return;
+      }
+      if (message.type !== 'session.synced') return;
+      clearTimeout(timer);
+      socket.off('message', onMessage);
+      resolve(message.payload as SessionSynced);
+    };
+    socket.on('message', onMessage);
+    socket.send(JSON.stringify(envelope('session.resync', { lastKnownRideId })));
+  });
 }

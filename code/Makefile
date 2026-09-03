@@ -91,6 +91,12 @@ test:            ## Tests de tous les paquets et services, plus la suite Odoo
 	# Preuve du défaut du 13 septembre et de sa correction (L0-10, critère d'acceptation 7) --
 	# ne parle ni à docker ni à git, indépendant du reste de cette cible.
 	sh test/config/build-web-bundle.test.sh
+	# L3-14 (test de résilience, seule vérification de l'invariant 1) -- APRÈS npm test, jamais
+	# dans son glob principal : ce fichier tue pour de vrai le conteneur `realtime` (et `redis`)
+	# par SIGKILL avant de le redémarrer. Le faire tourner concurremment avec le reste de la
+	# suite casserait des tests qui supposent ces services continûment sains -- même précédent
+	# que build-web-bundle.test.sh ci-dessus, isolé pour une autre raison.
+	npm run test:resilience -w @babana/concurrency-tests
 
 lint:            ## Lint de tous les espaces de travail
 	npm run lint --workspaces --if-present

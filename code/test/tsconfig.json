@@ -10,6 +10,8 @@
     "http-contract/**/*.ts",
     "config/**/*.ts",
     "storage/**/*.ts",
-    "../tools/config-coherence/**/*.ts"
+    "resilience/**/*.ts",
+    "../tools/config-coherence/**/*.ts",
+    "../services/realtime/src/odoo/outbox.ts"
   ]
 }
