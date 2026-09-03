@@ -16,13 +16,15 @@
 #   - infra/env/.env présent, avec BABANA_DOMAIN=babana.cm et les secrets de production
 #     (JWT_SECRET, REALTIME_SHARED_SECRET, POSTGRES_PASSWORD, MinIO, SMTP réel...) ;
 #   - GOOGLE_JWKS_URL = https://www.googleapis.com/oauth2/v3/certs (pas de mock en prod) ;
-#   - GOOGLE_ROUTING_URL et BABANA_MAPS_SEARCH_URL = vraies API (le défaut compose pointe
-#     mock-maps, qui n'existe pas en prod) ;
+#   - GOOGLE_ROUTING_URL, BABANA_MAPS_SEARCH_URL, BABANA_GOOGLE_WEB_CLIENT_ID et
+#     BABANA_GOOGLE_MAPS_API_KEY = vraies valeurs (le défaut compose/développement pointe
+#     mock-maps ou l'identifiant de développement, qui n'existent pas en prod) ;
 #   - PUSH_PROVIDER=fcm + les trois FCM_* si les notifications doivent partir ;
 #   - DNS des trois hôtes résolu (sinon Caddy n'obtiendra pas de certificat).
 set -eu
 
-cd "$(git rev-parse --show-toplevel)/code" 2>/dev/null || cd "$(dirname "$0")/../.."
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+cd "$(git rev-parse --show-toplevel)/code" 2>/dev/null || cd "$SCRIPT_DIR/../.."
 ENV_FILE=infra/env/.env
 COMPOSE="docker compose -f infra/compose.yaml --env-file $ENV_FILE"
 STATE_DIR=infra/production/.state
@@ -37,8 +39,14 @@ command -v docker >/dev/null 2>&1 || die "docker absent."
 docker compose version >/dev/null 2>&1 || die "'docker compose' (v2) absent."
 [ -f "$ENV_FILE" ] || die "$ENV_FILE absent -- le renseigner à partir de infra/env/.env.example (L0-06), avec les secrets de PRODUCTION."
 
+# `set -a` : défaut du 13 septembre (L0-10, D59) -- `. "$ENV_FILE"` seul pose des variables de
+# SHELL, jamais transmises à un processus fils (npm run build:web ci-dessous) sans export
+# explicite. Bornage `set +a` juste après : le reste du script continue de raisonner sur des
+# variables de shell ordinaires, pas tout exporter par accident au-delà de ce point.
+set -a
 # shellcheck disable=SC1090
 . "$ENV_FILE" 2>/dev/null || true
+set +a
 [ "${BABANA_DOMAIN:-}" != "localhost" ] || die "BABANA_DOMAIN=localhost dans $ENV_FILE -- ce n'est pas une configuration de production."
 
 # Adresses de fournisseur externe : sans valeur par défaut (D43 retournée,
@@ -63,8 +71,21 @@ esac
 case "${ADMIN_PASSWORD:-}" in
   ""|dev-only-not-a-real-secret) die "ADMIN_PASSWORD vide ou égal à la valeur de développement dans $ENV_FILE -- poser un mot de passe de production généré (gestionnaire de secrets)." ;;
 esac
+# Variables lues à la COMPILATION du bundle web du Client (apps/client/config.ts,
+# apps/client/config.web.ts) -- absentes ou vides, elles s'inlinent en `undefined`/`''` dans le
+# fichier produit, jamais rattrapables après coup (D59, L0-10 : constat du 13 septembre,
+# apps/client/dist-web/bundle.js contenait littéralement `MAPS_SEARCH_URL = false||undefined`).
+# Même discipline D43 que les adresses ci-dessus : on échoue, on n'avertit plus -- un déploiement
+# à moitié configuré ne doit jamais servir une page où l'on ne peut ni se connecter ni chercher
+# un lieu.
 case "${BABANA_MAPS_SEARCH_URL:-}" in
-  *localhost:4001*|*mock-maps*) warn "BABANA_MAPS_SEARCH_URL pointe vers mock-maps -- le build web du Client ci-dessous embarquera cette adresse ; poser l'adresse Google réelle avant de servir aux vrais clients." ;;
+  ""|*localhost:4001*|*mock-maps*) die "BABANA_MAPS_SEARCH_URL vide ou vers mock-maps dans $ENV_FILE -- poser l'adresse Google réelle (searchPlace) avant de construire le bundle web de production." ;;
+esac
+case "${BABANA_GOOGLE_WEB_CLIENT_ID:-}" in
+  ""|dev-client-id.apps.googleusercontent.com) die "BABANA_GOOGLE_WEB_CLIENT_ID vide ou égal à la valeur de développement dans $ENV_FILE -- poser l'identifiant client OAuth Web réel (Google Cloud Console), déjà listé dans GOOGLE_OAUTH_CLIENT_IDS." ;;
+esac
+case "${BABANA_GOOGLE_MAPS_API_KEY:-}" in
+  "") die "BABANA_GOOGLE_MAPS_API_KEY vide dans $ENV_FILE -- poser la clé Google Maps réelle (appels REST Places/Geocoding) avant de construire le bundle web de production." ;;
 esac
 [ "${NODE_ENV:-}" = "production" ] || warn "NODE_ENV != production dans $ENV_FILE."
 
@@ -81,12 +102,11 @@ echo "commit cible : $TARGET_COMMIT"
 
 # --- Bundle web du Client (servi par Caddy, même origine -- D46) ----------------------
 log "construction du bundle web du Client"
-if command -v npm >/dev/null 2>&1; then
-  npm ci --prefix . --silent
-  npm run build:web -w @babana/client
-else
-  warn "npm absent -- bundle web NON reconstruit. Caddy servira l'ancien contenu de apps/client/dist-web (ou 404)."
-fi
+command -v npm >/dev/null 2>&1 || die "npm absent -- impossible de construire le bundle web. Un déploiement qui servirait l'ancien contenu de apps/client/dist-web (ou 404) est le même défaut de configuration à moitié faite que L0-10 ferme ailleurs -- on échoue plutôt que de servir une page inutilisable."
+npm ci --prefix . --silent
+# shellcheck disable=SC1091
+. "$SCRIPT_DIR/lib/build-web-bundle.sh"
+build_web_bundle "$(pwd)"
 
 # --- Démarrer / mettre à jour la pile -------------------------------------------------
 log "docker compose up (infra/compose.yaml uniquement)"

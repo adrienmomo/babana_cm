@@ -23,10 +23,14 @@ particulier accepte une facture, la garde, et ne signale rien — une panne d'en
 vers un simulateur.
 
 **En production, les secrets viennent d'un gestionnaire de secrets ou des variables
-d'environnement de la plateforme d'hébergement, jamais d'un fichier déposé sur le serveur.**
-Le fichier `infra/env/.env` qui existe en développement sur le poste d'un développeur n'a pas
-d'équivalent en production : la procédure de déploiement (L0-07, hors du lot de cette nuit)
-injecte les variables directement dans l'environnement du conteneur au démarrage.
+d'environnement de la plateforme d'hébergement, jamais d'un fichier déposé au hasard.** Ceci dit,
+corrigé le 13 septembre (L0-10) — L0-07 a tranché différemment de ce que cette section annonçait
+avant : `infra/production/deploy.sh` lit bien `infra/env/.env` sur le serveur, comme en
+développement (D18, VPS unique, un seul mécanisme de configuration dans les trois
+environnements) ; ce fichier n'est simplement jamais suivi par git, et sa valeur de production
+vient du gestionnaire de secrets au moment de le renseigner sur l'hôte, pas d'une injection
+directe dans l'environnement du conteneur au démarrage. Documenté en détail dans
+`docs/operations/configuration.md` et `docs/operations/production.md` (étape 5).
 
 ---
 

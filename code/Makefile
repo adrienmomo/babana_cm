@@ -80,6 +80,9 @@ test:            ## Tests de tous les paquets et services, plus la suite Odoo
 		'env.cr.commit()' \
 		| $(COMPOSE) exec -T odoo sh -c 'odoo shell -d babana --no-http --db_host="$$HOST" --db_user="$$USER" --db_password="$$PASSWORD"'
 	npm test
+	# Preuve du défaut du 13 septembre et de sa correction (L0-10, critère d'acceptation 7) --
+	# ne parle ni à docker ni à git, indépendant du reste de cette cible.
+	sh test/config/build-web-bundle.test.sh
 
 lint:            ## Lint de tous les espaces de travail
 	npm run lint --workspaces --if-present

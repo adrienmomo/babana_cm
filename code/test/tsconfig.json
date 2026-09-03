@@ -2,7 +2,13 @@
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
     "noEmit": true,
-    "rootDir": "."
+    "rootDir": ".."
   },
-  "include": ["concurrency/**/*.ts", "auth/**/*.ts", "http-contract/**/*.ts", "config/**/*.ts"]
+  "include": [
+    "concurrency/**/*.ts",
+    "auth/**/*.ts",
+    "http-contract/**/*.ts",
+    "config/**/*.ts",
+    "../tools/config-coherence/**/*.ts"
+  ]
 }
