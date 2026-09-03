@@ -55,3 +55,61 @@ Fichiers : `tools/config-coherence/scan.ts`, `test/config/config-coherence.test.
 
 `npx tsx --test test/config/config-coherence.test.ts` : 10/10. `tsc --noEmit` (espace `test/`) :
 propre.
+
+---
+
+## 2. L10-01 — le filet qui protège tout le reste
+
+`test/e2e/full-ride.test.ts` (nouveau, avec `test/e2e/helpers/actors.ts` et
+`test/e2e/fixtures/geo.ts`) : le scénario nominal (les neuf étapes de la spécification) plus les
+quatre variantes réellement testables aujourd'hui, contre l'environnement complet (`make up`), par
+le VRAI chemin — jamais un raccourci RPC pour une transition qu'un vrai client déclencherait. Les
+seuls appels RPC directs préparent un fixture (approbation de dossier, plafond de test) ou LISENT
+un état pour vérification.
+
+**Refus, annulation, plafond d'encaisse + remise de caisse, notifications désactivées.** Le refus
+passe par le vrai `proposal.reject` (WebSocket, symétrique de `acceptProposalOverWs` que
+`test/concurrency` avait déjà — je n'ai ajouté que son pendant refus). Le plafond se pose sous le
+montant réellement dû par la course (`ir.config_parameter`, paramétrable — invariant 5), franchi
+par un seul encaissement quelle que soit la grille tarifaire du jour ; la remise valide par
+`babana.cash.remittance::button_validate` — le seul chemin RPC-sûr, `action_validate` exigeant un
+recordset `supervisor` qu'un appel RPC ne peut jamais fournir.
+
+**Une découverte en construisant le scénario du plafond, réparée dans les fixtures de test, pas
+dans le code de production.** `_babana_apply_cash_limit` ne détecte un franchissement que si
+`babana.driver.is_online` est vrai côté Odoo — un champ que `bringDriverOnline`
+(`test/concurrency/helpers/realtime.ts`, réutilisé ici) ne pose jamais : il ne fait passer en
+ligne que le pool du service temps réel (WebSocket), jamais ce champ Odoo, qui se pose par
+`POST /drivers/me/availability`. Les deux sont délibérément découplés (commentaire de
+`cash-guard.ts`), et aucun scénario existant n'avait eu besoin des deux à la fois avant celui-ci —
+ni `test/concurrency` (ne lit jamais `is_online`), ni `test/http-contract::setAvailability`
+(n'a jamais eu besoin du pool en même temps). `setUpRideActors` appelle désormais les deux, dans
+l'ordre qu'un vrai chauffeur suit.
+
+**Deux points ne sont pas vérifiables tels que la spécification les nomme** —
+`amoa/questions/L10-01.md` : le « journal d'audit complet » de l'étape 9 (`babana.audit.log`,
+L8-09, jamais faite — `_babana_journalize` le dit lui-même : « point d'accroche unique pour L8-09,
+pour l'instant journal applicatif standard ») et un réglage « notifications désactivées » nommé
+L7-06 (jamais programmée, aucun `controllers/state.py` ni `resync.ts` sous ces noms). Pour la
+première, l'étape 9 vérifie ce qui existe réellement (facture liée, solde incrémenté), pas
+davantage. Pour la seconde, j'ai trouvé que le mécanisme dont L7-06 a besoin existe déjà sous un
+autre nom — `session.resync`/`session.synced` (L3-11), déjà exercé par le test de résilience
+(L3-14) — et je l'exerce directement : les deux acteurs n'enregistrent jamais de jeton d'appareil
+(aucun canal de notification n'existe donc pour eux), le chauffeur ferme puis rouvre sa connexion
+après l'acceptation, `session.resync` retrouve la course depuis Odoo, la boucle continue et
+aboutit — tous des appels HTTP purs après ce point, indépendants de tout message WebSocket.
+
+**Vérifié à blanc** (même discipline que L3-13/L3-14/D64) : `ProposalLifecycle.accept()`
+(`services/realtime/src/proposal/lifecycle.ts`) rendue `return false` immédiate, service
+redémarré pour charger le changement (`tsx watch` ne l'a pas détecté seul sur ce volume — redémarrage
+manuel du conteneur). Les cinq scénarios échouent alors exactement à l'acceptation, avec un message
+distinct et clair par scénario (`état 'proposed' au lieu de 'assigned'`, ou l'erreur
+`RIDE_INVALID_TRANSITION` du scénario qui tente de démarrer une course jamais affectée). Restauré,
+redémarré : les cinq repassent au vert, deux fois de suite (stabilité).
+
+Fichiers : `test/e2e/full-ride.test.ts`, `test/e2e/helpers/actors.ts`, `test/e2e/fixtures/geo.ts`,
+`test/package.json` (glob `e2e/*.test.ts`), `test/tsconfig.json` (inclusion `e2e/**/*.ts`),
+`amoa/questions/L10-01.md`.
+
+`npx tsx --test test/e2e/full-ride.test.ts` : 5/5, deux exécutions consécutives. `tsc --noEmit`
+(espace `test/`) : propre.

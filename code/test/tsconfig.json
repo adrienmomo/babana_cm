@@ -11,6 +11,7 @@
     "config/**/*.ts",
     "storage/**/*.ts",
     "resilience/**/*.ts",
+    "e2e/**/*.ts",
     "../tools/config-coherence/**/*.ts",
     "../services/realtime/src/odoo/outbox.ts"
   ]
