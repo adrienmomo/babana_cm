@@ -36,10 +36,14 @@ function makeFixtureRepo(files: Record<string, string>): string {
 }
 
 describe('critère 2 -- une variable ajoutée au code sans être déclarée fait échouer la suite', () => {
+  // 'services/fixture/' délibérément, pas 'apps/fixture/' ou 'services/odoo/' : ces deux tests
+  // vérifient le protocole général des trois moments, indépendamment du rapprochement par
+  // service (D65, critère 1 bis) qui a sa propre section de test plus bas. Un chemin sous
+  // 'apps/' ou 'services/odoo/' engagerait involontairement cette seconde exigence ici.
   test('process.env.X non déclarée est détectée', () => {
     const root = makeFixtureRepo({
       'infra/env/.env.example': '# rien de déclaré\n',
-      'apps/fixture/config.ts': "export const X = process.env.BABANA_TEST_UNDECLARED || '';\n",
+      'services/fixture/config.ts': "export const X = process.env.BABANA_TEST_UNDECLARED || '';\n",
     });
     try {
       const { problems } = checkVariableCoherence(root);
@@ -55,12 +59,95 @@ describe('critère 2 -- une variable ajoutée au code sans être déclarée fait
   test('une fois déclarée ET livrée, la même variable ne remonte plus', () => {
     const root = makeFixtureRepo({
       'infra/env/.env.example': 'BABANA_TEST_UNDECLARED=\n',
-      'apps/fixture/config.ts': "export const X = process.env.BABANA_TEST_UNDECLARED || '';\n",
+      'services/fixture/config.ts': "export const X = process.env.BABANA_TEST_UNDECLARED || '';\n",
       'infra/compose.yaml': 'services:\n  odoo:\n    environment:\n      BABANA_TEST_UNDECLARED: ${BABANA_TEST_UNDECLARED}\n',
     });
     try {
       const { problems } = checkVariableCoherence(root);
       assert.deepEqual(problems, []);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('critère 1 bis (D65) -- la livraison est appariée au consommateur, jamais globale', () => {
+  test('consommée par services/odoo/ mais livrée à un autre service seulement : détectée', () => {
+    const root = makeFixtureRepo({
+      'infra/env/.env.example': 'BABANA_TEST_WRONG_SERVICE=\n',
+      'services/odoo/addons/babana/fixture.py': "import os\nX = os.environ.get('BABANA_TEST_WRONG_SERVICE')\n",
+      // Livrée à `caddy`, jamais à `odoo` -- exactement la forme du défaut du 17 septembre
+      // (BABANA_DOMAIN livrée à caddy, lue par share.py dans le conteneur odoo).
+      'infra/compose.yaml':
+        'services:\n  caddy:\n    environment:\n      BABANA_TEST_WRONG_SERVICE: ${BABANA_TEST_WRONG_SERVICE}\n',
+    });
+    try {
+      const { problems } = checkVariableCoherence(root);
+      assert.ok(
+        problems.some(
+          (p) => p.startsWith('BABANA_TEST_WRONG_SERVICE :') && p.includes('le service `odoo`') && p.includes('D65')
+        ),
+        `attendu un problème D65 pour BABANA_TEST_WRONG_SERVICE, trouvé :\n  ${problems.join('\n  ')}`
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('consommée par services/odoo/ et livrée au bloc odoo : plus rien ne remonte', () => {
+    const root = makeFixtureRepo({
+      'infra/env/.env.example': 'BABANA_TEST_RIGHT_SERVICE=\n',
+      'services/odoo/addons/babana/fixture.py': "import os\nX = os.environ.get('BABANA_TEST_RIGHT_SERVICE')\n",
+      'infra/compose.yaml':
+        'services:\n  odoo:\n    environment:\n      BABANA_TEST_RIGHT_SERVICE: ${BABANA_TEST_RIGHT_SERVICE}\n',
+    });
+    try {
+      const { problems } = checkVariableCoherence(root);
+      assert.deepEqual(problems, []);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('consommée par apps/ mais seulement livrée à un conteneur compose : détectée', () => {
+    const root = makeFixtureRepo({
+      'infra/env/.env.example': 'BABANA_TEST_BUILD_ONLY=\n',
+      'apps/fixture/config.ts': "export const X = process.env.BABANA_TEST_BUILD_ONLY || '';\n",
+      'infra/compose.yaml':
+        'services:\n  odoo:\n    environment:\n      BABANA_TEST_BUILD_ONLY: ${BABANA_TEST_BUILD_ONLY}\n',
+    });
+    try {
+      const { problems } = checkVariableCoherence(root);
+      assert.ok(
+        problems.some(
+          (p) => p.startsWith('BABANA_TEST_BUILD_ONLY :') && p.includes("l'environnement du build") && p.includes('D65')
+        ),
+        `attendu un problème D65 pour BABANA_TEST_BUILD_ONLY, trouvé :\n  ${problems.join('\n  ')}`
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  test('une variable consommée par odoo ET realtime doit être livrée aux deux', () => {
+    const root = makeFixtureRepo({
+      'infra/env/.env.example': 'BABANA_TEST_SHARED=\n',
+      'services/odoo/addons/babana/fixture.py': "import os\nX = os.environ.get('BABANA_TEST_SHARED')\n",
+      'services/realtime/src/fixture.ts': "export const X = process.env.BABANA_TEST_SHARED;\n",
+      // odoo seulement -- realtime manque.
+      'infra/compose.yaml':
+        'services:\n  odoo:\n    environment:\n      BABANA_TEST_SHARED: ${BABANA_TEST_SHARED}\n',
+    });
+    try {
+      const { problems } = checkVariableCoherence(root);
+      assert.ok(
+        problems.some((p) => p.startsWith('BABANA_TEST_SHARED :') && p.includes('le service `realtime`')),
+        `attendu un problème D65 côté realtime, trouvé :\n  ${problems.join('\n  ')}`
+      );
+      assert.ok(
+        !problems.some((p) => p.startsWith('BABANA_TEST_SHARED :') && p.includes('le service `odoo`')),
+        `pas de problème attendu côté odoo (livré), trouvé :\n  ${problems.join('\n  ')}`
+      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

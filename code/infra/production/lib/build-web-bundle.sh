@@ -47,6 +47,15 @@ build_web_bundle() {
   # c'est aussi l'ancrage que tools/config-coherence/scan.ts (scanDeliveredByShellExport)
   # reconnaît pour vérifier mécaniquement que ces trois variables sont "livrées" quelque part.
   export BABANA_MAPS_SEARCH_URL BABANA_GOOGLE_WEB_CLIENT_ID BABANA_GOOGLE_MAPS_API_KEY
+  # NODE_ENV (D65, amoa/questions/L0-10.md) : `set -a` dans deploy.sh l'exporte déjà vers ce
+  # processus quand cette fonction est appelée depuis deploy.sh -- mais tools/config-coherence
+  # ne reconnaît que des `export NOM` explicites (jamais `set -a`, indétectable mécaniquement).
+  # Sans cette ligne, webpack.config.js retombe sur `mode: 'development'` en production : même
+  # famille de défaut que BABANA_DOMAIN, trouvée en construisant D65 -- un bundle de production
+  # construit en mode développement, silencieusement. Pas dans _BUILD_WEB_BUNDLE_VARS ci-dessus :
+  # webpack consomme NODE_ENV pour choisir un MODE, il ne l'inline pas tel quel dans le fichier
+  # produit, donc le grep post-build de cette liste ne s'y applique pas.
+  export NODE_ENV
 
   rm -f "$bundle_file"
   ( cd "$root_dir" && "$npm_bin" run build:web -w @babana/client ) || {

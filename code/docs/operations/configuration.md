@@ -135,11 +135,55 @@ vérifie que le bundle produit est cassé ; puis rejoue le même scénario à tr
 `build_web_bundle` et vérifie que le bundle produit est correct. C'est la preuve, exigée par le
 critère d'acceptation 7, que ce test échoue sur le `deploy.sh` d'avant cette tâche.
 
+## D65 — « livrée » se vérifie par service, jamais globalement
+
+Ajoutée le 17 septembre 2026 (`amoa/questions/REPONSES-2026-09-17.md` §2), après que ce contrôle
+s'est révélé vert sur `BABANA_DOMAIN` alors que le conteneur `odoo` ne l'avait jamais reçue — seul
+`caddy` la recevait. Le défaut de « livraison » du §2 ci-dessus (`isDelivered`) ne posait qu'une
+question : la variable apparaît-elle *quelque part* dans un fichier compose ? Une variable livrée
+au mauvais conteneur passait ce test aussi bien qu'une variable livrée au bon.
+
+`scanDeliveredByCompose` rattache désormais chaque `${VAR}` de `infra/compose*.yaml` au service
+dans lequel elle apparaît (parseur ligne à ligne : une clé à 2 espaces d'indentation directement
+sous `services:` ouvre un nouveau service, jusqu'à la clé de même niveau suivante). Le critère 1
+bis rapproche ce service du **répertoire du consommateur** — trois cas seulement, ceux que la
+spécification nomme, jamais plus :
+
+| Consommateur | Service exigé dans la livraison |
+|---|---|
+| `services/odoo/` | `odoo` (`infra/compose.yaml` / `infra/compose.dev.yaml`) |
+| `services/realtime/` | `realtime` |
+| `apps/` | `build` — Makefile (`scanDeliveredByMakefile`) ou export de shell (`scanDeliveredByShellExport`), jamais un conteneur compose |
+
+Une variable consommée par deux groupes (`JWT_SECRET`, `REALTIME_SHARED_SECRET` : à la fois
+`services/odoo/` et `services/realtime/`) doit apparaître dans les deux blocs — c'est déjà le cas
+aujourd'hui, pas une exigence nouvelle. Tout consommateur hors de ces trois préfixes (simulateurs
+de `services/mocks/`, scripts d'exploitation, `packages/`) garde l'ancien comportement non
+différencié : une livraison n'importe où suffit encore, comme avant D65 — étendre la liste sans
+qu'une spécification le nomme reproduirait, en sens inverse, l'excès que D65 corrige.
+
+**Preuve sur le cas réel** : retirer `BABANA_DOMAIN: ${BABANA_DOMAIN}` du bloc `environment` du
+service `odoo` dans `infra/compose.yaml` fait échouer `aucun maillon manquant parmi les variables
+déclarées ou consommées` avec exactement le message `BABANA_DOMAIN : consommée par le service
+\`odoo\`... mais rien ne l'y livre (D65)`. Remettre la ligne fait repasser la suite au vert.
+Vérifié à blanc le 17 septembre, pas laissé dans le dépôt (une suite qui casse le compose de
+production pour se prouver serait pire que l'absence de preuve).
+
+**Trouvé en construisant ce critère, même famille que `BABANA_DOMAIN`** : `NODE_ENV`, consommée
+par `apps/client/webpack.config.js` (mode `production`/`development` du bundle web), n'était
+livrée qu'à des conteneurs compose (`realtime`, les simulateurs de développement) — jamais à
+l'environnement du build. Un bundle de production construit sans `NODE_ENV=production`
+retomberait silencieusement en mode développement. Corrigé par un `export NODE_ENV` explicite
+dans `build_web_bundle()` (`infra/production/lib/build-web-bundle.sh`, hors du groupe de
+variables vérifiées dans le fichier produit : webpack consomme `NODE_ENV` pour choisir un mode,
+il ne l'inline pas littéralement) et par `deploy.sh`, qui **échoue** désormais si `NODE_ENV !=
+production` au lieu d'avertir — même discipline D43 que le reste de ce document.
+
 ## Vérifier soi-même
 
 ```bash
 cd code
-npx tsx --test test/config/config-coherence.test.ts   # les trois moments, dépôt réel + preuves
+npx tsx --test test/config/config-coherence.test.ts   # les trois moments + le rapprochement par service (D65), dépôt réel + preuves
 sh test/config/build-web-bundle.test.sh                # le défaut du 13 septembre, reproduit et corrigé
 ```
 

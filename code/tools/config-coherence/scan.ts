@@ -26,6 +26,12 @@ import {
 export interface Occurrence {
   file: string;
   line: number;
+  /** Nom du service compose qui porte cette occurrence (`odoo`, `realtime`, `build` pour
+   * l'environnement de compilation des apps) -- seulement renseigné pour les occurrences dont le
+   * service est identifiable sans ambiguïté (D65). `undefined` pour tout le reste : le
+   * rapprochement service <-> consommateur ne porte QUE sur les trois cas nommés par la
+   * spécification, jamais sur les simulateurs ou les scripts d'exploitation. */
+  service?: string;
 }
 
 export interface VariableStatus {
@@ -213,12 +219,51 @@ export function scanConsumedByKnownShellScripts(
 const COMPOSE_VAR_RE = /\$\{([A-Z][A-Z0-9_]+)(?::[-?][^}]*)?\}/g;
 const MAKEFILE_PASS_THROUGH_RE = /\b([A-Z][A-Z0-9_]+)="\$\(\1\)"/g;
 const SHELL_EXPORT_RE = /^[ \t]*export[ \t]+((?:[A-Z][A-Z0-9_]+[ \t]*)+)$/gm;
+/** Clé compose top-niveau (colonne 0) : `services:`, `volumes:`, `name:`... -- sert à ne suivre
+ * les blocs `  <service>:` en 2-espaces que lorsqu'ils sont réellement sous `services:` (une clé
+ * `volumes:` a elle aussi des entrées en 2-espaces, p. ex. `  pgdata:`, qui ne sont pas des
+ * services). */
+const COMPOSE_TOP_KEY_RE = /^([a-zA-Z][a-zA-Z0-9_-]*):\s*$/;
+const COMPOSE_SERVICE_KEY_RE = /^  ([a-zA-Z][a-zA-Z0-9_-]*):\s*$/;
 
+/** Recense chaque `${VAR}` d'un fichier compose, en rattachant chaque occurrence au service
+ * (`services:` -> `  <nom>:`) dans lequel elle apparaît -- D65 : "livrée" se vérifie par service,
+ * jamais globalement. Parseur ligne à ligne délibérément simple (pas de dépendance YAML) : la
+ * mise en forme de ce dépôt (2 espaces par niveau, un service = une clé de 2 espaces sous
+ * `services:`) est stable et déjà couverte par le lint compose. */
 export function scanDeliveredByCompose(repoRoot: string): Map<string, Occurrence[]> {
   const out = new Map<string, Occurrence[]>();
   for (const relPath of ['infra/compose.yaml', 'infra/compose.dev.yaml']) {
     const full = join(repoRoot, relPath);
-    if (existsSync(full)) collect(readFileSync(full, 'utf8'), COMPOSE_VAR_RE, relPath, out);
+    if (!existsSync(full)) continue;
+    const lines = readFileSync(full, 'utf8').split('\n');
+    let topKey: string | null = null;
+    let currentService: string | null = null;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i] ?? '';
+      const topMatch = COMPOSE_TOP_KEY_RE.exec(line);
+      if (topMatch) {
+        topKey = topMatch[1] ?? null;
+        currentService = null;
+        continue;
+      }
+      if (topKey === 'services') {
+        const svcMatch = COMPOSE_SERVICE_KEY_RE.exec(line);
+        if (svcMatch) {
+          currentService = svcMatch[1] ?? null;
+          continue;
+        }
+      }
+      const re = new RegExp(COMPOSE_VAR_RE.source, 'g');
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(line))) {
+        const name = m[1];
+        if (!name) continue;
+        const list = out.get(name) ?? [];
+        list.push({ file: relPath, line: i + 1, service: topKey === 'services' ? (currentService ?? undefined) : undefined });
+        out.set(name, list);
+      }
+    }
   }
   return out;
 }
@@ -226,13 +271,27 @@ export function scanDeliveredByCompose(repoRoot: string): Map<string, Occurrence
 export function scanDeliveredByMakefile(repoRoot: string): Map<string, Occurrence[]> {
   const out = new Map<string, Occurrence[]>();
   const full = join(repoRoot, 'Makefile');
-  if (existsSync(full)) collect(readFileSync(full, 'utf8'), MAKEFILE_PASS_THROUGH_RE, 'Makefile', out);
+  if (!existsSync(full)) return out;
+  const contents = readFileSync(full, 'utf8');
+  const re = new RegExp(MAKEFILE_PASS_THROUGH_RE.source, 'g');
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(contents))) {
+    const name = m[1];
+    if (!name) continue;
+    const list = out.get(name) ?? [];
+    list.push({ file: 'Makefile', line: lineOf(contents, m.index), service: 'build' });
+    out.set(name, list);
+  }
   return out;
 }
 
 /** `export NOM1 NOM2 ...` explicite dans un script shell (infra/production/deploy.sh et sa
  * bibliothèque) -- le mécanisme même que le défaut du 13 septembre a introduit : `. .env` seul
- * pose des variables de SHELL, jamais transmises à un processus fils sans `export`. */
+ * pose des variables de SHELL, jamais transmises à un processus fils sans `export`.
+ *
+ * `service: 'build'` (D65) : les deux scripts de `DEFAULT_SHELL_EXPORT_FILES` ci-dessous
+ * n'exportent que pour armer `npm run build:web` -- c'est la même chose que "l'environnement du
+ * build" que la spécification nomme pour `apps/`, jamais un conteneur compose. */
 export function scanDeliveredByShellExport(repoRoot: string, relPaths: string[]): Map<string, Occurrence[]> {
   const out = new Map<string, Occurrence[]>();
   for (const relPath of relPaths) {
@@ -244,7 +303,7 @@ export function scanDeliveredByShellExport(repoRoot: string, relPaths: string[])
     while ((m = re.exec(contents))) {
       const line = lineOf(contents, m.index);
       for (const name of (m[1] ?? '').trim().split(/\s+/)) {
-        out.set(name, [...(out.get(name) ?? []), { file: relPath, line }]);
+        out.set(name, [...(out.get(name) ?? []), { file: relPath, line, service: 'build' }]);
       }
     }
   }
@@ -269,6 +328,41 @@ const DEFAULT_SHELL_EXPORT_FILES = [
   'infra/production/deploy.sh',
   'infra/production/lib/build-web-bundle.sh',
 ];
+
+/** D65 : les trois rapprochements service <-> consommateur nommés par la spécification (L0-socle,
+ * L0-10, critère 1 bis) -- rien d'autre. Un consommateur hors de ces trois préfixes (simulateur,
+ * script d'exploitation) garde l'ancien comportement non différencié : "livrée quelque part"
+ * suffit, comme avant D65. Étendre cette liste sans qu'une spécification le nomme reproduirait
+ * l'excès inverse du défaut du 17 septembre -- un contrôle qui exige plus que ce que le projet a
+ * réellement décidé. */
+const SERVICE_PREFIXES: ReadonlyArray<readonly [string, string]> = [
+  ['services/odoo/', 'odoo'],
+  ['services/realtime/', 'realtime'],
+  ['apps/', 'build'],
+];
+
+const GROUP_LABEL: Readonly<Record<string, string>> = {
+  odoo: 'le service `odoo` (infra/compose*.yaml)',
+  realtime: 'le service `realtime` (infra/compose*.yaml)',
+  build: "l'environnement du build (Makefile ou export de infra/production/*.sh)",
+};
+
+/** Les groupes de service qu'une variable DOIT voir dans sa livraison, déduits de qui la
+ * consomme. Une variable consommée à la fois par `services/odoo/` et `services/realtime/`
+ * (JWT_SECRET, REALTIME_SHARED_SECRET) doit apparaître dans les deux blocs -- c'est le cas réel
+ * aujourd'hui, pas une exigence nouvelle. */
+function requiredServiceGroups(consumedEvidence: Occurrence[]): Set<string> {
+  const groups = new Set<string>();
+  for (const occ of consumedEvidence) {
+    for (const [prefix, group] of SERVICE_PREFIXES) {
+      if (occ.file.startsWith(prefix)) {
+        groups.add(group);
+        break;
+      }
+    }
+  }
+  return groups;
+}
 
 /** Recense les trois moments de chaque variable rencontrée (déclarée, ou simplement consommée --
  * ce second cas EST le défaut que le critère 2 vérifie) et retourne la liste des maillons
@@ -333,6 +427,17 @@ export function checkVariableCoherence(repoRoot: string): CoherenceReport {
           'infra/compose*.yaml, aucun export de build, aucun post_init_hook).'
       );
       continue;
+    }
+    // D65, critère 1 bis : "livrée" se vérifie par service. Une variable peut être livrée QUELQUE
+    // PART (isDelivered ci-dessus) sans être livrée à CELUI qui la consomme -- c'est exactement
+    // le défaut du 17 septembre (BABANA_DOMAIN livrée à `caddy`, lue par `odoo`).
+    for (const group of requiredServiceGroups(consumedEvidence)) {
+      if (!deliveredEvidence.some((e) => e.service === group)) {
+        problems.push(
+          `${name} : consommée par ${GROUP_LABEL[group]} mais rien ne l'y livre (D65) -- livrée ` +
+            `ailleurs seulement (${deliveredEvidence.map((e) => `${e.file}:${e.line}`).join(', ')}).`
+        );
+      }
     }
     if (!isConsumed) {
       problems.push(

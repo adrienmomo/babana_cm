@@ -96,7 +96,11 @@ esac
 case "${BABANA_GOOGLE_MAPS_API_KEY:-}" in
   "") die "BABANA_GOOGLE_MAPS_API_KEY vide dans $ENV_FILE -- poser la clé Google Maps réelle (appels REST Places/Geocoding) avant de construire le bundle web de production." ;;
 esac
-[ "${NODE_ENV:-}" = "production" ] || warn "NODE_ENV != production dans $ENV_FILE."
+# Même discipline D43 que les variables ci-dessus (D65, amoa/questions/L0-10.md) : un bundle web
+# construit avec NODE_ENV != production reste en mode développement (apps/client/webpack.config.js)
+# -- silencieusement, comme BABANA_DOMAIN silencieusement en dur avant D61 étendue. On échoue, on
+# n'avertit plus.
+[ "${NODE_ENV:-}" = "production" ] || die "NODE_ENV != production dans $ENV_FILE -- le bundle web serait construit en mode développement."
 
 mkdir -p "$STATE_DIR"
 PREV_COMMIT=$(cat "$STATE_DIR/deployed_commit" 2>/dev/null || echo "")
