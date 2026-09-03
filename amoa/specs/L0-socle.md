@@ -453,3 +453,50 @@ tools/flaky-detector/
 6. La fusion est bloquée sur suite rouge.
 6 bis. La suite Odoo s'exécute sur une base créée pour l'occasion, jamais réutilisée.
 7. `docs/testing/strategy.md` existe et décrit la politique de non-régression.
+
+---
+
+## L0-10 — Cohérence de la chaîne de configuration
+
+**Créée le 13 septembre 2026** (D59, `amoa/01-architecture.md` §9 sexies), après le troisième défaut de la même famille : une variable documentée, gardée par un contrôle, et jamais délivrée au code qui la lit.
+
+### Objectif
+
+Rendre mécanique ce qu'aucune relecture n'a attrapé trois fois de suite : le lien entre les trois moments d'une variable de configuration.
+
+### Fichiers
+
+```
+code/tools/config-coherence/
+code/infra/production/deploy.sh
+code/docs/operations/configuration.md
+```
+
+### Spécification
+
+**Une variable a trois moments, et le test parcourt les trois.**
+
+1. **Déclarée** — présente dans `infra/env/README.md` et dans `infra/env/.env.example` (vide quand D43 l'exige, jamais absente).
+2. **Livrée** — transmise à ce qui la consommera : `infra/compose.yaml` pour un conteneur, l'environnement exporté du processus de build pour une variable lue à la compilation, un `_post_init_hook` pour ce qu'Odoo doit traduire en enregistrement.
+3. **Consommée** — lue quelque part dans `services/`, `apps/`, `packages/` ou `infra/`.
+
+**Le test échoue dès qu'un maillon manque**, dans les deux sens : une variable consommée mais non déclarée, une variable déclarée mais livrée à personne, une variable livrée mais que rien ne lit. Les exceptions légitimes — `SMS_GATEWAY_*` en attente de L1-09, `FCM_*` sans fournisseur — sont **listées explicitement avec la tâche qui les fermera**, jamais ignorées par défaut. Une exception silencieuse rouvrirait précisément le trou.
+
+**La réparation qui a motivé la tâche** : `deploy.sh` fait `. infra/env/.env`, ce qui pose des variables de shell sans les exporter, puis lance `npm run build:web`. Le bundle de production est donc construit sans aucune des variables lues à la compilation — `BABANA_MAPS_SEARCH_URL`, `BABANA_GOOGLE_WEB_CLIENT_ID`, `BABANA_GOOGLE_MAPS_API_KEY`. Le script avertit même que la première pointe vers un simulateur, puis ne la transmet pas. Les variables de build sont exportées, et le contrôle porte sur ce qui est **réellement embarqué dans le bundle produit**, pas sur ce que le fichier contenait.
+
+**Un bundle qui manque une variable de build ne se construit pas.** Pas d'avertissement, pas de repli sur `undefined` : `deploy.sh` s'arrête. C'est D43 appliquée à la chaîne de build — un déploiement à moitié configuré doit échouer bruyamment, jamais servir une page où l'on ne peut ni se connecter ni chercher un lieu.
+
+**Documenter la chaîne** dans `docs/operations/configuration.md` : les trois moments, où chacun se vérifie, et la liste des exceptions avec leur tâche de fermeture.
+
+**Et corriger une affirmation fausse au passage** : `infra/env/README.md` écrit que le fichier `.env` « n'a pas d'équivalent en production » et que la procédure de déploiement injecte les variables directement dans l'environnement du conteneur. L0-07 a tranché autrement — `deploy.sh` lit bien `infra/env/.env` sur le serveur. Le choix est défendable pour un VPS unique ; la phrase, elle, enverra quelqu'un chercher un gestionnaire de secrets qui n'existe pas. Même famille que le reste de cette tâche : un document qui décrit un mécanisme absent.
+
+### Critères d'acceptation
+
+1. Le test recense les variables aux trois moments et échoue si l'un manque, dans les deux sens.
+2. Une variable ajoutée au code sans être déclarée fait échouer la suite — prouvé en en ajoutant une.
+3. Une variable déclarée que rien ne livre fait échouer la suite — prouvé de même.
+4. Les exceptions sont une liste explicite, chacune nommant la tâche qui la fermera ; une exception sans tâche fait échouer la suite.
+5. `deploy.sh` exporte les variables de build, et **échoue** si l'une d'elles est absente ou pointe vers un simulateur — il n'avertit plus.
+6. Le contrôle porte sur le bundle produit : un bundle construit sans adresse de recherche fait échouer le déploiement, vérifié sur le fichier de sortie.
+7. Le défaut du 13 septembre est couvert par un test qui échoue sur le `deploy.sh` d'avant la correction.
+8. `docs/operations/configuration.md` existe et décrit les trois moments.

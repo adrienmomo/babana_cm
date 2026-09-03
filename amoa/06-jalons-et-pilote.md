@@ -141,13 +141,19 @@ En partant du 31 août, à cinq points par nuit et sans interruption :
 
 71 % de l'ensemble, et **onze points de périmètre pilote restants** : la file de rejeu, la facture, les sauvegardes, les scénarios de bout en bout, et l'OTP téléphone. Trois à quatre nuits.
 
-Or trois choses n'avancent pas d'elles-mêmes, et deux d'entre elles bloquent des tâches de cette liste :
+Or cinq choses n'avancent pas d'elles-mêmes, et quatre d'entre elles bloquent des tâches de cette liste :
 
 | Ce qui dépend de vous | Ce que ça bloque | Délai propre |
 |---|---|---|
 | **Choisir une passerelle SMS** | L1-09 (OTP), et la notification du contact d'urgence | Contractualisation locale — jours à semaines, non compressible |
+| **Un relais SMTP** | `deploy.sh` refuse de partir sans lui — donc tout déploiement réel | La souscription est immédiate, la **vérification du domaine** (SPF, DKIM, propagation) prend plusieurs jours |
+| **Un projet Google Cloud** (identité, routage, Maps) | `deploy.sh` refuse de partir sans lui | Heures, carte bancaire requise |
 | **Une demi-journée avec un téléphone** | L6-19 : sélecteur de pièces (aucun chauffeur ne peut s'inscrire sans lui), mesure GPS, revue visuelle des écrans Chauffeur | Une demi-journée, dès qu'un appareil est disponible |
 | **Provisionner le VPS et le DNS** | La démonstration, puis le déploiement réel (L0-07) | Heures |
+
+**Ajouté le 13 septembre.** Les deux lignes du milieu manquaient à ce tableau, et c'est une erreur de ma part : j'ai décrit le VPS comme une affaire d'heures sans avoir lu ce que `deploy.sh` exige avant de démarrer. Il refuse de partir si l'adresse du relais SMTP, celle du jeu de clés Google ou celle du routage sont vides ou pointent vers un simulateur — trois refus, pas trois avertissements. Le VPS reste une affaire d'heures ; **le déploiement, lui, attend deux comptes externes**, et le SMTP a la latence la moins compressible des deux.
+
+La démonstration au client, elle, n'a besoin d'aucun des deux : elle tourne en simulé, fermée par `WEB_ALLOWED_IPS` (`amoa/07-demonstration.md`).
 
 **La passerelle SMS est désormais le chemin critique**, seule, et elle ne l'était pas il y a une semaine — le code la rattrapait encore. Ce n'est plus le cas : si elle part aujourd'hui, la date tient ; si elle part dans trois semaines, la date glisse de trois semaines, quoi que produisent les nuits.
 

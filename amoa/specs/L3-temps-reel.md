@@ -488,14 +488,18 @@ services/realtime/test/outbox.test.ts
 
 ### Spécification
 
-Quatre appels, et seulement quatre :
+**Corrigé le 13 septembre 2026** (`amoa/questions/L3-12.md` §1) : cette section énumérait quatre écritures et affirmait que le service temps réel portait les appels 2 et 3. Vérification faite dans le dépôt, ce n'est vrai que de l'appel 2.
 
-1. Création de la demande — en réalité déclenchée par l'app cliente vers Odoo directement
-2. Affectation, après acceptation du chauffeur
-3. Fin de course, avec distance, durée et tracé consolidés
+Les écritures d'une course, et qui les porte :
+
+1. Création de la demande — déclenchée par l'app cliente vers Odoo directement
+2. **Affectation ou refus, après décision du chauffeur — seul appel sortant porté par ce service** (`odoo/rides.ts`, depuis `proposal/lifecycle.ts`)
+3. Fin de course — déclenchée par l'app chauffeur vers Odoo directement. Odoo **lit** le relevé de trajet auprès de ce service (`realtime_client.fetch_ride_measurement`, sens Odoo → temps réel, même exception que `reserve_and_propose`, L3-10) puis transitionne lui-même. Ce service ne pousse jamais cette écriture
 4. Encaissement — déclenché par l'app chauffeur vers Odoo directement
 
-Le service temps réel porte donc les appels 2 et 3.
+**La file ne porte donc que l'appel 2**, sous ses deux formes. Une écriture qu'un service n'émet pas n'a pas besoin d'une file pour la porter.
+
+Et la formulation « quatre appels, et seulement quatre » était de toute façon périmée : `amoa/01-architecture.md` §2 a remplacé ce décompte par un critère qualitatif dès le 10 août — le nombre d'écritures est borné par les décisions humaines, jamais compté à l'avance.
 
 **File d'attente persistante avec rejeu** : si Odoo est indisponible au moment de l'appel, l'événement est mis en file et rejoué avec temporisation croissante. La file survit à un redémarrage du service — c'est la seule donnée que le service persiste, et elle ne contredit pas l'invariant : ce n'est pas un état métier, c'est une intention d'écriture en attente.
 
@@ -505,7 +509,7 @@ Alerte si la file dépasse un seuil ou si un événement échoue au-delà d'un n
 
 ### Critères d'acceptation
 
-1. Exactement quatre types d'écriture existent. Un test recense les appels sortants et échoue si un cinquième apparaît.
+1. La file porte exactement les types d'écriture que ce service émet réellement — `driver-accepted` et `driver-rejected`. Un test recense les appels sortants et échoue si un troisième apparaît sans être ajouté à cette liste.
 2. Odoo indisponible : l'événement est mis en file et rejoué au retour.
 3. La file survit au redémarrage du service.
 4. Un appel rejoué avec le même identifiant ne produit qu'une écriture.

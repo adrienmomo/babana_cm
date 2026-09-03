@@ -61,6 +61,9 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D54 | **Les lectures des contrôleurs se font au nom de l'utilisateur**, jamais en `sudo` ; seules les écritures, qui passent par les transitions, l'utilisent | Lire en `sudo` et vérifier dans le contrôleur | Deux gardes pour la même règle, dont une seule s'exécutait. Voir §9 quinquies |
 | D56 | **La non-habilitation d'un dossier chauffeur est un état temps réel**, posé au commit de la transition Odoo : elle retire du vivier et refuse une acceptation en vol. Sa levée ne réintègre pas | Compter sur `is_online` côté Odoo | Le vivier ne dépend pas d'`is_online` : un chauffeur suspendu y restait sélectionnable. Voir §7 bis |
 | D55 | **Une suspension empêche de travailler, pas de voir.** Le chauffeur suspendu garde la lecture de son compte courant, de ses remises et de sa course en cours | Coupure totale et immédiate | Retirer à quelqu'un tout moyen de voir sa dette l'empêche de la régler — et couper au milieu d'une course laisse un passager sans chauffeur. Voir §7 |
+| D57 | **La facture part automatiquement à l'encaissement**, et l'échec d'un envoi se voit là où un superviseur regarde déjà | Envoi à la demande du client | Une facture sert le jour d'une contestation ; personne ne réclame ce qu'il ignore. Et un envoi automatique qui échoue en silence est pire qu'un envoi manuel : plus personne ne constate l'absence. Voir §7 ter |
+| D58 | **Une écriture PostgreSQL ordinaire se pose dans le savepoint, avec les effets qu'elle accompagne ; seul un appel sortant vers le service temps réel se pose au commit** | Étendre D32/D33 à tout effet secondaire | D32/D33 protègent d'une donnée Redis qu'un `ROLLBACK` ne peut pas défaire. Une facture, elle, doit échouer *avec* l'encaissement — sinon « course encaissée sans facture » revient par la porte du correctif. Voir §2 quater |
+| D59 | **Une variable de configuration n'existe que si un test relie sa déclaration, sa livraison et sa consommation** | La documenter et la garder | Trois fois, une variable documentée, gardée par un contrôle, et jamais délivrée au code qui la lit. Le garde-fou lisait la valeur puis ne la transmettait pas. Voir §9 sexies |
 
 ---
 
@@ -144,6 +147,20 @@ Ce n'est pas une bizarrerie théorique ici, parce que ce dépôt commite délib�
 La règle est donc de les séparer dans le temps : **l'intention est retenue pendant le savepoint, enregistrée après sa sortie réussie.** Écrit autrement : un effet qui sort de la base ne s'annonce qu'une fois qu'on sait qu'il a vraiment eu lieu, et le savepoint est précisément l'endroit où on ne le sait pas encore.
 
 **Réservation et engagement sont deux états distincts, et c'est leur durée qui les sépare.** Une réservation expire vite, parce qu'un chauffeur qui ne répond pas doit être libéré. Une course n'a pas de durée prévisible : un embouteillage ne doit pas remettre au pool un chauffeur qui transporte quelqu'un. Confondre les deux revient à borner la durée d'une course par un délai d'acceptation.
+
+---
+
+## 2 quater. Ce que D32 et D33 ne disent pas (D58)
+
+J'ai écrit dans le prompt de la nuit J36 que la facture devait rejoindre « le même point d'accroche que le reste : au commit, jamais depuis un savepoint ». C'était faux, la nuit l'a vérifié avant d'obéir, et le raisonnement mérite d'être fixé ici parce qu'un futur lot financier lira la même phrase.
+
+**D32 et D33 gouvernent une seule chose : un appel sortant vers le service temps réel.** Leur motif tient dans l'en-tête de `realtime_client.py` — un aller-retour HTTP qui modifie Redis produit un effet qu'un `ROLLBACK` PostgreSQL ne peut pas défaire. D'où l'attente jusqu'au commit : on n'annonce à l'extérieur que ce dont on sait qu'il a eu lieu.
+
+**Une facture n'a rien de cette catégorie.** C'est un `account.move`, une écriture PostgreSQL ordinaire, dans la même transaction, annulée par le même `ROLLBACK` que le reste. La sortir du savepoint ne la protégerait de rien — elle la rendrait au contraire possible *après* un encaissement déjà commité, c'est-à-dire recréerait « une course encaissée sans facture », le défaut exact que la tâche fermait.
+
+La règle générale, donc : **l'atomicité se juge sur la nature de l'effet, pas sur son rang dans la séquence.** Ce qui peut être annulé par la transaction reste dedans et échoue avec elle ; ce qui ne le peut pas attend le commit. La remise de caisse posait déjà sa pièce comptable dans le savepoint, et `test_settlement.py` nommait la facture comme le futur occupant de ce même bloc. Deux sources du dépôt disaient juste, et mon prompt disait le contraire.
+
+C'est la deuxième fois qu'une affirmation fausse de ma part voyage dans un prompt de nuit (la première le 27 août). Une erreur dans un débrief se discute ; une erreur dans un prompt s'exécute. La consigne de `CLAUDE.md` — vérifier dans le dépôt plutôt que dans le prompt — vaut d'abord pour moi.
 
 ---
 
@@ -377,6 +394,20 @@ Le plafond remplace la clôture de service comme mécanisme de contrôle. Il ne 
 
 ---
 
+## 7 ter. Ce que le client reçoit après avoir payé en espèces (D57)
+
+La spécification d'origine réservait l'envoi de la facture à la demande du client : « un email par course serait subi ». L'argument portait sur la gêne, et il n'était pas absurde — mais il raisonnait sur le cas ordinaire, où rien ne se passe et où la facture ne sert à rien.
+
+**Le cas qui compte est celui de la contestation**, et il a deux propriétés qui renversent l'arbitrage. D'abord, personne ne réclame une facture dont il ignore l'existence : un envoi à la demande, en pratique, est un envoi qui n'a jamais lieu. Ensuite, une facture réclamée arrive trois jours après la course, quand le passager ne sait plus ce qu'il a payé et que le chauffeur non plus. Une trace qui arrive après la discussion n'est plus une trace, c'est un avis.
+
+Sur des courses de mille cinq cents francs payées en espèces, l'écrit immédiat est aussi ce qui protège le chauffeur : c'est lui qu'on accusera d'avoir demandé trop.
+
+**La condition, et elle n'est pas négociable : un échec d'envoi doit se voir.** Un envoi automatique qui échoue en silence est strictement pire que pas d'envoi du tout, parce qu'il retire le dernier humain qui aurait pu constater l'absence. C'est exactement ce que ce projet vient de vivre — la panne SMTP n'a été trouvée que parce que quelqu'un a cliqué et est allé regarder Mailpit. Aucun superviseur ne fera ça tous les jours.
+
+Reste ouvert, hors périmètre pilote : un client qui ne veut pas de ces emails n'a aujourd'hui aucun moyen de le dire.
+
+---
+
 ## 8. Écarts assumés avec le cahier des charges
 
 Ces écarts sont des décisions, pas des oublis. Ils doivent être validés par le maître d'ouvrage.
@@ -480,6 +511,24 @@ C'est la troisième fois qu'un de mes critères vérifie quelque chose d'adjacen
 
 ---
 
+## 9 sexies. Une variable documentée, gardée, et jamais délivrée (D59)
+
+Trois fois le même défaut, sous trois formes, et il faut le nommer parce qu'il ne se corrigera pas une quatrième fois par hasard.
+
+**Le mot de passe administrateur** (11 septembre) : décrit dans `05-prerequis-et-simulation.md` depuis le premier jour, présent dans la table des variables, jamais posé sur un compte. Le back-office est resté inaccessible trois nuits, et cinq écrans cassés sont restés invisibles derrière.
+
+**Le relais SMTP** (nuit J36) : `SMTP_HOST` et ses quatre compagnes documentées « pour l'envoi de facture », posées sur le conteneur depuis des semaines, refusées par `deploy.sh` si elles pointent vers un simulateur — et traduites nulle part en `ir.mail_server`. Odoo retombait sur sa connexion locale par défaut, `mail.mail.send()` échouait, et l'échec ne vivait que dans un champ que personne n'a de raison d'ouvrir. Aucun email n'est jamais parti de ce projet, y compris ceux d'avant cette tâche.
+
+**Le bundle web de production** (13 septembre, ma revue) : `deploy.sh` lit `.env`, examine `BABANA_MAPS_SEARCH_URL`, avertit si elle pointe vers un simulateur — puis lance `npm run build:web` sans l'exporter. Un `. fichier` en shell pose des variables, il ne les transmet pas aux processus fils. Le garde-fou juge une valeur qu'il ne délivre pas. Même sort pour l'identifiant client Google : le bundle actuellement dans le dépôt porte `MAPS_SEARCH_URL = undefined` et `GOOGLE_WEB_CLIENT_ID = ''`. Déployé tel quel, le Client web ne permet ni de se connecter, ni de chercher un lieu.
+
+**Ce que les trois ont en commun** : une variable a trois moments — elle est *déclarée* (table, `.env.example`), elle est *livrée* (compose, export, hook d'installation), elle est *consommée* (le code qui la lit). Le projet vérifiait le premier et le troisième séparément. Personne ne vérifiait le lien.
+
+Et le motif est plus large que la configuration : c'est celui de `make seed`, de la contrainte d'unicité, du mot de passe administrateur. **Une phrase dans un document ressemble beaucoup à un mécanisme qui fonctionne.** La différence ne se voit qu'en tirant sur le fil jusqu'au bout — ce que fait un test, jamais une relecture.
+
+D'où D59, et la tâche L0-10 qui le rend mécanique : une suite qui parcourt les trois moments et échoue dès que l'un manque. C'est la même famille de filet que la poignée de main sur le jeton, la cartographie des messages et la comparaison des contraintes SQL — chacune née d'un défaut que la relecture avait laissé passer.
+
+---
+
 ## 10. Risques ouverts
 
 | Risque | Impact | Traitement proposé |
@@ -573,6 +622,10 @@ spécifications.
 
 | Décision | Arbitrée le | Portée par |
 |---|---|---|
+| **D57** — envoi automatique de la facture, et échec d'envoi visible | 13 septembre 2026 | J37 (`amoa/specs/L4-course.md`, L4-06 critères 6 et 7) |
+| **D59** — une variable de configuration reliée de sa déclaration à sa consommation | 13 septembre 2026 | J37 (L0-10) |
+
+**D58** (savepoint contre commit) est portée par le code livré la nuit J36 — elle ne figure ici que pour mémoire, et n'y figure donc pas.
 
 **Registre vide, vérifié le 2 septembre (J25).** D42 (numéros de téléphone révélés à
 l'affectation), seule ligne depuis la création du registre, a été portée ce soir-là

@@ -290,7 +290,13 @@ Réutiliser `account.move`, pas un modèle maison : la numérotation légale, le
 
 Le modèle de document mentionne : référence de course, date, départ, arrivée, distance, chauffeur, immatriculation, détail du calcul, total. En français.
 
-Envoi par email à la demande du client (CDC §III.3), pas automatiquement — un email par course serait subi.
+**Où la facture se pose — corrigé le 13 septembre 2026** (`amoa/questions/L4-06.md`, D58). La facture est une écriture PostgreSQL ordinaire : elle se pose **à l'intérieur du savepoint** d'`action_settle`, avec les autres effets de l'encaissement, et échoue avec eux. D32 et D33 ne s'appliquent pas ici — elles gouvernent les appels sortants vers le service temps réel, qui modifient une donnée qu'un `ROLLBACK` ne peut pas défaire. La consigne de la nuit J36 disait le contraire ; elle avait tort. Sortir la facture du savepoint recréerait exactement « une course encaissée sans facture », le défaut que cette tâche existe pour fermer.
+
+Contrainte propre à `babana.ride` : `babana_ride_state.py::write` interdit toute écriture sur une course déjà `settled`, y compris depuis le savepoint qui vient de l'y faire passer. La facture se génère donc **avant** la transition, et `invoice_id` voyage dans le même `write()` que `state` et `settled_at`.
+
+**Envoi par email — corrigé le 13 septembre 2026** (D57). La facture part **automatiquement à l'encaissement**, plus à la demande. La formulation d'origine (« un email par course serait subi ») raisonnait sur la gêne du client ; elle passait à côté de la contestation, qui est le cas où une facture sert vraiment, et de ce qu'elle coûte quand elle arrive trois jours après. Le bouton d'envoi manuel reste, comme rattrapage.
+
+**Et un échec d'envoi se voit.** C'est la condition de l'automatisme, pas un complément : un envoi automatique qui échoue en silence est strictement pire qu'un envoi manuel, parce que plus personne n'est là pour constater qu'il n'est pas parti. Le silence de `mail.mail.failure_reason` a caché une panne SMTP totale pendant tout le projet (§9 sexies).
 
 Le journal comptable et le compte de produit sont paramétrables, pas codés en dur.
 
@@ -301,6 +307,9 @@ Le journal comptable et le compte de produit sont paramétrables, pas codés en 
 3. Le PDF se génère et contient toutes les mentions listées.
 4. L'envoi par email fonctionne, vérifié via Mailpit.
 5. Le journal et le compte sont paramétrables.
+6. **La facture part automatiquement à l'encaissement** (D57), sans intervention d'un superviseur.
+7. **Un échec d'envoi est visible sans ouvrir un champ technique** : il apparaît là où un superviseur regarde déjà, et un test le prouve en provoquant l'échec — pas en vérifiant qu'un envoi réussi réussit.
+8. **La facture échoue avec l'encaissement** (D58) : un journal non configuré ne laisse ni transition, ni mouvement de compte courant, ni facture.
 
 ---
 

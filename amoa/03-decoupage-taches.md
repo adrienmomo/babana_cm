@@ -77,6 +77,7 @@ Les états `brouillon → demandée → proposée → affectée → en_cours →
 | L0-07 | Mise en production de l'hôte (D18) : durcissement, DNS, déploiement, sauvegardes externes avec restauration prouvée, supervision hors hôte | L | L0-06, L8-08 |
 | L0-08 | **Services simulés** (D19) : `mock-google` émettant jetons et jeu de clés, doublures de routage et de recherche de lieu, implémentations de développement pour SMS et notifications | M | L0-01 |
 | L0-09 | **Harnais de non-régression** : exécution locale de la suite complète, détection des tests instables, seuils de couverture sur les modules sensibles, blocage de fusion sur suite rouge | M | L0-05 |
+| L0-10 | **Cohérence de la chaîne de configuration** (D59) : une variable déclarée, livrée et consommée — un test qui échoue dès qu'un des trois maillons manque, et la réparation de `deploy.sh` qui ne transmet pas les variables de build | M | L0-06, L0-07 |
 
 **Sur L0-08** : à faire tôt. C'est la tâche qui rend tout le reste du développement possible sans compte externe (D19), et elle rend les tests négatifs d'authentification écrivables — contre le vrai Google, ils seraient impossibles.
 
