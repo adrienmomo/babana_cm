@@ -46,7 +46,7 @@ volontairement hors du protocole des trois moments — jamais un défaut silenci
 | Liste | Rôle | Exemple |
 |---|---|---|
 | `INTERNAL_TOPOLOGY_NAMES` | Topologie du réseau Docker interne, fixée en dur dans `infra/compose.yaml`, jamais dans `.env.example` — même raisonnement déjà écrit dans `infra/env/README.md` pour `REDIS_URL`/`ODOO_INTERNAL_URL`, étendu ici à ce que L1-05/L3-12 ont ajouté depuis | `S3_ENDPOINT`, `S3_ACCESS_KEY` (renommage volontaire de `MINIO_ROOT_USER`, convention S3 côté Odoo), `REALTIME_INTERNAL_URL` |
-| `SELF_SUFFICIENT_DEFAULTS` | Variables réellement consommées, mais avec un repli **réel** (jamais `undefined`/`''`) — leur absence ne casse rien | `BABANA_API_URL` (repli `https://api.babana.cm`), les réglages de capture GPS de `apps/driver/config.ts` (L6-05, PROVISOIRES au sens de D21, `amoa/questions/L6-05.md`) |
+| `SELF_SUFFICIENT_DEFAULTS` | Variables réellement consommées, mais avec un repli **réel** (jamais `undefined`/`''`) — leur absence ne casse rien. Réservée aux RÉGLAGES (seuil, délai, plafond) depuis D61 (`amoa/questions/REPONSES-2026-09-14.md` §3) — jamais une DESTINATION : `BABANA_API_URL`/`BABANA_REALTIME_WS_URL` en sont sorties ce soir-là, voir plus bas | les réglages de capture GPS de `apps/driver/config.ts` (L6-05, PROVISOIRES au sens de D21, `amoa/questions/L6-05.md`) |
 | `EXCEPTIONS` | Un vrai maillon manquant, assumé et tracé — jamais silencieux. **Chaque entrée nomme la tâche qui la fermera** ; une exception sans tâche fait échouer la suite (`checkExceptionsManifest`) | voir table ci-dessous |
 
 Le scan exclut aussi les répertoires `test/`, `tests/`, `__tests__/` : une suite de test lit
@@ -68,6 +68,28 @@ exception possible, sont en réalité déjà déclarées, livrées (`infra/compo
 consommées (`services/odoo/addons/babana/services/push.py`, `FcmPushProvider`) — les trois
 moments tiennent, ce n'est pas un maillon manquant. Seule la vérification contre un vrai compte
 Firebase reste à faire, au pilote — hors de ce que ce test mesure. Voir `amoa/questions/L0-10.md`.
+
+## D61 — un repli plausible est pire qu'une absence
+
+`BABANA_API_URL`/`BABANA_REALTIME_WS_URL` (adresse de l'API et du service temps réel pour les
+apps natives Client/Chauffeur, `apps/*/config.ts`) ont vécu dans `SELF_SUFFICIENT_DEFAULTS`
+jusqu'au 14 septembre 2026, au motif que leur repli était « une adresse de production réelle »
+(`https://api.babana.cm` / `wss://api.babana.cm/rt/ws`). Le repli était bien réel, ce qui posait
+justement problème : un binaire construit sans ces variables ne dégradait rien de visible, il
+parlait silencieusement à la vraie production (`amoa/questions/REPONSES-2026-09-14.md` §3) — même
+famille de défaut que celle que D43 a fermée pour `BABANA_MAPS_SEARCH_URL` (une adresse plausible
+se croit, une adresse absente se voit).
+
+Retournées au protocole des trois moments comme `BABANA_MAPS_SEARCH_URL` : déclarées vides dans
+`infra/env/.env.example` (exception D43 déjà en tête du fichier), livrées en développement par
+les cibles `make client` / `make driver` (`Makefile`, motif `NOM="$(NOM)"` reconnu par
+`scanDeliveredByMakefile`), consommées par `apps/*/config.ts` qui lève désormais
+(`requireServerAddress`) plutôt que de deviner un serveur en leur absence — même discipline que
+`getSearchUrl()` du paquet `@babana/maps`.
+
+`apps/client/config.web.ts` n'est pas concerné : son repli (`window.location.origin`, même
+origine que le bundle, D46) n'est pas une adresse de production codée en dur — c'est l'origine
+courante, une propriété du navigateur, pas une destination choisie par le code.
 
 ## Le défaut du 13 septembre, précisément
 

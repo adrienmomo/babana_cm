@@ -36,12 +36,20 @@ export const INTERNAL_TOPOLOGY_NAMES: ReadonlySet<string> = new Set([
   'PORT',
 ]);
 
+// D61 (amoa/questions/REPONSES-2026-09-14.md §3) : BABANA_API_URL et BABANA_REALTIME_WS_URL ont
+// vécu ici jusqu'au 14 septembre, au motif que leur repli était « une adresse de production
+// réelle » -- vrai, et c'est précisément ce qui posait problème : un binaire construit sans ces
+// variables parlait quand même à la vraie production, sans que rien ne le signale (un repli
+// PLAUSIBLE est pire qu'une absence, D43). Elles sont retournées au protocole des trois moments
+// (déclarées vides dans infra/env/.env.example, sous l'exception D43 ; livrées par
+// infra/production/lib/build-web-bundle.sh et les cibles `make client`/`client-web`/`driver` en
+// développement ; consommées par apps/*/config.ts, qui échoue bruyamment si absentes).
+//
+// **La distinction qui doit rester nette ici** : SELF_SUFFICIENT_DEFAULTS n'accueille que des
+// RÉGLAGES (seuil, délai, plafond, cadence) -- jamais une DESTINATION (adresse de serveur, même
+// juste). Un réglage absent dégrade une cadence ; une destination absente doit faire échouer,
+// jamais deviner où écrire.
 export const SELF_SUFFICIENT_DEFAULTS: ReadonlySet<string> = new Set([
-  // Adresse de production réelle (D18, api.babana.cm) déjà câblée en repli -- une surcharge de
-  // développement se pose en ligne de commande au lancement du bundler (voir apps/*/config.ts),
-  // jamais via infra/env/.env.
-  'BABANA_API_URL',
-  'BABANA_REALTIME_WS_URL',
   // Capture GPS (L6-05) et téléversement de document (L6-15) : réglages métier PROVISOIRES au
   // sens de D21 (amoa/questions/L6-05.md) -- même écart assumé que les seuils de
   // services/realtime/src/config.ts. Tous ont un repli numérique ou booléen réel.

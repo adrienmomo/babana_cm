@@ -22,6 +22,16 @@ particulier accepte une facture, la garde, et ne signale rien — une panne d'en
 `infra/production/deploy.sh` refuse de déployer si l'une de ces variables est vide ou pointe
 vers un simulateur.
 
+**Même exception étendue le 14 septembre à `BABANA_API_URL`/`BABANA_REALTIME_WS_URL` (D61,
+`amoa/questions/REPONSES-2026-09-14.md` §3)** : ces deux-là portaient jusque-là un repli codé en
+dur vers le domaine de production réel (`api.babana.cm`) directement dans `apps/*/config.ts`, au
+motif qu'un repli *juste* ne pouvait pas faire de mal. C'est l'inverse : un binaire construit
+sans ces variables (un oubli sur `make client`, un futur build de recette) parlait quand même à
+la vraie production, sans qu'aucun contrôle ne le signale — une adresse plausible se croit, une
+adresse absente se voit. `make client` / `make driver` posent désormais la valeur locale
+(`https://api.localhost`, `wss://api.localhost/rt/ws`) ; un build de production doit la poser
+lui-même. `apps/*/config.ts` lève au lieu de deviner.
+
 **En production, les secrets viennent d'un gestionnaire de secrets ou des variables
 d'environnement de la plateforme d'hébergement, jamais d'un fichier déposé au hasard.** Ceci dit,
 corrigé le 13 septembre (L0-10) — L0-07 a tranché différemment de ce que cette section annonçait
@@ -59,6 +69,8 @@ directe dans l'environnement du conteneur au démarrage. Documenté en détail d
 | `SMS_GATEWAY_API_KEY`, `SMS_GATEWAY_SENDER_ID` | Passerelle SMS pour l'OTP de rattachement de numéro | clé API, identifiant expéditeur | vides, non consommées (L1-09 journalise, D19) | Fournisseur SMS retenu (à choisir, hors de ce soir) |
 | `GOOGLE_MAPS_API_KEY` | Clé API Google Maps consommée par les apps au build natif (D13) | clé API | vide, non consommée (mock-maps sert de doublure complète, D19) | Console Google Cloud, restreinte par empreinte de signature Android / bundle iOS |
 | `BABANA_MAPS_SEARCH_URL` | Adresse de la recherche de lieu REST (`searchPlace`, L6-01) consommée par `apps/client` **au build** (lue de `process.env` de l'hôte, pas d'un conteneur) | URL | **vide** dans `.env.example` ; `make client` / `make client-web` posent `http://localhost:4001/search` (mock-maps, port hôte exposé) | Adresse Google réelle — explicite au build (aucun repli : `getSearchUrl()` lève) |
+| `BABANA_API_URL` | Adresse de l'API pour les apps natives Client/Chauffeur (`apps/*/config.ts`), consommée **au build** | URL | **vide** dans `.env.example` ; `make client` / `make driver` posent `https://api.localhost` | Domaine réel (`https://api.babana.cm`) — explicite au build (aucun repli depuis D61 : `config.ts` lève) |
+| `BABANA_REALTIME_WS_URL` | Adresse WebSocket du service temps réel pour les mêmes apps natives, même mécanisme | URL (`wss://`) | **vide** dans `.env.example` ; `make client` / `make driver` posent `wss://api.localhost/rt/ws` | Domaine réel (`wss://api.babana.cm/rt/ws`) — explicite au build (aucun repli depuis D61) |
 
 **Ce qui n'apparaît volontairement pas dans cette table :** l'adresse de Redis
 (`redis://redis:6379`) et l'URL interne d'Odoo (`http://odoo:8069`, consommée par le service
@@ -148,7 +160,8 @@ Rien d'autre à renseigner. Les variables de `.env.example` ont soit une valeur 
 fonctionnelle, soit sont vides et non consommées (FCM, SMS, Google Maps — simulées ou sans
 objet, D19), soit sont vides **mais posées ailleurs pour le développement** : `GOOGLE_JWKS_URL`,
 `GOOGLE_ROUTING_URL`, `SMTP_HOST`, `SMTP_PORT` par `infra/compose.dev.yaml` ;
-`BABANA_MAPS_SEARCH_URL` par les cibles `make client` / `make client-web`. C'est la contrepartie
-de la règle « pas d'adresse de fournisseur dans `.env.example` » (D43 retournée, voir plus
-haut) : `make up` fonctionne sans rien ajouter, mais un déploiement de production doit renseigner
-ces variables lui-même, vers les vrais fournisseurs.
+`BABANA_MAPS_SEARCH_URL`, `BABANA_API_URL`, `BABANA_REALTIME_WS_URL` par les cibles `make
+client` / `make client-web` / `make driver`. C'est la contrepartie de la règle « pas d'adresse de
+fournisseur dans `.env.example` » (D43 retournée, voir plus haut) : `make up` fonctionne sans
+rien ajouter, mais un déploiement de production doit renseigner ces variables lui-même, vers les
+vrais fournisseurs.

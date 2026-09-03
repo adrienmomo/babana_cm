@@ -42,15 +42,22 @@ seed-drivers:    ## Tient les chauffeurs semés en ligne, à des positions dispe
 # amoa/questions/REPONSES-2026-09-06.md §2) et c'est ici, la configuration de développement, qui
 # le pose vers mock-maps (port exposé à l'hôte). Un build de production pose l'adresse Google.
 BABANA_MAPS_SEARCH_URL ?= http://localhost:4001/search
+# Même mécanisme, étendu le 14 septembre à l'adresse de l'API et du service temps réel pour les
+# apps natives (D61, amoa/questions/REPONSES-2026-09-14.md §3) : apps/*/config.ts ne retombe plus
+# sur le domaine de production en leur absence (un repli plausible se croit, une absence se voit)
+# -- c'est donc ici, comme pour BABANA_MAPS_SEARCH_URL, que le développement pose la valeur
+# locale, vers l'origine dédiée aux apps natives (infra/caddy/Caddyfile, api.$BABANA_DOMAIN).
+BABANA_API_URL ?= https://api.localhost
+BABANA_REALTIME_WS_URL ?= wss://api.localhost/rt/ws
 
 client:          ## Démarre l'app Client (bundler React Native)
-	BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" npm run start -w @babana/client
+	BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/client
 
 client-web:      ## Construit le bundle web du Client dans apps/client/dist-web (servi par Caddy, D46)
-	BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" npm run build:web -w @babana/client
+	BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run build:web -w @babana/client
 
 driver:          ## Démarre l'app Chauffeur
-	npm run start -w @babana/driver
+	BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/driver
 
 test:            ## Tests de tous les paquets et services, plus la suite Odoo
 	# La suite Odoo (module babana, jamais installé par `make up` seul) vient AVANT `npm test` :

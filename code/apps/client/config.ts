@@ -4,12 +4,34 @@
  * variables` (babel.config.js) substitue `process.env.X` par sa valeur au moment du bundle --
  * ces valeurs sont donc figées à la construction, pas lues sur l'appareil au démarrage.
  *
- * Développement : `BABANA_API_URL=https://api.localhost npm run start -w @babana/client`
- * (même variable BABANA_DOMAIN que le reste de la pile, voir infra/env/.env.example, L0-06).
- * Production : valeur par défaut ci-dessous, correspondant au domaine réel (D18).
+ * Développement : `make client` pose déjà `BABANA_API_URL=https://api.localhost` /
+ * `BABANA_REALTIME_WS_URL=wss://api.localhost/rt/ws` (Makefile -- même variable BABANA_DOMAIN
+ * que le reste de la pile, voir infra/env/.env.example, L0-06). Un lancement direct de `npm run
+ * start -w @babana/client`, hors du Makefile, doit les poser lui-même.
+ *
+ * Aucun repli vers le domaine de production depuis D61 (amoa/questions/REPONSES-2026-09-14.md
+ * §3) -- ce fichier portait jusqu'au 14 septembre `|| 'https://api.babana.cm'` : un binaire
+ * construit sans ces variables parlait alors quand même à la vraie production, sans qu'aucun
+ * contrôle ne le signale (même repli plausible que D43 a déjà fermé pour BABANA_MAPS_SEARCH_URL
+ * ci-dessous -- une adresse juste se croit, une adresse absente se voit). Absente, la
+ * construction échoue ici, bruyamment, plutôt que de deviner un serveur.
  */
-export const API_BASE_URL = process.env.BABANA_API_URL || 'https://api.babana.cm';
-export const REALTIME_WS_URL = process.env.BABANA_REALTIME_WS_URL || 'wss://api.babana.cm/rt/ws';
+function requireServerAddress(value: string | undefined, name: string): string {
+  if (!value) {
+    throw new Error(
+      `babana: ${name} n'est pas configurée -- aucune adresse de serveur ne retombe sur une ` +
+        'valeur par défaut (invariant 5, D61). La poser explicitement au build (make client la ' +
+        'pose déjà vers https://api.localhost en développement).'
+    );
+  }
+  return value;
+}
+
+export const API_BASE_URL = requireServerAddress(process.env.BABANA_API_URL, 'BABANA_API_URL');
+export const REALTIME_WS_URL = requireServerAddress(
+  process.env.BABANA_REALTIME_WS_URL,
+  'BABANA_REALTIME_WS_URL'
+);
 
 /**
  * Google Sign-In natif (L6-02, D22) -- `GOOGLE_WEB_CLIENT_ID` doit être l'un des identifiants
