@@ -20,13 +20,19 @@ die() { printf 'ÉCHEC : %s\n' "$1" >&2; exit 1; }
 command -v apt-get >/dev/null 2>&1 || die "ce script cible Debian/Ubuntu (apt-get absent)."
 
 SSH_PORT="${SSH_PORT:-22}"
-: "${SSH_ADMIN_IPS:?SSH_ADMIN_IPS est obligatoire (adresses d'administration autorisées sur le port SSH, séparées par des virgules). Sans elle, ce script pourrait vous verrouiller dehors.}"
+: "${SSH_ADMIN_IPS:?SSH_ADMIN_IPS obligatoire -- adresses autorisées sur le port SSH, séparées par des virgules. Sans elle, ce script pourrait vous verrouiller dehors.}"
 
 # --- 2a. Paquets -----------------------------------------------------------------------------
-log "paquets (ufw, unattended-upgrades, fail2ban, chrony)"
+# `age` et `rclone` : exigés par backup.sh/restore.sh (L8-08, critère d'acceptation 7) --
+# `command -v age`/`command -v rclone` y font échouer la sauvegarde net si absents, et rien
+# d'autre ne les installe. Un VPS provisionné en suivant cette seule procédure doit pouvoir
+# sauvegarder dès le premier soir -- c'est ce script, le seul qui touche l'hôte lui-même, qui
+# les pose (constaté le 3 septembre : `bootstrap.sh` durcissait déjà SSH/pare-feu sans jamais
+# poser l'outillage applicatif que `backup.sh` suppose déjà présent).
+log "paquets (ufw, unattended-upgrades, fail2ban, chrony, age, rclone)"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
-apt-get install -y -qq ufw unattended-upgrades fail2ban chrony curl ca-certificates
+apt-get install -y -qq ufw unattended-upgrades fail2ban chrony curl ca-certificates age rclone
 
 # --- 2b. SSH : clé uniquement, port restreint ----------------------------------------------
 log "SSH : désactivation du mot de passe, port ${SSH_PORT}"
@@ -90,6 +96,7 @@ celle-ci avant d'avoir confirmé) :
   - ssh -p ${SSH_PORT} <user>@<hôte>            doit fonctionner par clé
   - ssh -o PubkeyAuthentication=no ...          doit être refusé (mot de passe désactivé)
   - ufw status                                  80, 443 ouverts ; SSH restreint à SSH_ADMIN_IPS
+  - age --version && rclone --version           les deux doivent répondre (requis par backup.sh)
 
 Étapes qui restent, et qui n'appartiennent pas à ce script :
   1. Provisionnement du VPS (NVMe, LTS) -- compte hébergeur.

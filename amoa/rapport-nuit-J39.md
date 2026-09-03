@@ -171,3 +171,92 @@ vérification de cette nuit avait elle-même trébuché sur exactement le piège
 `sh restore.sh | tee fichier` sans `pipefail` masque l'échec de `restore.sh` derrière le succès
 de `tee`. Corrigé en capturant `$?` explicitement après une exécution sans pipe.)
 
+---
+
+## 3. Critère 7 de L8-08 — `bootstrap.sh` installe `age` et `rclone`
+
+### Le défaut
+
+`backup.sh` refuse de démarrer sans `age` ni `rclone` (`command -v … || die`), et jusqu'à ce soir
+rien dans `infra/production/` ne les installait sur l'hôte de production. `bootstrap.sh` -- le
+seul script qui touche l'hôte lui-même, déjà responsable du pare-feu et du durcissement SSH --
+posait `ufw`, `unattended-upgrades`, `fail2ban`, `chrony`, jamais l'outillage applicatif dont
+`backup.sh` a besoin. Un VPS provisionné en suivant la procédure documentée ne sauvegarderait
+pas, et l'aurait découvert au premier `cron` de trois heures du matin.
+
+### Le correctif
+
+`age rclone` ajoutés à la ligne `apt-get install` du bloc paquets (2a), à côté de
+`ufw unattended-upgrades fail2ban chrony curl ca-certificates` déjà présents -- même mécanisme,
+aucun bloc nouveau. Les deux existent en paquet natif sur la cible documentée
+(`docs/operations/production.md`, Debian 12 / Ubuntu 24.04) -- vérifié contre
+`packages.debian.org/bookworm/{age,rclone}` (les deux existent). Le résumé de fin de script
+(section « Vérifications à faire MAINTENANT ») gagne une ligne : `age --version && rclone
+--version`, à côté des vérifications SSH/pare-feu déjà présentes.
+
+### Corrigé au passage
+
+L'apostrophe signalée hier soir dans le message de `${SSH_ADMIN_IPS:?…}` -- même défaut que
+celui déjà corrigé dans `backup.sh` (J38) : `${VAR:?message}` avec une apostrophe dans `message`
+casse le parseur de bash 3.2 (`/bin/sh` sur macOS). Reformulé sans apostrophe, même politique que
+`backup.sh` (« obligatoire -- … » plutôt qu'une tournure avec `d'administration`). Vérifié :
+`sh -n` (bash 3.2 sur cette machine) et `dash -n` (l'interpréteur réel de `/bin/sh` sur la cible
+Debian/Ubuntu) propres tous les deux -- avant ce soir, `sh -n bootstrap.sh` échouait déjà avant
+toute exécution.
+
+### Vérifié
+
+Ce script s'exécute en root sur un hôte réel (`apt-get`, `ufw`, `systemctl`, écriture dans
+`/etc/ssh/sshd_config.d`) -- l'exécuter pour de vrai sur cette machine de développement (macOS,
+sans `apt-get`) est exactement le genre de geste que le script lui-même refuse
+(`command -v apt-get >/dev/null 2>&1 || die`), et le rejouer dans un conteneur Debian jetable
+n'aurait prouvé l'installation des deux paquets qu'isolément de tout le reste (SSH, pare-feu) --
+un simulacre qui aurait pu masquer une interaction (l'ordre des blocs, par exemple) sans rien
+prouver de plus que la lecture ne montre déjà. Vérifié à la place, sans simulacre :
+- `sh -n`/`dash -n` propres (syntaxe, y compris après le correctif de l'apostrophe) ;
+- `age`/`rclone` sont bien des paquets réels de la distribution cible (vérifié contre le miroir
+  Debian, ci-dessus) -- pas un nom de paquet halluciné ;
+- les deux mêmes binaires, une fois posés sur CETTE machine par un autre chemin (Homebrew pour
+  `rclone`, l'archive officielle `FiloSottile/age` pour `age` -- pas `apt-get`, indisponible ici),
+  ont servi ce soir même à faire tourner `backup.sh`/`restore.sh` réellement (§2) : la preuve que
+  ces deux exécutables, une fois présents, suffisent bien à ce que les deux scripts attendent
+  d'eux n'est donc pas seulement supposée, elle vient d'être exercée dans la même nuit.
+
+**Ce que ça ne prouve pas** : que `apt-get install age rclone` réussit à l'exécution réelle sur
+le VPS de production -- aucun VPS Debian/Ubuntu n'existe dans cet environnement pour le
+constater. Le point 9 de la définition de fini est acquis (SSH durci, pare-feu, `age`/`rclone`
+présents forment un seul geste cohérent, lu et relu) ; le geste lui-même reste à faire par vous,
+au premier `bootstrap.sh` réel.
+
+### Tests
+
+Aucun test intégré à `make test`, même choix que pour `backup.sh`/`restore.sh`/`deploy.sh`
+(scripts d'exploitation hors du périmètre testé). Vérifié : `sh -n` et `dash -n`.
+
+---
+
+## Non-régression
+
+`make reset && make up && make seed` sur base fraîche, puis suite complète : Odoo (module
+`babana`) **782 tests, 0 échec, 0 erreur**. `apps/client` 19/19 suites (110/110 tests, avant ça
+90/90 sur les paquets partagés -- `@babana/maps`, `@babana/navigation` -- 15/15 suites, 4/4 pour
+`@babana/ui`). `apps/driver` 28/28 suites (193/193 tests). `test/concurrency` + `auth` +
+`http-contract` + `config` : **43/43, 8/8 suites** (scénarios réels contre Redis/PostgreSQL,
+80–105 s chacun -- lents, pas instables). `test/config/build-web-bundle.test.sh` : 3 scénarios,
+vert. `make lint` et `make typecheck` sur tout l'arbre : propres. `make secrets-scan` : aucun
+secret détecté. **Exit code de `make test` capturé explicitement** (pas déduit d'un pipeline,
+voir §2) : `0`.
+
+---
+
+## Ce qui laisse un doute pour quelqu'un de réel
+
+**L'URL signée des documents pointe vers un nom Docker interne** (`amoa/questions/L1-05-signed-url-unreachable.md`).
+C'est le doute le plus sérieux de la nuit : le geste central de L6-15/L9-01 — un gestionnaire
+qui vérifie une pièce avant d'approuver un chauffeur — ne fonctionnerait pas le premier jour en
+production, tel que le code est écrit aujourd'hui, et rien dans les suites automatisées ne le
+voit (`test_documents.py` tourne depuis l'intérieur du conteneur Odoo, où `minio` se résout).
+Trouvé uniquement parce que D63 a, pour la première fois, mis un objet réel derrière le bouton
+« Voir la pièce ». Pas corrigé ce soir : la réparation touche l'exposition réseau de MinIO en
+production (Caddy, ou un fournisseur externe), une décision de la même famille que D16-D19, hors
+du périmètre confié et hors de ce qu'une session devrait trancher seule.
