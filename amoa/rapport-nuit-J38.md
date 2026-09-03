@@ -128,6 +128,35 @@ non affecté) : passe toujours. `npx tsc --noEmit` sur `apps/client` et `apps/dr
 `API_BASE_URL`/`REALTIME_WS_URL` restent typés `string`, aucun appelant à modifier. `npm run
 lint -w @babana/client -w @babana/driver` : propre.
 
+### Régression trouvée par `make test` en entier, pas par les vérifications ciblées
+
+`requireServerAddress` lève dès l'import de `config.ts` si `BABANA_API_URL` est absente — ce que
+`npx jest` **est** pour ces deux apps : les suites `apps/client`/`apps/driver` ne passent jamais
+par le Makefile (`make client`), donc jamais par les valeurs de développement qu'il pose. 4 suites
+sur 28 (`apps/driver`) et une partie de `apps/client` échouaient à l'import (`App.test.tsx`,
+`tracker.test.ts`, `AppNavigator.test.tsx`…), avant même la moindre assertion. Trouvé seulement en
+exécutant `make test` **en entier** sur base fraîche (CLAUDE.md, "la base de développement est
+jetable, et doit être jetée régulièrement" -- ici, c'est la vérification complète qui manquait,
+pas la base) : les vérifications ciblées de tout à l'heure (`tsc --noEmit`, `eslint`) ne chargent
+jamais réellement `config.ts`, donc ne pouvaient pas voir ce défaut.
+
+Corrigé par les deux `package.json` (`"test": "BABANA_API_URL=… BABANA_REALTIME_WS_URL=… jest"`)
+-- des valeurs manifestement de test (`api.test.invalid`), jamais les adresses de développement
+réelles : un test qui utiliserait par erreur `https://api.localhost` pour de vrai le signalerait
+par un échec réseau, pas par un succès trompeur. **Un piège à noter** (`code/docs/odoo-pitfalls.md`
+n'est pas le bon fichier, celui-ci est spécifique à Odoo -- gardé ici faute d'un meilleur endroit) :
+le cache de transformation Babel de Jest est indexé par le contenu du fichier source, jamais par
+les variables d'environnement lues par `babel-plugin-transform-inline-environment-variables` --
+poser la variable sans `jest --clearCache` rejoue une ancienne transformation qui l'a déjà inlinée
+en `undefined`. Rencontré deux fois de suite ce soir avant de comprendre pourquoi le correctif
+semblait ne pas prendre.
+
+### Tests (régression)
+
+`npm test -w @babana/client -w @babana/driver` (cache Jest vidé au préalable) : client 19/19
+suites (110/110 tests), driver 28/28 suites (193/193 tests, dont le test précédemment cassé par
+l'absence de `BABANA_API_URL`).
+
 ---
 
 ## 3. L8-08 — les sauvegardes, exécutées pour de vrai
@@ -237,3 +266,55 @@ suite `make test` exigerait docker + age + rclone dans l'environnement d'intégr
 de portée de cette nuit. Vérifié à la place : `sh -n`/`dash -n` sur les deux scripts (propre, y
 compris après le correctif de l'apostrophe) et l'exécution réelle ci-dessus, de bout en bout, deux
 fois (l'échec du 3 septembre à 13h00 UTC avant le correctif MinIO, le succès à 13h01 après).
+
+---
+
+## Non-régression
+
+`make reset && make up`, `make test` en entier sur base fraîche : suite Odoo **2 582 tests, 0
+échec, 0 erreur**. `services/realtime` : 226/226 dans une première passe complète ; une deuxième
+passe (après le correctif Jest ci-dessus, machine chargée par une longue soirée de docker/tests)
+a montré un échec isolé sur `L3-20` (`test/nearby.test.ts`, compte de minuteurs après
+`unsubscribe()`, 7 au lieu de 6 attendus) -- rejoué trois fois d'affilée en isolation, toujours
+vert (315/327/312 ms). Non touché ce soir, préexistant, jamais vu échouer avant cette nuit : gardé
+en doute plutôt qu'écarté en silence, voir plus bas. `apps/client` 19/19 (110 tests), `apps/driver`
+28/28 (193 tests, cache Jest vidé). `test/concurrency` + `auth` + `http-contract` + `config` :
+**43/43, 8/8 suites** (dont les scénarios réels contre Redis/PostgreSQL, 97 à 104 s chacun --
+lents, jamais instables). `test/config/build-web-bundle.test.sh` : 3 scénarios, vert.
+`make lint` et `make typecheck` sur tout l'arbre : propres.
+
+---
+
+## Ce qui laisse un doute pour quelqu'un de réel
+
+**Le flake isolé de `L3-20` (`services/realtime/test/nearby.test.ts`), trouvé une seule fois cette
+nuit, jamais avant.** Rejoué proprement en isolation (3/3), donc probablement une question de
+charge machine plutôt qu'une vraie course critique dans le code -- mais « probablement » n'est pas
+« vérifié », et ce test protège précisément une classe de défaut (un minuteur qui survit à
+`unsubscribe()`) qui ne se verrait qu'en production, sous charge, des semaines plus tard. Si ce
+test échoue à nouveau une prochaine nuit, sans lien avec ce qui aura changé, il mérite le
+traitement complet de la politique de non-régression (test qui prouve mal, pas seulement
+« rejoué et c'est reparti »).
+
+**Le document chauffeur orphelin de `make seed`** (id 227, `storage_key` pointant vers un objet
+MinIO qui n'a jamais existé, §3) -- un supervisor qui ouvrirait cette pièce précise verrait un lien
+mort. Découvert en vérifiant la restauration, pas en cherchant ce défaut ; personne ne l'a
+recherché ailleurs dans le jeu de données. Une seule occurrence trouvée, mais je n'ai pas balayé
+l'ensemble des documents semés pour vérifier qu'elle est unique.
+
+**La preuve L8-08 de ce soir ne couvre que la mécanique, jamais la vraie frontière du critère.**
+Chiffrement, `pg_restore`, rechargement MinIO : réels, vérifiés, avec des identifiants de course
+et un ETag d'objet à l'appui. Mais tout s'est passé dans des conteneurs de CE dépôt, sur CETTE
+machine -- jamais sur un hôte vraiment vierge, jamais chez un hébergeur tiers, jamais avec les
+`age`/`rclone` réellement installés sur un système qui n'a pas de Docker Desktop pour les
+contourner. Le jour où vous ferez ce geste pour de vrai, une surprise que cette nuit n'a pas pu
+voir reste possible -- l'écart entre « fonctionne dans un conteneur qu'on contrôle entièrement » et
+« fonctionne sur une machine louée, DNS et pare-feu compris » n'est pas nul, `deploy.sh`/
+`bootstrap.sh` l'ont déjà démontré une fois (le défaut du 13 septembre).
+
+**`bootstrap.sh` ne provisionne ni `age` ni `rclone` sur l'hôte de production.** `backup.sh` les
+exige (`command -v … || die`) mais rien ne les installe -- un point que cette nuit a buté dessus en
+long sur cette machine de développement, et qui buterait pareillement sur un VPS fraîchement
+provisionné qui suit seulement `bootstrap.sh`. Non corrigé ce soir (hors du périmètre confié,
+`bootstrap.sh` porte le durcissement SSH/pare-feu, pas l'outillage applicatif) -- mais à poser
+avant le premier déploiement réel, pas à découvrir ce jour-là.

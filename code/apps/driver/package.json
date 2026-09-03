@@ -7,7 +7,7 @@
     "ios": "react-native run-ios",
     "lint": "eslint .",
     "start": "react-native start",
-    "test": "jest",
+    "test": "BABANA_API_URL=https://api.test.invalid BABANA_REALTIME_WS_URL=wss://api.test.invalid/rt/ws jest",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
