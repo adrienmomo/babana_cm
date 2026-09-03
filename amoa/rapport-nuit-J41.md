@@ -113,3 +113,121 @@ Fichiers : `test/e2e/full-ride.test.ts`, `test/e2e/helpers/actors.ts`, `test/e2e
 
 `npx tsx --test test/e2e/full-ride.test.ts` : 5/5, deux exécutions consécutives. `tsc --noEmit`
 (espace `test/`) : propre.
+
+---
+
+## 3. Passe de clôture — état des lieux pour une reprise dans trois semaines
+
+Les nuits s'arrêtent ici (`amoa/questions/REPONSES-2026-09-17.md` §5). Ce qui suit n'est pas une
+documentation : c'est l'état du dépôt tel qu'une session qui reprend, ou la personne qui lance les
+premières vraies courses, doit le trouver.
+
+### Ce qui est rouge ou instable
+
+`make reset && make up && make seed && make test` lancé sur base fraîche cette nuit. La suite
+Odoo est allée à son terme, propre : **« 0 failed, 0 error(s) of 782 tests »**. `npm test` a
+ensuite été interrompu deux fois de l'extérieur (arrêt de session, pas un échec du code — les deux
+processus sont revenus `killed`, jamais un code de sortie de test) avant d'avoir pu tourner d'un
+bout à l'autre sans coupure. Ce qui a eu le temps de s'exécuter avant chaque coupure était vert,
+y compris `test/config/config-coherence.test.ts` (10/10, D65) et `test/e2e/full-ride.test.ts`
+(5/5, L10-01) — voir §1 et §2 ci-dessus, exécutés séparément et proprement à plusieurs reprises ce
+soir. Trois échecs sont apparus dans la portion interrompue de la première tentative
+(`concurrency/select-driver-replay.test.ts`, `http-contract::createRideShare`,
+`http-contract::revokeRideShare`, tous trois « chauffeur jamais apparu dans nearby.drivers »,
+avec des durées aberrantes — 21 minutes pour un test qui en prend habituellement moins d'une) —
+dans des fichiers que je n'ai pas touchés cette nuit, avec la signature d'une machine mise en
+veille ou d'un arrêt externe pendant l'exécution, pas d'une régression. **Non confirmé sur une
+exécution propre, ininterrompue, avant la fin de cette nuit** — à rejouer en premier à la reprise :
+`cd code && npm test` sur cet environnement (déjà à jour, `make reset`/`make up`/`make seed`
+n'ont pas besoin d'être refaits).
+
+Trois tests instables rencontrés en cinq nuits, comme demandé :
+
+1. **`test/realtime/reservation.test.ts`** (critère 5, D26 — course au TTL de 1 s). Diagnostiqué
+   le 10 août (`d538e46`) : `accumulator.test.ts`, nouveau ce soir-là, écrivait beaucoup sur le
+   même DB Redis 0 et faisait perdre la course au TTL environ une fois sur trois sous la suite
+   complète. **Corrigé** — `accumulator.test.ts` isolé sur son propre DB Redis. Je le crois réglé
+   (mécanisme de contention identifié, pas seulement contourné), mais je ne l'ai pas rejoué cent
+   fois pour l'exclure définitivement — la charge d'une machine change, ce genre de course peut
+   revenir sous une charge différente de la mienne.
+2. **`test_realtime_commit_hook.py`** (Odoo, deux tests suspendus à `time.sleep(1.0)`). Signalé le
+   13 septembre, **corrigé** le 14 (`a95adfa`) : remplacé par un fait déterministe (`rollback()`
+   vide la file des points d'accroche sans exécuter ses fonctions) plutôt que d'allonger l'attente
+   — la bonne réparation, pas un pansement.
+3. **`services/realtime/test/nearby.test.ts`** (L3-20, compteur de minuteurs après
+   `unsubscribe()`). Vu une fois le 15 septembre, rejoué vert trois fois de suite,
+   **jamais reproduit depuis, jamais corrigé**. C'est le seul des trois qui reste un doute ouvert
+   — je n'ai pas de théorie sur sa cause, seulement l'observation qu'il n'a plus jamais échoué.
+   La détection automatique d'instabilité (L0-09) a été placée hors périmètre pilote le
+   15 septembre ; ce choix suppose qu'une seule session travaille sur ce dépôt à la fois, et
+   devient faux le jour où ce n'est plus vrai.
+
+### Ce qui est vert mais que personne n'a jamais exercé pour de vrai
+
+- **`bootstrap.sh`** — jamais lancé : il durcit un hôte réel (installe `age`, `rclone`, un
+  utilisateur non privilégié) et n'a de sens que sur un VPS, jamais dans ce bac à sable. C'est le
+  script qui tourne une fois, au tout premier soir d'un hôte neuf — et c'est justement le moment
+  où une surprise reste possible (constaté le 16 septembre : il refusait de tourner avant d'avoir
+  ses deux dépendances, jamais vu tant qu'on ne l'exécute pas).
+- **`rollback.sh`** — même famille : il annule un déploiement précédent réel, qu'aucune nuit n'a
+  jamais produit.
+- **FCM** — jamais confronté à un vrai compte Firebase. `PUSH_PROVIDER=fcm` est câblé, déclaré,
+  testé contre un mock ; `console` (le journal) est le seul chemin réellement emprunté à ce jour.
+- **`probe.sh` / `probe-host.sh`** — jamais surveillé un hôte hébergé ailleurs que sur cette
+  machine ; leur seul défaut connu (domaine en dur) a été trouvé en LISANT le script, pas en le
+  faisant tourner en conditions réelles.
+- **La latence du fil de fond** (file persistante Odoo → temps réel, L3-12) — jamais mesurée sous
+  charge réelle. Le test de résilience (L3-14) prouve qu'elle rejoue après un redémarrage ; rien
+  ne dit combien de temps elle met à rattraper un vrai retard, avec de vrais volumes.
+- **Le relais SMTP réel** — `mailpit` reçoit tout ce que ce dépôt a jamais envoyé. Aucun email n'a
+  atteint une vraie boîte, ni traversé un vrai relais avec ses propres limites de débit.
+- **`rateRide`, `phoneVerifyStart`/`phoneVerifyConfirm`** — dans le contrat, jamais implémentés
+  (`NOT_YET_IMPLEMENTED`, `test/http-contract/endpoint-coverage.test.ts`) — vérifiés vides
+  (404), jamais construits.
+- **Le test de bout en bout de cette nuit lui-même, sur quatre de ses cinq mécanismes.** La
+  vérification à blanc n'a cassé qu'un seul maillon (`ProposalLifecycle.accept()`). Le refus,
+  l'annulation, le franchissement du plafond, la remise de caisse et `session.resync` n'ont
+  jamais été vus échouer délibérément — seulement vus réussir. Le filet tient sur la confiance
+  dans un mécanisme partagé (le dispatcher WebSocket, éprouvé par l'unique cassure), pas sur cinq
+  preuves indépendantes.
+
+### Ce que j'ai supposé et qui n'a jamais été vérifié
+
+- Que les cadences de diffusion (5 s pour `nearby.drivers`, la même chose pour `driver.position`)
+  tiennent sous la charge d'un vrai pilote — N chauffeurs simultanés, positions à haute fréquence
+  — pas seulement contre un ou deux acteurs de test à la fois.
+- Que `session.resync`, exercé ce soir sur une coupure de quelques secondes, se comporte pareil
+  après une vraie coupure réseau de plusieurs minutes — le cas courant sur le terrain
+  (`CLAUDE.md`, « le réseau mobile est intermittent »), jamais reproduit en test.
+- Que le découplage volontaire entre deux signaux d'un même état (trouvé ce soir entre
+  `is_online` côté Odoo et le pool géo-indexé du service temps réel, pour le chauffeur) n'a pas
+  d'autre occurrence ailleurs dans le dépôt, avec le même angle mort qu'aucun test n'aurait
+  jamais couvert avant qu'un scénario n'en ait explicitement besoin des deux à la fois.
+
+### Champs-pont encore vivants
+
+D'après `code/docs/bridge-fields.md` — deux, inchangés depuis leur création :
+
+| Champ | Modèle | Remplacé par | Depuis |
+|---|---|---|---|
+| `rating_avg`, `rating_count` | `babana.driver` | L4-09 | 10 août 2026 |
+| `promotion_code` | `babana.ride` | L2-06 | 10 août 2026 |
+
+Ni L4-09 ni L2-06 n'ont été programmées à ce jour — cohérent avec `rateRide` toujours dans
+`NOT_YET_IMPLEMENTED` ci-dessus.
+
+### Si je devais prévenir d'une seule chose la personne qui lance les premières vraies courses
+
+**Il n'existe aucun journal d'audit immuable (L8-09) — si une vraie course tourne au litige
+pendant le pilote, il n'y a rien à consulter au-delà des journaux applicatifs ordinaires**, ni
+structurés, ni retenus selon une politique, ni protégés contre la modification.
+`_babana_journalize()` (`babana_ride_state.py`) écrit chaque transition dans les logs depuis le
+premier jour — son propre commentaire le dit, presque en s'excusant : « point d'accroche unique
+pour L8-09... pour l'instant, journal applicatif standard. » Trouvé en écrivant l'étape 9 de
+L10-01 ce soir, pas avant, parce que c'est la première fois qu'une vérification allait
+explicitement chercher cette preuve plutôt que de la supposer disponible.
+
+Ce n'est pas un défaut de code — c'est une tâche jamais programmée. Mais pour un service qui gère
+de l'espèce, où un chauffeur peut contester une remise et un passager un montant, c'est le genre
+de trou qui ne se voit qu'au moment précis où quelqu'un en a besoin, et où il est déjà trop tard
+pour le combler à temps.
