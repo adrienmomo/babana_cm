@@ -478,6 +478,8 @@ code/docs/operations/configuration.md
 
 1. **Déclarée** — présente dans `infra/env/README.md` et dans `infra/env/.env.example` (vide quand D43 l'exige, jamais absente).
 2. **Livrée** — transmise à ce qui la consommera : `infra/compose.yaml` pour un conteneur, l'environnement exporté du processus de build pour une variable lue à la compilation, un `_post_init_hook` pour ce qu'Odoo doit traduire en enregistrement.
+
+   **Et « livrée » se vérifie par service, jamais globalement** (D65, ajouté le 17 septembre). Une variable présente quelque part dans un fichier compose n'est pas livrée : elle est livrée *à un service*. Le contrôle rapproche le répertoire du consommateur du conteneur qui l'exécute — `services/odoo/` du service `odoo`, `services/realtime/` du service `realtime`, `apps/` du processus de build. C'est le maillon qui a laissé passer `BABANA_DOMAIN`, livrée à Caddy et lue par Odoo : le contrôle était vert, et tous les liens de partage portaient le domaine de production en dur depuis le premier jour.
 3. **Consommée** — lue quelque part dans `services/`, `apps/`, `packages/` ou `infra/`.
 
 **Le test échoue dès qu'un maillon manque**, dans les deux sens : une variable consommée mais non déclarée, une variable déclarée mais livrée à personne, une variable livrée mais que rien ne lit. Les exceptions légitimes — `SMS_GATEWAY_*` en attente de L1-09 — sont **listées explicitement avec la tâche qui les fermera**, jamais ignorées par défaut. Une exception silencieuse rouvrirait précisément le trou.
@@ -497,6 +499,7 @@ code/docs/operations/configuration.md
 ### Critères d'acceptation
 
 1. Le test recense les variables aux trois moments et échoue si l'un manque, dans les deux sens.
+1 bis. **La livraison est appariée au consommateur** (D65) : une variable lue par du code Odoo et livrée au seul service `caddy` fait échouer la suite. Prouvé en retirant `BABANA_DOMAIN` du bloc `environment` du service `odoo` — le cas réel du 17 septembre, que le contrôle d'origine ne voyait pas.
 2. Une variable ajoutée au code sans être déclarée fait échouer la suite — prouvé en en ajoutant une.
 3. Une variable déclarée que rien ne livre fait échouer la suite — prouvé de même.
 4. Les exceptions sont une liste explicite, chacune nommant la tâche qui la fermera ; une exception sans tâche fait échouer la suite.

@@ -135,6 +135,27 @@ En partant du 31 août, à cinq points par nuit et sans interruption :
 | **Déploiement et recette** | ~22 septembre | Sur le VPS réel, avec de vrais comptes externes, données de pilote chargées |
 | **Pilote — premières courses** | **~29 septembre**, avec une marge au **6 octobre** | Chauffeurs inscrits et validés, superviseur formé, sauvegardes testées |
 
+### Révision du 17 septembre — le développement s'arrête avant vous
+
+**Deux décisions changent la forme de ce calendrier.**
+
+**L'OTP sort du périmètre pilote (D66).** C'était la dernière tâche suspendue à une démarche externe, et cette démarche n'a pas avancé en dix jours pendant que le développement, lui, finissait. Attendre aurait décalé le pilote de la durée exacte de la contractualisation, sans rien produire entre-temps. Les chauffeurs sont salariés et recrutés en personne : leur numéro est vérifié par quelqu'un qui les a en face de lui, ce qui vaut mieux qu'un SMS. Côté client, le numéro reste déclaré — et **le chiffre à relever pendant le pilote est le nombre de courses échouées faute de pouvoir joindre le passager.** C'est lui qui dira si l'OTP est une commodité ou une nécessité.
+
+**Les nuits s'arrêtent après L10-01.** Ce qui reste ensuite est de la calibration — ETA, seuils, tarifs réels — et elle a besoin des données du pilote pour être juste. En faire avant, c'est deviner, et deviner produit du code qu'il faudra défaire. Les nuits reprennent quand le terrain aura parlé.
+
+**Conséquence, et il faut la dire clairement : à partir de la nuit prochaine, le projet n'attend plus que vous.**
+
+| Ce qui reste | Qui |
+|---|---|
+| L10-01, scénarios de bout en bout | Une nuit |
+| VPS, DNS (quatre noms), démonstration | Vous — des heures |
+| Relais SMTP, compte Google Cloud | Vous — le SMTP a plusieurs jours de latence propre |
+| Restauration sur hôte vierge (L8-08) | Vous — le seul geste qu'aucune nuit ne peut faire |
+| Une demi-journée avec un téléphone (L6-19) | Vous — sans le sélecteur de pièces, aucun chauffeur ne s'inscrit |
+| Validation du plan comptable | Votre comptable |
+
+Aucune de ces lignes ne dépend d'une autre. Elles peuvent toutes partir la même semaine.
+
 ### Révision du 13 septembre — quatre tâches que personne n'avait jamais programmées
 
 **86 tâches sur 123 portent un commit de code. Reste 37, dont l'essentiel est hors périmètre pilote** (calibration d'après-pilote, promotions, analyses). Le décompte par étiquette de commit est approximatif dans les deux sens : L4-07 (annulations) est bien en place — route, règles par acteur, journalisation — sans qu'aucun commit ne porte son identifiant.

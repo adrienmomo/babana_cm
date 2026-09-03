@@ -69,6 +69,8 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D62 | **Un script d'exploitation n'est vérifié que s'il a été exécuté comme script**, d'un bout à l'autre | Rejouer ses commandes une à une | Rejouer les commandes prouve la mécanique, jamais le script — l'ordre, les gardes, les variables, les codes de retour restent non exercés. Et c'est le script qu'on lance à trois heures du matin. Voir §9 septies |
 | D63 | **Le jeu de démonstration porte ce que l'écran affiche**, pas seulement les enregistrements qui le référencent | Semer les lignes, pas les fichiers | Cent chauffeurs semés, deux cents documents, zéro image téléversée : l'écran de validation d'un permis n'a jamais été vu. Un enregistrement qui pointe vers rien peuple une liste, pas un écran. Voir §9 septies |
 | D64 | **L'adresse qui sert à écrire n'est pas celle qui sert à signer une URL destinée à un navigateur.** Le stockage a un point d'entrée interne et un point d'entrée public, distincts | Un seul `S3_ENDPOINT` | L'URL signée renvoyée au navigateur portait `http://minio:9000`, injoignable hors du réseau Docker — en production comme en développement. La route publique n'expose que l'API S3, jamais la console. Voir §9 octies |
+| D65 | **Une variable est livrée à ce qui la consomme, et le contrôle le vérifie par service** | « livrée quelque part » | `BABANA_DOMAIN` était livrée à Caddy, jamais au conteneur qui exécute `share.py` : tous les liens de partage portaient `babana.cm` en dur, dans tous les environnements. Le contrôle des trois moments a laissé passer exactement le défaut qu'il existe pour attraper. Voir §9 nonies |
+| D66 | **Le pilote démarre sans vérification du numéro par SMS.** Le numéro du chauffeur est vérifié à l'embauche ; celui du client reste déclaré | Attendre la passerelle SMS | Sur des chauffeurs salariés recrutés en personne, l'OTP ne vérifie rien que l'employeur ne sache déjà. Attendre aurait décalé le pilote d'autant, sans contrepartie. Voir É1 |
 
 ---
 
@@ -432,6 +434,12 @@ Ces écarts sont des décisions, pas des oublis. Ils doivent être validés par 
 **É1 — Authentification (CDC §VII.1, §X.3.a)**
 Le CDC impose inscription et connexion par numéro de téléphone avec OTP SMS. D4 retient Google Sign-In seul. Conséquence : numéro non vérifié, et exclusion des utilisateurs sans compte Google actif — population non négligeable sur la cible chauffeurs. À réévaluer si le taux d'échec d'inscription observé en pilote est élevé.
 
+**Étendu le 17 septembre (D66) : le pilote démarre sans OTP du tout.** L1-09 était la dernière tâche de périmètre pilote suspendue à une démarche externe, et cette démarche n'a pas avancé en dix jours pendant que le développement, lui, finissait. Attendre aurait décalé le pilote de la durée exacte de la contractualisation, sans rien produire entre-temps.
+
+Ce que la décision coûte, honnêtement : **côté chauffeur, rien** — ils sont salariés, recrutés en personne, et leur numéro est vérifié à l'embauche par quelqu'un qui les a en face de lui. C'est une vérification plus forte qu'un SMS. **Côté client, le numéro reste déclaré et non vérifié**, et le risque concret est qu'un chauffeur ne puisse pas rappeler un passager dont le numéro est faux — au moment précis où il ne le trouve pas au point de rendez-vous. Sur quelques dizaines de courses par jour, ce cas se constate, se compte, et décide de la suite.
+
+**Ce qui doit donc être mesuré pendant le pilote** : combien de courses échouent faute de pouvoir joindre le passager. C'est le chiffre qui dira si l'OTP est une commodité ou une nécessité — et le pilote existe pour produire ce genre de chiffre plutôt que pour confirmer une intuition. L1-09 reste écrite, spécifiée, et prête à être faite le jour où une passerelle existe.
+
 **É2 — Documents chauffeur (CDC §IV.1)**
 Le CDC prévoit le téléversement de la carte grise par le chauffeur. Avec D6, la carte grise est un actif géré par l'admin. L'onboarding chauffeur se limite au permis et à la pièce d'identité, et une gestion de flotte apparaît en contrepartie.
 
@@ -600,6 +608,22 @@ pour de vrai, dans un navigateur, sur la fiche d'un chauffeur du jeu de démonst
 
 ---
 
+## 9 nonies. Le contrôle qui a laissé passer le défaut qu'il cherchait (D65)
+
+L0-10 a été écrite pour une raison précise : trois fois, une variable documentée et gardée n'avait jamais été délivrée au code qui la lit. Le contrôle des trois moments — déclarée, livrée, consommée — devait rendre cela mécanique.
+
+La nuit J40 a trouvé, à la main, un quatrième cas. `BABANA_DOMAIN` était bien déclarée, bien consommée par `controllers/share.py`, et livrée… au seul service `caddy`. Le conteneur `odoo`, qui exécute ce fichier, ne la recevait pas. Le repli `https://babana.cm` que j'avais fait retirer comme une imprudence théorique n'était pas un filet pour un cas rare : **c'était le seul chemin qui ait jamais existé.** Chaque lien de partage de trajet, dans tous les environnements depuis le premier jour, portait le domaine de production en dur — un déploiement de recette aurait envoyé ses liens vers la production.
+
+**Et le contrôle était vert.** Parce qu'il traite « livrée » comme un booléen : la variable apparaît quelque part dans un fichier compose, donc elle est livrée. Il ne sait pas *à quel service*, ni *où s'exécute le code qui la lit*.
+
+Ce qui rend ce cas intéressant n'est pas l'oubli — c'est que le mécanisme construit pour cette famille de défaut a regardé celui-ci en face et ne l'a pas vu. Une vérification qui répond à côté de la question est plus dangereuse qu'une absence de vérification : elle produit une confiance.
+
+Vérifié le 17 septembre, après le correctif, qu'aucun autre cas ne subsiste : toute variable lue par le code Odoo figure au bloc `environment` du service `odoo`, et de même pour le service temps réel. Le dépôt est propre — par la correction d'hier, pas par construction. D'où D65 : **la livraison se vérifie par service**, en rapprochant le répertoire du consommateur de l'environnement qui l'exécute.
+
+C'est la deuxième fois que la nuit trouve un défaut en demandant *pourquoi* un repli s'exécutait, plutôt qu'en le supprimant. Le geste mérite d'être nommé : **un repli qui sert est un symptôme, pas une précaution.**
+
+---
+
 ## 10. Risques ouverts
 
 | Risque | Impact | Traitement proposé |
@@ -691,13 +715,19 @@ que le prompt de la nuit vit dans l'action. Ce registre existe pour que l'écart
 visible d'un coup, et il se vérifie chaque matin au même titre que la parité entre tâches et
 spécifications.
 
+| Décision | Arbitrée le | Portée par |
+|---|---|---|
+| **D65** — la livraison d'une variable vérifiée par service | 17 septembre 2026 | J41 (`amoa/specs/L0-socle.md`, L0-10 critère 1 bis) |
+| **D66** — le pilote démarre sans OTP | 17 septembre 2026 | Aucune tâche : c'est un retrait de périmètre, consigné en É1 et dans `06-jalons-et-pilote.md` |
+
 **D64 et D61 étendue ont toutes deux été portées la nuit J40** (`amoa/specs/L1-identite.md`,
 L1-05 critères 6 et 7 ; `controllers/share.py` et `infra/compose.yaml`), comme D62/D63 la nuit
 J39, D60/D61 la nuit d'avant, D57/D59 celle encore avant — retirées de ce tableau, qui liste ce
-qui reste à faire et non un historique. **D58** est portée par le code livré la nuit J36. Aucune
-décision en attente d'arbitrage ce soir.
+qui reste à faire et non un historique. **D58** est portée par le code livré la nuit J36.
 
-Quatre nuits de suite où une décision arbitrée le matin est portée le soir même. Le registre a rempli son office : ce qu'il liste part dans le prompt de la nuit qui suit, jamais dans un rappel qu'on relira plus tard.
+Cinq nuits de suite où une décision arbitrée le matin est portée le soir même. Le registre a rempli son office : ce qu'il liste part dans le prompt de la nuit qui suit, jamais dans un rappel qu'on relira plus tard.
+
+*Les trois paragraphes ci-dessus ont été écrits par les sessions de nuit J40 elles-mêmes, directement dans ce document. Le contenu est juste ; le canal ne l'est pas — voir le §2 du débrief du 17 septembre. Laissés tels quels plutôt que réécrits : les effacer donnerait au registre l'air d'avoir toujours été tenu par une seule main.*
 
 **Registre vide, vérifié le 2 septembre (J25).** D42 (numéros de téléphone révélés à
 l'affectation), seule ligne depuis la création du registre, a été portée ce soir-là

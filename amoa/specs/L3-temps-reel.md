@@ -582,7 +582,9 @@ Scénario, de bout en bout, contre l'environnement réel :
 
 Vérifier après redémarrage : la course est retrouvée dans son état, l'accumulation reprend, la fin de course s'enregistre correctement dans Odoo, la facture est cohérente.
 
-Variante : tuer le service **entre** la fin de course et l'écriture Odoo. L'événement doit être en file et rejoué au redémarrage (L3-12).
+Variante : tuer le service **juste après qu'un chauffeur a accepté ou refusé une proposition**, avant que l'appel Odoo n'ait abouti. L'événement doit être en file et rejoué au redémarrage (L3-12).
+
+*Corrigé le 17 septembre 2026* (`amoa/questions/L3-14.md`) : cette variante nommait la fin de course. Depuis la correction de L3-12 le 13 septembre, ce service ne pousse jamais cette écriture — Odoo lit le relevé de trajet puis transitionne lui-même. Il n'existe donc aucune fin de course « en file » à faire rejouer, et en inventer une pour satisfaire le test romprait la règle de partition. `driver-accepted` et `driver-rejected` sont les seuls types que la file porte, et le seul sur quoi cette variante peut porter.
 
 Variante : tuer Redis. La perte des positions de l'instant est acceptable ; la perte d'une course en cours d'affectation ne l'est pas — les états durables sont dans Odoo.
 
@@ -590,7 +592,7 @@ Variante : tuer Redis. La perte des positions de l'instant est acceptable ; la p
 
 1. Après redémarrage brutal, la course se retrouve et se termine.
 2. Aucune course confirmée n'est perdue.
-3. L'événement de fin de course en file est rejoué.
+3. Un événement d'acceptation ou de refus mis en file au moment de la coupure est rejoué par le processus fraîchement démarré, sans intervention.
 4. La perte de Redis ne fait perdre aucune course enregistrée dans Odoo.
 5. Le test tourne en intégration continue, ou au minimum avant chaque livraison.
 
