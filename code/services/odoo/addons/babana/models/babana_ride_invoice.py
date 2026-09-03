@@ -253,17 +253,32 @@ class BabanaRide(models.Model):
         à l'encaissement) : un clic donne un retour immédiat, contrairement à l'envoi
         automatique qui ne fait qu'enregistrer un état visible (`invoice_email_state`).
 
-        `env.cr.commit()` explicite avant de lever, sans quoi le `UserError` ci-dessous ferait
-        rejouer en arrière TOUT le `write()` que `_babana_attempt_invoice_email` vient de poser
-        (Odoo annule la transaction entière d'un appel RPC dès qu'une exception s'en échappe) --
-        constaté en ouvrant l'écran (définition de fini, point 9) : le popup d'erreur s'affichait
-        bien, mais `invoice_email_state` restait à sa valeur d'avant le clic une fois la page
-        rechargée. Sans objet pour le chemin de succès (rien à perdre)."""
+        D60 (amoa/questions/REPONSES-2026-09-14.md §2) : sur échec, ce gestionnaire NE LÈVE PAS.
+        Un premier correctif faisait `env.cr.commit()` juste avant de lever `UserError` -- il
+        fonctionnait, mais `Cursor.commit()` exécute au passage tous les points d'accroche au
+        commit encore en attente sur ce curseur (`env.cr.postcommit`, D32/D33) : un gestionnaire
+        qui commite puis lève déclenche donc les effets externes d'une requête qui se termine en
+        erreur. Rien ne pose de point d'accroche avant ce bouton aujourd'hui, mais la garantie
+        tenait alors à ce fait précaire -- pas à une propriété du code. Lever est une façon
+        d'ANNULER une transaction, pas une façon d'afficher un message ; un échec qui doit
+        laisser une trace (`invoice_email_state` posé à 'failed' par
+        `_babana_attempt_invoice_email` ci-dessus) ne peut donc pas être signalé par une
+        exception. La notification cliente (`ir.actions.client` / `display_notification`) rend
+        le même message visible sans franchir cette porte : la transaction se termine
+        normalement, l'écriture dedans."""
         self.ensure_one()
         _mail, error = self._babana_attempt_invoice_email()
         if error:
-            self.env.cr.commit()
-            raise UserError(f"Envoi de la facture : {error}")
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": "Envoi de la facture",
+                    "message": error,
+                    "type": "danger",
+                    "sticky": True,
+                },
+            }
         return True
 
     invoice_email_state = fields.Selection(

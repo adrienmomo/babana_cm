@@ -312,6 +312,36 @@ class TestInvoice(TransactionCase):
         with self.assertRaises(UserError):
             ride._babana_send_invoice_email()
 
+    # --- D60 (amoa/questions/REPONSES-2026-09-14.md §2) : le bouton ne lève pas sur échec, il
+    # renvoie une notification -- et l'écriture d'échec survit, puisque rien n'est annulé. Avant
+    # ce test, le seul chemin qui passait par button_send_invoice_email() était le succès ; les
+    # deux tests d'échec ci-dessus appellent la méthode interne, pas le bouton lui-même.
+
+    def test_button_on_failure_does_not_raise_and_returns_a_notification(self):
+        ride, driver = self._ride_ready_to_settle(email=False)
+        ride.action_settle(by_driver=driver, amount_collected=1325)
+
+        result = ride.button_send_invoice_email()  # ne lève pas
+
+        self.assertEqual(result.get("type"), "ir.actions.client")
+        self.assertEqual(result.get("tag"), "display_notification")
+        self.assertEqual(result["params"].get("type"), "danger")
+        self.assertIn("adresse email", result["params"].get("message", ""))
+
+    def test_button_on_failure_leaves_the_failure_state_written(self):
+        # Le défaut que D60 corrige : un commit() explicite puis une levée exécutait au passage
+        # tout point d'accroche au commit en attente (D32/D33) -- en ne levant plus du tout, ce
+        # risque disparaît, et l'écriture d'échec n'a plus besoin d'un commit() prématuré pour
+        # survivre : la transaction de la requête se termine normalement, l'écriture dedans.
+        ride, driver = self._ride_ready_to_settle(email=False)
+        ride.action_settle(by_driver=driver, amount_collected=1325)
+
+        ride.button_send_invoice_email()
+
+        ride.invalidate_recordset()
+        self.assertEqual(ride.invoice_email_state, "failed")
+        self.assertIn("adresse email", ride.invoice_email_failure_reason)
+
     def test_send_invoice_email_queues_a_mail_with_the_pdf_attached(self):
         ride, driver = self._ride_ready_to_settle()
         ride.action_settle(by_driver=driver, amount_collected=1325)
