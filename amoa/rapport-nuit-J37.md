@@ -81,3 +81,85 @@ depuis L0-07, `deploy.sh` lit bien `infra/env/.env` sur le serveur. Corrigé, av
 `test/config/build-web-bundle.test.sh` (3 scénarios, exécuté par `make test`) : le défaut
 reproduit et corrigé, l'échec avant tout appel npm si une variable est vide.
 
+---
+
+## 2. D57 — la facture part seule, et un échec se voit
+
+### Ce qui change
+
+`babana_ride_state.py::action_settle` enregistre désormais l'envoi automatique de la facture au
+COMMIT (`_babana_settle_send_invoice_email_async`), jamais depuis le savepoint qui vient de la
+générer — même distinction que D58 a posée pour l'inverse : la facture (`account.move`) est une
+écriture PostgreSQL ordinaire, défaite par un `ROLLBACK`, donc elle reste dans le savepoint ;
+l'email, lui, est un appel SMTP sortant qu'un `ROLLBACK` ne peut pas défaire. Fil de fond +
+nouveau curseur, même patron que `services/push.py::notify_users_async` (mêmes raisons : latence
+SMTP qui ne doit jamais retarder la réponse d'encaissement, écriture ORM après un commit qui
+exige un curseur neuf).
+
+Le bouton manuel reste, comme rattrapage, et partage désormais le même chemin
+(`_babana_attempt_invoice_email`) que l'envoi automatique — pas de logique dupliquée, pas de
+statut qui diverge selon qui a déclenché l'envoi.
+
+### La visibilité, condition non négociable de D57
+
+`babana.ride.invoice_email_state`/`invoice_email_failure_reason` sont des champs **calculés,
+jamais stockés** : `babana_ride_state.py::write` interdit toute écriture sur une course `settled`,
+sans exception, y compris pour un administrateur (invariant 2) — et l'envoi automatique n'a de
+sens qu'après l'encaissement. Le compte rendu est donc déposé sur la FACTURE
+(`account.move.babana_mail_id`/`babana_mail_error`, deux nouveaux champs), et la course le lit à
+travers `invoice_id` : aucune écriture sur la course, donc aucun conflit avec l'invariant.
+
+`mail.sudo().send()` n'échoue pas par exception — Odoo l'avale et pose `state='exception'` +
+`failure_reason` en silence, exactement le mécanisme qui a caché la panne SMTP totale du 13
+septembre (D59). Le succès de l'appel Python ne suffit donc jamais : il faut relire `mail.state`
+après coup.
+
+Visible là où un superviseur regarde déjà (`babana_ride_views.xml`, « Suivi des courses », déjà
+l'outil de travail du superviseur, L9-03) : un badge rouge/vert dans la liste
+(`decoration-danger`), un ruban rouge sur le formulaire, le motif de l'échec affiché en clair, et
+un filtre de recherche (« Échec d'envoi de la facture ») dont le domaine porte sur les champs
+STOCKÉS de la facture — le champ calculé de la course, lui, n'est pas filtrable côté serveur.
+
+### Un vrai défaut trouvé en ouvrant l'écran (définition de fini, point 9)
+
+Provoqué un échec réel (client sans adresse email, back-office ouvert, bouton cliqué) : le popup
+d'erreur s'affichait — mais après rechargement, `invoice_email_state` était resté à sa valeur
+d'avant le clic. Cause : `button_send_invoice_email` écrivait `babana_mail_error` **puis** levait
+`UserError` — Odoo annule la transaction entière d'un appel RPC dès qu'une exception s'en échappe,
+donc l'écriture partait avec elle. Corrigé par un `env.cr.commit()` explicite avant de lever, sans
+quoi ce test n'aurait jamais vu que l'écran mentait. Reproduit et corrigé le même soir, entièrement
+grâce au point 9 — aucun test automatisé n'aurait attrapé ça, puisque les tests appellent
+`_babana_attempt_invoice_email` directement, jamais à travers le rollback RPC réel du bouton.
+
+**Un second défaut, trouvé de la même façon.** `make seed` peuplait 8 courses réglées sans qu'une
+seule facture ne parte : `odoo shell` (utilisé par `services/odoo/scripts/seed.py`) se termine par
+`os._exit(0)`, qui tue net tout fil démon encore en vol — et un fil lancé par `env.cr.postcommit`
+peut mettre **plus de trente secondes** à obtenir du temps CPU sous `workers = 0` juste après une
+suite de tests qui vient de solliciter le même processus (vérifié : même un échec de précondition
+sans rendu PDF ni appel réseau a pris ce temps). `seed.py` attend désormais, de façon bornée (120 s,
+en interrogeant l'état réel de chaque facture, jamais un délai fixe) que chaque envoi automatique
+ait abouti avant de laisser le script se terminer. Les 8 courses déjà semées avant ce correctif ont
+été rattrapées manuellement (`_babana_attempt_invoice_email`, le même chemin que le bouton).
+Documenté dans `docs/odoo-pitfalls.md`.
+
+### Vérifié dans le vrai back-office (point 9)
+
+Connecté en `admin`, ouvert « Suivi des courses », vu le badge vert « Envoyée » sur une course
+semée (facture BINV/2026/00011, envoi réel confirmé par Mailpit pendant la suite de tests de la
+nuit — 23 emails « Votre facture babana.cm -- ... » livrés). Provoqué un échec réel (adresse
+email effacée temporairement sur un client de démonstration, restaurée ensuite) : ruban rouge
+« Échec d'envoi de la facture » sur le formulaire, badge rouge « Échec d'envoi », motif affiché en
+clair (« Ce client n'a pas d'adresse email connue -- impossible d'envoyer la facture. »). Laissé
+volontairement dans cet état sur la course C2026000355 : le jeu de démonstration montre ainsi les
+trois états (`sent` sur la majorité, `failed` sur celle-ci) sans qu'une prochaine nuit ait besoin
+de reprovoquer un échec pour voir à quoi il ressemble.
+
+### Tests
+
+`test_invoice.py` (+7) : enregistrement automatique au commit (même patron que
+`test_push.py::test_notify_users_async_only_schedules_a_postcommit_hook`), résilience du fil de
+fond (même patron que `test_the_background_send_swallows_every_failure`), et trois preuves de
+visibilité qui PROVOQUENT l'échec (SMTP simulé en panne, adresse manquante) plutôt que de
+vérifier qu'un envoi réussi réussit — critère d'acceptation 7, la question du soir de J36.
+
+---

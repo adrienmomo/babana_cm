@@ -210,3 +210,30 @@ service pour des fixtures de test) doit rester lisible depuis `infra/env/.env.ex
 `infra/env/.env`, quitte à y porter une valeur factice comme les autres secrets
 (`POSTGRES_PASSWORD`, `JWT_SECRET`) -- la protection contre l'héritage en production reste portée
 par `infra/production/deploy.sh`, pas par l'absence de la variable dans ce fichier.
+
+---
+
+## Un fil démon lancé depuis `env.cr.postcommit` peut mettre plus de 30 s à s'exécuter sous `workers = 0`
+
+Le patron `env.cr.postcommit.add(lambda: _spawn(...))` (`services/push.py::notify_users_async`,
+repris par `babana_ride_invoice.py::_babana_settle_send_invoice_email_async`, D57) suppose que le
+fil démon qu'il lance obtient du temps CPU rapidement une fois la transaction commitée. Vérifié en
+implémentant D57 : sous `services/odoo/config/odoo.conf` (`workers = 0`, un seul processus
+multi-fils -- le réglage de développement, pas celui d'une vraie mise en production à plusieurs
+travailleurs), un fil ainsi lancé peut rester inerte **plus de trente secondes** avant de
+s'exécuter, y compris pour un échec de précondition qui ne fait ni rendu PDF ni appel réseau
+(`babana_mail_error` posé pour "pas d'adresse email connue"). Ce n'est pas une latence réseau ni
+de rendu -- une latence d'ordonnancement, plus marquée juste après une suite de tests qui vient de
+solliciter le même processus.
+
+Découvert le 13 septembre en vérifiant `make seed` : `odoo shell` se termine par `os._exit(0)`
+(voir `services/odoo/scripts/seed.py`) -- un fil démon encore en vol à cet instant est tué net.
+Une attente bornée de dix secondes après le commit ne suffisait pas ; portée à 120 s
+(`_wait_for_pending_invoice_emails`), l'envoi automatique de chaque facture semée a fini par
+aboutir, mais jamais en moins d'une poignée de secondes.
+
+**Règle** : un script courte durée (`odoo shell`, un script de seed, un outil en ligne de
+commande) qui déclenche un effet accroché à `env.cr.postcommit` doit attendre EXPLICITEMENT et de
+façon BORNÉE que cet effet se soit réellement produit avant de laisser le processus se terminer --
+en interrogeant l'état réel produit (jamais un délai fixe), avec un plafond généreux (au moins une
+minute), pas les quelques secondes qui suffiraient dans un processus HTTP de longue durée.

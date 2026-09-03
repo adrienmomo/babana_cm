@@ -390,6 +390,11 @@ class BabanaRideState(models.Model):
         posé à 'settled'), et `invoice_id` voyage dans le même `_babana_write_transition` que
         `state`/`settled_at`, jamais un second write() après coup.
 
+        **Un cinquième effet, hors de ce savepoint** : l'envoi automatique de la facture par
+        email (D57), enregistré au commit comme le signalement de plafond ci-dessous -- ce
+        n'est pas une écriture PostgreSQL, un ROLLBACK ne peut pas le défaire (voir
+        babana_ride_invoice.py::_babana_settle_send_invoice_email_async).
+
         **Renvoie un dict `{"ride": self, "cash_limit_crossed": bool}`** plutôt que `self` seul
         (J24, amoa/questions/L6-14.md) : franchir le plafond n'est pas une erreur, la transition
         réussit, mais la réponse d'encaissement doit le dire pour que l'app n'ait pas à l'inférer
@@ -458,6 +463,13 @@ class BabanaRideState(models.Model):
         # sait pas encore si l'effet a vraiment eu lieu.
         if cash_limit_crossed:
             realtime_client.notify_cash_limit_reached(self.env, driver_public_id=by_driver.public_id)
+
+        # D57 (amoa/questions/REPONSES-2026-09-13.md §5) : la facture part automatiquement,
+        # sans attendre que le client la réclame. Même raisonnement D32/D33 que ci-dessus,
+        # appliqué à un second effet irréversible (un envoi SMTP, pas une écriture PostgreSQL) --
+        # au COMMIT, jamais depuis le savepoint qui vient de générer la facture (voir
+        # babana_ride_invoice.py::_babana_settle_send_invoice_email_async pour le détail).
+        self._babana_settle_send_invoice_email_async()
 
         self._babana_journalize("settlement")
         return {"ride": self, "cash_limit_crossed": cash_limit_crossed}

@@ -6,14 +6,31 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
+import threading
 
-from odoo import fields, models
+import odoo
+from odoo import SUPERUSER_ID, api, fields, models
 from odoo.exceptions import UserError
 
 from ..services.pricing import FareBreakdown, round_breakdown_for_wire
 
+_logger = logging.getLogger(__name__)
+
 INVOICE_JOURNAL_PARAM = "babana.invoice_journal_id"
 INVOICE_INCOME_ACCOUNT_PARAM = "babana.invoice_income_account_id"
+
+# D57 (amoa/questions/REPONSES-2026-09-13.md §5) : « personne ne réclame une facture dont il
+# ignore l'existence » -- la facture part donc automatiquement à l'encaissement, le bouton manuel
+# ne restant qu'un rattrapage. Trois valeurs, jamais un simple booléen : distinguer « jamais
+# tentée » de « tentée et en échec » est précisément ce que ce champ existe pour rendre visible
+# (critère d'acceptation 7 de L4-05/L4-06 : un échec d'envoi doit se voir sans ouvrir un champ
+# technique).
+INVOICE_EMAIL_STATE_SELECTION = [
+    ("not_sent", "Non envoyée"),
+    ("sent", "Envoyée"),
+    ("failed", "Échec d'envoi"),
+]
 
 # Même décomposition, mêmes libellés, même règle de visibilité que
 # apps/client/src/components/fareBreakdown.ts (FARE_LINES / visibleFareLines) : une facture qui
@@ -128,17 +145,24 @@ class BabanaRide(models.Model):
         return move
 
     def _babana_send_invoice_email(self):
-        """Envoi par email, À LA DEMANDE du client (CDC §III.3) -- jamais automatique à
-        l'encaissement (spécification L4-06), donc jamais appelée depuis action_settle. Aucun
-        écran client ni contrôleur mobile n'est dans le périmètre de fichiers de cette tâche :
-        un bouton du back-office (babana_ride_views.xml, button_send_invoice_email) est le seul
-        appelant ce soir -- un client qui redemande sa facture le fait aujourd'hui en contactant
-        l'exploitant, pas depuis l'app.
+        """Compose et tente l'envoi -- appelée par les DEUX chemins depuis D57 (amoa/questions/
+        REPONSES-2026-09-13.md §5) : l'envoi automatique à l'encaissement (rattrapé par
+        `_babana_settle_send_invoice_email_async` ci-dessous) et le bouton manuel du
+        back-office (`button_send_invoice_email`), qui reste un rattrapage -- un client qui
+        n'a pas reçu sa facture, ou dont l'adresse a changé depuis, la fait renvoyer en
+        contactant l'exploitant.
 
         Utilise le rapport babana (report/babana_invoice_template.xml), pas le rapport
         générique d'Odoo : le client doit recevoir départ/arrivée/chauffeur/immatriculation, pas
         seulement les lignes comptables. `mail.mail` plutôt que `message_post` sur la facture --
-        un envoi ponctuel à une adresse externe, pas une note de suivi interne."""
+        un envoi ponctuel à une adresse externe, pas une note de suivi interne.
+
+        Lève `UserError` si l'envoi ne peut même pas être TENTÉ (pas de facture, pas d'adresse
+        email) -- l'appelant automatique (`_babana_attempt_invoice_email`) l'attrape et
+        l'enregistre comme échec visible ; le bouton manuel la laisse remonter telle quelle,
+        pour un retour immédiat à qui clique. Renvoie l'enregistrement `mail.mail` lui-même
+        (pas un simple booléen) : `mail.state`/`mail.failure_reason` sont ce qui distingue un
+        envoi réellement parti d'un échec SMTP silencieux (D59, le défaut du 13 septembre)."""
         self.ensure_one()
         if not self.invoice_id:
             raise UserError("Cette course n'a pas encore de facture (L4-06).")
@@ -159,26 +183,181 @@ class BabanaRide(models.Model):
             "res_id": self.invoice_id.id,
             "mimetype": "application/pdf",
         })
-        self.env["mail.mail"].sudo().create({
+        mail = self.env["mail.mail"].sudo().create({
             "subject": f"Votre facture babana.cm -- {self.reference}",
             "body_html": (
                 f"<p>Bonjour,</p><p>Voici la facture de votre course {self.reference}.</p>"
             ),
             "email_to": self.client_id.email,
             "attachment_ids": [(6, 0, [attachment.id])],
-        }).sudo().send()
-        return True
+        })
+        mail.sudo().send()
+        return mail
+
+    def _babana_attempt_invoice_email(self):
+        """Point d'entrée PARTAGÉ par le bouton manuel et l'envoi automatique (D57) -- ne lève
+        JAMAIS, dépose toujours un compte rendu sur la FACTURE (`account.move.babana_mail_id` /
+        `babana_mail_error`), jamais sur la course : `babana.ride.write()` interdit toute
+        écriture une fois `state == 'settled'`, sans exception, y compris pour un administrateur
+        (invariant 2, babana_ride_state.py) -- et l'envoi automatique n'a de sens qu'après
+        l'encaissement. `babana.ride.invoice_email_state` (champ CALCULÉ, jamais stocké,
+        ci-dessous) lit ce compte rendu à travers `invoice_id` : aucune écriture sur la course,
+        donc aucun conflit avec l'invariant.
+
+        `mail.sudo().send()` n'échoue pas forcément par exception (Odoo l'avale déjà et pose
+        `state='exception'` + `failure_reason` -- exactement le mécanisme qui a caché la panne
+        SMTP du 13 septembre, D59) : le succès de l'appel Python ne suffit donc pas, il faut
+        relire `mail.state` après coup pour distinguer un envoi réellement parti d'un échec
+        silencieux."""
+        self.ensure_one()
+        invoice = self.invoice_id
+        try:
+            mail = self._babana_send_invoice_email()
+        except UserError as exc:
+            invoice.sudo().write({"babana_mail_error": str(exc)})
+            return None, str(exc)
+        if mail.state in ("exception", "cancel"):
+            reason = mail.failure_reason or (
+                "Échec d'envoi (raison inconnue -- voir Discussion > Emails sur la facture)."
+            )
+            invoice.sudo().write({"babana_mail_id": mail.id, "babana_mail_error": reason})
+            return mail, reason
+        invoice.sudo().write({"babana_mail_id": mail.id, "babana_mail_error": False})
+        return mail, None
+
+    def _babana_settle_send_invoice_email_async(self):
+        """Enregistre l'envoi automatique de la facture au COMMIT de la transaction
+        d'encaissement (D57) -- jamais depuis le savepoint qui vient de la créer, et c'est la
+        distinction que D58 a posée en clarifiant D32/D33 : la facture elle-même (`account.move`)
+        est une écriture PostgreSQL ordinaire, défaite par le même ROLLBACK que le reste, donc
+        elle reste dans le savepoint (`_babana_generate_invoice`) -- l'EMAIL, lui, est un appel
+        SMTP sortant qu'un ROLLBACK ne peut pas défaire. S'il partait depuis le savepoint et que
+        l'encaissement échouait ensuite (plafond, mouvement de compte courant), le client
+        recevrait la facture d'une course qui n'a en réalité pas été encaissée -- exactement le
+        défaut que D32 ferme pour le service temps réel, appliqué ici à un second effet
+        irréversible.
+
+        Fil de fond + nouveau curseur, même patron que `services/push.py::notify_users_async` :
+        un envoi SMTP lent ne doit jamais retarder la réponse d'encaissement à l'application
+        chauffeur, et toute écriture ORM après un commit exige un curseur neuf (celui de la
+        requête d'origine est sur le point de se fermer)."""
+        self.ensure_one()
+        dbname = self.env.cr.dbname
+        ride_id = self.id
+        self.env.cr.postcommit.add(lambda: _spawn_invoice_email(dbname, ride_id))
 
     def button_send_invoice_email(self):
         """Bouton du formulaire (`views/babana_ride_views.xml`) -- même patron que
         `babana.cash.remittance.button_validate` : sans argument, l'action ne dépend que de
-        l'enregistrement affiché."""
+        l'enregistrement affiché. Rattrapage depuis D57 (l'envoi part désormais automatiquement
+        à l'encaissement) : un clic donne un retour immédiat, contrairement à l'envoi
+        automatique qui ne fait qu'enregistrer un état visible (`invoice_email_state`).
+
+        `env.cr.commit()` explicite avant de lever, sans quoi le `UserError` ci-dessous ferait
+        rejouer en arrière TOUT le `write()` que `_babana_attempt_invoice_email` vient de poser
+        (Odoo annule la transaction entière d'un appel RPC dès qu'une exception s'en échappe) --
+        constaté en ouvrant l'écran (définition de fini, point 9) : le popup d'erreur s'affichait
+        bien, mais `invoice_email_state` restait à sa valeur d'avant le clic une fois la page
+        rechargée. Sans objet pour le chemin de succès (rien à perdre)."""
         self.ensure_one()
-        return self._babana_send_invoice_email()
+        _mail, error = self._babana_attempt_invoice_email()
+        if error:
+            self.env.cr.commit()
+            raise UserError(f"Envoi de la facture : {error}")
+        return True
+
+    invoice_email_state = fields.Selection(
+        INVOICE_EMAIL_STATE_SELECTION,
+        string="Envoi de la facture",
+        compute="_compute_invoice_email_state",
+        help="Calculé depuis account.move.babana_mail_id/babana_mail_error à travers "
+        "invoice_id -- jamais stocké sur la course : une écriture directe est interdite une "
+        "fois 'settled' (invariant 2), et l'envoi automatique (D57) n'a de sens qu'après.",
+    )
+    invoice_email_failure_reason = fields.Text(
+        string="Motif de l'échec d'envoi", compute="_compute_invoice_email_state"
+    )
+
+    @api.depends("invoice_id.babana_mail_id.state", "invoice_id.babana_mail_error")
+    def _compute_invoice_email_state(self):
+        for ride in self:
+            invoice = ride.invoice_id
+            mail = invoice.babana_mail_id
+            if invoice and invoice.babana_mail_error:
+                ride.invoice_email_state = "failed"
+                ride.invoice_email_failure_reason = invoice.babana_mail_error
+            elif mail and mail.state in ("exception", "cancel"):
+                ride.invoice_email_state = "failed"
+                ride.invoice_email_failure_reason = mail.failure_reason or (
+                    "Échec d'envoi (raison inconnue -- voir Discussion > Emails sur la facture)."
+                )
+            elif mail:
+                ride.invoice_email_state = "sent"
+                ride.invoice_email_failure_reason = False
+            else:
+                ride.invoice_email_state = "not_sent"
+                ride.invoice_email_failure_reason = False
+
+
+# --- Envoi automatique, fil de fond + nouveau curseur (D57) ---------------------------------
+#
+# Même patron que services/push.py::notify_users_async/_spawn/_run_in_new_cursor -- mêmes
+# raisons : un envoi lent ne doit jamais retarder la transaction appelante, et toute écriture
+# ORM après un commit exige un curseur neuf (celui de la requête d'origine se ferme). Fonctions
+# de module plutôt que méthodes : `_babana_settle_send_invoice_email_async` ci-dessus ne capture
+# que `dbname`/`ride_id`, jamais `self` -- un recordset lié au curseur de la transaction qui
+# vient de committer n'est plus sûr à utiliser depuis un fil séparé.
+
+
+def _spawn_invoice_email(dbname: str, ride_id: int) -> None:
+    threading.Thread(
+        target=lambda: _run_invoice_email_in_new_cursor(dbname, ride_id), daemon=True
+    ).start()
+
+
+def _run_invoice_email_in_new_cursor(dbname: str, ride_id: int) -> None:
+    """Aucune exception ne remonte jamais d'ici (même garantie que push.py) : une course
+    encaissée le reste même si l'envoi automatique échoue entièrement -- l'échec doit seulement
+    rester VISIBLE (`_babana_attempt_invoice_email` l'enregistre sur la facture avant même
+    d'atteindre ce niveau), jamais faire tomber le fil de fond en silence sans laisser de trace
+    dans les journaux non plus."""
+    try:
+        registry = odoo.registry(dbname)
+        with registry.cursor() as cr:
+            env = api.Environment(cr, SUPERUSER_ID, {})
+            ride = env["babana.ride"].browse(ride_id)
+            ride._babana_attempt_invoice_email()
+            cr.commit()
+    except Exception:
+        _logger.exception(
+            "[L4-06/D57] envoi automatique de la facture : échec inattendu pour la course %s",
+            ride_id,
+        )
 
 
 class AccountMove(models.Model):
     _inherit = "account.move"
+
+    # D57 : compte rendu de l'envoi AUTOMATIQUE ou manuel, déposé ICI plutôt que sur
+    # babana.ride -- `babana_ride_state.py::write` interdit toute écriture sur une course
+    # 'settled' (invariant 2, sans exception), et l'envoi n'a de sens qu'après l'encaissement.
+    # `babana.ride.invoice_email_state` (ci-dessus, calculé, jamais stocké) lit ces deux champs
+    # à travers `invoice_id` -- aucune écriture sur la course, donc aucun conflit avec
+    # l'invariant. `babana_mail_error` porte aussi bien l'échec d'une précondition (pas
+    # d'adresse email connue) que le `failure_reason` d'un `mail.mail` réellement tenté et
+    # refusé par le relais SMTP -- les deux sont la même chose du point de vue d'un
+    # superviseur : "la facture n'est pas partie".
+    babana_mail_id = fields.Many2one(
+        "mail.mail", string="Email de facture", copy=False,
+        help="Dernier envoi TENTÉ (réussi ou non) -- consulter mail.state/failure_reason pour "
+        "le détail technique. Vide si aucun envoi n'a jamais été tenté.",
+    )
+    babana_mail_error = fields.Text(
+        string="Échec d'envoi de la facture", copy=False,
+        help="Motif du dernier échec -- vide dès qu'un envoi réussit. Distinct de "
+        "babana_mail_id.failure_reason : couvre aussi les préconditions manquantes (pas "
+        "d'adresse email connue), qui n'atteignent jamais mail.mail.",
+    )
 
     # Sens inverse de babana.ride.invoice_id (Many2one) -- porté ici en calculé plutôt qu'en
     # Many2one stocké : une seule relation, une seule source de vérité (babana.ride.invoice_id,

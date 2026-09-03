@@ -20,7 +20,7 @@
         <field name="model">babana.ride</field>
         <field name="arch" type="xml">
             <list create="false" edit="false" delete="false"
-                  decoration-danger="state == 'cancelled' or distance_deviation_flagged"
+                  decoration-danger="state == 'cancelled' or distance_deviation_flagged or invoice_email_state == 'failed'"
                   decoration-info="state in ('requested', 'proposed', 'assigned', 'in_progress')"
                   decoration-muted="state == 'rejected'">
                 <field name="reference"/>
@@ -34,6 +34,13 @@
                 <field name="state"/>
                 <field name="payment_method"/>
                 <field name="distance_deviation_flagged" optional="hide"/>
+                <!-- D57, critère d'acceptation 7 : un échec d'envoi de facture doit se voir là où
+                     un superviseur regarde déjà, cette liste, pas un champ technique
+                     (mail.mail.failure_reason) qu'il n'a aucune raison d'ouvrir. -->
+                <field name="invoice_email_state" string="Facture"
+                    decoration-danger="invoice_email_state == 'failed'"
+                    widget="badge"
+                    decoration-success="invoice_email_state == 'sent'"/>
                 <field name="currency_id" column_invisible="1"/>
             </list>
         </field>
@@ -45,9 +52,10 @@
         <field name="arch" type="xml">
             <form create="false" edit="false" delete="false">
                 <header>
-                    <!-- L4-06 : envoi sur demande, jamais automatique (spécification). Un
-                         client qui redemande sa facture le fait en contactant l'exploitant. -->
-                    <button name="button_send_invoice_email" string="Envoyer la facture par email"
+                    <!-- D57 (13 septembre 2026) : la facture part désormais automatiquement à
+                         l'encaissement, ce bouton n'est plus qu'un rattrapage (adresse
+                         changée depuis, envoi automatique en échec). -->
+                    <button name="button_send_invoice_email" string="Envoyer / renvoyer la facture par email"
                         type="object" invisible="not invoice_id"/>
                 </header>
                 <sheet>
@@ -55,6 +63,10 @@
                         invisible="state != 'cancelled'"/>
                     <widget name="web_ribbon" title="Écart de distance signalé"
                         bg_color="text-bg-warning" invisible="not distance_deviation_flagged"/>
+                    <!-- D57, critère d'acceptation 7 : visible dès l'ouverture de la course,
+                         sans avoir à ouvrir la facture ni un champ technique. -->
+                    <widget name="web_ribbon" title="Échec d'envoi de la facture"
+                        bg_color="text-bg-danger" invisible="invoice_email_state != 'failed'"/>
                     <div class="oe_title">
                         <h1><field name="reference"/></h1>
                     </div>
@@ -94,6 +106,11 @@
                             <field name="discount_amount"/>
                             <field name="final_amount"/>
                             <field name="invoice_id"/>
+                            <field name="invoice_email_state" widget="badge"
+                                decoration-danger="invoice_email_state == 'failed'"
+                                decoration-success="invoice_email_state == 'sent'"/>
+                            <field name="invoice_email_failure_reason"
+                                invisible="invoice_email_state != 'failed'"/>
                         </group>
                     </group>
                     <group string="Chronologie des transitions">
@@ -160,6 +177,14 @@
                 <separator/>
                 <filter name="deviation_flagged" string="Écart de distance signalé"
                     domain="[('distance_deviation_flagged', '=', True)]"/>
+                <!-- D57, critère d'acceptation 7 : domaine sur les champs STOCKÉS de la facture
+                     (account.move.babana_mail_id/babana_mail_error), jamais sur
+                     babana.ride.invoice_email_state, calculé et non stocké (invariant 2 :
+                     écrire sur une course 'settled' est interdit), donc pas directement
+                     filtrable côté serveur. -->
+                <filter name="invoice_email_failed" string="Échec d'envoi de la facture"
+                    domain="['|', ('invoice_id.babana_mail_error', '!=', False),
+                             ('invoice_id.babana_mail_id.state', 'in', ('exception', 'cancel'))]"/>
                 <filter name="abandon_after_rejection" string="Abandon après refus"
                     domain="[('cancel_category', '=', 'abandon_after_rejection')]"/>
                 <separator/>

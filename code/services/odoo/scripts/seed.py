@@ -357,6 +357,12 @@ def make_history(client_user, drivers, zones_by_name):
     partner = client_user.partner_id
     rounding_step = env["babana.fare.rule"].sudo()._default_rounding_step()
     made = 0
+    # D57 : `action_settle` enregistre l'envoi automatique de la facture au commit
+    # (`_babana_settle_send_invoice_email_async`) -- ce script tourne sous `odoo shell`, un
+    # processus qui se termine par `os._exit(0)` juste après (voir le bas de ce fichier), sans
+    # laisser aux fils démons le temps de finir. `_wait_for_pending_invoice_emails` (main(),
+    # ci-dessous) a besoin de savoir PRÉCISÉMENT quelles factures attendre.
+    new_invoice_ids = []
 
     # Rejouabilité (docstring de tête) : la clé naturelle d'une entrée HISTORY ne peut pas être
     # un champ métier -- ni la date (calculée depuis datetime.now(), donc différente à chaque
@@ -451,6 +457,7 @@ def make_history(client_user, drivers, zones_by_name):
             by_driver=driver, final_amount=ride.estimated_amount, measurement=None
         )
         ride.sudo().action_settle(by_driver=driver, amount_collected=ride.final_amount)
+        new_invoice_ids.append(ride.invoice_id.id)
 
         # Antidater pour que l'historique s'étale sur deux semaines plutôt que de s'empiler à
         # la seconde du seed. create_date est une colonne technique : SQL direct, seul cas où
@@ -477,7 +484,50 @@ def make_history(client_user, drivers, zones_by_name):
              round(ride.final_amount), driver.employee_id.name)
 
     Param.set_param("babana.seed_history_markers", json.dumps(sorted(seen_markers)))
-    return made
+    return made, new_invoice_ids
+
+
+def _wait_for_pending_invoice_emails(invoice_ids, *, timeout_seconds=120.0):
+    """D57 : l'envoi automatique de la facture part en fil démon APRÈS le commit
+    (`babana_ride_invoice.py::_babana_settle_send_invoice_email_async`, même patron que
+    `services/push.py::notify_users_async`). Ce script se termine par `os._exit(0)` -- un fil
+    démon encore en vol à cet instant est tué net, sans avoir eu la chance de poser
+    `babana_mail_id`/`babana_mail_error`. Sans cette attente, chaque course semée afficherait
+    « Non envoyée » indéfiniment : un écran jamais peuplé, exactement ce que le corollaire sur
+    les données de CLAUDE.md interdit (« un écran ouvert sur un état vide n'a pas été vu, il a
+    été effleuré »).
+
+    Attente BORNÉE et déterministe -- on interroge l'état réel de chaque facture, jamais un
+    délai fixe (même politique que test_realtime_commit_hook.py, corrigée ce soir même pour la
+    raison inverse : un délai fixe ne prouve ni ne borne rien).
+
+    Le plafond est volontairement large (120 s) : vérifié en conditions réelles (`workers = 0`,
+    services/odoo/config/odoo.conf -- un seul processus multi-fils, sans le pool de travailleurs
+    d'une vraie mise en production) qu'un fil démon peut mettre plus de 30 s à obtenir du temps
+    CPU derrière une suite de tests qui vient de tourner, même pour un échec de précondition qui
+    ne fait ni rendu PDF ni appel SMTP -- pas une latence réseau, une latence d'ordonnancement.
+    Écrit dans code/docs/odoo-pitfalls.md."""
+    if not invoice_ids:
+        return
+    import time
+
+    AccountMove = env["account.move"].sudo()
+    deadline = time.monotonic() + timeout_seconds
+    remaining = set(invoice_ids)
+    while remaining and time.monotonic() < deadline:
+        done = AccountMove.browse(list(remaining)).filtered(
+            lambda m: m.babana_mail_id or m.babana_mail_error
+        )
+        remaining -= set(done.ids)
+        if remaining:
+            time.sleep(0.25)
+    if remaining:
+        info(
+            "attention : %d envoi(s) automatique(s) de facture encore en vol après %.0fs -- "
+            "ces courses semées afficheront 'Non envoyée' (invoice_email_state) tant qu'un "
+            "envoi (automatique ou le bouton manuel) n'aura pas abouti.",
+            len(remaining), timeout_seconds,
+        )
 
 
 def _breakdown_dict(b):
@@ -504,12 +554,13 @@ def main():
     client = ensure_client()
     ensure_supervisor()
     drivers = ensure_fleet()
-    n_hist = make_history(client, drivers, zones_by_name)
+    n_hist, new_invoice_ids = make_history(client, drivers, zones_by_name)
 
     env["ir.config_parameter"].sudo().set_param(
         "babana.seed_done", datetime.now().isoformat(timespec="seconds")
     )
     env.cr.commit()
+    _wait_for_pending_invoice_emails(new_invoice_ids)
 
     n_online = env["babana.driver"].sudo().search_count(
         [("state", "=", "approved"), ("is_online", "=", True)]

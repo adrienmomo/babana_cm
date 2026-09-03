@@ -10,6 +10,8 @@ from unittest.mock import patch
 from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase, tagged
 
+from ..models import babana_ride_invoice
+
 
 @tagged("post_install", "-at_install")
 class TestInvoice(TransactionCase):
@@ -205,15 +207,97 @@ class TestInvoice(TransactionCase):
         self.assertEqual(report_type, "pdf")
         self.assertTrue(pdf_content.startswith(b"%PDF"))
 
-    # --- Critère 4 : l'envoi par email fonctionne, à la demande seulement ---------------------
+    # --- Critère 6 (D57, amoa/questions/REPONSES-2026-09-13.md §5) : la facture part
+    # automatiquement à l'encaissement, sans intervention d'un superviseur ------------------
 
-    def test_settle_never_sends_an_email_by_itself(self):
+    def test_settle_registers_the_automatic_invoice_email_send(self):
+        # Même patron que services/push.py::notify_users_async (test_push.py,
+        # test_notify_users_async_only_schedules_a_postcommit_hook) : la preuve porte sur le
+        # POINT D'ACCROCHE (rien avant le commit, exactement un enregistrement après), pas sur
+        # l'exécution réelle du fil de fond -- couverte séparément par
+        # test_the_background_send_swallows_every_failure ci-dessous, comme pour push.py.
         ride, driver = self._ride_ready_to_settle()
-
-        with patch.object(type(self.env["mail.mail"]), "send") as mock_send:
+        spawned = []
+        with patch.object(
+            babana_ride_invoice, "_spawn_invoice_email", side_effect=lambda *a: spawned.append(a)
+        ):
             ride.action_settle(by_driver=driver, amount_collected=1325)
+            self.assertEqual(
+                spawned, [], "aucun envoi avant le commit (D57, même discipline D32/D33)"
+            )
+            self.env.cr.postcommit.run()
 
-        mock_send.assert_not_called()
+        self.assertEqual(len(spawned), 1)
+        dbname, ride_id = spawned[0]
+        self.assertEqual(dbname, self.env.cr.dbname)
+        self.assertEqual(ride_id, ride.id)
+
+    def test_the_background_send_swallows_every_failure(self):
+        # Critère : aucune exception ne remonte du fil de fond, quelle que soit la panne --
+        # même garantie, même test que push.py::test_the_background_send_swallows_every_failure.
+        # Une course encaissée le reste même si l'envoi automatique échoue entièrement.
+        ride, driver = self._ride_ready_to_settle()
+        ride.action_settle(by_driver=driver, amount_collected=1325)
+
+        with patch.object(
+            babana_ride_invoice.BabanaRide,
+            "_babana_attempt_invoice_email",
+            side_effect=RuntimeError("SMTP totalement injoignable"),
+        ):
+            babana_ride_invoice._run_invoice_email_in_new_cursor(self.env.cr.dbname, ride.id)
+            # ne lève pas
+
+    # --- Critère 7 (D57) : un échec d'envoi doit se voir, sans ouvrir un champ technique -----
+    #
+    # `invoice_email_state`/`invoice_email_failure_reason` (babana.ride, calculés, jamais
+    # stockés -- écrire sur une course 'settled' est interdit, invariant 2) sont ce qu'un
+    # superviseur voit sur l'écran "Suivi des courses" qu'il regarde déjà (babana_ride_views.xml)
+    # -- la preuve ci-dessous PROVOQUE l'échec plutôt que de vérifier qu'un envoi réussi réussit
+    # (la question explicite de la nuit J36/J37, amoa/rapport-nuit-J37.md).
+
+    def test_a_provoked_smtp_failure_is_visible_on_the_ride(self):
+        # Reproduit le défaut du 13 septembre (D59) : mail.mail.send() n'échoue pas par
+        # exception, il pose state='exception' + failure_reason en silence -- c'est CE
+        # mécanisme, pas une levée Python, que le calcul doit détecter.
+        ride, driver = self._ride_ready_to_settle()
+        ride.action_settle(by_driver=driver, amount_collected=1325)
+        self.assertEqual(ride.invoice_email_state, "not_sent")
+
+        def _fail_like_a_dead_smtp_relay(mail_self):
+            mail_self.write({"state": "exception", "failure_reason": "Connection refused"})
+
+        with patch.object(type(self.env["mail.mail"]), "send", _fail_like_a_dead_smtp_relay):
+            ride._babana_attempt_invoice_email()
+
+        ride.invalidate_recordset()
+        self.assertEqual(ride.invoice_email_state, "failed")
+        self.assertIn("Connection refused", ride.invoice_email_failure_reason)
+        self.assertTrue(ride.invoice_id.babana_mail_error)
+
+    def test_a_provoked_missing_email_failure_is_visible_on_the_ride(self):
+        # Une précondition manquante (pas d'adresse connue) n'atteint jamais mail.mail -- doit
+        # rester visible de la même façon qu'un échec SMTP (même champ, critère 7).
+        ride, driver = self._ride_ready_to_settle(email=False)
+        ride.action_settle(by_driver=driver, amount_collected=1325)
+
+        ride._babana_attempt_invoice_email()
+
+        ride.invalidate_recordset()
+        self.assertEqual(ride.invoice_email_state, "failed")
+        self.assertIn("adresse email", ride.invoice_email_failure_reason)
+
+    def test_a_successful_send_is_visible_as_sent(self):
+        ride, driver = self._ride_ready_to_settle()
+        ride.action_settle(by_driver=driver, amount_collected=1325)
+
+        with patch.object(type(self.env["mail.mail"]), "send"):
+            ride._babana_attempt_invoice_email()
+
+        ride.invalidate_recordset()
+        self.assertEqual(ride.invoice_email_state, "sent")
+        self.assertFalse(ride.invoice_email_failure_reason)
+
+    # --- Bouton manuel : rattrapage depuis D57, comportement inchangé pour qui l'utilise ------
 
     def test_send_invoice_email_without_an_invoice_is_rejected(self):
         ride, _driver = self._ride_ready_to_settle()
