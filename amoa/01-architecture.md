@@ -66,6 +66,8 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D59 | **Une variable de configuration n'existe que si un test relie sa déclaration, sa livraison et sa consommation** | La documenter et la garder | Trois fois, une variable documentée, gardée par un contrôle, et jamais délivrée au code qui la lit. Le garde-fou lisait la valeur puis ne la transmettait pas. Voir §9 sexies |
 | D60 | **Un gestionnaire qui doit garder la trace d'un échec ne commite pas la transaction de la requête : il renvoie une notification au lieu de lever** | `env.cr.commit()` avant de lever | Un commit sur le curseur de la requête exécute au passage tous les points d'accroche au commit en attente — D32 à l'envers, sur une requête qui se termine en erreur. Voir §2 quinquies |
 | D61 | **Aucune adresse de production en repli dans le code.** Une adresse absente échoue ; elle ne se devine pas | `\|\| 'https://api.babana.cm'` | Un binaire de recette construit sans cette variable écrirait dans la base du pilote sans que rien ne le signale. Même famille que D43 : un repli plausible est plus dangereux qu'une absence |
+| D62 | **Un script d'exploitation n'est vérifié que s'il a été exécuté comme script**, d'un bout à l'autre | Rejouer ses commandes une à une | Rejouer les commandes prouve la mécanique, jamais le script — l'ordre, les gardes, les variables, les codes de retour restent non exercés. Et c'est le script qu'on lance à trois heures du matin. Voir §9 septies |
+| D63 | **Le jeu de démonstration porte ce que l'écran affiche**, pas seulement les enregistrements qui le référencent | Semer les lignes, pas les fichiers | Cent chauffeurs semés, deux cents documents, zéro image téléversée : l'écran de validation d'un permis n'a jamais été vu. Un enregistrement qui pointe vers rien peuple une liste, pas un écran. Voir §9 septies |
 
 ---
 
@@ -545,6 +547,20 @@ D'où D59, et la tâche L0-10 qui le rend mécanique : une suite qui parcourt le
 
 ---
 
+## 9 septies. Deux façons de croire qu'on a vérifié (D62, D63)
+
+La nuit J38 a fait tourner `backup.sh` pour de vrai contre la pile vivante, chiffré les trois sorties, monté des conteneurs neufs, déchiffré, rechargé, et retrouvé une course encaissée, sa facture, un document et un solde — avec les identifiants et l'empreinte de l'objet à l'appui. C'est du travail sérieux, et il a trouvé trois défauts que la relecture n'avait jamais vus : un miroir de documents qui partait en clair, une image MinIO sans `tar`, et un `${VAR:?...}` que bash 3.2 refuse d'analyser.
+
+**Et pourtant `restore.sh` n'a jamais été exécuté.** Ses commandes ont été rejouées une à une. La différence n'est pas de la pédanterie : un script porte un ordre, des gardes, des variables par défaut, des codes de retour et un comportement en cas d'échec partiel, et rien de tout cela n'est exercé quand on en extrait les lignes utiles. Son en-tête affirme d'ailleurs que `.env` est un prérequis, alors que le script le déchiffre lui-même quelques lignes plus bas — le genre de contradiction qu'une exécution réelle tranche en dix secondes.
+
+C'est la même distinction que D38 (une compilation n'est pas une exécution) et D52 (une contrainte déclarée n'est pas une contrainte posée), appliquée cette fois à l'outillage d'exploitation. Et elle porte plus loin ici, parce que **c'est le script qu'on lance à trois heures du matin, quand la base a disparu et que personne n'a envie d'improviser.**
+
+**L'autre façon, c'est de peupler une liste en croyant peupler un écran.** `make seed` crée deux documents par chauffeur, chacun avec sa clé de stockage, et ne téléverse aucune image — pas une seule, dans tout le jeu de données. La nuit J38 en a trouvé un cas en vérifiant sa restauration, l'a signalé comme une occurrence isolée hors périmètre, et avait raison sur le périmètre : le balayage depuis l'autre bout montre qu'il n'y a simplement aucun téléversement dans `seed.py`.
+
+Conséquence concrète : **l'écran où un superviseur regarde un permis pour approuver un chauffeur n'a jamais été vu avec une image.** C'est le geste central de L6-15, une tâche de périmètre pilote. Le corollaire du point 9 disait déjà « le jeu de démonstration doit peupler chaque écran qui existe » ; il faut le dire plus précisément, parce qu'il a été respecté à la lettre et manqué en substance : **un enregistrement qui pointe vers rien peuple une liste, pas un écran.**
+
+---
+
 ## 10. Risques ouverts
 
 | Risque | Impact | Traitement proposé |
@@ -638,10 +654,10 @@ spécifications.
 
 | Décision | Arbitrée le | Portée par |
 |---|---|---|
-| **D60** — un gestionnaire renvoie une notification plutôt que de commiter puis lever | 14 septembre 2026 | J38 |
-| **D61** — aucune adresse de production en repli dans le code | 14 septembre 2026 | J38 |
+| **D62** — un script d'exploitation exécuté comme script | 15 septembre 2026 | J39 (`amoa/specs/L8-securite.md`, L8-08 critères 6 et 7) |
+| **D63** — le jeu de démonstration porte ce que l'écran affiche | 15 septembre 2026 | J39 |
 
-**D57 et D59 ont été portées la nuit J37**, la nuit même de leur arbitrage — retirées de ce tableau, qui liste ce qui reste à faire et non un historique. **D58** est portée par le code livré la nuit J36.
+**D60 et D61 ont été portées la nuit J38**, la nuit même de leur arbitrage, comme D57 et D59 la nuit d'avant — retirées de ce tableau, qui liste ce qui reste à faire et non un historique. **D58** est portée par le code livré la nuit J36.
 
 **Registre vide, vérifié le 2 septembre (J25).** D42 (numéros de téléphone révélés à
 l'affectation), seule ligne depuis la création du registre, a été portée ce soir-là

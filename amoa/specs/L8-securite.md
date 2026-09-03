@@ -346,6 +346,10 @@ Alerte si une sauvegarde échoue ou n'a pas eu lieu. Une sauvegarde silencieusem
 3. La procédure de restauration est écrite et exécutable par un tiers.
 4. **Un exercice de restauration a été réalisé**, avec compte rendu daté dans le dépôt.
 5. L'absence de sauvegarde Redis est documentée et justifiée.
+6. **`restore.sh` a été exécuté comme script, d'un bout à l'autre** (D62) — pas ses commandes rejouées une à une. Le compte rendu du critère 4 nomme la commande lancée, telle quelle.
+7. **L'hôte porte ce que les scripts exigent** : `bootstrap.sh` installe `age` et `rclone`, que `backup.sh` refuse de démarrer sans. Un VPS provisionné en suivant la procédure sauvegarde dès le premier soir, sans étape manuelle qu'on découvre ce jour-là.
+
+*Critères 6 et 7 ajoutés le 15 septembre 2026, après une nuit qui a prouvé la mécanique sans exécuter le script, et signalé elle-même que rien n'installait ses deux dépendances.*
 
 ---
 

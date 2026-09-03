@@ -160,6 +160,10 @@ Aucun test ne voit un écran. Un rendu qui compile, dont chaque branche est couv
 
 **Corollaire sur les données** : le jeu de démonstration doit peupler chaque écran qui existe. Un écran ouvert sur un état vide n'a pas été vu, il a été effleuré — et c'est en fabriquant à la main les données manquantes que le défaut le plus grave de cette revue est apparu.
 
+**Et peupler un écran, ce n'est pas peupler une liste** (D63, ajouté le 15 septembre). `make seed` créait deux documents par chauffeur, chacun avec sa clé de stockage, et ne téléversait aucune image — de sorte que l'écran où un superviseur regarde un permis pour approuver un chauffeur n'a jamais été vu avec une image, alors que le tableau, lui, était plein. **Un enregistrement qui pointe vers rien remplit une ligne, pas un écran.** La donnée que l'écran affiche compte autant que celle qui la référence : le fichier, l'image, la pièce jointe, le PDF.
+
+**Un script d'exploitation obéit à la même règle** (D62). `backup.sh`, `restore.sh`, `deploy.sh`, `bootstrap.sh` ne sont vérifiés que lancés comme scripts, d'un bout à l'autre. Rejouer leurs commandes une à une prouve la mécanique et laisse l'ordre, les gardes, les valeurs par défaut et les codes de retour non exercés — or c'est le script qu'on lance à trois heures du matin, pas la liste de ses lignes utiles.
+
 Le point 3 est celui qu'on est tenté de sauter. C'est aussi celui qui empêche les régressions.
 
 ---
