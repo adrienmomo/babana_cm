@@ -72,6 +72,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D65 | **Une variable est livrée à ce qui la consomme, et le contrôle le vérifie par service** | « livrée quelque part » | `BABANA_DOMAIN` était livrée à Caddy, jamais au conteneur qui exécute `share.py` : tous les liens de partage portaient `babana.cm` en dur, dans tous les environnements. Le contrôle des trois moments a laissé passer exactement le défaut qu'il existe pour attraper. Voir §9 nonies |
 | D66 | **Le pilote démarre sans vérification du numéro par SMS.** Le numéro du chauffeur est vérifié à l'embauche ; celui du client reste déclaré | Attendre la passerelle SMS | Sur des chauffeurs salariés recrutés en personne, l'OTP ne vérifie rien que l'employeur ne sache déjà. Attendre aurait décalé le pilote d'autant, sans contrepartie. Voir É1 |
 | D67 | **Le journal d'audit immuable (L8-09) entre au périmètre pilote** | Le différer avec le reste du lot L8 | Une donnée non journalisée pendant le pilote est perdue définitivement : on ne reconstitue pas un historique après coup. Sur un service en espèces, c'est la seule chose qu'on ne puisse pas rattraper. Voir §7 quater |
+| D68 | **L'échec d'un mécanisme se signale ailleurs que dans ce qu'il remplace** | `_logger.exception` pour un journal d'audit | Deux gardes justes — le journal ne lève jamais, l'écriture est interdite — composent un silence : si la traçabilité s'arrête, la seule trace est dans le journal applicatif que L8-09 existe précisément à remplacer. Voir §9 decies |
 
 ---
 
@@ -639,6 +640,22 @@ C'est la deuxième fois que la nuit trouve un défaut en demandant *pourquoi* un
 
 ---
 
+## 9 decies. Deux gardes justes qui composent un silence (D68)
+
+L8-09 est bien construite, et j'ai vérifié les deux points où elle pouvait mal tourner. Le savepoint dédié de `_babana_record` est ouvert par l'aide de l'ORM, qui vide l'environnement **avant** de le poser : les écritures métier en attente sont déjà en base quand le savepoint s'ouvre, et son annulation ne les emporte pas. Et `_babana_record` est appelé après l'écriture qu'il décrit à chacun des huit sites. Le mécanisme tient.
+
+Ce qui ne tient pas est ailleurs, et vient de la composition de deux décisions correctes.
+
+**Le journal ne lève jamais** — c'est le critère 3, et il a raison : un journal qui bloque les courses serait désactivé le premier jour d'incident. **L'écriture y est interdite à tous** — c'est le critère 2, et il a raison aussi.
+
+Ensemble, ils produisent ceci : si l'écriture du journal casse un jour, l'opération métier continue, rien ne lève, aucune entrée n'est créée — et la seule trace de la panne part dans `_logger.exception`, c'est-à-dire **dans le journal applicatif ordinaire que L8-09 existe précisément pour remplacer.** La traçabilité peut s'arrêter sans que personne ne l'apprenne, et on ne s'en apercevra qu'au moment d'aller chercher une entrée qui n'a jamais été écrite — le jour du litige, exactement le scénario contre lequel la tâche a été programmée.
+
+C'est la leçon de D57, non appliquée ici : **un mécanisme automatique dont l'échec est invisible est pire que le geste manuel qu'il remplace**, parce qu'il retire le dernier humain qui aurait pu constater l'absence. On l'avait écrit pour l'envoi de facture le 15 septembre, on l'a redécouvert quatre jours plus tard sur un autre objet.
+
+Ce qui rend le motif intéressant, c'est qu'aucune des deux décisions n'est en cause. Le défaut n'est pas dans une pièce, il est dans leur assemblage — comme les trois trous de découpage que j'ai laissés, tous sur les chemins entre composants, jamais dans un composant. **Une revue examine des pièces ; les défauts vivent entre elles.**
+
+---
+
 ## 10. Risques ouverts
 
 | Risque | Impact | Traitement proposé |
@@ -732,9 +749,9 @@ spécifications.
 
 | Décision | Arbitrée le | Portée par |
 |---|---|---|
-| **D67** — L8-09 entre au périmètre pilote | 18 septembre 2026 | J42 |
+| **D68** — l'échec du journal se signale ailleurs que dans le journal | 19 septembre 2026 | J43 |
 
-**D65 a été portée la nuit J41** ; **D66** est un retrait de périmètre, consigné en É1 et dans `06-jalons-et-pilote.md`, sans tâche.
+**D67 a été portée la nuit J42** ; **D66** est un retrait de périmètre, consigné en É1 et dans `06-jalons-et-pilote.md`, sans tâche.
 
 **D64 et D61 étendue ont toutes deux été portées la nuit J40** (`amoa/specs/L1-identite.md`,
 L1-05 critères 6 et 7 ; `controllers/share.py` et `infra/compose.yaml`), comme D62/D63 la nuit
