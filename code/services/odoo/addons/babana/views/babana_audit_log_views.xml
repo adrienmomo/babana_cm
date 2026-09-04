@@ -99,13 +99,28 @@
         <field name="model">babana.audit.log.health</field>
         <field name="arch" type="xml">
             <form>
+                <!--
+                    Boutons au HEADER, pas en FOOTER : cet écran s'ouvre en target="current"
+                    (plein écran, comme babana_cash_dashboard_action), et un footer n'est rendu
+                    par le client qu'en target="new" (boîte de dialogue), trouvé en vérifiant
+                    visuellement cet écran (D68), où « Marquer comme vu » n'apparaissait nulle
+                    part. babana_cash_dashboard_view_form (babana_remittance_views.xml) porte le
+                    même défaut, plus ancien (L9-05) : nommé, non corrigé ici, hors périmètre de
+                    cette nuit.
+                -->
+                <header>
+                    <button name="action_acknowledge" type="object" string="Marquer comme vu"
+                        class="oe_highlight" invisible="not has_failure"
+                        groups="babana.group_babana_admin"/>
+                    <button name="action_refresh" type="object" string="Actualiser"/>
+                </header>
                 <sheet>
                     <div class="alert alert-danger" role="alert" invisible="not has_failure">
                         <strong>Le journal d'audit a échoué à s'écrire.</strong> L'opération
                         métier concernée a réussi (le journal ne bloque jamais, critère
                         d'acceptation 3) mais l'entrée correspondante n'existe pas : la
                         traçabilité s'est arrêtée pour cet événement. Vérifier la cause avant
-                        d'accuser réception ci-dessous.
+                        d'accuser réception ci-dessus.
                     </div>
                     <div class="alert alert-success" role="alert" invisible="has_failure">
                         Aucun échec d'écriture du journal d'audit depuis le dernier accusé de
@@ -119,13 +134,6 @@
                         <field name="last_failure_error" string="Erreur" widget="text"/>
                     </group>
                 </sheet>
-                <footer>
-                    <button name="action_acknowledge" type="object" string="Marquer comme vu"
-                        class="oe_highlight" invisible="not has_failure"
-                        groups="babana.group_babana_admin"/>
-                    <button name="action_refresh" type="object" string="Actualiser"/>
-                    <button string="Fermer" special="cancel"/>
-                </footer>
             </form>
         </field>
     </record>

@@ -143,45 +143,102 @@ défaut du code de remise — vérifier d'abord sur une base neuve avant de rouv
 **Résultat, base fraîche, suite Odoo complète (`babana` et toutes ses dépendances déjà
 installées)** : `odoo -d babana --test-enable --stop-after-init -i babana` →
 **0 échec, 0 erreur, 819 tests** (955 selon le compteur `odoo.tests.stats`, qui compte
-différemment). `npm test` n'a pas été rejoué cette nuit — le périmètre annoncé était la suite
-Odoo, et le temps de la nuit est parti dans le cycle `make reset` décrit ci-dessus plutôt que
-dans une nouvelle traversée complète de `npm test`, déjà confirmée verte les deux nuits
-précédentes sans régression du côté TypeScript cette nuit (aucun fichier `.ts`/`.tsx` touché).
+différemment) — chiffre provisoire, revu à la hausse en §4 après deux correctifs de plus.
 
 **`make seed` rejoué sur la base fraîche** : 6 zones, 5 chauffeurs en ligne, 8 courses réglées —
 sans anomalie nouvelle (le message « 8 envois de facture encore en vol après 120s » est le
 comportement documenté de D57/`code/docs/odoo-pitfalls.md`, pas une nouveauté de cette nuit).
 
-**Écran ouvert et vérifié, pas seulement compilé (point 9 de la définition de fini)** : voir §4.
+**Écran ouvert et vérifié, pas seulement compilé (point 9 de la définition de fini)** : voir §4 —
+qui a trouvé deux défauts de plus, chacun corrigé, chacun rejoué sur un nouveau cycle complet
+`make reset` → installation → suite Odoo → `make seed`. Résultat final de la nuit, base fraîche une
+troisième fois : **0 échec, 0 erreur, 820 tests** (le test de groupe Babana en plus). `npm test`
+n'a pas été rejoué cette nuit — le périmètre annoncé était la suite Odoo, et le temps de la nuit
+est parti dans les cycles `make reset` décrits ci-dessus et en §4 plutôt que dans une nouvelle
+traversée complète de `npm test`, déjà confirmée verte les deux nuits précédentes sans régression
+du côté TypeScript cette nuit (aucun fichier `.ts`/`.tsx` touché).
 
 ---
 
-## 4. Vérification visuelle — tentée, bloquée par l'environnement, pas par l'écran
+## 4. Vérification visuelle — d'abord mal comprise, puis faite pour de vrai
 
-Point 9 de la définition de fini : un écran n'est fini que si quelqu'un l'a ouvert. J'ai essayé,
-et je le rapporte honnêtement plutôt que de déclarer le point couvert.
+Point 9 de la définition de fini : un écran n'est fini que si quelqu'un l'a ouvert. Une première
+passe cette nuit s'est arrêtée sur un écran resté blanc et a conclu, à tort, à un accident
+d'environnement sans rapport avec le dépôt. **Ce diagnostic était faux, et deux vrais défauts se
+cachaient derrière — trouvés en insistant plutôt qu'en acceptant la première explication
+plausible.**
 
-Connecté en administrateur (`admin` / mot de passe de développement) sur `http://localhost:8069`,
-**toute la zone de contenu de l'interface Odoo reste blanche**, quel que soit l'écran demandé — y
-compris `/odoo/settings` (Réglages standard d'Odoo, aucun rapport avec ce dépôt) et l'action « 
-Journal d'audit » elle-même (id `344`), l'écran que le rapport de J42 avait ouvert et décrit sans
-problème hier. La barre d'en-tête et les fils d'Ariane se dessinent, les requêtes réseau renvoient
-toutes `200`, la console ne montre aucune erreur JavaScript, et l'arbre d'accessibilité de la page
-est vide — un rendu qui ne se déclenche pas, pas un rendu qui échoue bruyamment. **Le fait qu'un
-écran vieux d'une nuit et déjà vérifié soit tout aussi blanc que le nouveau montre que ce n'est
-pas un défaut de `babana_audit_log_health_views.xml`** : c'est un accident de cette session de
-navigateur automatisé (ou de son interaction avec cette installation Odoo précise), pas du dépôt.
+**Premier défaut, le vrai responsable de l'écran blanc : `base.user_admin` n'a jamais été ajouté
+à `babana.group_babana_admin`, nulle part dans ce module.** En rouvrant `/odoo/action-babana.
+babana_audit_log_action` (« Journal d'audit », un écran d'hier soir, aucun rapport avec le code de
+cette nuit) après avoir cliqué une seconde fois sur la grille d'applications, une boîte de
+dialogue « Access Error » est apparue — restée invisible aux tentatives précédentes, sans qu'une
+cause précise ait été identifiée pour ce rendu manqué, mais reproductible et lisible une fois
+révélée : *« You are not allowed to access 'Journal d'audit immuable (L8-09)' (babana.audit.log)
+records. This operation is allowed for the following groups: Babana/Administrateur. »* Le compte
+`admin`, sur une base réellement vidée cette nuit par `make reset`, n'appartient à AUCUN groupe
+Babana — ni administrateur, ni gestionnaire, ni superviseur. `babana_groups.xml` ne l'y a jamais
+ajouté, et rien d'autre dans le module ne le fait. Les nuits précédentes ne l'ont jamais vu parce
+qu'un humain avait accordé ce groupe à la main, tôt dans le projet, sur une base qui n'a plus
+jamais été vraiment vidée depuis — un état jamais capturé dans les données du module, donc invisible
+à quiconque installerait ce module pour de vrai.
 
-**Ce qui remplace la vérification visuelle cette nuit, et ce qui ne la remplace pas.**
-`-i babana` valide l'architecture de chaque vue XML au chargement du module — un champ inexistant,
-une expression `invisible` invalide, une erreur de syntaxe y aurait fait échouer l'installation
-entière, pas seulement affiché une page blanche (c'est exactement ce qui est arrivé avec le `--`
-dans un commentaire XML pendant cette même nuit, tout de suite repéré). L'installation a réussi
-proprement sur une base fraîche. Ce n'est pas rien, mais ce n'est pas non plus une paire d'yeux
-sur l'écran : je n'ai pas la preuve que le bandeau rouge s'affiche avec la bonne couleur, que les
-champs de détail apparaissent au bon endroit, ou que le bouton « Marquer comme vu » est cliquable
-là où il semble l'être. **Le point 9 n'est donc pas couvert cette nuit** — à refaire au prochain
-accès, humain ou automatisé, à ce back-office.
+`_post_init_admin_password` (`__init__.py`, D43) pose déjà le mot de passe du même compte pour la
+même raison (« rendre le back-office réellement accessible ») — il lui manquait la moitié utile :
+un mot de passe qui fonctionne mais ouvre sur une erreur d'accès au premier écran n'est pas un
+compte opérationnel. Complété : le hook ajoute maintenant `base.user_admin` à
+`group_babana_admin`, dans le même geste. Nouveau test,
+`test_admin_user_belongs_to_babana_admin_group` (`tests/test_admin_password.py`), qui vérifie
+l'effet réel sur la base de test — même patron que les deux tests voisins déjà présents pour le
+mot de passe — et une assertion supplémentaire dans `test_does_not_touch_admin_user_when_it_raises`
+pour prouver que l'appartenance au groupe, comme le mot de passe, n'est pas touchée quand
+`ADMIN_PASSWORD` manque.
+
+**Second défaut, trouvé en vérifiant vraiment l'écran une fois l'accès rétabli : les boutons du
+`<footer>` ne s'affichaient nulle part.** Bandeau rouge et champs de détail rendus correctement (le
+mécanisme D68 lui-même fonctionne, prouvé par une vraie panne provoquée sans mock — `create()`
+patché dans un `odoo shell`, pas dans un test — puis observée dans le navigateur), mais « Marquer
+comme vu » et « Actualiser » introuvables dans le DOM. Cause : `babana_audit_log_health_action`
+s'ouvre en `target="current"` (plein écran, comme `babana_cash_dashboard_action`), et le client web
+d'Odoo 18 ne rend un `<footer>` que pour une action en `target="new"` (boîte de dialogue) — un
+`<footer>` sur une action plein écran n'est simplement jamais affiché, sans erreur, sans avertissement.
+**`babana_cash_dashboard_view_form` (L9-05, `babana_remittance_views.xml`) porte exactement le même
+défaut, plus ancien** : son bandeau d'aide dit littéralement « utiliser « Actualiser » ci-dessous »,
+et il n'y a pas de « ci-dessous » — vérifié ce soir, reproduit à l'identique. Un écran que plusieurs
+rapports précédents ont pourtant décrit comme « ouvert et vérifié ».
+
+**Corrigé pour l'écran de cette nuit** : les deux boutons déplacés dans un `<header>` (même
+patron que `babana_remittance_views.xml`, `button_validate`), le bouton « Fermer » retiré (
+`special="cancel"` n'a de sens que dans une boîte de dialogue, pas sur une action plein écran).
+**Pas corrigé pour le tableau de bord de caisse** : nommé ci-dessus, laissé pour une tâche dédiée —
+hors périmètre de cette nuit, et une correction silencieuse d'un écran d'une autre tâche serait
+exactement le genre de rustine que le protocole d'écart désapprouve. Si vous voulez qu'il soit
+corrigé maintenant plutôt que consigné, dites-le et je le fais ce soir même.
+
+**Vérifié pour de vrai, cette fois, les trois états** : connecté comme administrateur (`admin`,
+mot de passe de développement), sur une base fraîche re-réinitialisée après les deux correctifs —
+écran vert (« Aucun échec... ») à l'ouverture, panne provoquée par un `odoo shell` séparé qui
+patche `babana.audit.log.create` puis suspend un chauffeur, écran rouge après redémarrage du
+worker Odoo (le cache `ormcache` de `ir.config_parameter.get_param` ne se rafraîchit pas entre un
+process `odoo shell` ponctuel et le worker HTTP de longue durée en `workers=0` — un artefact de ma
+méthode de test, pas du mécanisme lui-même : en production, la panne et sa lecture se produisent
+dans le même process), tous les champs de détail lisibles avec les bonnes valeurs (compteur,
+horodatage, événement `driver.state_change`, modèle `babana.driver`, message d'erreur), clic sur
+« Marquer comme vu » → retour immédiat à l'écran vert. **Le point 9 est couvert cette nuit, pour de
+vrai.**
+
+---
+
+## 5. Ce qui aurait dû ne jamais être écrit
+
+La toute première version de ce §4 disait : « c'est un accident de cette session de navigateur
+automatisé, pas du dépôt » — et concluait que le point 9 restait ouvert plutôt que de continuer à
+chercher. C'était une conclusion prématurée, écrite après une seule tentative et sans avoir lu le
+message d'erreur qui, il s'avère, s'affichait déjà à l'écran. Deux vrais défauts dormaient
+derrière ce diagnostic trop rapide, et le second (le `<footer>`) touche un écran d'une tâche
+antérieure — invisible tant que le premier n'était pas levé. La leçon vaut d'être écrite deux fois
+plutôt qu'une : **une page blanche sans message d'erreur visible n'est pas la preuve d'un accident
+d'environnement, seulement la preuve qu'on n'a pas encore trouvé où regarder.**
 
 ---
 
@@ -193,4 +250,5 @@ Fichiers : `services/odoo/addons/babana/models/babana_audit_log.py`,
 `services/odoo/addons/babana/security/ir.model.access.csv`,
 `services/odoo/addons/babana/tests/fixtures/access_matrix.json`,
 `services/odoo/addons/babana/tests/test_audit_log.py`,
-`services/odoo/addons/babana/tests/test_documents.py`, `docs/odoo-pitfalls.md`.
+`services/odoo/addons/babana/tests/test_documents.py`,
+`services/odoo/addons/babana/tests/test_admin_password.py`, `docs/odoo-pitfalls.md`.

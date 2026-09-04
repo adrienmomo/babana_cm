@@ -254,10 +254,7 @@ n'a pas encore rencontré la main qui doit s'en servir.
 maintenant un signal, posé hors de `babana.audit.log` (`ir.config_parameter`), visible sur un
 écran back-office dédié (« État du journal d'audit », à côté de « Journal d'audit », réservé aux
 administrateurs) sans jamais ouvrir un fichier de logs. Voir `amoa/rapport-nuit-J43.md` §1 pour le
-détail — et **son §4 pour un aveu plutôt qu'une confirmation** : la vérification visuelle a été
-tentée et bloquée par un accident d'environnement (l'interface entière restait blanche, y compris
-sur l'écran « Journal d'audit » déjà ouvert et décrit la veille) — le point 9 de la définition de
-fini reste donc ouvert pour ce nouvel écran, à refaire au prochain accès au back-office.
+détail.
 
 **Et en le construisant, un vrai trou du L8-09 de la veille est apparu, pas seulement un trou
 hypothétique** : `GET /api/v1/driver/documents/<id>/url` (`_signed_url`, le seul événement de la
@@ -270,3 +267,25 @@ jusqu'ici. Voir `amoa/rapport-nuit-J43.md` §2. **La leçon vaut d'être génér
 tâche qui ajoute une écriture dans le corps d'une route `auth='none'` existante doit relire son
 `readonly` déclaré — la règle de `code/docs/odoo-pitfalls.md` protège une route écrite dès le
 départ, pas une route dont le corps change plus tard.
+
+**Corrigé une deuxième fois cette même nuit-là (toujours J43) : la première vérification visuelle
+s'était trompée.** Une tentative initiale, écran blanc, avait conclu à un accident d'environnement
+sans rapport avec le dépôt et laissé le point 9 ouvert — conclusion écrite trop tôt. En insistant :
+l'écran était en réalité bloqué par une vraie `AccessError`, restée invisible un moment, révélant
+que **`base.user_admin` n'a jamais été ajouté à `babana.group_babana_admin` nulle part dans ce
+module** — sur une base réellement vidée par `make reset` (une première dans ce projet, semble-t-il :
+les nuits précédentes n'avaient probablement jamais traversé un volume Postgres vraiment vide en
+une seule séquence), le compte administrateur standard ne voit donc AUCUN écran Babana tant que
+personne ne l'ajoute à la main à un groupe — un geste que ni le module ni la documentation de
+passation n'ont jamais mentionné. `_post_init_admin_password` (D43, `__init__.py`) pose maintenant
+ce groupe en plus du mot de passe. Une fois l'accès rétabli, un second défaut est apparu, plus
+ancien : les boutons du `<footer>` de `babana_audit_log_health_view_form` ne s'affichaient nulle
+part — un `<footer>` n'est rendu par le client Odoo 18 qu'en `target="new"` (boîte de dialogue),
+jamais en `target="current"` (plein écran). **`babana_cash_dashboard_view_form` (L9-05) porte
+exactement le même défaut**, plus ancien, jamais remarqué malgré plusieurs rapports le décrivant
+comme « ouvert et vérifié » — nommé, corrigé seulement pour l'écran de cette nuit (boutons déplacés
+en `<header>`), laissé pour une tâche dédiée. Les trois états de l'écran (vert, rouge après une
+vraie panne provoquée, retour au vert après « Marquer comme vu ») ont ensuite été vérifiés pour de
+vrai, dans le navigateur. Voir `amoa/rapport-nuit-J43.md` §4 et §5 — §5 nomme explicitement la
+leçon : une page blanche sans message d'erreur visible n'est pas la preuve d'un accident
+d'environnement, seulement la preuve qu'on n'a pas encore trouvé où regarder.

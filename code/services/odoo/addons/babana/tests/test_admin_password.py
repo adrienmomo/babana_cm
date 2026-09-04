@@ -50,6 +50,18 @@ class TestAdminPasswordAppliedAtInstall(TransactionCase):
             "back-office en admin/admin (05-prerequis-et-simulation.md §4 ter).",
         )
 
+    def test_admin_user_belongs_to_babana_admin_group(self):
+        # Constat J43 (D68) : un mot de passe qui fonctionne mais ouvre sur une erreur d'accès
+        # au premier écran Babana n'est pas un compte opérationnel. Sur une base réellement
+        # fraîche (pas seulement rejouée sur une base qui portait déjà ce groupe depuis des
+        # semaines), c'était exactement le cas avant ce correctif.
+        admin = self.env.ref("base.user_admin")
+        self.assertTrue(
+            admin.has_group("babana.group_babana_admin"),
+            "_post_init_admin_password doit ajouter base.user_admin à Babana/Administrateur, "
+            "sans quoi ADMIN_PASSWORD donne un mot de passe qui ouvre sur une erreur d'accès.",
+        )
+
 
 class TestAdminPasswordHookWithoutEnvVar(TransactionCase):
     """Teste directement la fonction du hook plutôt que son effet -- son autre branche (variable
@@ -66,6 +78,7 @@ class TestAdminPasswordHookWithoutEnvVar(TransactionCase):
         admin = self.env.ref("base.user_admin")
         self.env.cr.execute("SELECT password FROM res_users WHERE id=%s", [admin.id])
         [before] = self.env.cr.fetchone()
+        was_in_group = admin.has_group("babana.group_babana_admin")
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("ADMIN_PASSWORD", None)
             with self.assertRaises(ValueError):
@@ -73,3 +86,6 @@ class TestAdminPasswordHookWithoutEnvVar(TransactionCase):
         self.env.cr.execute("SELECT password FROM res_users WHERE id=%s", [admin.id])
         [after] = self.env.cr.fetchone()
         self.assertEqual(before, after)
+        # La levée intervient avant toute écriture (mot de passe ET groupe) -- l'appartenance
+        # au groupe n'est pas non plus modifiée par un appel qui a échoué en amont.
+        self.assertEqual(admin.has_group("babana.group_babana_admin"), was_in_group)

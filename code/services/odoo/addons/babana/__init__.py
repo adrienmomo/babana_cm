@@ -53,15 +53,28 @@ def _pre_init_backfill_unique_defaults(env):
 # n'est acceptable que sur un poste de développement. Comme les adresses de fournisseur externe
 # (D43, GOOGLE_JWKS_URL et consorts) : aucune valeur de repli. Une variable absente ici est une
 # base qui reste en `admin`/`admin` sans que personne ne le sache -- pire qu'un échec bruyant.
+#
+# Constat du 4 septembre (J43, en vérifiant D68) : le mot de passe ne suffit pas à ouvrir quoi
+# que ce soit. `base.user_admin` n'a jamais été ajouté à `group_babana_admin` (ni à aucun groupe
+# Babana) nulle part dans ce module -- sur une base réellement fraîche, se connecter avec ce
+# compte et ce mot de passe mène droit à une erreur d'accès sur le premier écran Babana ouvert
+# (« Journal d'audit » compris). Les nuits précédentes ne l'ont jamais vu parce que leur base de
+# développement n'avait jamais été vidée jusqu'au bout depuis qu'un humain avait accordé ce
+# groupe à la main, tôt dans le projet -- un état jamais capturé dans les données du module.
+# Complété ici : le même compte que D43 rend opérationnel doit aussi pouvoir voir ce que le
+# back-office existe pour montrer.
 
 
 def _post_init_admin_password(env):
-    """post_init_hook : pose le mot de passe administrateur depuis `ADMIN_PASSWORD`.
+    """post_init_hook : pose le mot de passe administrateur depuis `ADMIN_PASSWORD`, et
+    l'ajoute au groupe Babana Administrateur (constat J43 ci-dessus) -- sans quoi le mot de
+    passe donne accès à un compte qui ne voit aucun écran Babana.
 
     Ne tourne qu'à la première installation (Odoo n'exécute pas post_init_hook sur `-u`), comme
     `_post_init_currency_and_accounting` juste en dessous. Un déploiement de production qui
     change ce mot de passe après coup passe par la procédure de rotation documentée
-    (infra/env/README.md), pas par une réinstallation du module.
+    (infra/env/README.md), pas par une réinstallation du module. L'appartenance au groupe, elle,
+    se gère ensuite normalement depuis Réglages > Utilisateurs, comme pour tout autre compte.
     """
     password = os.environ.get("ADMIN_PASSWORD")
     if not password:
@@ -71,8 +84,13 @@ def _post_init_admin_password(env):
             "fournir dans infra/env/.env avant `infra/production/deploy.sh` (qui refuse de "
             "partir sans elle)."
         )
-    env.ref("base.user_admin").sudo().write({"password": password})
-    _logger.info("babana D43 : mot de passe administrateur posé depuis ADMIN_PASSWORD")
+    admin = env.ref("base.user_admin").sudo()
+    admin.write({"password": password})
+    admin.write({"groups_id": [(4, env.ref("babana.group_babana_admin").id)]})
+    _logger.info(
+        "babana D43 : mot de passe administrateur posé depuis ADMIN_PASSWORD, "
+        "compte ajouté à Babana/Administrateur"
+    )
 
 
 # --------------------------------------------------------------------------------------------
