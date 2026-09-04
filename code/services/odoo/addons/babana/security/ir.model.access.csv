@@ -1,4 +1,5 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_babana_audit_log_admin,babana.audit.log admin -- lecture seule (L8-09),model_babana_audit_log,group_babana_admin,1,0,0,0
 access_babana_token_admin,babana.token admin,model_babana_token,group_babana_admin,1,1,1,1
 access_babana_driver_supervisor,babana.driver supervisor,model_babana_driver,group_babana_supervisor,1,0,0,0
 access_babana_driver_manager,babana.driver manager,model_babana_driver,group_babana_manager,1,1,1,0

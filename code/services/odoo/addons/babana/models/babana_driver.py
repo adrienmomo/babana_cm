@@ -601,6 +601,11 @@ class BabanaDriver(models.Model):
         # dans le même appel : être en ligne hors de l'état approuvé n'est jamais permis.
         if "state" in vals and vals["state"] != "approved":
             vals = dict(vals, is_online=False)
+        # L8-09 : "chaque changement d'état de chauffeur" -- capturé AVANT super().write(), le
+        # seul moment où self.state porte encore la valeur d'avant. Couvre toute écriture de
+        # `state`, pas seulement action_approve/reject/suspend/reactivate (défense en profondeur,
+        # même raison que le forçage is_online juste au-dessus).
+        previous_states = {record.id: record.state for record in self} if "state" in vals else {}
         result = super().write(vals)
 
         # Câblage suspension/rejet/réactivation -> service temps réel (J33). Le forçage
@@ -625,6 +630,15 @@ class BabanaDriver(models.Model):
                     realtime_client.notify_driver_unavailable(
                         self.env, driver_public_id=record.public_id
                     )
+                self.env["babana.audit.log"]._babana_record(
+                    event="driver.state_change",
+                    model_name="babana.driver",
+                    res_id=record.id,
+                    record_reference=record.display_name,
+                    before={"state": previous_states.get(record.id)},
+                    after={"state": record.state},
+                    reason=vals.get("rejection_reason"),
+                )
         return result
 
     # --- L1-10 : alertes d'échéance (permis) ----------------------------------------------

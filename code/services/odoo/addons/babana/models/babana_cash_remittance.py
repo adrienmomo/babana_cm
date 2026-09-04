@@ -208,7 +208,24 @@ class BabanaCashRemittance(models.Model):
                 ]
             )
             vals["covered_movement_ids"] = [(6, 0, movements.ids)]
-        return super().create(vals_list)
+        records = super().create(vals_list)
+        for record in records:
+            # L8-09 : "chaque remise" -- la déclaration (seul chemin de création, action_declare
+            # ci-dessous) est le premier des deux événements obligatoires ; sa validation, le
+            # second, est journalisée depuis action_validate.
+            self.env["babana.audit.log"]._babana_record(
+                event="cash_remittance.declare",
+                model_name="babana.cash.remittance",
+                res_id=record.id,
+                record_reference=record.reference,
+                after={
+                    "driver_id": record.driver_id.id,
+                    "state": record.state,
+                    "declared_amount": record.declared_amount,
+                    "expected_amount": record.expected_amount,
+                },
+            )
+        return records
 
     def write(self, vals):
         for record in self:
@@ -316,6 +333,26 @@ class BabanaCashRemittance(models.Model):
                         "direction": "shortfall",
                     }
                 )
+
+            # L8-09 : "sa validation" -- second des deux événements obligatoires sur une remise
+            # (le premier, la déclaration, est journalisé depuis create()). Dans le même
+            # savepoint que les trois autres effets (D58 : écriture PostgreSQL ordinaire, pas un
+            # appel sortant) -- si l'un d'eux échoue, ROLLBACK défait aussi cette entrée, ce qui
+            # est correct : la validation elle-même n'a alors pas eu lieu.
+            self.env["babana.audit.log"]._babana_record(
+                event="cash_remittance.validate",
+                model_name="babana.cash.remittance",
+                res_id=self.id,
+                record_reference=self.reference,
+                actor=supervisor,
+                before={"state": "declared", "declared_amount": self.declared_amount},
+                after={
+                    "state": new_state,
+                    "counted_amount": counted_amount,
+                    "discrepancy_amount": discrepancy_amount,
+                    "supervisor_id": supervisor.id,
+                },
+            )
 
         # D33/D32 : la même discipline que action_settle -- l'appel sortant, une fois qu'on sait
         # que l'effet a vraiment eu lieu, jamais depuis l'intérieur du savepoint. Débloquer un

@@ -19,4 +19,14 @@
         <field name="interval_type">minutes</field>
         <field name="active" eval="True"/>
     </record>
+
+    <record id="ir_cron_babana_purge_audit_log" model="ir.cron">
+        <field name="name">Babana: purge du journal d'audit par rétention (L8-09)</field>
+        <field name="model_id" ref="model_babana_audit_log"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_purge()</field>
+        <field name="interval_number">1</field>
+        <field name="interval_type">days</field>
+        <field name="active" eval="True"/>
+    </record>
 </odoo>

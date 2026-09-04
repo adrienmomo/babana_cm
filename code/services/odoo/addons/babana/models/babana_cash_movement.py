@@ -108,6 +108,30 @@ class BabanaCashMovement(models.Model):
                     "traitement d'écart, L5-06)."
                 )
 
+    @api.model_create_multi
+    def create(self, vals_list):
+        # L8-09 : chaque mouvement de compte courant est un événement obligatoire de la
+        # spécification -- l'ajustement en est un cas particulier (movement_type='adjustment'),
+        # pas une catégorie séparée à journaliser à part. Après super().create() : avant=None
+        # (une création n'a pas d'état antérieur), après=les valeurs réellement écrites.
+        records = super().create(vals_list)
+        for record in records:
+            self.env["babana.audit.log"]._babana_record(
+                event=f"cash_movement.{record.movement_type}",
+                model_name="babana.cash.movement",
+                res_id=record.id,
+                record_reference=record.driver_id.display_name,
+                after={
+                    "driver_id": record.driver_id.id,
+                    "movement_type": record.movement_type,
+                    "amount": record.amount,
+                    "ride_id": record.ride_id.id if record.ride_id else None,
+                    "discrepancy_id": record.discrepancy_id.id if record.discrepancy_id else None,
+                    "reason": record.reason,
+                },
+            )
+        return records
+
     def write(self, vals):
         raise UserError(
             "Un mouvement de compte courant est immuable : ni modification, ni suppression, "

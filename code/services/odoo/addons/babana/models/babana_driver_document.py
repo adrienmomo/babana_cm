@@ -103,6 +103,17 @@ class BabanaDriverDocument(models.Model):
             raise UserError("Ce document n'a pas de fichier associé.")
         ttl_seconds = storage.default_url_ttl_seconds(self.env)
         url = storage.generate_signed_url(visible.storage_key, ttl_seconds=ttl_seconds)
+        # L8-09 : même événement que controllers/documents.py::_signed_url, chemin back-office --
+        # un gestionnaire qui prévisualise une pièce d'identité y accède tout autant qu'un
+        # chauffeur qui la consulte depuis l'app.
+        self.env["babana.audit.log"]._babana_record(
+            event="driver_document.access",
+            model_name="babana.driver.document",
+            res_id=self.id,
+            record_reference=self.document_type,
+            after={"driver_id": self.driver_id.id, "ttl_seconds": ttl_seconds},
+            accessed_via="backoffice_preview",
+        )
         return {"type": "ir.actions.act_url", "url": url, "target": "new"}
 
     def action_verify(self):

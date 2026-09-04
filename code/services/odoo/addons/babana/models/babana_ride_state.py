@@ -145,17 +145,26 @@ class BabanaRideState(models.Model):
         # committée -- pas une valeur périmée lue avant la mise en file d'attente sur le verrou.
         self.invalidate_recordset()
 
-    def _babana_journalize(self, event, **details):
-        # Point d'accroche unique pour L8-09 (amoa/questions/L4-02.md) : signature stable, prête
-        # à écrire dans babana.audit.log une fois ce modèle immuable construit. Pour l'instant,
-        # journal applicatif standard -- ne doit jamais faire échouer la transition (L8-09,
-        # critère 3, anticipé ici par construction : une erreur de logging ne lève rien).
+    def _babana_journalize(self, event, *, before_state=None, **details):
+        # Point d'accroche unique pour L8-09 (amoa/questions/L4-02.md), en place depuis le
+        # premier jour : chaque transition passe ici. Journal applicatif conservé en plus de
+        # l'entrée immuable (babana.audit.log._babana_record, qui ne lève jamais elle-même,
+        # L8-09 critère 3) -- ne doit jamais faire échouer la transition.
         try:
             _logger.info(
                 "babana.ride %s : événement métier '%s' %s", self.reference, event, details or ""
             )
         except Exception:  # noqa: BLE001 - la journalisation ne doit jamais casser la transition
             pass
+        self.env["babana.audit.log"]._babana_record(
+            event=f"ride.{event}",
+            model_name="babana.ride",
+            res_id=self.id,
+            record_reference=self.reference,
+            before={"state": before_state} if before_state else None,
+            after={"state": self.state},
+            **details,
+        )
 
     # --- 1. draft -> requested ------------------------------------------------------------
 
@@ -190,6 +199,7 @@ class BabanaRideState(models.Model):
             raise RideInvalidTransition("Ce client n'est pas partie à cette course.")
         if driver.state != "approved":
             raise UserError("Seul un chauffeur approuvé peut être proposé.")
+        previous_state = self.state
 
         # Chemin rapide pour le cas courant, PAS une garantie (relecture du 13 août --
         # amoa/questions/REPONSES-2026-08-13.md). Ce contrôle verrouille CETTE course, pas le
@@ -229,7 +239,7 @@ class BabanaRideState(models.Model):
                 raise
             raise UserError("DRIVER_ALREADY_TAKEN") from exc
 
-        self._babana_journalize("proposal", driver=driver.id)
+        self._babana_journalize("proposal", before_state=previous_state, driver=driver.id)
         return self
 
     # --- 3. proposed -> assigned -------------------------------------------------------------
@@ -246,7 +256,7 @@ class BabanaRideState(models.Model):
             )
 
         self._babana_write_transition({"state": "assigned", "assigned_at": fields.Datetime.now()})
-        self._babana_journalize("acceptance")
+        self._babana_journalize("acceptance", before_state="proposed")
         return self
 
     # --- 4. proposed -> rejected --------------------------------------------------------------
@@ -271,7 +281,9 @@ class BabanaRideState(models.Model):
             }
         )
         self._babana_write_transition({"state": "rejected", "driver_id": False})
-        self._babana_journalize("refusal", driver=rejected_driver.id, expired=expired)
+        self._babana_journalize(
+            "refusal", before_state="proposed", driver=rejected_driver.id, expired=expired
+        )
         return self
 
     # --- 6. assigned -> in_progress -----------------------------------------------------------
@@ -296,7 +308,7 @@ class BabanaRideState(models.Model):
         self._babana_write_transition(
             {"state": "in_progress", "started_at": fields.Datetime.now()}
         )
-        self._babana_journalize("ride_start")
+        self._babana_journalize("ride_start", before_state="assigned")
 
         # L3-19 (D31, D32) : pousse ride.started au client suivi et au chauffeur -- notifie
         # seulement, ne transitionne rien. Aucun savepoint ici (vérifié : cette méthode n'en
@@ -347,7 +359,9 @@ class BabanaRideState(models.Model):
                 }
             )
         self._babana_write_transition(vals)
-        self._babana_journalize("ride_completion", measured=bool(measurement))
+        self._babana_journalize(
+            "ride_completion", before_state="in_progress", measured=bool(measurement)
+        )
 
         # L3-19 (D31, D32) : pousse ride.completed au client suivi et au chauffeur, avec le
         # détail décomposé GELÉ à la création (fare_rule_snapshot, D41) -- jamais recalculé, le
@@ -471,7 +485,7 @@ class BabanaRideState(models.Model):
         # babana_ride_invoice.py::_babana_settle_send_invoice_email_async pour le détail).
         self._babana_settle_send_invoice_email_async()
 
-        self._babana_journalize("settlement")
+        self._babana_journalize("settlement", before_state="completed")
         return {"ride": self, "cash_limit_crossed": cash_limit_crossed}
 
     # --- 9-13. * -> cancelled -------------------------------------------------------------------
@@ -503,6 +517,7 @@ class BabanaRideState(models.Model):
         if actor_role == "driver" and not reason:
             raise UserError("Motif obligatoire pour une annulation par le chauffeur.")
 
+        previous_state = self.state
         cancel_vals = {
             "state": "cancelled",
             "cancel_reason": reason,
@@ -517,7 +532,9 @@ class BabanaRideState(models.Model):
             cancel_vals["cancelled_after_rejection_rank"] = len(self.rejection_ids)
 
         self._babana_write_transition(cancel_vals)
-        self._babana_journalize("cancellation", actor_role=actor_role)
+        self._babana_journalize(
+            "cancellation", before_state=previous_state, actor_role=actor_role
+        )
 
         # L4-12 (D31, D32, amoa/questions/REPONSES-2026-08-28.md §2) : pousse ride.cancelled à
         # celui qui N'A PAS décidé -- il le sait déjà, sinon. Le destinataire dépend donc de

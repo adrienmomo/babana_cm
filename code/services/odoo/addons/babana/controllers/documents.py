@@ -197,4 +197,20 @@ class DriverDocumentsController(http.Controller):
 
         ttl_seconds = storage.default_url_ttl_seconds(env)
         url = storage.generate_signed_url(document.sudo().storage_key, ttl_seconds=ttl_seconds)
+
+        # L8-09 : "chaque accès à un document chauffeur" -- le seul événement obligatoire de la
+        # spécification qui ne passe par aucune transition (babana_ride_state.py). Journalisé
+        # après la décision d'autorisation, jamais avant : un DOCUMENT_NOT_FOUND ou
+        # DOCUMENT_NOT_OWNED n'accède à rien, il n'y a rien à tracer.
+        env["babana.audit.log"]._babana_record(
+            event="driver_document.access",
+            model_name="babana.driver.document",
+            res_id=document.sudo().id,
+            record_reference=document.sudo().document_type,
+            actor=user,
+            after={"driver_id": document.sudo().driver_id.id, "ttl_seconds": ttl_seconds},
+            accessed_via="signed_url",
+            is_owner=is_owner,
+            is_manager=is_manager,
+        )
         return _common.json_response({"url": url, "expiresIn": ttl_seconds}, 200)

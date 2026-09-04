@@ -46,3 +46,4 @@ from . import test_currency_required
 from . import test_access_rights
 from . import test_admin_password
 from . import test_smtp_server
+from . import test_audit_log
