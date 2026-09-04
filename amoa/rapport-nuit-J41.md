@@ -124,22 +124,21 @@ premières vraies courses, doit le trouver.
 
 ### Ce qui est rouge ou instable
 
-`make reset && make up && make seed && make test` lancé sur base fraîche cette nuit. La suite
-Odoo est allée à son terme, propre : **« 0 failed, 0 error(s) of 782 tests »**. `npm test` a
-ensuite été interrompu deux fois de l'extérieur (arrêt de session, pas un échec du code — les deux
-processus sont revenus `killed`, jamais un code de sortie de test) avant d'avoir pu tourner d'un
-bout à l'autre sans coupure. Ce qui a eu le temps de s'exécuter avant chaque coupure était vert,
-y compris `test/config/config-coherence.test.ts` (10/10, D65) et `test/e2e/full-ride.test.ts`
-(5/5, L10-01) — voir §1 et §2 ci-dessus, exécutés séparément et proprement à plusieurs reprises ce
-soir. Trois échecs sont apparus dans la portion interrompue de la première tentative
-(`concurrency/select-driver-replay.test.ts`, `http-contract::createRideShare`,
-`http-contract::revokeRideShare`, tous trois « chauffeur jamais apparu dans nearby.drivers »,
-avec des durées aberrantes — 21 minutes pour un test qui en prend habituellement moins d'une) —
-dans des fichiers que je n'ai pas touchés cette nuit, avec la signature d'une machine mise en
-veille ou d'un arrêt externe pendant l'exécution, pas d'une régression. **Non confirmé sur une
-exécution propre, ininterrompue, avant la fin de cette nuit** — à rejouer en premier à la reprise :
-`cd code && npm test` sur cet environnement (déjà à jour, `make reset`/`make up`/`make seed`
-n'ont pas besoin d'être refaits).
+**Mise à jour J42 (4 septembre) : rejoué en premier, comme demandé — les trois échecs
+ci-dessous étaient bien environnementaux, confirmé, pas un défaut du dépôt.** Les containers
+`mock-google-identity`/`mock-maps` étaient sortis en erreur (`make reset && make up` a suffi).
+Une fois relevés, chaque fichier du périmètre `npm test` a tourné propre — Odoo compris (806
+tests, 0 échec, la suite L8-09 ajoutée) — voir `amoa/rapport-nuit-J42.md` §1 pour le détail et
+une découverte en cours de route : une vérification isolée que j'ai lancée s'est retrouvée à
+tourner EN MÊME TEMPS qu'une tentative précédente non éteinte (`node --test` continue les
+fichiers suivants après l'échec d'un test, il ne s'arrête pas), et la contention entre les deux
+a produit exactement le symptôme des trois échecs de cette nuit (« chauffeur jamais apparu dans
+`nearby.drivers` »). Un process en trop tué, tout repasse vert. Cette nuit-là n'avait donc
+qu'à moitié tort de soupçonner une machine perturbée — la perturbation venait de l'agent, pas de
+l'hôte. **Seule réserve restante** : l'environnement de session de l'agent a mis fin de force à
+deux tentatives de `make test` en une seule traversée (au-delà d'une certaine durée, hors de
+mon contrôle) — chaque morceau a donc été vérifié séparément plutôt qu'en un unique
+`make test` ininterrompu ; voir le rapport J42 pour le détail pièce par pièce.
 
 Trois tests instables rencontrés en cinq nuits, comme demandé :
 
@@ -218,16 +217,17 @@ Ni L4-09 ni L2-06 n'ont été programmées à ce jour — cohérent avec `rateRi
 
 ### Si je devais prévenir d'une seule chose la personne qui lance les premières vraies courses
 
-**Il n'existe aucun journal d'audit immuable (L8-09) — si une vraie course tourne au litige
-pendant le pilote, il n'y a rien à consulter au-delà des journaux applicatifs ordinaires**, ni
-structurés, ni retenus selon une politique, ni protégés contre la modification.
-`_babana_journalize()` (`babana_ride_state.py`) écrit chaque transition dans les logs depuis le
-premier jour — son propre commentaire le dit, presque en s'excusant : « point d'accroche unique
-pour L8-09... pour l'instant, journal applicatif standard. » Trouvé en écrivant l'étape 9 de
-L10-01 ce soir, pas avant, parce que c'est la première fois qu'une vérification allait
-explicitement chercher cette preuve plutôt que de la supposer disponible.
+**Résolu la nuit suivante (J42, D67) : `babana.audit.log` existe, journalise les huit
+transitions de course, chaque mouvement de compte courant, la déclaration et la validation
+d'une remise, chaque changement d'état chauffeur et chaque accès à un document chauffeur —
+immuable au niveau du modèle (une tentative de modification échoue même pour un administrateur
+en `sudo()`), et consultable filtré depuis un écran back-office réservé aux administrateurs. Voir
+`amoa/rapport-nuit-J42.md` §2 pour le détail.**
 
-Ce n'est pas un défaut de code — c'est une tâche jamais programmée. Mais pour un service qui gère
-de l'espèce, où un chauffeur peut contester une remise et un passager un montant, c'est le genre
-de trou qui ne se voit qu'au moment précis où quelqu'un en a besoin, et où il est déjà trop tard
-pour le combler à temps.
+Ce qui reste à prévenir à sa place, du même ordre — quelque chose qui existe en code et en test
+mais qu'aucun humain n'a encore vu en situation réelle : la durée de rétention du journal
+(`babana.audit_log_retention_days`, repli à 730 jours) est une valeur provisoire, jamais discutée
+avec vous, en attendant que L8-10 (hors périmètre pilote) l'affine par catégorie de donnée — et la
+vue back-office elle-même n'a été ouverte et filtrée que par moi, sur le jeu de démonstration,
+jamais par un vrai superviseur en train d'arbitrer un vrai litige. Le mécanisme est prouvé ; l'outil
+n'a pas encore rencontré la main qui doit s'en servir.
