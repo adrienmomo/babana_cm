@@ -27,6 +27,8 @@ Tout code, toute configuration, tout test va dans `code/`. **Les chemins indiqu�
 
 Un seul dépôt git, à la racine `babana.cm/`. Les corrections de spécification voyagent ainsi avec le code qui les a révélées.
 
+**Numéroter une décision est l'acte d'arbitrage lui-même, et il n'appartient jamais à une session de nuit.** Constaté deux fois — le 17 septembre, puis le 24 : des paragraphes ajoutés directement à `01-architecture.md`, la seconde fois avec un numéro de décision attribué. Le contenu était juste les deux fois, et c'est ce qui rend la règle nécessaire : un écart qu'on ne remarque pas parce qu'il est bien fait se répète. Une nuit qui veut proposer une décision l'écrit **dans son rapport**, sous la forme « je propose D-suivant : … » ; le débrief du lendemain lui donne son numéro, ou ne le lui donne pas. La séparation n'est pas une question de propriété du fichier, c'est ce qui fait que je relis au lieu de ratifier.
+
 ---
 
 ## Documents de référence

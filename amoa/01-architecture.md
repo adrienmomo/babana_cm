@@ -75,6 +75,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D68 | **L'échec d'un mécanisme se signale ailleurs que dans ce qu'il remplace** | `_logger.exception` pour un journal d'audit | Deux gardes justes — le journal ne lève jamais, l'écriture est interdite — composent un silence : si la traçabilité s'arrête, la seule trace est dans le journal applicatif que L8-09 existe précisément à remplacer. Voir §9 decies |
 | D69 | **Une assertion ne somme jamais toute la base : elle est bornée à son propre scénario** | `search([("account_id", "=", …)])` puis somme | Deux tests comptables du lot L5 mesuraient l'histoire de la base plutôt que leur scénario. Vrais sur une base vide, faux dès qu'elle contient des données — c'est-à-dire faux en pilote. Voir §9 undecies |
 | D70 | **Un incident intermittent se catalogue par son symptôme, pas par la nuit où il est apparu** | Une explication d'environnement par occurrence | Trois nuits ont écarté séparément le même symptôme — un chauffeur jamais apparu dans le vivier, suivi d'un silence — chacune avec une cause plausible, la dernière écartant les deux précédentes. Voir §9 duodecies |
+| D74 | **Une tâche livrée en partie entre au registre §13, au même titre qu'une décision sans porteur** | Compter sur le message de commit | L6-18 a été commitée « (part) », honnêtement, et comptée comme faite pendant quatre semaines. Le registre suivait les décisions sans porteur ; rien ne suivait les tâches à moitié livrées. Voir §9 sexdecies |
 | D72 | **Réparer ce qui masque un défaut le rend d'abord plus visible.** Un symptôme qui s'aggrave après un correctif de masquage n'est pas une régression | Lire l'aggravation comme un retour en arrière | Le figement retiré, la défaillance de diffusion est passée d'une occurrence isolée à quatre sur trois fichiers. Elle était là depuis le début ; seule son observabilité a changé. Voir §9 quaterdecies |
 | D71 | **Tout appel sortant porte un délai.** Un rattrapage placé derrière un appel qui peut se taire ne s'exécute jamais | Compter sur l'échec ou la réponse | `callOdoo` **et `callOdooOnce`** étaient les deux seuls appels sortants sans délai du système — le second portant l'écriture d'acceptation, devant la file de rejeu. Un appel qui ne se termine pas n'atteint ni le réessai ni la file. Voir §9 terdecies |
 | D73 | **Un chauffeur peut être présent dans le vivier, jamais retiré, et ne jamais être projeté.** À égalité parfaite de position, le plafond des 5 plus proches (D14) départage par ordre lexicographique de l'identifiant, jamais par ordre d'arrivée | Chercher la cause dans l'entrée/la sortie du pool | Quatre fichiers de test indépendants amenaient chacun un chauffeur réel au même point exact (4.05, 9.70) ; `node --test` les exécute en processus concurrents, mesuré. Jusqu'à 7 chauffeurs réellement en ligne au même point, dont 2 systématiquement exclus des 5 projetés — pas par intermittence de la diffusion, par un rang structurellement perdant. Aucun invariant violé : le pool n'a qu'un écrivain, D14 borne bien à 5. Voir §9 quindecies |
@@ -753,6 +754,9 @@ D'où D72, et la méthode qui a fermé D70 plutôt qu'une quatrième relecture :
 
 ## 9 quindecies. Présent, jamais sorti, jamais projeté (D73)
 
+*Section et décision rédigées par la session de nuit J47, ratifiées le 24 septembre. Le diagnostic est juste et la mesure est solide — mais numéroter une décision est l'acte d'arbitrage lui-même, et c'est la deuxième fois. La règle est désormais dans `CLAUDE.md`, à l'endroit qui se lit chaque nuit. Deux compléments de ma part en fin de section.*
+
+
 D72 demandait une mesure pendant, pas une quatrième lecture. Reproduit du premier coup en rejouant
 la commande réelle (`npm test`, jamais un fichier isolé) en boucle : `chauffeur(s)
 [fff450bf-a95a-4d65-a98a-f098b9a66a33] jamais apparu(s) dans nearby.drivers après 20000ms`, dans
@@ -813,6 +817,30 @@ de collision entre suites concurrentes.
 
 Vérifié à blanc : `npm test` rejoué deux fois après le déplacement, aucune occurrence du symptôme
 sur les quatre fichiers, y compris rejoué avec les mêmes globs concurrents qu'avant.
+
+**Deux compléments, ajoutés le 24 septembre.**
+
+*Sur la portée métier.* La nuit conclut qu'aucun invariant n'est violé, et c'est exact. Reste une question qu'elle n'a pas posée : en production, deux chauffeurs à position rigoureusement identique seront toujours départagés dans le même sens, et le perdant du tri ne sera jamais proposé tant que cinq autres l'égalent. La bonne nouvelle est que le cas est rare pour de vrais appareils — le score géospatial a une résolution d'environ soixante centimètres, et deux motos à un point de rassemblement ne s'y garent pas au décimètre près. **Je ne demande donc aucun correctif** : poser une règle de départage sur un chemin qui porte la réservation atomique coûterait plus cher que le risque. Mais le symptôme, s'il existait, serait invisible côté serveur et parfaitement visible sur le terrain — **un chauffeur qui dit ne jamais recevoir de proposition alors qu'il est en ligne.** C'est à écouter au pilote, et c'est la seule forme sous laquelle ce défaut se manifesterait.
+
+*Sur la méthode, et c'est ce qui restera.* Le symptôme a survécu à cinq nuits, trois explications d'environnement et quatre relectures du service — dans un mécanisme qui fonctionnait exactement comme spécifié, avec un pool à un seul écrivain et une limite qui bornait bien à cinq. **Il n'y avait rien à trouver dans le code du produit, et c'est pour cela qu'aucune lecture ne l'a trouvé.** Ce qui l'a résolu tient en deux gestes : reproduire dans la condition réelle plutôt qu'en isolant, et mesurer pendant plutôt qu'après. Les deux étaient déjà écrits ; ils ont mis cinq nuits à être appliqués ensemble.
+
+---
+
+## 9 sexdecies. Une tâche livrée en partie, comptée comme faite pendant quatre semaines (D74)
+
+Le 25 septembre, en préparant une recette sur un second domaine, j'ai vérifié ce que le Client web sait faire. Trois choses manquent, et le dépôt les annonçait toutes les trois :
+
+- **Le flux OAuth web n'existe pas.** `packages/api-client/src/auth/googleSignIn.ts` est le module natif ; son propre en-tête renvoie à « un futur `webGoogleSignIn.ts` (L6-18) ». Personne ne peut se connecter au Client depuis un navigateur.
+- **La carte est un bouchon** qui rend un cadre vide (`webpack-stubs/react-native-maps.web.js`, « provisoire, condamné par L6-18 »). Or à Douala l'adresse formelle n'existe quasiment pas : la carte *est* l'interface.
+- **Le stockage de session est un bouchon qui écrit en clair dans le stockage du navigateur** — et son commentaire le dit sans détour : « le stub chiffre… rien […] ce que L6-18 devra remplacer par quelque chose de réellement sûr **avant tout déploiement** ». C'est **D39 violée**, la décision qui interdit précisément qu'une session web survive dans le stockage local.
+
+Le commit porte `L6-18 (part)`. La nuit a été scrupuleuse : elle a nommé la limite dans le message, dans le fichier de configuration du bundler, et dans chacun des deux bouchons. **Rien n'a été caché. Et rien n'a été repris pendant quatre semaines.**
+
+C'est le défaut de D42, sous une autre forme. Le registre du §13 existe parce qu'une décision arbitrée sans porteur s'évapore ; il ne suivait pas les **tâches livrées en partie**, qui s'évaporent exactement de la même façon — avec une aggravation : une tâche à moitié faite compte comme faite dans tous les décomptes, alors qu'une décision sans porteur ne compte nulle part. L6-18 figurait dans mes récapitulatifs du côté des tâches livrées, et le périmètre pilote a été déclaré fini par-dessus.
+
+**Et le repérage n'est venu ni d'une revue ni d'un test, mais d'un usage** : vouloir déployer sur un second domaine a obligé à se demander comment quelqu'un s'y connecterait. Le bundle web avait pourtant été vérifié comme s'exécutant réellement (D38) — vérification juste, et qui s'arrêtait à l'écran d'accueil. **Ouvrir un écran n'est pas s'en servir.**
+
+D'où D74 : le registre accueille aussi ce qui est livré en partie, avec ce qui manque, et le débrief le relit chaque matin comme le reste.
 
 ---
 
@@ -909,7 +937,12 @@ spécifications.
 
 | Décision | Arbitrée le | Portée par |
 |---|---|---|
-| **D72** — la défaillance de diffusion du vivier, instrumentée pendant qu'elle se produit | 23 septembre 2026 | J47 |
+| **L6-18** — livrée en partie (D74) | Constaté le 25 septembre 2026 | J48 |
+| **D74** — le registre accueille les livraisons partielles | 25 septembre 2026 | Ce tableau, à partir de maintenant |
+
+**Ce que L6-18 doit encore livrer**, d'après sa propre spécification et les commentaires du code : le flux OAuth web (`packages/api-client/src/auth/web.ts`, absent), le fournisseur de carte web (`packages/maps/src/providers/web/`, absent — remplacé par un bouchon qui rend un cadre vide), le stockage de session web (bouchon qui écrit en clair, **D39 violée**), et les dégradations signalées à l'utilisateur.
+
+**Le registre n'était pas vide le 24 septembre, contrairement à ce qui y était écrit** — il ne regardait simplement pas du bon côté. D72 avait bien été portée la nuit J47 sous le numéro D73 ; c'est L6-18 qui manquait, et elle n'y avait pas sa place tant que ce registre ne suivait que des décisions.
 
 **D71 a été portée la nuit J46**, sur `callOdoo` *et* `callOdooOnce` — ma rédaction ne nommait que le premier, et c'est le second qui portait le chemin d'acceptation. **D70** a été close la nuit J45 par une reproduction en direct ; **D66** est un retrait de périmètre, consigné en É1, sans tâche.
 

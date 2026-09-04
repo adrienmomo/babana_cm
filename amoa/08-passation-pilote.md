@@ -8,6 +8,29 @@ roulent.
 
 ---
 
+## 0. Ce document attend, et il est écrit pour ça
+
+**Mis à jour le 24 septembre 2026.** Le développement est terminé — aucun défaut ouvert, suite complète verte sur base neuve — et la suite ne dépend plus que de démarches qui vous appartiennent. D'autres priorités passent avant, et c'est légitime : rien ici ne se périme la semaine prochaine.
+
+Ce document est donc fait pour être repris froid, dans un mois ou dans trois, sans avoir à relire quarante-sept rapports de nuit. Reprenez-le au §2.
+
+**Ce qui ne vieillit pas.** Le code, les spécifications, les décisions, les tests. Le dépôt est cohérent, la suite est verte, et `make up` donne une course complète parcourable sans aucun compte externe. Rien ne se dégrade tout seul.
+
+**Ce qui vieillit, en revanche, et qu'il faut savoir avant de reprendre :**
+
+| Ce qui bouge sans vous | Conséquence au retour |
+|---|---|
+| Les images Docker et les dépendances npm | Un premier `make up` après plusieurs mois peut demander une mise à jour. Rien de grave, mais ce n'est pas le soir de la démonstration qu'il faut le découvrir |
+| Les consoles Google Cloud et Firebase | Les écrans et les noms d'API changent ; les procédures que vous trouverez en ligne seront à jour, celles décrites ici peut-être pas |
+| La vérification d'éditeur Android | Elle a ses propres échéances, indépendantes de nous |
+| Ce que votre client a en tête | C'est celui qui vieillit le plus vite. Il attend une démonstration depuis un moment, et elle ne coûte qu'un VPS et quatre noms DNS — c'est la seule ligne de ce document qui gagne à être faite tôt, même si tout le reste attend |
+
+**Et une chose à faire au retour, avant toute autre :** `make reset && make up && make seed && make test`, en entier, sur une base réellement vidée. C'est le geste qui a révélé trois défauts d'installation en septembre — dont un compte administrateur sans droits — et c'est aussi celui qui vous dira, en une commande, si quelque chose a bougé sous le dépôt pendant l'attente.
+
+**Le document à lire ensuite, si une session de développement reprend** : la passe de clôture de `amoa/rapport-nuit-J41.md`, tenue à jour jusqu'à la dernière nuit. Elle dit ce qui est rouge, ce qui est vert sans avoir jamais été exercé pour de vrai, et ce qui a été supposé. C'est le document le plus utile du dépôt.
+
+---
+
 ## 1. Ce qui est fait, en une phrase
 
 Une course complète est parcourable de bout en bout : un client demande, choisit un chauffeur,
