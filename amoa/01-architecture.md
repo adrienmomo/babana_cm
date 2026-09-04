@@ -74,6 +74,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D67 | **Le journal d'audit immuable (L8-09) entre au périmètre pilote** | Le différer avec le reste du lot L8 | Une donnée non journalisée pendant le pilote est perdue définitivement : on ne reconstitue pas un historique après coup. Sur un service en espèces, c'est la seule chose qu'on ne puisse pas rattraper. Voir §7 quater |
 | D68 | **L'échec d'un mécanisme se signale ailleurs que dans ce qu'il remplace** | `_logger.exception` pour un journal d'audit | Deux gardes justes — le journal ne lève jamais, l'écriture est interdite — composent un silence : si la traçabilité s'arrête, la seule trace est dans le journal applicatif que L8-09 existe précisément à remplacer. Voir §9 decies |
 | D69 | **Une assertion ne somme jamais toute la base : elle est bornée à son propre scénario** | `search([("account_id", "=", …)])` puis somme | Deux tests comptables du lot L5 mesuraient l'histoire de la base plutôt que leur scénario. Vrais sur une base vide, faux dès qu'elle contient des données — c'est-à-dire faux en pilote. Voir §9 undecies |
+| D70 | **Un incident intermittent se catalogue par son symptôme, pas par la nuit où il est apparu** | Une explication d'environnement par occurrence | Trois nuits ont écarté séparément le même symptôme — un chauffeur jamais apparu dans le vivier, suivi d'un silence — chacune avec une cause plausible, la dernière écartant les deux précédentes. Voir §9 duodecies |
 
 ---
 
@@ -684,6 +685,26 @@ Et le corollaire pour la lecture des symptômes, qui vaut au-delà de ces deux t
 
 ---
 
+## 9 duodecies. Trois explications, un seul symptôme (D70)
+
+Quatre incidents intermittents ont été relevés en dix nuits. Deux ont été diagnostiqués et corrigés — une contention Redis entre deux fichiers de test, un `sleep` remplacé par un fait déterministe. Les deux autres sont restés « vus une fois, jamais reproduits », et ont été catalogués comme tels.
+
+En les recoupant, ce ne sont pas deux incidents isolés. **Trois nuits différentes portent le même symptôme** : « chauffeur jamais apparu dans `nearby.drivers` après 20 000 ms », suivi d'un silence complet du processus de test.
+
+- Le 15 septembre, trois fichiers, même message — attribué à une machine mise en veille.
+- Le 19 septembre, un scénario — attribué à deux exécutions concurrentes contre la même pile, cause réelle et identifiée.
+- Le 20 septembre, un scénario de plus, même message, **même silence de seize minutes** — et cette fois une seule exécution, vérifiée, avec un processus à 0 % de CPU et aucune connexion réseau ouverte.
+
+Chaque explication était plausible pour son occurrence. Aucune ne couvre la dernière, qui écarte explicitement les deux précédentes. Et la signature observée — un processus arrêté, sans connexion, plutôt que lent — ne ressemble pas à une machine chargée : elle ressemble à un figement.
+
+**Ce que le recoupement change** : quatre défauts épars sont une nuisance qu'on tolère ; un même défaut vu trois fois dans un seul mécanisme est une piste. Et le mécanisme concerné n'est pas anodin — c'est celui qui décide si un client voit un chauffeur. Un chauffeur qui n'apparaît pas dans le vivier, en production, c'est un client qui ouvre l'application et ne trouve personne.
+
+La règle : **un incident intermittent se catalogue par son symptôme, jamais par la nuit où il est apparu.** Une explication d'environnement par occurrence est un moyen efficace de ne jamais voir un motif — chacune est raisonnable, aucune n'est fausse, et l'ensemble reste invisible parce que rien ne les rapproche. Le rapport de nuit les enregistre bien ; c'est au débrief du lendemain de les relier, et il a mis trois nuits à le faire.
+
+Note sur L0-09, maintenue hors périmètre : le problème ici n'est pas la détection. Chaque occurrence a été signalée, honnêtement, dans son rapport. Un détecteur d'instabilité aurait produit une quatrième ligne dans une liste, pas le rapprochement.
+
+---
+
 ## 10. Risques ouverts
 
 | Risque | Impact | Traitement proposé |
@@ -777,9 +798,9 @@ spécifications.
 
 | Décision | Arbitrée le | Portée par |
 |---|---|---|
-| **D69** — une assertion bornée à son propre scénario | 20 septembre 2026 | J44 |
+| **D70** — le symptôme du vivier, élucidé plutôt que catalogué | 21 septembre 2026 | J45 |
 
-**D68 a été portée la nuit J43** ; **D66** est un retrait de périmètre, consigné en É1 et dans `06-jalons-et-pilote.md`, sans tâche.
+**D69 a été portée la nuit J44** ; **D66** est un retrait de périmètre, consigné en É1 et dans `06-jalons-et-pilote.md`, sans tâche.
 
 **D64 et D61 étendue ont toutes deux été portées la nuit J40** (`amoa/specs/L1-identite.md`,
 L1-05 critères 6 et 7 ; `controllers/share.py` et `infra/compose.yaml`), comme D62/D63 la nuit
