@@ -75,7 +75,8 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D68 | **L'échec d'un mécanisme se signale ailleurs que dans ce qu'il remplace** | `_logger.exception` pour un journal d'audit | Deux gardes justes — le journal ne lève jamais, l'écriture est interdite — composent un silence : si la traçabilité s'arrête, la seule trace est dans le journal applicatif que L8-09 existe précisément à remplacer. Voir §9 decies |
 | D69 | **Une assertion ne somme jamais toute la base : elle est bornée à son propre scénario** | `search([("account_id", "=", …)])` puis somme | Deux tests comptables du lot L5 mesuraient l'histoire de la base plutôt que leur scénario. Vrais sur une base vide, faux dès qu'elle contient des données — c'est-à-dire faux en pilote. Voir §9 undecies |
 | D70 | **Un incident intermittent se catalogue par son symptôme, pas par la nuit où il est apparu** | Une explication d'environnement par occurrence | Trois nuits ont écarté séparément le même symptôme — un chauffeur jamais apparu dans le vivier, suivi d'un silence — chacune avec une cause plausible, la dernière écartant les deux précédentes. Voir §9 duodecies |
-| D71 | **Tout appel sortant porte un délai.** Un rattrapage placé derrière un appel qui peut se taire ne s'exécute jamais | Compter sur l'échec ou la réponse | `callOdoo` était le seul appel sortant sans délai du système — et il porte une boucle de réessai, elle-même devant la file de rejeu. Un appel qui ne se termine pas n'atteint ni l'un ni l'autre. Voir §9 terdecies |
+| D72 | **Réparer ce qui masque un défaut le rend d'abord plus visible.** Un symptôme qui s'aggrave après un correctif de masquage n'est pas une régression | Lire l'aggravation comme un retour en arrière | Le figement retiré, la défaillance de diffusion est passée d'une occurrence isolée à quatre sur trois fichiers. Elle était là depuis le début ; seule son observabilité a changé. Voir §9 quaterdecies |
+| D71 | **Tout appel sortant porte un délai.** Un rattrapage placé derrière un appel qui peut se taire ne s'exécute jamais | Compter sur l'échec ou la réponse | `callOdoo` **et `callOdooOnce`** étaient les deux seuls appels sortants sans délai du système — le second portant l'écriture d'acceptation, devant la file de rejeu. Un appel qui ne se termine pas n'atteint ni le réessai ni la file. Voir §9 terdecies |
 
 ---
 
@@ -729,6 +730,26 @@ Deux notes pour la suite. La nuit avait raison de ne pas corriger sans preuve : 
 
 ---
 
+## 9 quaterdecies. Ce qu'il restait sous le silence (D72)
+
+D70 a fermé le figement : un `finally` qui n'englobait pas l'appel capable de le faire échouer, deux connexions laissées ouvertes, un processus qui n'en sortait jamais. Le correctif tient — deux passes de vérification depuis, aucun figement.
+
+**Et une fois le silence retiré, ce qu'il masquait est apparu plus nettement, pas moins.** La nuit J46 a vu le symptôme quatre fois dans une seule passe, réparti sur **trois fichiers indépendants** — contre une occurrence isolée auparavant. Ce n'est donc pas un artefact d'outillage : c'est une défaillance intermittente de la diffusion elle-même, et le figement l'avait rendue à la fois plus rare en apparence et impossible à observer.
+
+C'est une conséquence du geste qu'on ne prévoit pas en le faisant : **réparer ce qui masque un défaut le rend d'abord plus visible, jamais moins fréquent.** Il faut s'y attendre plutôt que d'y lire une régression.
+
+Ce que la chasse a déjà écarté, et qui vaut d'être écrit pour ne pas y revenir :
+
+- **Le cache de profils chauffeur n'est pas en cause.** Son échec dégrade, il n'exclut jamais — un chauffeur sans profil reste dans le résultat, champs vides (D30, écrit après le blocage du 18 août causé par la règle inverse). Un appel Odoo expiré ne peut donc pas faire disparaître un chauffeur du vivier.
+- **Le figement n'est plus une explication** : la correction de D70 tient, chaque suite continue après l'échec.
+- **Les explications d'environnement sont épuisées** : machine en veille, exécutions concurrentes, processus bloqué — chacune a couvert une occurrence et aucune ne couvre celles-ci.
+
+La cause est donc en amont du cache : dans le géo-index ou dans la diffusion. Et **c'est la fonction qui décide si un client voit un chauffeur** — en production, un client qui ouvre l'application et ne trouve personne.
+
+D'où D72, et la méthode qui a fermé D70 plutôt qu'une quatrième relecture : reproduire dans la condition réelle, puis mesurer pendant. La fenêtre est ouverte — le symptôme est tombé deux fois sur deux — et elle se refermera.
+
+---
+
 ## 10. Risques ouverts
 
 | Risque | Impact | Traitement proposé |
@@ -822,9 +843,9 @@ spécifications.
 
 | Décision | Arbitrée le | Portée par |
 |---|---|---|
-| **D71** — un délai sur `callOdoo`, et la file prouvée derrière | 22 septembre 2026 | J46 |
+| **D72** — la défaillance de diffusion du vivier, instrumentée pendant qu'elle se produit | 23 septembre 2026 | J47 |
 
-**D70 a été portée la nuit J45**, close par une reproduction en direct ; **D66** est un retrait de périmètre, consigné en É1 et dans `06-jalons-et-pilote.md`, sans tâche.
+**D71 a été portée la nuit J46**, sur `callOdoo` *et* `callOdooOnce` — ma rédaction ne nommait que le premier, et c'est le second qui portait le chemin d'acceptation. **D70** a été close la nuit J45 par une reproduction en direct ; **D66** est un retrait de périmètre, consigné en É1, sans tâche.
 
 **D64 et D61 étendue ont toutes deux été portées la nuit J40** (`amoa/specs/L1-identite.md`,
 L1-05 critères 6 et 7 ; `controllers/share.py` et `infra/compose.yaml`), comme D62/D63 la nuit
