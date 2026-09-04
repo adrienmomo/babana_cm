@@ -135,6 +135,16 @@ En partant du 31 août, à cinq points par nuit et sans interruption :
 | **Déploiement et recette** | ~22 septembre | Sur le VPS réel, avec de vrais comptes externes, données de pilote chargées |
 | **Pilote — premières courses** | **~29 septembre**, avec une marge au **6 octobre** | Chauffeurs inscrits et validés, superviseur formé, sauvegardes testées |
 
+### Révision du 18 septembre — une nuit de plus, et pourquoi
+
+**L8-09 entre au périmètre pilote (D67).** Je l'en avais exclue ; c'était une erreur, et le raisonnement qui l'a produite mérite d'être nommé parce qu'il est séduisant : le pilote est petit, quelques dizaines de courses par jour, surveillées de près — on arbitrera à la main. C'est vrai de presque tout.
+
+**Ce n'est pas vrai de la traçabilité.** La plupart des manques d'un pilote se rattrapent : une fonction s'ajoute, un écran se refait, un seuil se change le soir même. Une donnée qu'on n'a pas enregistrée est perdue pour toujours. Le jour d'un litige, la question ne sera pas « peut-on développer un journal », elle sera « qu'est-ce qui s'est passé le 14 ».
+
+**Ce qu'un pilote ne peut pas rattraper passe devant ce qu'il peut différer.** Le reste du lot L8 — TLS en recette, chiffrement au repos, conservation des positions — reste différé et se rattrape.
+
+**Et un point de protocole à ne pas laisser filer** : `make test` n'a jamais tourné d'un bout à l'autre sans interruption la nuit J41. Trois échecs sont apparus dans la portion interrompue, avec la signature d'une machine en veille (vingt-et-une minutes pour un test qui en prend moins d'une), dans des fichiers que la nuit n'avait pas touchés. La suite Odoo, elle, est allée à son terme : 782 tests, zéro échec. **Le point 3 de la définition de fini n'est pas satisfait pour ce lot** — c'est la première chose à rejouer, avant tout le reste.
+
 ### Révision du 17 septembre — le développement s'arrête avant vous
 
 **Deux décisions changent la forme de ce calendrier.**

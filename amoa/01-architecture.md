@@ -71,6 +71,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D64 | **L'adresse qui sert à écrire n'est pas celle qui sert à signer une URL destinée à un navigateur.** Le stockage a un point d'entrée interne et un point d'entrée public, distincts | Un seul `S3_ENDPOINT` | L'URL signée renvoyée au navigateur portait `http://minio:9000`, injoignable hors du réseau Docker — en production comme en développement. La route publique n'expose que l'API S3, jamais la console. Voir §9 octies |
 | D65 | **Une variable est livrée à ce qui la consomme, et le contrôle le vérifie par service** | « livrée quelque part » | `BABANA_DOMAIN` était livrée à Caddy, jamais au conteneur qui exécute `share.py` : tous les liens de partage portaient `babana.cm` en dur, dans tous les environnements. Le contrôle des trois moments a laissé passer exactement le défaut qu'il existe pour attraper. Voir §9 nonies |
 | D66 | **Le pilote démarre sans vérification du numéro par SMS.** Le numéro du chauffeur est vérifié à l'embauche ; celui du client reste déclaré | Attendre la passerelle SMS | Sur des chauffeurs salariés recrutés en personne, l'OTP ne vérifie rien que l'employeur ne sache déjà. Attendre aurait décalé le pilote d'autant, sans contrepartie. Voir É1 |
+| D67 | **Le journal d'audit immuable (L8-09) entre au périmètre pilote** | Le différer avec le reste du lot L8 | Une donnée non journalisée pendant le pilote est perdue définitivement : on ne reconstitue pas un historique après coup. Sur un service en espèces, c'est la seule chose qu'on ne puisse pas rattraper. Voir §7 quater |
 
 ---
 
@@ -427,6 +428,20 @@ Reste ouvert, hors périmètre pilote : un client qui ne veut pas de ces emails 
 
 ---
 
+## 7 quater. Ce qu'un pilote ne peut pas rattraper (D67)
+
+La dernière nuit du périmètre s'est terminée sur un avertissement, en réponse à la question « si tu devais prévenir d'une seule chose la personne qui lance les premières vraies courses ». La réponse : **il n'existe aucun journal d'audit immuable.** `_babana_journalize()` écrit chaque transition dans les journaux applicatifs ordinaires depuis le premier jour, et son propre commentaire s'en excuse presque — « point d'accroche unique pour L8-09, pour l'instant journal applicatif standard ».
+
+J'avais laissé L8-09 hors périmètre pilote. C'était une erreur, et elle mérite d'être nommée parce que le raisonnement qui l'a produite est séduisant : le pilote est petit, quelques dizaines de courses par jour, surveillées de près — on arbitrera à la main. C'est vrai de presque tout. **Ce n'est pas vrai de la traçabilité.**
+
+La plupart des manques d'un pilote se rattrapent : une fonction absente s'ajoute, un écran illisible se refait, un seuil mal calibré se change le soir même. **Une donnée qu'on n'a pas enregistrée est perdue définitivement.** Le jour où un chauffeur conteste une remise ou un passager un montant, la question ne sera pas « peut-on développer un journal », elle sera « qu'est-ce qui s'est passé le 14 » — et il n'y aura rien à consulter.
+
+C'est aussi le pilote qui produit précisément les litiges dont on a besoin pour calibrer la suite : un écart de caisse contesté, une course facturée deux fois, un montant discuté au bord de la route. Les perdre, c'est perdre l'essentiel de ce qu'un pilote sert à apprendre.
+
+La règle générale : **ce qu'un pilote ne peut pas rattraper passe devant ce qu'il peut différer**, et la traçabilité est presque toujours dans la première catégorie. Le reste du lot L8 — TLS en recette, chiffrement au repos, conservation des positions — reste différé, et se rattrape.
+
+---
+
 ## 8. Écarts assumés avec le cahier des charges
 
 Ces écarts sont des décisions, pas des oublis. Ils doivent être validés par le maître d'ouvrage.
@@ -717,8 +732,9 @@ spécifications.
 
 | Décision | Arbitrée le | Portée par |
 |---|---|---|
-| **D65** — la livraison d'une variable vérifiée par service | 17 septembre 2026 | J41 (`amoa/specs/L0-socle.md`, L0-10 critère 1 bis) |
-| **D66** — le pilote démarre sans OTP | 17 septembre 2026 | Aucune tâche : c'est un retrait de périmètre, consigné en É1 et dans `06-jalons-et-pilote.md` |
+| **D67** — L8-09 entre au périmètre pilote | 18 septembre 2026 | J42 |
+
+**D65 a été portée la nuit J41** ; **D66** est un retrait de périmètre, consigné en É1 et dans `06-jalons-et-pilote.md`, sans tâche.
 
 **D64 et D61 étendue ont toutes deux été portées la nuit J40** (`amoa/specs/L1-identite.md`,
 L1-05 critères 6 et 7 ; `controllers/share.py` et `infra/compose.yaml`), comme D62/D63 la nuit
