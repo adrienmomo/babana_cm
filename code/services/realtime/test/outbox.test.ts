@@ -31,6 +31,11 @@ let config: Config;
 // d'acceptation 2).
 let requestLog: Array<{ path: string; idempotencyKey: string | null; body: unknown }>;
 let respond: (req: http.IncomingMessage) => { status: number; body: unknown };
+// D71 : distinct de `respond` -- un Odoo qui SE TAIT n'a ni statut ni corps à renvoyer, c'est
+// précisément la différence avec `defaultRespond` (500, immédiat) qui couvrait déjà "Odoo
+// refuse". Les réponses jamais terminées sont gardées pour un nettoyage explicite en `after`.
+let silent = false;
+const silentResponses: http.ServerResponse[] = [];
 
 function defaultRespond(): { status: number; body: unknown } {
   return { status: 500, body: { error: { code: 'INTERNAL_ERROR', message: 'boom', details: null } } };
@@ -48,6 +53,10 @@ before(async () => {
         idempotencyKey: (req.headers['idempotency-key'] as string) ?? null,
         body,
       });
+      if (silent) {
+        silentResponses.push(res);
+        return;
+      }
       const { status, body: responseBody } = respond(req);
       res.writeHead(status, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(responseBody));
@@ -69,12 +78,17 @@ before(async () => {
     OUTBOX_MAX_DELAY_MS: '5000',
     OUTBOX_ALERT_ATTEMPTS_THRESHOLD: '3',
     OUTBOX_ALERT_QUEUE_SIZE_THRESHOLD: '2',
+    // D71 : même raisonnement que OUTBOX_BASE_DELAY_MS ci-dessus -- assez grand pour ne jamais
+    // couper une réponse localhost normale (quelques ms), assez court pour que le test du silence
+    // n'attende pas des secondes pour rien.
+    ODOO_CALL_TIMEOUT_MS: '300',
   });
 });
 
 beforeEach(async () => {
   requestLog = [];
   respond = defaultRespond;
+  silent = false;
   // La file est une clé Redis globale (babana:outbox:queue), pas partitionnée par test comme le
   // reste (id()/RUN_ID) : sans ce nettoyage, les entrées laissées en échec par un test
   // (délibérément, pour prouver le rejeu) fausseraient getOutboxStats() du suivant.
@@ -86,6 +100,9 @@ beforeEach(async () => {
 });
 
 after(async () => {
+  for (const res of silentResponses.splice(0)) {
+    res.destroy();
+  }
   odooServer.close();
   const entryKeys = await redis.keys('babana:outbox:entry:*');
   await Promise.all([
@@ -311,4 +328,81 @@ describe('reportOutboxWrite (point d’entrée non bloquant, odoo/rides.ts)', ()
       "l'envoi immédiat ayant réussi, cette entrée ne doit plus être en file"
     );
   });
+});
+
+describe('D71 (amoa/01-architecture.md §9 terdecies) -- Odoo silencieux, pas seulement Odoo qui refuse', () => {
+  // Toute la suite ci-dessus (500 immédiat, 409 immédiat) prouve la file contre un Odoo qui
+  // RÉPOND vite, même par une erreur. Aucun de ces tests n'aurait échoué avant D71 : callOdooOnce
+  // sans délai lève déjà sur une réponse d'erreur, exactement comme avec un délai. Le défaut de
+  // D71 ne se voit que quand Odoo ne répond pas DU TOUT -- c'est la seule condition que `silent`
+  // reproduit ici, jamais exercée avant cette nuit.
+  test(
+    "une course acceptée pendant qu'Odoo se tait est mise en échec, reste en file, puis rejouée " +
+      'avec succès quand Odoo répond de nouveau -- sans intervention après reportOutboxWrite',
+    async () => {
+      silent = true;
+      const path = `/api/internal/rides/${id('silent-then-recovers')}/driver-accepted`;
+
+      // Exactement l'appel que odoo/rides.ts::reportDriverAccepted fait pour une acceptation
+      // (voir la même fonction, `driverId` seul dans le corps) -- non attendu, comme dans
+      // proposal/lifecycle.ts::accept(), pour ne jamais retarder ce que le chauffeur voit déjà
+      // via la résolution atomique Redis.
+      const before2 = Date.now();
+      reportOutboxWrite(config, redis, 'driver-accepted', path, { driverId: id('driver-silent') });
+      assert.ok(
+        Date.now() - before2 < 50,
+        "reportOutboxWrite doit revenir immédiatement même si Odoo va se taire -- il ne le sait pas encore"
+      );
+
+      // L'échec : la tentative immédiate atteint Odoo (le corps est déjà journalisé avant que le
+      // faux serveur ne se taise) mais n'obtient jamais de réponse -- sans le délai de D71, ceci
+      // attendrait indéfiniment et le reste du test ne se produirait jamais.
+      const entryAppeared = async () => {
+        const entryKeys = await redis.keys('babana:outbox:entry:*');
+        const raws = await Promise.all(entryKeys.map((key) => redis.get(key)));
+        return raws
+          .map((raw) => (raw ? (JSON.parse(raw) as OutboxEntry) : null))
+          .find((entry) => entry?.path === path);
+      };
+      const deadlineFailure = Date.now() + 2_000;
+      let entry = await entryAppeared();
+      while ((!entry || entry.attempts < 1) && Date.now() < deadlineFailure) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        // eslint-disable-next-line no-await-in-loop
+        entry = await entryAppeared();
+      }
+
+      assert.ok(requestLog.some((r) => r.path === path), 'Odoo doit avoir reçu la requête avant de se taire');
+      assert.ok(entry, "l'entrée doit rester en file après l'échec -- c'est le sens de la file");
+      assert.equal(entry.attempts, 1, "un échec, pas un succès escamoté");
+      assert.ok(
+        entry.nextAttemptAt > Date.now() - 50,
+        "l'entrée doit être reprogrammée (remise en file) plutôt que retirée"
+      );
+      assert.ok(
+        entry.lastError !== null && !entry.lastError.includes('409') && !entry.lastError.includes('500'),
+        `l'échec doit venir du réseau (silence), pas d'une réponse HTTP : ${entry.lastError}`
+      );
+
+      // Odoo revient : le prochain passage périodique doit prendre le relais tout seul --
+      // personne ne rappelle reportOutboxWrite, exactement le scénario "aboutit toute seule".
+      silent = false;
+      respond = () => ({ status: 200, body: { ok: true, rideId: id('silent-then-recovers') } });
+      const waitMs = Math.max(0, entry.nextAttemptAt - Date.now()) + 100;
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      const { processed } = await drainDueEntries(config, redis);
+
+      assert.ok(processed >= 1, 'le passage périodique doit avoir traité au moins une entrée due');
+      assert.equal(
+        await entryAppeared(),
+        undefined,
+        "le rejeu doit avoir abouti : l'entrée ne doit plus être en file"
+      );
+      assert.ok(
+        requestLog.filter((r) => r.path === path).length >= 2,
+        'Odoo doit avoir reçu la tentative silencieuse ET la tentative rejouée qui a abouti'
+      );
+    }
+  );
 });

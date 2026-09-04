@@ -14,6 +14,18 @@ const ConfigSchema = z.object({
   REALTIME_SHARED_SECRET: z.string().min(1, 'REALTIME_SHARED_SECRET est requis'),
   JWT_SECRET: z.string().min(1, 'JWT_SECRET est requis'),
 
+  /** Délai maximal d'une tentative HTTP vers Odoo, `callOdoo` et `callOdooOnce` (D71,
+   * amoa/01-architecture.md §9 terdecies) : au-delà, un silence devient un échec -- c'est ce qui
+   * permet au réessai en mémoire de `callOdoo`, puis à la file persistante `odoo/outbox.ts`
+   * (L3-12) derrière `callOdooOnce`, de prendre le relais. Un appel qui ne se termine jamais
+   * n'atteint ni l'un ni l'autre : c'est exactement le défaut du figement J45 (`finally` jamais
+   * atteint), une couche plus bas. Sur le chemin d'acceptation d'une course, cette valeur borne
+   * le temps avant qu'une écriture soit considérée perdue et remise en file. 5000 ms, comme
+   * `REALTIME_TIMEOUT_SECONDS` (services/realtime_client.py, le sens Odoo -> temps réel) et
+   * `ROUTING_TIMEOUT_SECONDS`/`JWKS_FETCH_TIMEOUT_SECONDS` : pas une valeur choisie pour ce
+   * correctif seul, la même déjà retenue pour tout appel sortant comparable de ce dépôt. */
+  ODOO_CALL_TIMEOUT_MS: z.coerce.number().int().positive().default(5_000),
+
   // --- Seuils, rayon, délais (L3-02, L3-03, L3-04) ------------------------------------------
   //
   // PROVISOIRE au sens de D21 (amoa/05-prerequis-et-simulation.md) : ces valeurs métier

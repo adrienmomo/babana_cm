@@ -209,6 +209,33 @@ Quatre tests instables rencontrés en six nuits, comme demandé :
    ouvert (un `fetch()` sans délai dans `services/realtime/src/odoo/client.ts::callOdoo`, repéré
    mais non corrigé faute de preuve qu'il se soit manifesté cette nuit).
 
+   **Fermé la nuit J46 (D71, `amoa/01-architecture.md` §9 terdecies).** La revue de J45 a établi
+   que cette dissymétrie n'était pas une précaution spéculative mais une inconsistance avec une
+   hypothèse posée partout ailleurs dans le dépôt : tout appel sortant du service porte un délai,
+   sauf les deux seuls qui transportent le travail réel (`callOdoo` ET `callOdooOnce`, ce dernier
+   trouvé en creusant, pas nommé par J45 — voir `amoa/rapport-nuit-J46.md` §1). Sans délai, un Odoo
+   qui se tait n'atteint jamais ni le réessai en mémoire de `callOdoo`, ni la file persistante
+   (`odoo/outbox.ts`, L3-12) derrière `callOdooOnce` : le même motif que le défaut de test de J45,
+   une couche plus bas, cette fois dans le service. Les deux portent maintenant
+   `ODOO_CALL_TIMEOUT_MS` (5000 ms, paramétrable, même valeur que `REALTIME_TIMEOUT_SECONDS` côté
+   Odoo pour le sens inverse de cet appel). Vérifié contre un faux Odoo qui accepte la connexion et
+   ne répond jamais (pas un Odoo qui refuse vite, déjà couvert) : échec, entrée remise en file,
+   rejeu qui aboutit tout seul au retour d'Odoo -- chemin jamais exercé avant cette nuit, L3-14
+   ne prouvant que le redémarrage, jamais le silence.
+
+   **Le dépassement lui-même (pas le silence qui suivait) s'est reproduit cette même nuit, deux
+   fois, plus largement que par le passé** -- 1 échec dans `make test`, puis 4 dans un second
+   passage de la même commande, tous avec le message exact catalogué, sur trois fichiers
+   indépendants (`concurrency/select-driver-replay`, `e2e/full-ride`,
+   `http-contract/endpoint-coverage`). Aucun figement dans les deux cas -- la correction de J45
+   tient. D71 écarté comme cause en lisant le code, pas supposé : le seul chemin par lequel
+   `ODOO_CALL_TIMEOUT_MS` touche `nearby.drivers` (le profil chauffeur en cache, `callOdoo`) dégrade
+   sur échec (champs à `null`), il n'exclut jamais un chauffeur du résultat (D30,
+   `nearby/projection.ts`). Élément nouveau, jamais relevé avant ce soir : cette machine fait
+   tourner une pile Docker sans rapport avec ce dépôt (`n8n`) en plus de deux passages lourds
+   consécutifs -- observation, pas cause prouvée. Toujours sans théorie sur ce que le dépassement
+   mesure ; voir `amoa/rapport-nuit-J46.md` §4 pour le détail.
+
 ### Ce qui est vert mais que personne n'a jamais exercé pour de vrai
 
 - **`bootstrap.sh`** — jamais lancé : il durcit un hôte réel (installe `age`, `rclone`, un
@@ -226,6 +253,10 @@ Quatre tests instables rencontrés en six nuits, comme demandé :
 - **La latence du fil de fond** (file persistante Odoo → temps réel, L3-12) — jamais mesurée sous
   charge réelle. Le test de résilience (L3-14) prouve qu'elle rejoue après un redémarrage ; rien
   ne dit combien de temps elle met à rattraper un vrai retard, avec de vrais volumes.
+  **Mise à jour J46 (D71)** : le mécanisme de prise de relais lui-même -- Odoo silencieux plutôt
+  qu'à l'arrêt -- est désormais exercé de bout en bout par un test dédié (`test/outbox.test.ts`,
+  contre un faux Odoo qui ne répond jamais), une première ; la latence sous charge réelle avec de
+  vrais volumes, elle, reste dans cette liste, inchangée.
 - **Le relais SMTP réel** — `mailpit` reçoit tout ce que ce dépôt a jamais envoyé. Aucun email n'a
   atteint une vraie boîte, ni traversé un vrai relais avec ses propres limites de débit.
 - **`rateRide`, `phoneVerifyStart`/`phoneVerifyConfirm`** — dans le contrat, jamais implémentés

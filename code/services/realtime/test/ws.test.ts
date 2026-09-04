@@ -14,6 +14,7 @@ const config: Config = {
   ODOO_INTERNAL_URL: 'http://odoo.test',
   REALTIME_SHARED_SECRET: 'secret',
   JWT_SECRET: 'test-jwt-secret',
+  ODOO_CALL_TIMEOUT_MS: 5_000,
   OPERATIONAL_BOUNDS_MIN_LAT: 3.95,
   OPERATIONAL_BOUNDS_MAX_LAT: 4.15,
   OPERATIONAL_BOUNDS_MIN_LNG: 9.6,
