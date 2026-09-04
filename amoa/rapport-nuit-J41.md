@@ -192,6 +192,23 @@ Quatre tests instables rencontrés en six nuits, comme demandé :
    un soir où il peut être observé en train de se produire, mesurer l'état Redis à ce moment-là,
    pas après coup.
 
+   **Élucidé et corrigé la nuit J45 (D70, `amoa/01-architecture.md` §9 duodecies).** Le
+   recoupement de cette occurrence avec celles du 15 et du 19 septembre (même message, même
+   silence) a révélé un seul mécanisme, reproduit en direct deux fois le 4 septembre en rejouant
+   `npm test` (les six fichiers ensemble, pas un fichier isolé — la condition qui manquait) :
+   `concurrency/select-driver-replay.test.ts` appelait `waitForDriverVisible` — l'appel qui produit
+   exactement ce message — AVANT le `try`/`finally` qui ferme les deux connexions WebSocket
+   chauffeur ouvertes juste avant. Un rejet (le symptôme lui-même) sautait donc ce nettoyage : deux
+   connexions `ESTABLISHED` restaient ouvertes, référencées par personne, et un `net.Socket` réf'd
+   ne laisse jamais un processus Node sortir de lui-même — d'où le silence, mesuré 8 min 36 s durant
+   pendant qu'il se produisait (0 % CPU, connexions toujours établies, aucune erreur côté service).
+   Aucun défaut dans `services/realtime` : le figement vivait entièrement dans l'outillage de test.
+   Corrigé en étendant le `try` existant pour englober l'appel qui pouvait le faire échouer ;
+   vérifié à blanc (rejet forcé, sortie propre en 6,5 s contre un figement non résorbé sur le code
+   d'avant). Voir `amoa/rapport-nuit-J45.md` pour le détail complet, y compris ce qui reste
+   ouvert (un `fetch()` sans délai dans `services/realtime/src/odoo/client.ts::callOdoo`, repéré
+   mais non corrigé faute de preuve qu'il se soit manifesté cette nuit).
+
 ### Ce qui est vert mais que personne n'a jamais exercé pour de vrai
 
 - **`bootstrap.sh`** — jamais lancé : il durcit un hôte réel (installe `age`, `rclone`, un

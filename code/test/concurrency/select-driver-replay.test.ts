@@ -80,13 +80,23 @@ test(
 
       const driverASocket = await bringDriverOnline(driverASession.accessToken, RIDE_ORIGIN);
       const driverBSocket = await bringDriverOnline(driverBSession.accessToken, RIDE_ORIGIN);
-      await seedDriverProfile(driverAId, `Chauffeur A${iteration}`);
-      await seedDriverProfile(driverBId, `Chauffeur B${iteration}`);
-      // Un seul abonnement persistant (before ci-dessus), jamais un par itération -- la
-      // diffusion périodique déjà en cours suffit à faire apparaître les deux nouveaux chauffeurs.
-      await waitForDriverVisible(clientSocket, [driverAId, driverBId], RIDE_ORIGIN);
-
+      // D70 (amoa/01-architecture.md §9 duodecies) : `try` étendu pour englober
+      // `waitForDriverVisible` ci-dessous, pas seulement ce qui la suit. Avant ce correctif, un
+      // rejet de `waitForDriverVisible` (exactement le symptôme catalogué par D70 -- "chauffeur
+      // jamais apparu dans nearby.drivers après 20000ms") sautait le `finally` qui ferme
+      // `driverASocket`/`driverBSocket` : les deux connexions WebSocket, ouvertes quelques lignes
+      // plus haut, restaient alors référencées par personne mais toujours actives -- un handle
+      // `net.Socket` réf'd ne laisse jamais un processus Node sortir de lui-même. Reproduit en
+      // direct le 4 septembre 2026 : le worker `node --test` de ce fichier restait vivant, 0 % CPU,
+      // aucune progression, la connexion chauffeur toujours ESTABLISHED des minutes après l'échec
+      // -- le "silence" observé trois nuits de suite sur ce même message d'erreur.
       try {
+        await seedDriverProfile(driverAId, `Chauffeur A${iteration}`);
+        await seedDriverProfile(driverBId, `Chauffeur B${iteration}`);
+        // Un seul abonnement persistant (before ci-dessus), jamais un par itération -- la
+        // diffusion périodique déjà en cours suffit à faire apparaître les deux nouveaux chauffeurs.
+        await waitForDriverVisible(clientSocket, [driverAId, driverBId], RIDE_ORIGIN);
+
         const { ridePublicId } = await createRideRequest(clientSession);
 
         // eslint-disable-next-line no-await-in-loop -- chaque itération doit être résolue avant
