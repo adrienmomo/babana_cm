@@ -75,6 +75,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D68 | **L'échec d'un mécanisme se signale ailleurs que dans ce qu'il remplace** | `_logger.exception` pour un journal d'audit | Deux gardes justes — le journal ne lève jamais, l'écriture est interdite — composent un silence : si la traçabilité s'arrête, la seule trace est dans le journal applicatif que L8-09 existe précisément à remplacer. Voir §9 decies |
 | D69 | **Une assertion ne somme jamais toute la base : elle est bornée à son propre scénario** | `search([("account_id", "=", …)])` puis somme | Deux tests comptables du lot L5 mesuraient l'histoire de la base plutôt que leur scénario. Vrais sur une base vide, faux dès qu'elle contient des données — c'est-à-dire faux en pilote. Voir §9 undecies |
 | D70 | **Un incident intermittent se catalogue par son symptôme, pas par la nuit où il est apparu** | Une explication d'environnement par occurrence | Trois nuits ont écarté séparément le même symptôme — un chauffeur jamais apparu dans le vivier, suivi d'un silence — chacune avec une cause plausible, la dernière écartant les deux précédentes. Voir §9 duodecies |
+| D71 | **Tout appel sortant porte un délai.** Un rattrapage placé derrière un appel qui peut se taire ne s'exécute jamais | Compter sur l'échec ou la réponse | `callOdoo` était le seul appel sortant sans délai du système — et il porte une boucle de réessai, elle-même devant la file de rejeu. Un appel qui ne se termine pas n'atteint ni l'un ni l'autre. Voir §9 terdecies |
 
 ---
 
@@ -705,6 +706,29 @@ Note sur L0-09, maintenue hors périmètre : le problème ici n'est pas la déte
 
 ---
 
+## 9 terdecies. Un filet placé derrière quelque chose qui peut se taire (D71)
+
+La nuit J45 a trouvé son défaut : deux connexions ouvertes avant le `try`, un `finally` qui ne les couvrait donc pas, et un processus qui n'en sortait jamais. Un nettoyage qui ne s'exécute que sur le chemin nominal.
+
+En relisant ce qu'elle avait relevé sans le traiter, le même motif existe une couche plus bas, et il est cette fois dans le service.
+
+**`callOdoo` n'a aucun délai.** `pingOdoo`, dix lignes au-dessus dans le même fichier, en a un. C'est le seul appel sortant du système dans ce cas — vérifié : Odoo vers le routage, vers le service temps réel, vers les notifications, vers le jeu de clés Google, tous en portent un ; le ping de santé aussi. Les deux seuls qui n'en ont pas sont ceux qui transportent le travail réel.
+
+Ce qui rend l'asymétrie coûteuse n'est pas l'attente en elle-même, c'est ce qui est empilé derrière :
+
+- `callOdoo` porte une **boucle de réessai** — trois tentatives, délai croissant. Un premier appel qui ne se termine jamais n'atteint jamais le deuxième.
+- Derrière cette boucle, la **file de rejeu** (L3-12), écrite pour qu'un refus dont l'appel Odoo échoue ne bloque pas une course pour toujours. Elle se déclenche sur un échec. Un appel qui se tait n'échoue pas.
+
+**Tout l'édifice de récupération suppose qu'Odoo réponde ou refuse, jamais qu'il se taise.** Et l'hypothèse est fausse dès qu'un verrou de base traîne ou qu'un travailleur sature — sur un VPS unique, ce n'est pas un cas limite.
+
+C'est le motif de la nuit J45, transposé : **un rattrapage placé derrière quelque chose qui peut se taire ne s'exécute jamais.** Le `finally` du test attendait une exception qui sautait par-dessus lui ; la file attend un échec qui ne vient pas.
+
+La règle : tout appel sortant porte un délai, et le délai n'est pas une précaution contre la lenteur — c'est **ce qui transforme un silence en échec**, donc ce qui permet à tout ce qui est placé derrière d'exister.
+
+Deux notes pour la suite. La nuit avait raison de ne pas corriger sans preuve : c'est ce que je lui avais demandé, et le raisonnement ci-dessus n'est pas une preuve d'occurrence, c'est une preuve d'inconsistance avec une hypothèse que le dépôt pose ailleurs. Et le dépassement occasionnel de `waitForDriverVisible` reste sans explication — le figement le masquait, il ne le masque plus.
+
+---
+
 ## 10. Risques ouverts
 
 | Risque | Impact | Traitement proposé |
@@ -798,9 +822,9 @@ spécifications.
 
 | Décision | Arbitrée le | Portée par |
 |---|---|---|
-| **D70** — le symptôme du vivier, élucidé plutôt que catalogué | 21 septembre 2026 | J45 |
+| **D71** — un délai sur `callOdoo`, et la file prouvée derrière | 22 septembre 2026 | J46 |
 
-**D69 a été portée la nuit J44** ; **D66** est un retrait de périmètre, consigné en É1 et dans `06-jalons-et-pilote.md`, sans tâche.
+**D70 a été portée la nuit J45**, close par une reproduction en direct ; **D66** est un retrait de périmètre, consigné en É1 et dans `06-jalons-et-pilote.md`, sans tâche.
 
 **D64 et D61 étendue ont toutes deux été portées la nuit J40** (`amoa/specs/L1-identite.md`,
 L1-05 critères 6 et 7 ; `controllers/share.py` et `infra/compose.yaml`), comme D62/D63 la nuit
