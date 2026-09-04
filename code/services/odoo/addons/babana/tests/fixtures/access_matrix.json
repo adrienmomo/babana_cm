@@ -47,6 +47,7 @@
     "babana.fare.rule.version.wizard": { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.fare.simulator":      { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.audit.log":           { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.audit.log.health":    { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.cash.dashboard":      { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] }
   },
   "inherited_models": {

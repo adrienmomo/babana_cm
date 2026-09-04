@@ -84,4 +84,59 @@
 
     <menuitem id="babana_menu_audit_log" name="Journal d'audit" parent="babana_menu_root"
         action="babana_audit_log_action" groups="babana.group_babana_admin" sequence="90"/>
+
+    <!--
+        D68 (01-architecture.md §9 decies) : un échec d'écriture du journal (critère 3 : il ne
+        lève jamais ; critère 2 : personne ne peut l'écrire à sa place) ne laissait de trace que
+        dans le journal applicatif que ce module remplace précisément. Cet écran lit le signal
+        posé dans ir.config_parameter par babana_audit_log.py::_babana_record_failure_beacon,
+        jamais babana.audit.log lui-même, et se place juste avant « Journal d'audit » dans le
+        même menu, réservé au même groupe : l'endroit où un administrateur va déjà pour vérifier
+        la traçabilité, avant même d'ouvrir la liste.
+    -->
+    <record id="babana_audit_log_health_view_form" model="ir.ui.view">
+        <field name="name">babana.audit.log.health.form</field>
+        <field name="model">babana.audit.log.health</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <div class="alert alert-danger" role="alert" invisible="not has_failure">
+                        <strong>Le journal d'audit a échoué à s'écrire.</strong> L'opération
+                        métier concernée a réussi (le journal ne bloque jamais, critère
+                        d'acceptation 3) mais l'entrée correspondante n'existe pas : la
+                        traçabilité s'est arrêtée pour cet événement. Vérifier la cause avant
+                        d'accuser réception ci-dessous.
+                    </div>
+                    <div class="alert alert-success" role="alert" invisible="has_failure">
+                        Aucun échec d'écriture du journal d'audit depuis le dernier accusé de
+                        réception.
+                    </div>
+                    <group invisible="not has_failure">
+                        <field name="failure_count" string="Échecs depuis le dernier accusé de réception"/>
+                        <field name="last_failure_at"/>
+                        <field name="last_failure_event"/>
+                        <field name="last_failure_model_name" string="Modèle concerné"/>
+                        <field name="last_failure_error" string="Erreur" widget="text"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_acknowledge" type="object" string="Marquer comme vu"
+                        class="oe_highlight" invisible="not has_failure"
+                        groups="babana.group_babana_admin"/>
+                    <button name="action_refresh" type="object" string="Actualiser"/>
+                    <button string="Fermer" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="babana_audit_log_health_action" model="ir.actions.act_window">
+        <field name="name">État du journal d'audit</field>
+        <field name="res_model">babana.audit.log.health</field>
+        <field name="view_mode">form</field>
+        <field name="target">current</field>
+    </record>
+
+    <menuitem id="babana_menu_audit_log_health" name="État du journal d'audit" parent="babana_menu_root"
+        action="babana_audit_log_health_action" groups="babana.group_babana_admin" sequence="89"/>
 </odoo>

@@ -18,6 +18,13 @@
 # protègent (un appel sortant vers le service temps réel, qu'un ROLLBACK ne peut pas défaire).
 # Mais elle ne doit JAMAIS faire échouer l'opération métier (critère d'acceptation 3) : un
 # savepoint dédié absorbe tout échec de l'écriture elle-même sans laisser l'erreur remonter.
+#
+# D68 (01-architecture.md §9 decies) : critère 3 (ne jamais lever) et critère 2 (personne ne peut
+# écrire) composaient un silence -- un échec d'écriture n'avait plus d'autre trace que
+# `_logger.exception`, c'est-à-dire le journal applicatif que ce modèle existe pour remplacer.
+# `_babana_record_failure_beacon` ci-dessous pose donc un signal ailleurs (`ir.config_parameter`),
+# visible depuis `babana.audit.log.health` (babana_audit_log_health.py) sans ouvrir un fichier de
+# logs.
 from __future__ import annotations
 
 import json
@@ -35,6 +42,16 @@ _logger = logging.getLogger(__name__)
 # qu'on ait pu le consulter.
 AUDIT_LOG_RETENTION_DAYS_PARAM = "babana.audit_log_retention_days"
 AUDIT_LOG_RETENTION_DAYS_FALLBACK = 730
+
+# D68 (01-architecture.md §9 decies) : le signal d'échec de journalisation vit dans
+# ir.config_parameter -- un support qui ne dépend pas de ce qui vient d'échouer, donc encore
+# lisible même si babana_audit_log est ce qui casse. Lu par babana_audit_log_health.py, jamais
+# par babana.audit.log lui-même en dehors de l'écriture du signal ci-dessous.
+AUDIT_LOG_FAILURE_COUNT_PARAM = "babana.audit_log_failure_count"
+AUDIT_LOG_FAILURE_LAST_AT_PARAM = "babana.audit_log_failure_last_at"
+AUDIT_LOG_FAILURE_LAST_EVENT_PARAM = "babana.audit_log_failure_last_event"
+AUDIT_LOG_FAILURE_LAST_MODEL_PARAM = "babana.audit_log_failure_last_model"
+AUDIT_LOG_FAILURE_LAST_ERROR_PARAM = "babana.audit_log_failure_last_error"
 
 
 def _to_json(value):
@@ -133,11 +150,38 @@ class BabanaAuditLog(models.Model):
                         "context_json": _to_json(context) if context else False,
                     }
                 )
-        except Exception:  # noqa: BLE001 - ne doit jamais faire échouer l'opération métier
+        except Exception as exc:  # noqa: BLE001 - ne doit jamais faire échouer l'opération métier
             _logger.exception(
                 "babana.audit.log : échec de journalisation de '%s' sur %s#%s -- l'opération "
                 "métier se poursuit (critère d'acceptation 3, L8-09).",
                 event, model_name, res_id,
+            )
+            self._babana_record_failure_beacon(event, model_name, exc)
+
+    @api.model
+    def _babana_record_failure_beacon(self, event, model_name, error):
+        """D68 : la seule trace d'un échec de `_babana_record` ci-dessus ne doit pas rester
+        dans le journal applicatif que L8-09 existe pour remplacer -- sinon la traçabilité peut
+        s'arrêter sans que personne ne l'apprenne. Écrit dans `ir.config_parameter`, jamais dans
+        `babana.audit.log` (un compteur logé dans le modèle qui vient de casser casserait avec
+        lui). Même garde que `_babana_record` : ne doit JAMAIS lever, y compris si cette
+        écriture-ci échoue à son tour -- un savepoint dédié l'isole, comme pour le journal
+        lui-même."""
+        try:
+            with self.env.cr.savepoint():
+                Param = self.env["ir.config_parameter"].sudo()
+                count = int(Param.get_param(AUDIT_LOG_FAILURE_COUNT_PARAM, "0") or "0")
+                Param.set_param(AUDIT_LOG_FAILURE_COUNT_PARAM, str(count + 1))
+                Param.set_param(
+                    AUDIT_LOG_FAILURE_LAST_AT_PARAM, fields.Datetime.to_string(fields.Datetime.now())
+                )
+                Param.set_param(AUDIT_LOG_FAILURE_LAST_EVENT_PARAM, event or "")
+                Param.set_param(AUDIT_LOG_FAILURE_LAST_MODEL_PARAM, model_name or "")
+                Param.set_param(AUDIT_LOG_FAILURE_LAST_ERROR_PARAM, str(error)[:500])
+        except Exception:  # noqa: BLE001 - même garde : ce signal-ci ne doit pas non plus lever
+            _logger.exception(
+                "babana.audit.log : échec de l'écriture du signal de panne lui-même, pour "
+                "l'échec de journalisation de '%s' sur %s.", event, model_name,
             )
 
     @api.model

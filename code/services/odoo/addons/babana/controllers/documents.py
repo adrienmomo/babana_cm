@@ -18,12 +18,23 @@ from ..services import storage
 _logger = logging.getLogger(__name__)
 
 # readonly=False explicite : auth='none' est en lecture seule par défaut depuis Odoo 18
-# (code/docs/odoo-pitfalls.md) -- l'upload écrit, la lecture de l'URL signée n'écrit rien mais
-# suit le même contrôleur pour rester cohérente avec l'upload.
+# (code/docs/odoo-pitfalls.md) -- toute route qui écrit doit le déclarer, ne pas compter sur le
+# comportement par défaut.
+#
+# _URL_ROUTE porte désormais readonly=False, trouvé en construisant D68 (01-architecture.md
+# §9 decies) : L8-09 (_signed_url ci-dessous) a ajouté une écriture -- l'entrée d'audit de
+# l'accès -- APRÈS que cette route ait été déclarée readonly=True (elle ne lisait alors vraiment
+# que la base). Cette écriture échouait donc silencieusement à chaque appel réel
+# (`ReadOnlySqlTransaction`), absorbée par le savepoint de `_babana_record` (critère 3) sans
+# qu'aucun test ne l'ait remarqué -- le test de critère 1 existant exerçait le même point
+# d'écriture par le chemin back-office (`action_preview`), jamais par cette route HTTP réelle.
+# Exactement le silence que D68 existe pour rendre visible, ici trouvé pendant la construction du
+# signal plutôt que le jour d'un litige. Voir test_documents.py::
+# test_signed_url_access_is_journalized_over_a_real_http_call.
 _UPLOAD_ROUTE = {"type": "http", "auth": "none", "methods": ["POST"], "csrf": False,
                   "readonly": False}
 _URL_ROUTE = {"type": "http", "auth": "none", "methods": ["GET"], "csrf": False,
-              "readonly": True}
+              "readonly": False}
 _LIST_ROUTE = {"type": "http", "auth": "none", "methods": ["GET"], "csrf": False,
                "readonly": True}
 

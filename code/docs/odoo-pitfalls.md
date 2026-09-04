@@ -20,6 +20,19 @@ explicite dans `_PUBLIC_AUTH_ROUTE`.
 **Règle** : toute route `auth='none'` qui écrit porte `readonly=False` explicite -- ne pas compter
 sur le comportement par défaut.
 
+**Récidive le 4 septembre (D68, `controllers/documents.py`)** : la règle ci-dessus n'a pas suffi à
+l'éviter une seconde fois -- elle protège une route déclarée en écrivant dès le départ, pas une
+route déclarée `readonly=True` en toute honnêteté (elle ne lisait alors vraiment que la base) à
+laquelle une tâche ultérieure ajoute une écriture sans revenir sur son `readonly`. L8-09 a posé
+l'écriture de l'entrée d'audit dans `_signed_url` (`_URL_ROUTE`, alors `readonly=True`) : elle
+échouait silencieusement à chaque appel réel, absorbée par le savepoint de `_babana_record`
+(critère 3) -- trouvé en construisant le signal de panne du journal d'audit (D68), pas par la
+règle ci-dessus, qui ne se relit jamais toute seule quand le corps d'une route change.
+
+**Corollaire** : cette règle ne se vérifie qu'à la création de la route. Toute tâche qui AJOUTE
+une écriture dans le corps d'une route `auth='none'` existante doit relire son `readonly` déclaré
+-- ne pas supposer qu'il est déjà correct parce que la route existait avant.
+
 ---
 
 ## `env.user` vide sous `uid=None` casse des hooks internes

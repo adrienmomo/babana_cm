@@ -140,6 +140,24 @@ deux tentatives de `make test` en une seule traversée (au-delà d'une certaine 
 mon contrôle) — chaque morceau a donc été vérifié séparément plutôt qu'en un unique
 `make test` ininterrompu ; voir le rapport J42 pour le détail pièce par pièce.
 
+**Mise à jour J43 (4 septembre, D68) : `make reset` poussé jusqu'au bout cette fois — volume
+Postgres réellement vidé, pas seulement les conteneurs relevés — et ça a changé la réponse à deux
+questions ouvertes.** D'abord, une base ancienne (montée depuis plusieurs heures, jamais
+réinitialisée) faisait échouer `TestRemittanceAccounting::
+test_two_successive_partial_remittances_never_leave_the_receivable_in_a_credit_balance` de façon
+parfaitement reproductible (45850,0 au lieu de 45000) — confirmé identique sur `master` avant tout
+changement de la nuit. **Sur la base vraiment fraîche, ce test passe**, avec les 818 autres (0
+échec, 0 erreur, `amoa/rapport-nuit-J43.md` §3) : encore un artefact de base accumulée, comme
+`code/docs/odoo-pitfalls.md` le documente déjà dans l'autre sens (des tests verts qui cachent un
+défaut). Ensuite, un volume Postgres vraiment vide fait réinstaller — et retester — tous les
+modules Odoo dont `babana` dépend (`account`, `mail`, `hr`...) au premier `-i babana
+--test-enable` : des milliers de tests amont, sans rapport avec ce dépôt, pour un temps
+d'exécution que je ne crois pas que les nuits précédentes aient jamais payé (leurs comptes de
+« 806 tests » ne collent qu'à la suite `babana` seule). Contourné en installant d'abord sans
+`--test-enable`, puis en testant sur le module déjà installé — voir le rapport J43 pour le détail.
+Aucune des deux découvertes n'est un défaut du dépôt ; les deux valent d'être sues avant le
+prochain `make reset` complet.
+
 Trois tests instables rencontrés en cinq nuits, comme demandé :
 
 1. **`test/realtime/reservation.test.ts`** (critère 5, D26 — course au TTL de 1 s). Diagnostiqué
@@ -231,3 +249,24 @@ avec vous, en attendant que L8-10 (hors périmètre pilote) l'affine par catégo
 vue back-office elle-même n'a été ouverte et filtrée que par moi, sur le jeu de démonstration,
 jamais par un vrai superviseur en train d'arbitrer un vrai litige. Le mécanisme est prouvé ; l'outil
 n'a pas encore rencontré la main qui doit s'en servir.
+
+**Fermé la nuit d'après (J43, D68) : le silence que composaient les critères 2 et 3 de L8-09 a
+maintenant un signal, posé hors de `babana.audit.log` (`ir.config_parameter`), visible sur un
+écran back-office dédié (« État du journal d'audit », à côté de « Journal d'audit », réservé aux
+administrateurs) sans jamais ouvrir un fichier de logs. Voir `amoa/rapport-nuit-J43.md` §1 pour le
+détail — et **son §4 pour un aveu plutôt qu'une confirmation** : la vérification visuelle a été
+tentée et bloquée par un accident d'environnement (l'interface entière restait blanche, y compris
+sur l'écran « Journal d'audit » déjà ouvert et décrit la veille) — le point 9 de la définition de
+fini reste donc ouvert pour ce nouvel écran, à refaire au prochain accès au back-office.
+
+**Et en le construisant, un vrai trou du L8-09 de la veille est apparu, pas seulement un trou
+hypothétique** : `GET /api/v1/driver/documents/<id>/url` (`_signed_url`, le seul événement de la
+spécification sans transition) écrivait dans le journal d'audit depuis une route restée
+`readonly=True` — une écriture qui échouait donc silencieusement à **chaque appel réel** depuis sa
+création, absorbée par le savepoint censé protéger l'opération métier (critère 3, exactement ce
+qui rend ce genre de silence possible). Corrigé (`readonly=False`), prouvé par un test qui passe
+par la vraie route HTTP plutôt que par le chemin back-office que le test de critère 1 exerçait
+jusqu'ici. Voir `amoa/rapport-nuit-J43.md` §2. **La leçon vaut d'être généralisée** : toute future
+tâche qui ajoute une écriture dans le corps d'une route `auth='none'` existante doit relire son
+`readonly` déclaré — la règle de `code/docs/odoo-pitfalls.md` protège une route écrite dès le
+départ, pas une route dont le corps change plus tard.

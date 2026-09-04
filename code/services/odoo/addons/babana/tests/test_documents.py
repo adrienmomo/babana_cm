@@ -229,6 +229,45 @@ class TestDriverDocumentsController(HttpCase):
         self.assertEqual(url_response.status_code, 200)
         self.assertTrue(url_response.json()["url"])
 
+    def test_signed_url_access_is_journalized_over_a_real_http_call(self):
+        # D68 (01-architecture.md §9 decies) : trouvé en construisant le signal de panne du
+        # journal d'audit -- _URL_ROUTE portait `readonly=True` alors que `_signed_url` écrit
+        # une entrée d'audit (L8-09, critère 1, le seul événement sans transition). Sur une
+        # vraie requête HTTP, l'écriture échouait silencieusement (`ReadOnlySqlTransaction`,
+        # absorbée par le savepoint de `_babana_record`, critère 3) -- le test de critère 1
+        # existant (test_audit_log.py::test_driver_document_access_produces_an_entry) n'exerçait
+        # que le chemin back-office (`action_preview`), jamais cette route. Ce test-ci passe
+        # PAR LA VRAIE ROUTE, comme un chauffeur réel, plutôt que par un appel Python direct.
+        token = self._sign_in_as_driver("sub-doc-audit")
+        response = self._upload(
+            token, document_type="id_card", content_type="image/jpeg", data=_A_JPEG
+        )
+        document_id = response.json()["id"]
+
+        url_response = self.url_open(
+            f"/api/v1/driver/documents/{document_id}/url",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        self.assertEqual(url_response.status_code, 200)
+
+        entries = self.env["babana.audit.log"].sudo().search(
+            [
+                ("model_name", "=", "babana.driver.document"),
+                ("res_id", "=", document_id),
+                ("event", "=", "driver_document.access"),
+            ]
+        )
+        self.assertTrue(
+            entries,
+            "l'accès à l'URL signée, par la vraie route HTTP, doit produire une entrée de "
+            "journal -- pas seulement le chemin back-office",
+        )
+        health = self.env["babana.audit.log.health"].create({})
+        self.assertFalse(
+            health.has_failure,
+            "cette route ne doit plus échouer à journaliser depuis que readonly=False (D68)",
+        )
+
     # --- Critère 3 : un chauffeur ne peut pas obtenir l'URL du document d'un autre -------------
 
     def test_driver_cannot_get_url_for_another_drivers_document(self):

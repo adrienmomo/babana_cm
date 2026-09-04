@@ -223,6 +223,91 @@ class TestAuditLogNeverBlocksBusinessOperation(TestAuditLogBase):
         self.assertEqual(movement.amount, 800)
 
 
+# === D68 : un échec silencieux du critère 3 doit se voir ailleurs que dans le journal =========
+#
+# Le journal ne lève jamais (critère 3) et personne ne peut y écrire à sa place (critère 2) --
+# ensemble, sans ce qui suit, un échec d'écriture n'aurait plus d'autre trace que
+# `_logger.exception`, c'est-à-dire le journal applicatif que L8-09 existe pour remplacer
+# (01-architecture.md §9 decies). Ces tests PROVOQUENT l'échec ; aucun ne se contente de vérifier
+# qu'un succès réussit -- ça, c'est déjà couvert ci-dessus.
+
+
+@tagged("post_install", "-at_install")
+class TestAuditLogFailureVisibility(TestAuditLogBase):
+    def _health(self):
+        # Même geste que l'ouverture réelle de l'écran (babana_audit_log_views.xml) : create({})
+        # sur le TransientModel déclenche default_get(), même patron que
+        # babana.cash.dashboard dans test_cash_backoffice.py.
+        return self.env["babana.audit.log.health"].create({})
+
+    def test_no_failure_before_anything_broke(self):
+        health = self._health()
+        self.assertFalse(health.has_failure)
+        self.assertEqual(health.failure_count, 0)
+
+    def test_write_failure_becomes_visible_without_opening_a_log_file(self):
+        client = self._make_partner()
+        AuditLogModel = type(self.env["babana.audit.log"])
+
+        with patch.object(AuditLogModel, "create", side_effect=RuntimeError("panne simulée")):
+            self.env["babana.ride"].action_request(self._base_ride_vals(client))
+
+        health = self._health()
+        self.assertTrue(
+            health.has_failure,
+            "un échec d'écriture du journal doit se voir sur babana.audit.log.health",
+        )
+        self.assertEqual(health.failure_count, 1)
+        self.assertEqual(health.last_failure_event, "ride.request_creation")
+        self.assertEqual(health.last_failure_model_name, "babana.ride")
+        self.assertIn("panne simulée", health.last_failure_error)
+
+    def test_signal_survives_even_though_the_model_that_failed_cannot_carry_it(self):
+        # Le point du D68 : le signal ne vit PAS dans babana.audit.log -- il reste lisible
+        # alors même que ce modèle est celui qui casse, tout du long, sur DEUX pannes
+        # successives (le compteur doit les accumuler, pas se contenter d'un booléen).
+        driver = self._make_driver()
+        AuditLogModel = type(self.env["babana.audit.log"])
+
+        with patch.object(AuditLogModel, "create", side_effect=RuntimeError("panne 1")):
+            self.env["babana.cash.movement"].create(
+                {"driver_id": driver.id, "movement_type": "collection", "amount": 500}
+            )
+        with patch.object(AuditLogModel, "create", side_effect=RuntimeError("panne 2")):
+            self.env["babana.cash.movement"].create(
+                {"driver_id": driver.id, "movement_type": "collection", "amount": 500}
+            )
+
+        health = self._health()
+        self.assertTrue(health.has_failure)
+        self.assertEqual(health.failure_count, 2)
+        self.assertIn("panne 2", health.last_failure_error)
+
+    def test_acknowledge_clears_the_signal_but_only_on_an_explicit_gesture(self):
+        client = self._make_partner()
+        AuditLogModel = type(self.env["babana.audit.log"])
+        with patch.object(AuditLogModel, "create", side_effect=RuntimeError("panne simulée")):
+            self.env["babana.ride"].action_request(self._base_ride_vals(client))
+        self.assertTrue(self._health().has_failure)
+
+        # Un événement journalisé AVEC succès entre-temps ne doit pas effacer le signal tout
+        # seul -- un échec intermittent redevenu vert doit rester visible jusqu'à ce qu'un
+        # administrateur l'ait réellement vu, pas jusqu'au prochain événement qui réussit.
+        self.env["babana.ride"].action_request(self._base_ride_vals(self._make_partner("B")))
+        self.assertTrue(
+            self._health().has_failure,
+            "un succès ultérieur ne doit pas effacer silencieusement un échec passé",
+        )
+
+        admin = self._make_admin()
+        health = self.env["babana.audit.log.health"].with_user(admin).create({})
+        health.action_acknowledge()
+
+        after = self._health()
+        self.assertFalse(after.has_failure)
+        self.assertEqual(after.failure_count, 0)
+
+
 # === Critère 4 : avant/après exploitables pour reconstituer un historique =====================
 
 
