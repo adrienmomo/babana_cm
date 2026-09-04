@@ -166,10 +166,14 @@ class TestRemittanceAccounting(TransactionCase):
         receivable_account = self.env["ir.config_parameter"].sudo().get_param(
             "babana.cash_remittance_receivable_account_id"
         )
+        # D69 : bornée aux deux pièces de ce scénario (first.move_id, second.move_id), jamais à
+        # une recherche sur tout le compte -- qui mesurerait l'histoire de la base, pas le
+        # scénario, et coïnciderait avec 45 000 par accident sur une base vide seulement.
+        scenario_moves = first.move_id | second.move_id
         total_credited = sum(
-            self.env["account.move.line"]
-            .search([("account_id", "=", int(receivable_account))])
-            .mapped("credit")
+            scenario_moves.line_ids.filtered(
+                lambda line: line.account_id.id == int(receivable_account)
+            ).mapped("credit")
         )
         self.assertEqual(total_credited, 45000, "le total réellement crédité égale le total reçu, pas plus")
 

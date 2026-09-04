@@ -204,11 +204,14 @@ class TestCashDiscrepancy(TransactionCase):
             "babana.cash_remittance_receivable_account_id"
         )
         # Créance totalement soldée en comptabilité une fois la dette éteinte : 40 000 crédités à
-        # la validation (remittance.move_id) + 5 000 ici = 45 000, le montant attendu en entier.
+        # la validation (remittance.move_id) + 5 000 ici (move) = 45 000, le montant attendu en
+        # entier. D69 : bornée aux deux pièces de ce scénario, jamais à une recherche sur tout le
+        # compte -- qui mesurerait l'histoire de la base, pas le scénario.
+        scenario_moves = remittance.move_id | move
         total_credited = sum(
-            self.env["account.move.line"]
-            .search([("account_id", "=", int(receivable_account))])
-            .mapped("credit")
+            scenario_moves.line_ids.filtered(
+                lambda line: line.account_id.id == int(receivable_account)
+            ).mapped("credit")
         )
         self.assertEqual(total_credited, 45000)
 
