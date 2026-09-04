@@ -104,9 +104,8 @@
                     (plein écran, comme babana_cash_dashboard_action), et un footer n'est rendu
                     par le client qu'en target="new" (boîte de dialogue), trouvé en vérifiant
                     visuellement cet écran (D68), où « Marquer comme vu » n'apparaissait nulle
-                    part. babana_cash_dashboard_view_form (babana_remittance_views.xml) porte le
-                    même défaut, plus ancien (L9-05) : nommé, non corrigé ici, hors périmètre de
-                    cette nuit.
+                    part. babana_cash_dashboard_view_form (babana_remittance_views.xml) portait le
+                    même défaut, plus ancien (L9-05) : corrigé le lendemain (J44), même correctif.
                 -->
                 <header>
                     <button name="action_acknowledge" type="object" string="Marquer comme vu"

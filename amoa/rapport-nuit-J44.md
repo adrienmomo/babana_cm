@@ -47,3 +47,30 @@ undecies étaient les deux seuls.
 
 Fichiers : `services/odoo/addons/babana/tests/test_remittance_accounting.py`,
 `services/odoo/addons/babana/tests/test_discrepancy.py`.
+
+---
+
+## 2. Le `<footer>` du tableau de bord de caisse (L9-05)
+
+Même défaut que celui trouvé et corrigé hier soir sur `babana_audit_log_health_view_form`
+(D68, J43) : `babana_cash_dashboard_view_form` s'ouvre en `target="current"` (plein écran), et le
+client web d'Odoo 18 ne rend jamais de `<footer>` sur une action plein écran — seulement sur une
+action `target="new"` (boîte de dialogue). Le bouton « Actualiser » n'existait donc nulle part,
+alors que le bandeau d'aide disait explicitement « utiliser « Actualiser » ci-dessous ».
+
+**Correctif, même patron qu'hier** : le bouton `action_refresh` déplacé dans un `<header>`,
+le bouton « Fermer » (`special="cancel"`) retiré — il n'a de sens que dans une boîte de dialogue —
+et le bandeau corrigé (« ci-dessus » au lieu de « ci-dessous »). Commentaire XML posé au même
+endroit que sur l'écran d'hier, avec renvoi croisé dans les deux sens.
+
+**Ouvert pour de vrai, deux fois** (point 9) : une première fois juste après le correctif, sur la
+base encore ancienne (3 heures, plusieurs exécutions de tests dedans) — bouton visible dans le
+`<header>`, cliqué, la vue se recharge (`babana.cash.dashboard,1` dans le fil d'Ariane, valeurs
+inchangées puisque rien n'avait bougé entre-temps). Une seconde fois après le `make reset` complet
+de ce soir et un `make seed` neuf : mêmes vérifications, sur des valeurs réelles cette fois (9 200
+FCFA détenus par la flotte, une remise en attente `R2026000055`). Les deux fois, bouton cliqué,
+aucune erreur, la fiche se recharge normalement.
+
+Fichiers : `services/odoo/addons/babana/views/babana_remittance_views.xml`,
+`services/odoo/addons/babana/views/babana_audit_log_views.xml` (commentaire d'hier mis à jour :
+il annonçait ce correctif comme non fait, il est fait).

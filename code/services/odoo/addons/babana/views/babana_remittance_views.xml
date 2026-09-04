@@ -133,9 +133,20 @@
         <field name="model">babana.cash.dashboard</field>
         <field name="arch" type="xml">
             <form>
+                <!--
+                    Bouton au HEADER, pas en FOOTER : cet écran s'ouvre en target="current"
+                    (plein écran), et un footer n'est rendu par le client Odoo 18 qu'en
+                    target="new" (boîte de dialogue), trouvé en vérifiant visuellement cet
+                    écran (D68 puis D69, nuit J43 puis J44), où « Actualiser » n'apparaissait
+                    nulle part malgré le bandeau qui l'annonçait. Même correctif que
+                    babana_audit_log_health_view_form (babana_audit_log_views.xml).
+                -->
+                <header>
+                    <button name="action_refresh" type="object" string="Actualiser" class="oe_highlight"/>
+                </header>
                 <sheet>
                     <div class="alert alert-info" role="alert">
-                        Recalculé à chaque ouverture -- utiliser « Actualiser » ci-dessous pour
+                        Recalculé à chaque ouverture -- utiliser « Actualiser » ci-dessus pour
                         une lecture à jour sans rouvrir le menu.
                     </div>
                     <group>
@@ -154,10 +165,6 @@
                         <field name="oldest_pending_remittance_id" string="La plus ancienne en attente"/>
                     </group>
                 </sheet>
-                <footer>
-                    <button name="action_refresh" type="object" string="Actualiser" class="oe_highlight"/>
-                    <button string="Fermer" special="cancel"/>
-                </footer>
             </form>
         </field>
     </record>
