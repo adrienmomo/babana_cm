@@ -74,3 +74,68 @@ aucune erreur, la fiche se recharge normalement.
 Fichiers : `services/odoo/addons/babana/views/babana_remittance_views.xml`,
 `services/odoo/addons/babana/views/babana_audit_log_views.xml` (commentaire d'hier mis à jour :
 il annonçait ce correctif comme non fait, il est fait).
+
+---
+
+## 3. Passe finale — `make reset` complet, `make seed`, suite complète
+
+`make reset` poussé jusqu'au bout (volume Postgres et tout le reste effacés), comme les deux
+nuits précédentes. Deux passes d'installation, même raison que J43 : `-i babana` seul d'abord
+(sans `--test-enable`, ~24 s, pas de suite Odoo amont rejouée), puis `-i babana --test-enable`
+sur le module déjà installé. **Résultat, base vraiment neuve : 0 échec, 0 erreur, 820 tests**
+Odoo — les deux tests corrigés de D69 compris.
+
+`make seed` (2 min 7 s cette fois — cohérent avec le coût documenté par J43 pour une première
+installation) : 6 zones, 5 chauffeurs en ligne, 8 courses réglées, sans anomalie nouvelle.
+
+**Les deux écrans (tableau de bord de caisse, état du journal d'audit) rouverts sur cette base
+neuve**, avec de vraies valeurs cette fois — voir §2. Aucune régression du correctif d'hier soir.
+
+### `npm test` — un échec transitoire, dans un fichier hors périmètre de cette nuit
+
+`services/realtime` (226 tests) et `apps/*` + `packages/*` (193 tests, 28 suites Jest) sont passés
+sans anomalie. Dans l'espace `test/`, `concurrency/ride-transitions.test.ts::scénario 1` a échoué
+une fois (« chauffeur jamais apparu dans nearby.drivers après 20000ms »), suivi d'un silence total
+dans le journal — aucune ligne nouvelle pendant seize minutes, alors que les fichiers suivants
+(`select-driver-replay.test.ts`, `auth`+`http-contract`+`config`+`storage`,
+`e2e/full-ride.test.ts`) prennent chacun entre 20 s et 90 s une fois exécutés seuls. Le processus
+worker, observé à cet instant, tournait à 0 % CPU et ne portait plus aucune connexion réseau
+ouverte (`lsof` vide) — un signal plus fort qu'une simple lenteur, sans être une preuve absolue
+(la fenêtre d'observation reste ponctuelle).
+
+**Ce que j'ai fait, plutôt que conclure directement** : le processus arrêté, puis chaque morceau
+rejoué séparément sur l'environnement resté debout (aucun `make reset` entre-temps) :
+`select-driver-replay.test.ts` seul (80 s, vert), `auth`+`http-contract`+`config`+`storage`
+ensemble (45 tests, vert), `e2e/full-ride.test.ts` seul (5 tests, vert), et surtout
+`ride-transitions.test.ts` seul, les trois scénarios : **vert, y compris le scénario 1** qui avait
+échoué dans la chaîne continue (103 574 ms cette fois, contre l'échec à 49 551 ms plus tôt — pas
+la même exécution, mais le même scénario). Les deux scripts de vérification des contrats
+(`verify-ride-state-machine.js`, `verify-realtime-message-map.js`, jamais atteints par la chaîne
+interrompue) rejoués séparément : verts, mêmes lacunes déjà documentées (`ride.cancelled`,
+`ride.proposed`, `session.synced` encore sans consommateur, toutes trois déjà nommées dans
+`amoa/questions/C-02R.md`).
+
+**Verdict, honnête plutôt que définitif** : je ne peux pas distinguer avec certitude, depuis une
+seule observation, un vrai figement (fuite de connexion, verrou Redis orphelin laissé par l'échec
+du scénario 1) d'un artefact de mise en tampon du flux (`tee` vers un fichier, sortie TAP groupée
+par fichier plutôt que par ligne). Ce que je sais : rejoué isolément juste après, sur le même
+environnement sans redémarrage, le scénario 1 repasse au vert — donc ni un défaut du dépôt
+reproductible à la demande, ni une contention entre deux exécutions concurrentes de ma part (une
+seule instance de `node --test` tournait, vérifié par `ps`, contrairement au motif que J42 avait
+diagnostiqué). **Quatrième occurrence du motif « instable, jamais retrouvé » que J41 catalogue** —
+la troisième était `services/realtime/test/nearby.test.ts` (vu une fois le 15 septembre, jamais
+depuis). Consigné dans la passe de clôture de J41 (ci-dessous) plutôt que classé sans suite : si le
+figement de seize minutes revient un soir où il peut être observé en train de se produire (plutôt
+qu'après coup), il vaut la peine d'être élucidé pour de vrai — mesurer les connexions Redis
+ouvertes au moment même, pas dix minutes plus tard.
+
+**Aucun rapport avec D69 ou L9-05** : `ride-transitions.test.ts` n'a pas été touché cette nuit, et
+la suite Odoo (qui porte les deux correctifs de ce soir) était déjà verte, sur une base neuve,
+avant que `npm test` ne démarre.
+
+---
+
+## Ce qui reste ouvert de votre côté
+
+Inchangé depuis hier, `08-passation-pilote.md` en porte le détail. Le relais SMTP reste la seule
+chose à faire si vous n'en faites qu'une.

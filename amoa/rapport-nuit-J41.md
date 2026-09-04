@@ -158,7 +158,7 @@ d'exécution que je ne crois pas que les nuits précédentes aient jamais payé 
 Aucune des deux découvertes n'est un défaut du dépôt ; les deux valent d'être sues avant le
 prochain `make reset` complet.
 
-Trois tests instables rencontrés en cinq nuits, comme demandé :
+Quatre tests instables rencontrés en six nuits, comme demandé :
 
 1. **`test/realtime/reservation.test.ts`** (critère 5, D26 — course au TTL de 1 s). Diagnostiqué
    le 10 août (`d538e46`) : `accumulator.test.ts`, nouveau ce soir-là, écrivait beaucoup sur le
@@ -178,6 +178,19 @@ Trois tests instables rencontrés en cinq nuits, comme demandé :
    La détection automatique d'instabilité (L0-09) a été placée hors périmètre pilote le
    15 septembre ; ce choix suppose qu'une seule session travaille sur ce dépôt à la fois, et
    devient faux le jour où ce n'est plus vrai.
+4. **`test/concurrency/ride-transitions.test.ts::scénario 1`** (acceptation concurrente, 20
+   itérations x 8 appels). Échoué une fois le 4 septembre (nuit J44) dans la chaîne continue de
+   `npm test` — « chauffeur jamais apparu dans nearby.drivers après 20000ms » — suivi d'un silence
+   de seize minutes dans le journal, processus à 0 % CPU et sans connexion réseau ouverte au
+   moment de l'observation (`amoa/rapport-nuit-J44.md` §3). Processus arrêté, chaque fichier
+   suivant rejoué séparément sur l'environnement resté debout, sans `make reset` entre-temps :
+   tous verts, y compris `ride-transitions.test.ts` rejoué seul, ses trois scénarios compris. Pas
+   de contention entre deux exécutions de ma part cette fois (une seule instance de `node --test`,
+   vérifiée par `ps` — contrairement au motif que J42 avait diagnostiqué le 3 septembre). Cause du
+   silence de seize minutes non élucidée : fuite de connexion ou verrou orphelin côté Redis
+   restent aussi plausibles qu'un artefact de mise en tampon du flux `tee`. Si ce figement revient
+   un soir où il peut être observé en train de se produire, mesurer l'état Redis à ce moment-là,
+   pas après coup.
 
 ### Ce qui est vert mais que personne n'a jamais exercé pour de vrai
 
@@ -289,3 +302,21 @@ vraie panne provoquée, retour au vert après « Marquer comme vu ») ont ensuit
 vrai, dans le navigateur. Voir `amoa/rapport-nuit-J43.md` §4 et §5 — §5 nomme explicitement la
 leçon : une page blanche sans message d'erreur visible n'est pas la preuve d'un accident
 d'environnement, seulement la preuve qu'on n'a pas encore trouvé où regarder.
+
+**Les deux points laissés par J43 fermés la nuit suivante (J44).** D69 : les deux tests comptables
+du lot L5 qui sommaient tout le compte de créance au lieu de leur propre scénario
+(`amoa/01-architecture.md` §9 undecies) sont corrigés, et vérifiés capables d'échouer si la règle
+casse — pas seulement de passer. Balayage des quatre lots sensibles : rien d'autre trouvé du même
+motif. Et `babana_cash_dashboard_view_form` (L9-05), nommé par J43 comme portant exactement le même
+défaut de `<footer>` que l'écran corrigé cette nuit-là, a reçu le même correctif — ouvert et cliqué
+pour de vrai, avant et après un `make reset` complet, sur des valeurs réelles. Voir
+`amoa/rapport-nuit-J44.md`. **Aucun des deux écrans du module ne porte plus ce défaut** : les
+quatre autres vues n'ont pas de `<footer>` (le simulateur tarifaire et le formulaire de décision
+chauffeur s'ouvrent en boîte de dialogue, où le patron reste correct).
+
+**Nouveauté de cette nuit-là, sans rapport avec D69 ni L9-05** : une quatrième occurrence du motif
+« test instable, jamais retrouvé », cette fois sur `test/concurrency/ride-transitions.test.ts`,
+avec un symptôme plus inquiétant que les trois précédents — un silence de seize minutes dans le
+journal après l'échec, processus apparemment figé. Rejoué isolément, tout repasse au vert, cause du
+figement non élucidée. Voir §3 de `amoa/rapport-nuit-J44.md` et l'entrée 4 de la liste des tests
+instables ci-dessus.
