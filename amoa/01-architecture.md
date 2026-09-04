@@ -73,6 +73,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D66 | **Le pilote démarre sans vérification du numéro par SMS.** Le numéro du chauffeur est vérifié à l'embauche ; celui du client reste déclaré | Attendre la passerelle SMS | Sur des chauffeurs salariés recrutés en personne, l'OTP ne vérifie rien que l'employeur ne sache déjà. Attendre aurait décalé le pilote d'autant, sans contrepartie. Voir É1 |
 | D67 | **Le journal d'audit immuable (L8-09) entre au périmètre pilote** | Le différer avec le reste du lot L8 | Une donnée non journalisée pendant le pilote est perdue définitivement : on ne reconstitue pas un historique après coup. Sur un service en espèces, c'est la seule chose qu'on ne puisse pas rattraper. Voir §7 quater |
 | D68 | **L'échec d'un mécanisme se signale ailleurs que dans ce qu'il remplace** | `_logger.exception` pour un journal d'audit | Deux gardes justes — le journal ne lève jamais, l'écriture est interdite — composent un silence : si la traçabilité s'arrête, la seule trace est dans le journal applicatif que L8-09 existe précisément à remplacer. Voir §9 decies |
+| D69 | **Une assertion ne somme jamais toute la base : elle est bornée à son propre scénario** | `search([("account_id", "=", …)])` puis somme | Deux tests comptables du lot L5 mesuraient l'histoire de la base plutôt que leur scénario. Vrais sur une base vide, faux dès qu'elle contient des données — c'est-à-dire faux en pilote. Voir §9 undecies |
 
 ---
 
@@ -656,6 +657,33 @@ Ce qui rend le motif intéressant, c'est qu'aucune des deux décisions n'est en 
 
 ---
 
+## 9 undecies. Un test qui mesure l'histoire au lieu du scénario (D69)
+
+La nuit J43 a rencontré un test du lot L5 qui échouait de façon parfaitement reproductible sur une base ancienne — 45 850 attendu contre 45 000 — et passait sur une base fraîche. Elle a supposé un paramètre dérivé par une session antérieure, l'a nommé plutôt que de le taire, et a laissé la question ouverte parce que L5 n'était pas son périmètre. C'était le bon réflexe.
+
+La cause est plus simple, et elle est dans les trois dernières lignes du test :
+
+```python
+total_credited = sum(
+    self.env["account.move.line"]
+    .search([("account_id", "=", int(receivable_account))])
+    .mapped("credit")
+)
+self.assertEqual(total_credited, 45000, "le total réellement crédité égale le total reçu")
+```
+
+Ce `search` n'est borné par rien. Il somme **tous** les mouvements du compte de créance présents dans la base, pas les deux que le scénario vient de produire. Sur une base vide, les deux nombres coïncident et le test paraît juste. Dès que la base contient autre chose, il mesure l'histoire de la base — et le message d'assertion, qui parle du « total réellement crédité », décrit alors quelque chose que le scénario ne contrôle pas.
+
+`test_discrepancy.py` porte exactement le même motif sur le même compte.
+
+**Ce n'est pas un test instable, c'est un test qui prouve autre chose que ce qu'il annonce.** Et il le prouve dans le seul lot que `CLAUDE.md` place sous revue humaine obligatoire, pour une raison précise : une matrice fausse produit des tests verts qui valident les mauvaises règles. Ici, deux assertions comptables ne valident rien du tout dès qu'une donnée réelle existe — c'est-à-dire qu'elles cesseront de valider quoi que ce soit exactement au moment où le pilote démarrera.
+
+La règle : **une assertion est bornée à ce que son scénario a produit.** Les pièces de cette remise, les mouvements de ce chauffeur, les lignes de cette course — jamais « tout ce que porte ce compte ». Une agrégation non bornée dans un test est une mesure de l'environnement déguisée en mesure du code.
+
+Et le corollaire pour la lecture des symptômes, qui vaut au-delà de ces deux tests : **un test qui échoue sur une base ancienne et passe sur une base fraîche n'accuse pas toujours la base.** Le dépôt documentait déjà le sens inverse — des tests verts sur une base accumulée, rouges au premier `make reset`. Celui-ci est le même défaut vu de l'autre côté, et il se diagnostique en lisant l'assertion avant d'accuser l'environnement.
+
+---
+
 ## 10. Risques ouverts
 
 | Risque | Impact | Traitement proposé |
@@ -749,9 +777,9 @@ spécifications.
 
 | Décision | Arbitrée le | Portée par |
 |---|---|---|
-| **D68** — l'échec du journal se signale ailleurs que dans le journal | 19 septembre 2026 | J43 |
+| **D69** — une assertion bornée à son propre scénario | 20 septembre 2026 | J44 |
 
-**D67 a été portée la nuit J42** ; **D66** est un retrait de périmètre, consigné en É1 et dans `06-jalons-et-pilote.md`, sans tâche.
+**D68 a été portée la nuit J43** ; **D66** est un retrait de périmètre, consigné en É1 et dans `06-jalons-et-pilote.md`, sans tâche.
 
 **D64 et D61 étendue ont toutes deux été portées la nuit J40** (`amoa/specs/L1-identite.md`,
 L1-05 critères 6 et 7 ; `controllers/share.py` et `infra/compose.yaml`), comme D62/D63 la nuit
