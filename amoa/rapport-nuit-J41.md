@@ -236,6 +236,31 @@ Quatre tests instables rencontrés en six nuits, comme demandé :
    consécutifs -- observation, pas cause prouvée. Toujours sans théorie sur ce que le dépassement
    mesure ; voir `amoa/rapport-nuit-J46.md` §4 pour le détail.
 
+   **Cause racine trouvée et corrigée la nuit J47 (D73, `amoa/01-architecture.md` §9
+   quindecies).** Reproduit du premier coup en rejouant `npm test` en boucle contre la pile
+   réelle, puis mesuré PENDANT (pas après) par une instrumentation temporaire du service réel
+   (`redis/geo-index.ts::findNearby`, `tracking/ingest.ts::ingestOne`, retirée une fois la cause
+   confirmée) : le chauffeur visé était bien entré dans le pool, jamais expiré, présent dans
+   chaque liste de candidats bruts pendant toute la fenêtre d'attente -- mais systématiquement en
+   6e ou 7e position, jamais dans les 5 retenues (D14). Cause : quatre fichiers de test
+   indépendants (`concurrency/ride-transitions`, `concurrency/select-driver-replay`,
+   `http-contract/endpoint-coverage`, `e2e/full-ride`) amenaient chacun un chauffeur réel au même
+   point exact (4.05, 9.70), sans coordination entre eux -- et `node --test` les exécute en
+   processus concurrents (vérifié, pas supposé). À distance rigoureusement identique, Redis
+   départage les scores égaux par ordre lexicographique de l'identifiant, jamais par ordre
+   d'arrivée : jusqu'à 7 chauffeurs réellement en ligne au même point, mesuré, dont 2
+   systématiquement exclus. Ni un défaut du géo-index ni de la diffusion -- les deux se comportent
+   exactement comme spécifiés -- une collision de jeux de données entre suites conçues
+   indépendamment, invisible tant qu'on isole un fichier pour vérifier. Corrigé en donnant à trois
+   des quatre fichiers un point distinct, séparé de plus de 12 km (au-delà du rayon que ces
+   fichiers utilisent) ; vérifié sans effet sur le tarif ou le trajet (mock de routage dérivé de
+   la seule distance, zone tarifaire unique) avant de choisir les nouvelles coordonnées. Vérifié à
+   blanc, deux fois, par la commande réelle : 54/54 tests verts les deux fois. Voir
+   `amoa/rapport-nuit-J47.md` pour le détail complet.
+
+   Cette clôture ferme la seule entrée encore ouverte des quatre tests instables listés ci-dessus
+   -- les trois autres (1, 2, 3) restent corrigées et non revues depuis.
+
 ### Ce qui est vert mais que personne n'a jamais exercé pour de vrai
 
 - **`bootstrap.sh`** — jamais lancé : il durcit un hôte réel (installe `age`, `rclone`, un

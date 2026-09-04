@@ -48,7 +48,22 @@ import {
   waitForDriverVisible,
 } from './helpers/realtime';
 
-const RIDE_ORIGIN = { latitude: 4.05, longitude: 9.7 };
+// Point DISTINCT de celui de concurrency/ride-transitions.test.ts, http-contract/endpoint-
+// coverage.test.ts et e2e/full-ride.test.ts (D72/D73, amoa/01-architecture.md §9 quindecies) : ces
+// quatre fichiers tournent CONCURREMMENT (node --test lance un processus par fichier -- mesuré,
+// pas supposé) et amenaient chacun un ou plusieurs chauffeurs réellement en ligne au même point
+// exact -- jusqu'à 7 en même temps, mesuré. Le géo-index n'en garde alors que les 5 premiers par
+// ordre de score, et pour des points RIGOUREUSEMENT identiques ce score est à égalité parfaite :
+// Redis départage alors par ordre lexicographique de l'identifiant (mesuré, reproductible),
+// jamais par ordre d'arrivée -- un chauffeur dont l'identifiant trie après les quatre autres
+// n'apparaît alors JAMAIS dans nearby.drivers, quelle que soit la durée d'attente. Aucune
+// écriture Odoo ni aucun calcul de tarif ne dépend de la position absolue (mock de routage
+// dérivé de la seule distance, une unique zone par défaut couvrant tout le rectangle
+// opérationnel) -- écarter ce point du point commun des trois autres fichiers n'a donc aucun
+// effet sur ce que ce fichier vérifie. Distance à `ride-transitions.test.ts` (resté à
+// 4.05/9.70) : environ 12,6 km, largement au-delà de NEARBY_MAX_RADIUS_METERS (5 km) -- ce
+// fichier a son propre chauffeur, jamais mêlé à celui d'un autre.
+const RIDE_ORIGIN = { latitude: 4.13, longitude: 9.62 };
 const ITERATIONS = Number(process.env.L3_17_REPLAY_ITERATIONS ?? 8);
 
 let clientSession: Session;

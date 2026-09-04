@@ -77,6 +77,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D70 | **Un incident intermittent se catalogue par son symptôme, pas par la nuit où il est apparu** | Une explication d'environnement par occurrence | Trois nuits ont écarté séparément le même symptôme — un chauffeur jamais apparu dans le vivier, suivi d'un silence — chacune avec une cause plausible, la dernière écartant les deux précédentes. Voir §9 duodecies |
 | D72 | **Réparer ce qui masque un défaut le rend d'abord plus visible.** Un symptôme qui s'aggrave après un correctif de masquage n'est pas une régression | Lire l'aggravation comme un retour en arrière | Le figement retiré, la défaillance de diffusion est passée d'une occurrence isolée à quatre sur trois fichiers. Elle était là depuis le début ; seule son observabilité a changé. Voir §9 quaterdecies |
 | D71 | **Tout appel sortant porte un délai.** Un rattrapage placé derrière un appel qui peut se taire ne s'exécute jamais | Compter sur l'échec ou la réponse | `callOdoo` **et `callOdooOnce`** étaient les deux seuls appels sortants sans délai du système — le second portant l'écriture d'acceptation, devant la file de rejeu. Un appel qui ne se termine pas n'atteint ni le réessai ni la file. Voir §9 terdecies |
+| D73 | **Un chauffeur peut être présent dans le vivier, jamais retiré, et ne jamais être projeté.** À égalité parfaite de position, le plafond des 5 plus proches (D14) départage par ordre lexicographique de l'identifiant, jamais par ordre d'arrivée | Chercher la cause dans l'entrée/la sortie du pool | Quatre fichiers de test indépendants amenaient chacun un chauffeur réel au même point exact (4.05, 9.70) ; `node --test` les exécute en processus concurrents, mesuré. Jusqu'à 7 chauffeurs réellement en ligne au même point, dont 2 systématiquement exclus des 5 projetés — pas par intermittence de la diffusion, par un rang structurellement perdant. Aucun invariant violé : le pool n'a qu'un écrivain, D14 borne bien à 5. Voir §9 quindecies |
 
 ---
 
@@ -747,6 +748,71 @@ Ce que la chasse a déjà écarté, et qui vaut d'être écrit pour ne pas y rev
 La cause est donc en amont du cache : dans le géo-index ou dans la diffusion. Et **c'est la fonction qui décide si un client voit un chauffeur** — en production, un client qui ouvre l'application et ne trouve personne.
 
 D'où D72, et la méthode qui a fermé D70 plutôt qu'une quatrième relecture : reproduire dans la condition réelle, puis mesurer pendant. La fenêtre est ouverte — le symptôme est tombé deux fois sur deux — et elle se refermera.
+
+---
+
+## 9 quindecies. Présent, jamais sorti, jamais projeté (D73)
+
+D72 demandait une mesure pendant, pas une quatrième lecture. Reproduit du premier coup en rejouant
+la commande réelle (`npm test`, jamais un fichier isolé) en boucle : `chauffeur(s)
+[fff450bf-a95a-4d65-a98a-f098b9a66a33] jamais apparu(s) dans nearby.drivers après 20000ms`, dans
+`concurrency/select-driver-replay.test.ts`.
+
+**Instrumentation temporaire, retirée une fois la mesure faite** : une ligne de journal dans
+`redis/geo-index.ts::findNearby` (candidats bruts, candidats frais, cardinalité du pool) et dans
+`tracking/ingest.ts::ingestOne` (résultat de `addEligibleToPool`), posée sur le service réel via le
+montage de développement (`tsx watch`), jamais un correctif laissé en place sans preuve — le
+garde-fou du protocole.
+
+**Ce que la mesure a montré, sans ambiguïté** : le chauffeur visé était bien inséré
+(`addEligibleToPool` → `inserted=true`), et il apparaissait dans les candidats bruts de **chaque**
+appel de `findNearby` pendant toute la fenêtre d'attente de 20 secondes — jamais retiré du pool,
+jamais expiré (`stale=[]` à chaque fois). La cardinalité mesurée du pool à ce point : 6 à 7
+chauffeurs réellement en ligne, simultanément, à la même coordonnée exacte (4.05, 9.70). Le tableau
+des candidats bruts, dans l'ordre où Redis les renvoie (`GEOSEARCH ... ASC`), plaçait ce chauffeur
+systématiquement en 6e ou 7e position — jamais dans les 5 premières.
+
+**La troisième réponse de la question posée par la nuit précédente** : ce chauffeur n'est jamais
+entré (il l'est), il n'est jamais sorti (aucune expiration, aucun retrait), **il est présent et
+n'est simplement jamais projeté**. La cause : à distance rigoureusement identique (des points
+strictement égaux, pas seulement proches), le score géospatial Redis est bit-à-bit identique pour
+tous les chauffeurs du même point — et Redis départage alors les scores à égalité par ordre
+lexicographique de l'identifiant, jamais par ordre d'arrivée dans le pool. Vérifié sur les données
+mesurées : l'ordre des candidats bruts correspondait exactement à l'ordre alphabétique de leurs
+UUID. `fff450bf-...` commence par deux des caractères hexadécimaux les plus grands ; il perdait le
+départage à chaque fois, par construction, pas par malchance ponctuelle.
+
+**D'où venaient 6 à 7 chauffeurs réels au même point exact ?** `node --test` exécute les fichiers
+qu'il reçoit en processus concurrents (mesuré hors du dépôt, dans un répertoire de travail
+temporaire : deux fichiers de sonde, un `test()` de quelques secondes chacun, démarrent et
+terminent à la même milliseconde quand ils sont passés ensemble à `tsx --test`). Quatre fichiers —
+`concurrency/ride-transitions.test.ts`, `concurrency/select-driver-replay.test.ts`,
+`http-contract/endpoint-coverage.test.ts` et `e2e/full-ride.test.ts` (via
+`e2e/fixtures/geo.ts`) — amenaient chacun un ou plusieurs chauffeurs réellement en ligne à la
+même coordonnée (4.05, 9.70), sans coordination entre eux : chacun est correct pris isolément,
+c'est leur concurrence, jamais exercée par un fichier seul, qui les fait cohabiter.
+
+**Ce que ce n'est pas.** Ni une violation d'invariant (le pool n'a toujours qu'un seul écrivain,
+D26 ; les 5 plus proches restent les 5 plus proches, D14 ne garantit rien de plus à égalité
+parfaite), ni un défaut du géo-index ou de la diffusion : les deux se comportent exactement comme
+spécifiés. C'est une collision de jeux de données entre suites de test conçues indépendamment, que
+seule leur exécution concurrente révèle — invisible tant qu'on isole un fichier pour vérifier,
+exactement le piège que la méthode de D70 existe pour éviter.
+
+**Le correctif** : chacun des quatre fichiers reçoit désormais un point distinct, séparé des trois
+autres de plus de 12 km — largement au-delà de `NEARBY_MAX_RADIUS_METERS` (5 km, seul rayon que ces
+fichiers utilisent ; aucun n'exerce l'élargissement par exclusion, `NEARBY_EXPAND_MAX_RADIUS_METERS`
+ne les concerne pas). `concurrency/ride-transitions.test.ts` garde (4.05, 9.70), les trois autres
+sont déplacés. Vérifié sans effet de bord : le mock de routage (`services/mocks/maps/src/routing.js`)
+ne dérive que de la distance entre origine et destination, jamais des coordonnées absolues
+(critère d'acceptation 1 de L0-08) ; une seule zone tarifaire, marquée par défaut, couvre tout le
+rectangle opérationnel (`babana_zone_default.xml`) ; et rien côté Odoo (`action_propose`) ne
+vérifie la proximité géographique entre un chauffeur et le point de départ d'une course. Déplacer
+ces points ne change donc ni un tarif, ni un trajet, ni une règle métier — seulement la probabilité
+de collision entre suites concurrentes.
+
+Vérifié à blanc : `npm test` rejoué deux fois après le déplacement, aucune occurrence du symptôme
+sur les quatre fichiers, y compris rejoué avec les mêmes globs concurrents qu'avant.
 
 ---
 

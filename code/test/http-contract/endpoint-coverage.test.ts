@@ -36,8 +36,16 @@ import { bringDriverOnline, makeDriverVisibleToClient } from './helpers/realtime
 type EndpointName = keyof typeof http.HTTP_ENDPOINTS;
 type HttpClient = ReturnType<typeof createHttpClient>;
 
-const ORIGIN = { latitude: 4.05, longitude: 9.7 };
-const DESTINATION = { latitude: 4.06, longitude: 9.71 };
+// Point DISTINCT de concurrency/ride-transitions.test.ts, concurrency/select-driver-replay.test.ts
+// et e2e/full-ride.test.ts (D72/D73, amoa/01-architecture.md §9 quindecies) : ces quatre fichiers
+// tournent concurremment (un processus par fichier) et amenaient chacun un chauffeur réellement en
+// ligne au même point -- jusqu'à 7 à la fois, mesuré -- dont 2 seulement survivent au plafond des 5
+// plus proches (D14). Écarter ce point de celui des trois autres n'a aucun effet sur ce que ce
+// fichier vérifie : le mock de routage ne dérive que de la distance entre origine et destination
+// (services/mocks/maps/src/routing.js), et une seule zone tarifaire couvre tout le rectangle
+// opérationnel (babana_zone_default.xml) -- la position absolue ne change ni le tarif ni le trajet.
+const ORIGIN = { latitude: 3.97, longitude: 9.83 };
+const DESTINATION = { latitude: 3.98, longitude: 9.84 };
 
 // baseUrl est la racine du domaine, PAS ODOO_API_ROOT (qui inclut déjà /api/v1) : chaque chemin
 // de HTTP_ENDPOINTS est déjà préfixé de /api/v1 (voir packages/contracts/src/http/index.ts) --
