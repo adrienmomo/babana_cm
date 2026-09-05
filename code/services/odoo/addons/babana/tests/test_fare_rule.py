@@ -1,7 +1,9 @@
 # Tests de babana.fare.rule (L2-01).
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
+
+import pytz
 
 from odoo.exceptions import UserError
 from odoo.tests.common import TransactionCase, tagged
@@ -112,12 +114,26 @@ class TestBabanaFareRule(TransactionCase):
     def test_weekday_mask_restricts_applicability(self):
         monday_only = 0b0000001  # bit 0
         rule = self._make_rule(name="Lundi seulement", weekday_mask=monday_only, priority=20)
-        # Calculés plutôt qu'écrits en dur : un jour de semaine précis codé à la main se trompe
-        # facilement (fuseau, année) et n'a pas besoin de l'être puisque seule la position
-        # relative (lundi, puis le mardi suivant) importe ici.
-        today = datetime.now()
-        a_monday = today + timedelta(days=(0 - today.weekday()) % 7)
-        a_tuesday = a_monday + timedelta(days=1)
+
+        # D76 (amoa/01-architecture.md §9 undecies) : ce test construisait un « lundi » depuis
+        # l'heure courante (`datetime.now()`) sans jamais fixer l'heure du jour. Entre 23h et
+        # minuit UTC, `_find_applicable_rule` convertit cet instant vers l'heure locale
+        # d'exploitation (Africa/Douala, UTC+1) AVANT de lire le jour de semaine -- la conversion
+        # fait alors franchir minuit, et le « lundi » du test devient un mardi côté code, sans
+        # qu'aucune ligne de ce test ne le sache. Un test ne dépend de rien qu'il n'ait posé
+        # lui-même : fixer midi en heure locale, plutôt que l'heure courante, élimine la fenêtre
+        # de bascule entièrement, au lieu de la déplacer sur un autre quart d'heure de la
+        # journée. La DATE reste calculée depuis aujourd'hui (calculée dans le même fuseau que le
+        # code sous test, pas supposée UTC) : active_from de la règle vaut fields.Date.today() à
+        # la création, une date de test trop ancienne la rendrait elle-même non candidate.
+        operating_tz = self.env["babana.fare.rule"]._operating_timezone()
+        local_now = datetime.now(operating_tz)
+        a_monday_date = local_now.date() + timedelta(days=(0 - local_now.weekday()) % 7)
+        local_monday_noon = operating_tz.localize(datetime.combine(a_monday_date, time(12, 0)))
+        local_tuesday_noon = local_monday_noon + timedelta(days=1)
+
+        a_monday = local_monday_noon.astimezone(pytz.UTC).replace(tzinfo=None)
+        a_tuesday = local_tuesday_noon.astimezone(pytz.UTC).replace(tzinfo=None)
 
         self.assertEqual(
             self.env["babana.fare.rule"]._find_applicable_rule(at_datetime=a_monday), rule

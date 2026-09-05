@@ -24,6 +24,17 @@ particulier accepte une facture, la garde, et ne signale rien — une panne d'en
 `infra/production/deploy.sh` refuse de déployer si l'une de ces variables est vide ou pointe
 vers un simulateur.
 
+**Variante inverse depuis le 26 septembre (D75, `amoa/01-architecture.md` §9 septdecies) :
+`GOOGLE_JWKS_URL_MOCK`.** Toutes les variables ci-dessus doivent finir par recevoir une vraie
+adresse en production — vides, elles bloquent le déploiement. `GOOGLE_JWKS_URL_MOCK` est
+l'exception inverse : elle doit rester **absente** en production, et `deploy.sh` bloque si elle
+est renseignée, quelle que soit la valeur. Elle porte l'adresse du jeu de clés JWKS de
+`mock-google-identity` (L0-08), acceptée en plus de la vraie adresse Google que porte
+`GOOGLE_JWKS_URL` — `google_identity.py` route vers l'une ou l'autre d'après l'émetteur (`iss`)
+déclaré par le jeton. C'est ce qui permet à une démonstration de montrer une vraie connexion
+Google à l'écran et des chauffeurs simulés qui bougent en même temps, sans plus jamais éditer un
+fichier suivi pour y arriver.
+
 **Même exception étendue le 14 septembre à `BABANA_API_URL`/`BABANA_REALTIME_WS_URL` (D61,
 `amoa/questions/REPONSES-2026-09-14.md` §3)** : ces deux-là portaient jusque-là un repli codé en
 dur vers le domaine de production réel (`api.babana.cm`) directement dans `apps/*/config.ts`, au
@@ -59,7 +70,8 @@ directe dans l'environnement du conteneur au démarrage. Documenté en détail d
 | `POSTGRES_PASSWORD` | Mot de passe PostgreSQL | texte, secret | `dev-only-not-a-real-secret` | Généré aléatoirement, stocké dans le gestionnaire de secrets |
 | `ADMIN_PASSWORD` | Mot de passe du compte administrateur Odoo (`admin`), posé à l'installation du module babana (constat du 11 septembre — `amoa/questions/REPONSES-2026-09-11.md` §1). Lue aussi par des outils hôte (`test/concurrency/helpers/odoo-session.ts`), donc pas d'exception D43 : la valeur de développement vit dans `.env.example`, pas seulement dans `infra/compose.dev.yaml` | texte, secret | `dev-only-not-a-real-secret` | Généré aléatoirement, gestionnaire de secrets — explicite, aucun repli (`_post_init_admin_password` lève, `deploy.sh` bloque une valeur vide ou recopiée du développement) |
 | `GOOGLE_OAUTH_CLIENT_IDS` | Audiences (`aud`) de jeton acceptées, un ou plusieurs identifiants clients OAuth séparés par des virgules (Android, iOS, Web) | liste `xxx.apps.googleusercontent.com` | `dev-client-id.apps.googleusercontent.com` | Console Google Cloud, écran de consentement OAuth du projet babana.cm |
-| `GOOGLE_JWKS_URL` | URL du jeu de clés servant à vérifier la signature des jetons Google (D19 : seul ce qui change entre dev et prod) | URL | **vide** dans `.env.example` ; `infra/compose.dev.yaml` pose `http://mock-google-identity:4000/.well-known/jwks.json` | `https://www.googleapis.com/oauth2/v3/certs` — explicite, aucun repli (`_jwks_url` lève, `deploy.sh` bloque) |
+| `GOOGLE_JWKS_URL` | URL du jeu de clés servant à vérifier la signature d'un jeton dont l'émetteur (`iss`) est le vrai Google (D75) | URL | **vide** dans `.env.example` ; `infra/compose.dev.yaml` pose `http://mock-google-identity:4000/.well-known/jwks.json` par défaut, remplaçable par la vraie adresse dans `.env` pour tester une vraie connexion Google en développement | `https://www.googleapis.com/oauth2/v3/certs` — explicite, aucun repli (`_jwks_url_for_issuer` lève, `deploy.sh` bloque) |
+| `GOOGLE_JWKS_URL_MOCK` | URL du jeu de clés JWKS de `mock-google-identity` (L0-08, D75) — routée quand l'émetteur du jeton est le simulateur, coexiste avec `GOOGLE_JWKS_URL` | URL | **absente** dans `.env.example` ; `infra/compose.dev.yaml` la pose systématiquement (adresse fixe du simulateur, rien à choisir) | **absente** — exception inverse : sa seule présence bloque `deploy.sh` (D75), aucune valeur n'est jamais correcte en production |
 | `JWT_SECRET` | Signe les jetons applicatifs (accessToken de C-01) | texte, secret, haute entropie | `dev-only-not-a-real-secret` | Généré aléatoirement (256 bits), gestionnaire de secrets |
 | `REALTIME_SHARED_SECRET` | Authentifie les appels du service temps réel vers Odoo | texte, secret, haute entropie | `dev-only-not-a-real-secret` | Généré aléatoirement, distinct de `JWT_SECRET` |
 | `MINIO_ROOT_USER` | Identifiant racine MinIO / S3 | texte | `babana-dev` | Généré à la création de l'instance |
@@ -162,7 +174,8 @@ make up
 Rien d'autre à renseigner. Les variables de `.env.example` ont soit une valeur de développement
 fonctionnelle, soit sont vides et non consommées (FCM, SMS, Google Maps — simulées ou sans
 objet, D19), soit sont vides **mais posées ailleurs pour le développement** : `GOOGLE_JWKS_URL`,
-`GOOGLE_ROUTING_URL`, `SMTP_HOST`, `SMTP_PORT` par `infra/compose.dev.yaml` ;
+`GOOGLE_JWKS_URL_MOCK`, `GOOGLE_ROUTING_URL`, `SMTP_HOST`, `SMTP_PORT` par
+`infra/compose.dev.yaml` ;
 `BABANA_MAPS_SEARCH_URL`, `BABANA_API_URL`, `BABANA_REALTIME_WS_URL` par les cibles `make
 client` / `make client-web` / `make driver`. C'est la contrepartie de la règle « pas d'adresse de
 fournisseur dans `.env.example` » (D43 retournée, voir plus haut) : `make up` fonctionne sans

@@ -13,7 +13,16 @@ services:
       # développement -- vers les simulateurs (L0-08) et vers mailpit (SMTP de test).
       # infra/compose.yaml les passe sans défaut ; en production, la plateforme d'hébergement
       # les injecte vers les vrais fournisseurs. Non configurées, on échoue bruyamment.
-      GOOGLE_JWKS_URL: http://mock-google-identity:4000/.well-known/jwks.json
+      #
+      # D75 : GOOGLE_JWKS_URL n'est plus figée ici sur le mock -- elle vaut le mock par défaut
+      # (`make up` fonctionne sans aucun compte externe, D19), mais infra/env/.env peut la
+      # remplacer par la vraie adresse Google pour une démonstration, sans jamais toucher ce
+      # fichier suivi. GOOGLE_JWKS_URL_MOCK, elle, reste fixée ici : le simulateur n'a qu'une
+      # seule adresse possible dans ce compose, il n'y a rien à choisir -- c'est elle qui permet
+      # aux chauffeurs simulés de continuer à s'authentifier pendant qu'une vraie connexion
+      # Google est en cours à côté.
+      GOOGLE_JWKS_URL: ${GOOGLE_JWKS_URL:-http://mock-google-identity:4000/.well-known/jwks.json}
+      GOOGLE_JWKS_URL_MOCK: http://mock-google-identity:4000/.well-known/jwks.json
       GOOGLE_ROUTING_URL: http://mock-maps:4001/route
       SMTP_HOST: mailpit
       SMTP_PORT: "1025"

@@ -13,8 +13,8 @@
 #
 # D43 retournée (amoa/questions/REPONSES-2026-09-06.md §2) : plus de valeur par défaut vers le
 # simulateur. Une adresse de fournisseur externe non configurée doit échouer bruyamment (comme
-# GOOGLE_JWKS_URL, google_identity.py::_jwks_url), jamais retomber silencieusement sur mock-maps
-# -- un défaut qui ne se verrait qu'en regardant le trafic réseau.
+# GOOGLE_JWKS_URL, google_identity.py::_jwks_url_for_issuer), jamais retomber silencieusement
+# sur mock-maps -- un défaut qui ne se verrait qu'en regardant le trafic réseau.
 from __future__ import annotations
 
 import logging

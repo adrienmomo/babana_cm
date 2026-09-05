@@ -72,6 +72,9 @@ si l'un manque ou pointe vers un simulateur :
 
 - `BABANA_DOMAIN=babana.cm`, `NODE_ENV=production` ;
 - `GOOGLE_JWKS_URL=https://www.googleapis.com/oauth2/v3/certs` (vide dans `.env.example`) ;
+- `GOOGLE_JWKS_URL_MOCK` doit rester **absente** (D75, `amoa/01-architecture.md` §9 septdecies) :
+  exception inverse aux précédentes -- `deploy.sh` refuse de partir si elle est renseignée,
+  quelle que soit la valeur, jamais si elle est vide ;
 - `GOOGLE_ROUTING_URL` et `BABANA_MAPS_SEARCH_URL` = vraies API Google (vides dans
   `.env.example` ; le développement les reçoit de `compose.dev.yaml` / des cibles `make client`) ;
 - `SMTP_HOST`/`SMTP_PORT` = relais SMTP réel + `SMTP_USER`/`SMTP_PASSWORD` (vides dans

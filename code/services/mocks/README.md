@@ -15,9 +15,15 @@ commodité de développement.
 ## `mock-google-identity` (port 4000)
 
 Émule Google Identity : un jeu de clés RSA publié en JWKS, et l'émission de jetons d'identité
-signés dont **l'appelant contrôle tous les champs**. Le contrôleur d'authentification (L1-01,
-hors du lot de cette nuit) devra vérifier une vraie signature RS256 contre ce jeu de clés,
-exactement comme il le ferait contre le vrai Google — seule `GOOGLE_JWKS_URL` change.
+signés dont **l'appelant contrôle tous les champs**. Le contrôleur d'authentification (L1-01)
+vérifie une vraie signature RS256 contre ce jeu de clés, exactement comme il le ferait contre le
+vrai Google.
+
+Depuis D75 (`amoa/01-architecture.md` §9 septdecies), ce service déclare son **propre** émetteur
+par défaut (`https://mock-google-identity.invalid`, distinct de celui du vrai Google) : c'est
+cette valeur que `google_identity.py` utilise pour choisir le jeu de clés à vérifier, ce qui
+permet à un vrai jeton Google (`GOOGLE_JWKS_URL`) et à un jeton de ce service
+(`GOOGLE_JWKS_URL_MOCK`) de coexister dans le même environnement.
 
 ### `GET /.well-known/jwks.json`
 
@@ -35,7 +41,7 @@ Corps JSON, tous les champs optionnels (valeurs par défaut d'un jeton valide si
   "email": "adresse email",
   "email_verified": true,
   "aud": "identifiant client OAuth attendu",
-  "iss": "https://accounts.google.com",
+  "iss": "https://mock-google-identity.invalid",
   "exp": 1234567890,
   "invalid": "aud | exp | email_verified | signature | iss"
 }

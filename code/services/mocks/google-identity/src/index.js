@@ -1,7 +1,14 @@
 // mock-google-identity (L0-08) : émule le point de vérification Google, jamais notre logique
-// (D19). Le contrôleur d'authentification (L1-01, hors du lot de cette nuit) vérifiera une
-// vraie signature RS256 contre un vrai jeu de clés JWKS -- seul GOOGLE_JWKS_URL change entre
-// développement et production, aucune branche `if development` dans le code de vérification.
+// (D19). Le contrôleur d'authentification vérifie une vraie signature RS256 contre un vrai jeu
+// de clés JWKS.
+//
+// D75 (amoa/01-architecture.md §9 septdecies) : ce service déclare son PROPRE émetteur
+// (MOCK_ISS), distinct de celui du vrai Google -- c'est cette valeur qui sert de clé de
+// routage côté vérification (google_identity.py::MOCK_GOOGLE_ISSUER, doit rester identique
+// dans les deux fichiers). Avant ce jour, ce mock déclarait par défaut l'émetteur du vrai
+// Google (`https://accounts.google.com`) : ça n'a jamais été un problème tant que
+// GOOGLE_JWKS_URL ne pouvait pointer que vers une seule adresse à la fois -- routage par
+// émetteur avec deux émetteurs identiques n'aurait rien pu distinguer.
 const http = require('node:http');
 const crypto = require('node:crypto');
 const { primary, rogue, jwks } = require('./keys');
@@ -14,7 +21,10 @@ if (process.env.NODE_ENV === 'production') {
 
 const port = process.env.PORT || 4000;
 const DEFAULT_AUD = (process.env.GOOGLE_OAUTH_CLIENT_IDS || 'dev-client-id.apps.googleusercontent.com').split(',')[0];
-const REAL_GOOGLE_ISS = 'https://accounts.google.com';
+// Doit rester identique à google_identity.py::MOCK_GOOGLE_ISSUER (D75) : constante protocolaire
+// fixe, pas une adresse -- indépendante de l'hôte/port réels de ce service dans tel ou tel
+// environnement.
+const MOCK_ISS = 'https://mock-google-identity.invalid';
 
 function readJsonBody(req) {
   return new Promise((resolve, reject) => {
@@ -99,7 +109,7 @@ const server = http.createServer(async (req, res) => {
       name: body.name ?? 'Mock User',
       picture: body.picture ?? null,
       aud: body.aud ?? DEFAULT_AUD,
-      iss: body.iss ?? REAL_GOOGLE_ISS,
+      iss: body.iss ?? MOCK_ISS,
       iat: now,
       exp: body.exp ?? now + 3600,
     };

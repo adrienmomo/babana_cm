@@ -59,6 +59,14 @@ set +a
 case "${GOOGLE_JWKS_URL:-}" in
   ""|*mock-google-identity*) die "GOOGLE_JWKS_URL vide ou vers un mock dans $ENV_FILE -- poser https://www.googleapis.com/oauth2/v3/certs." ;;
 esac
+# D75 (amoa/01-architecture.md §9 septdecies) : depuis que google_identity.py route vers un jeu
+# de clés d'après l'émetteur du jeton, GOOGLE_JWKS_URL_MOCK peut coexister avec un GOOGLE_JWKS_URL
+# réel -- exactement ce qu'une démonstration de développement veut. Mais en production, cette
+# variable ne doit JAMAIS être posée : sa seule présence ouvrirait la porte à un émetteur qui
+# délivre un jeton valide à qui le demande, la porte que D19 a toujours gardée à l'intérieur du
+# développement. Contrairement aux gardes ci-dessus (vide = refusé), ici c'est la présence d'une
+# valeur, quelle qu'elle soit, qui est refusée -- vide est la seule configuration correcte.
+[ -z "${GOOGLE_JWKS_URL_MOCK:-}" ] || die "GOOGLE_JWKS_URL_MOCK est configurée dans $ENV_FILE -- une production ne doit lister aucun émetteur simulé (D75), retirer cette variable."
 case "${GOOGLE_ROUTING_URL:-}" in
   ""|*mock-maps*) die "GOOGLE_ROUTING_URL vide ou vers mock-maps dans $ENV_FILE -- poser la vraie API de routage." ;;
 esac

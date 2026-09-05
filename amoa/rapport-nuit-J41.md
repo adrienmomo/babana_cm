@@ -294,6 +294,31 @@ Quatre tests instables rencontrés en six nuits, comme demandé :
   dans un mécanisme partagé (le dispatcher WebSocket, éprouvé par l'unique cassure), pas sur cinq
   preuves indépendantes.
 
+### Contrainte d'architecture close depuis (D75, J49)
+
+**`GOOGLE_JWKS_URL` à source unique, documentée par J48 (`amoa/rapport-nuit-J48.md` §6 et « ce qui
+laisse un doute ») sans avoir encore été portée jusqu'ici.** Un vrai jeton Google et un jeton de
+`mock-google-identity` ne pouvaient pas être vérifiés par le même Odoo en même temps — J48 avait dû
+basculer la variable pour sa vérification navigateur, puis la remettre, et avait laissé le
+scénario « vraie connexion à l'écran ET chauffeurs simulés qui bougent » comme un point à trancher
+avant la salle de démonstration.
+
+**Fermé la nuit J49 (D75, `amoa/01-architecture.md` §9 septdecies).** Le jeton déclare son
+émetteur (`iss`) ; `google_identity.py` route désormais vers le jeu de clés correspondant
+(`GOOGLE_JWKS_URL` pour le vrai Google, `GOOGLE_JWKS_URL_MOCK` pour le simulateur) au lieu
+d'imposer une adresse unique. `mock-google-identity` a dû, au passage, se voir attribuer son
+propre émetteur (`https://mock-google-identity.invalid`) — il déclarait jusque-là celui du vrai
+Google par défaut, ce qui aurait rendu le routage inopérant. Garde-fou vérifié comme la moitié
+importante : un jeton du simulateur est rejeté si `GOOGLE_JWKS_URL_MOCK` n'est pas configurée
+(la configuration qu'une production impose), prouvé en le tentant, pas seulement en vérifiant
+qu'un jeton valide passe ; `deploy.sh` refuse tout déploiement de production qui listerait cette
+variable. Voir `amoa/rapport-nuit-J49.md` §1 pour le détail complet.
+
+**Reste ouvert, nommé par J49 lui-même** : la coexistence n'a été vérifiée qu'au niveau du
+routage (tests), pas encore par un vrai navigateur avec un vrai compte Google pendant qu'un
+script de chauffeurs simulés tourne en parallèle — cette dernière pièce attend la recette
+`babana.dev`.
+
 ### Ce que j'ai supposé et qui n'a jamais été vérifié
 
 - Que les cadences de diffusion (5 s pour `nearby.drivers`, la même chose pour `driver.position`)

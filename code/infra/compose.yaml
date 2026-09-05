@@ -44,6 +44,12 @@ services:
       # elle empêcherait `make up` (compose.yaml + compose.dev.yaml) de démarrer alors que la
       # valeur de dev vit désormais dans compose.dev.yaml.
       GOOGLE_JWKS_URL: ${GOOGLE_JWKS_URL}
+      # D75 (amoa/01-architecture.md §9 septdecies) : émetteur simulé, absent par défaut
+      # (`:-}`) -- contrairement à GOOGLE_JWKS_URL ci-dessus, l'absence est ici la configuration
+      # normale de production, pas une erreur : google_identity.py::_jwks_url_for_issuer
+      # n'accepte l'émetteur simulé que si cette variable est configurée, et deploy.sh refuse un
+      # déploiement de production qui la listerait.
+      GOOGLE_JWKS_URL_MOCK: ${GOOGLE_JWKS_URL_MOCK:-}
       GOOGLE_ROUTING_URL: ${GOOGLE_ROUTING_URL}
       # Secret ordinaire (constat du 11 septembre -- amoa/questions/REPONSES-2026-09-11.md §1),
       # posée dans infra/env/.env comme POSTGRES_PASSWORD/JWT_SECRET ci-dessous -- lue aussi bien
