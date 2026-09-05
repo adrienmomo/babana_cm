@@ -75,6 +75,8 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D68 | **L'échec d'un mécanisme se signale ailleurs que dans ce qu'il remplace** | `_logger.exception` pour un journal d'audit | Deux gardes justes — le journal ne lève jamais, l'écriture est interdite — composent un silence : si la traçabilité s'arrête, la seule trace est dans le journal applicatif que L8-09 existe précisément à remplacer. Voir §9 decies |
 | D69 | **Une assertion ne somme jamais toute la base : elle est bornée à son propre scénario** | `search([("account_id", "=", …)])` puis somme | Deux tests comptables du lot L5 mesuraient l'histoire de la base plutôt que leur scénario. Vrais sur une base vide, faux dès qu'elle contient des données — c'est-à-dire faux en pilote. Voir §9 undecies |
 | D70 | **Un incident intermittent se catalogue par son symptôme, pas par la nuit où il est apparu** | Une explication d'environnement par occurrence | Trois nuits ont écarté séparément le même symptôme — un chauffeur jamais apparu dans le vivier, suivi d'un silence — chacune avec une cause plausible, la dernière écartant les deux précédentes. Voir §9 duodecies |
+| D75 | **La vérification d'un jeton d'identité choisit son jeu de clés d'après l'émetteur déclaré par le jeton**, jamais d'après une adresse unique de configuration | Une seule `GOOGLE_JWKS_URL` | Un vrai jeton Google et un jeton de simulateur ne pouvaient pas coexister — donc pas de démonstration montrant à la fois une vraie connexion et des chauffeurs simulés. L'émetteur simulé n'est accepté que là où l'adresse du simulateur est configurée (D43), et `deploy.sh` refuse une production qui en listerait un. Voir §9 septdecies |
+| D76 | **Un test ne dépend de rien qu'il n'ait posé lui-même** — ni le contenu de la base, ni l'heure qu'il est, ni la charge de la machine | Construire une date à partir de l'heure courante | Cinquième occurrence : un test de tarification échoue entre 23 h et minuit UTC, parce qu'il fabrique un « lundi » sans fixer l'heure et que la conversion vers l'heure de Douala franchit minuit. Généralisation de D69, du contenu de la base au temps. Voir §9 undecies |
 | D74 | **Une tâche livrée en partie entre au registre §13, au même titre qu'une décision sans porteur** | Compter sur le message de commit | L6-18 a été commitée « (part) », honnêtement, et comptée comme faite pendant quatre semaines. Le registre suivait les décisions sans porteur ; rien ne suivait les tâches à moitié livrées. Voir §9 sexdecies |
 | D72 | **Réparer ce qui masque un défaut le rend d'abord plus visible.** Un symptôme qui s'aggrave après un correctif de masquage n'est pas une régression | Lire l'aggravation comme un retour en arrière | Le figement retiré, la défaillance de diffusion est passée d'une occurrence isolée à quatre sur trois fichiers. Elle était là depuis le début ; seule son observabilité a changé. Voir §9 quaterdecies |
 | D71 | **Tout appel sortant porte un délai.** Un rattrapage placé derrière un appel qui peut se taire ne s'exécute jamais | Compter sur l'échec ou la réponse | `callOdoo` **et `callOdooOnce`** étaient les deux seuls appels sortants sans délai du système — le second portant l'écriture d'acceptation, devant la file de rejeu. Un appel qui ne se termine pas n'atteint ni le réessai ni la file. Voir §9 terdecies |
@@ -685,6 +687,8 @@ Ce `search` n'est borné par rien. Il somme **tous** les mouvements du compte de
 
 La règle : **une assertion est bornée à ce que son scénario a produit.** Les pièces de cette remise, les mouvements de ce chauffeur, les lignes de cette course — jamais « tout ce que porte ce compte ». Une agrégation non bornée dans un test est une mesure de l'environnement déguisée en mesure du code.
 
+**Étendu au temps le 26 septembre (D76).** Un test de tarification échoue entre 23 h et minuit UTC : il fabrique un « lundi » à partir de l'heure courante sans fixer l'heure du jour, et la conversion vers l'heure de Douala fait franchir minuit à la date locale dans cette fenêtre. Cinquième occurrence de la même famille, et la règle se formule mieux ainsi : **un test ne dépend de rien qu'il n'ait posé lui-même.** Ni le contenu de la base, ni l'heure qu'il est, ni la charge de la machine, ni ce qu'un autre fichier a laissé derrière lui. Chacune des cinq occurrences a coûté un diagnostic, et chacune a d'abord été prise pour un défaut du code.
+
 Et le corollaire pour la lecture des symptômes, qui vaut au-delà de ces deux tests : **un test qui échoue sur une base ancienne et passe sur une base fraîche n'accuse pas toujours la base.** Le dépôt documentait déjà le sens inverse — des tests verts sur une base accumulée, rouges au premier `make reset`. Celui-ci est le même défaut vu de l'autre côté, et il se diagnostique en lisant l'assertion avant d'accuser l'environnement.
 
 ---
@@ -844,6 +848,20 @@ D'où D74 : le registre accueille aussi ce qui est livré en partie, avec ce qui
 
 ---
 
+## 9 septdecies. Un environnement ne peut pas avoir deux vérités sur qui a signé (D75)
+
+La nuit J48 a fait aboutir une vraie connexion Google depuis un navigateur, sur une vraie carte, avec une déconnexion à la fermeture de l'onglet. Pour y arriver, elle a dû basculer `GOOGLE_JWKS_URL` du simulateur vers Google, puis la remettre — parce que cette variable n'a **qu'une source à la fois**.
+
+Ce n'est pas une gêne de vérification, c'est une limite d'architecture, et elle tombe précisément sur le seul scénario qui compte à court terme : **une démonstration montre une vraie connexion à l'écran *et* des chauffeurs simulés qui bougent.** Aujourd'hui il faut choisir, ou monter un second Odoo.
+
+La cause est une hypothèse jamais écrite : qu'un environnement n'a qu'un fournisseur d'identité. Elle était vraie tant que le simulé et le réel ne se rencontraient jamais — c'est-à-dire jusqu'à ce que le web permette une vraie connexion sans téléphone.
+
+**Le jeton porte déjà la réponse.** Il déclare son émetteur ; il suffit de router vers le jeu de clés correspondant plutôt que d'imposer une adresse unique. C'est plus juste que la configuration actuelle, qui suppose ce qu'elle pourrait lire.
+
+Avec le garde-fou, qui est la moitié importante de la décision : **l'émetteur simulé n'est accepté que là où l'adresse du simulateur est configurée** — même forme que D43, l'absence de valeur supprime la possibilité — et `deploy.sh` refuse un déploiement de production qui en listerait un. Sans cette clause, accepter plusieurs émetteurs signifierait accepter un émetteur qui délivre un jeton valide à qui le demande, et ce serait la porte ouverte que D19 a toujours évité de laisser sortir du développement.
+
+---
+
 ## 10. Risques ouverts
 
 | Risque | Impact | Traitement proposé |
@@ -937,8 +955,9 @@ spécifications.
 
 | Décision | Arbitrée le | Portée par |
 |---|---|---|
-| **L6-18** — livrée en partie (D74) | Constaté le 25 septembre 2026 | J48 |
-| **D74** — le registre accueille les livraisons partielles | 25 septembre 2026 | Ce tableau, à partir de maintenant |
+| **D75** — plusieurs émetteurs, choisis par le jeton | 26 septembre 2026 | J49 |
+| **D76** — un test ne dépend de rien qu'il n'ait posé | 26 septembre 2026 | J49 (`test_weekday_mask_restricts_applicability`) |
+| **L6-18** — critères 6 et 7 réécrits, reste à vérifier au déploiement | 26 septembre 2026 | La recette `babana.dev` (`amoa/09-recette-babana-dev.md`) |
 
 **Ce que L6-18 doit encore livrer**, d'après sa propre spécification et les commentaires du code : le flux OAuth web (`packages/api-client/src/auth/web.ts`, absent), le fournisseur de carte web (`packages/maps/src/providers/web/`, absent — remplacé par un bouchon qui rend un cadre vide), le stockage de session web (bouchon qui écrit en clair, **D39 violée**), et les dégradations signalées à l'utilisateur.
 

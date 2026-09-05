@@ -838,8 +838,14 @@ Ajouter des en-têtes CORS à une API qui porte des jetons pour satisfaire un ba
 3. Aucun `Platform.OS === 'web'` dans `apps/client/src/screens`.
 4. Les trois fonctions dégradées sont signalées à l'utilisateur.
 5. L'application Chauffeur n'a **pas** d'export web, et la configuration de build l'empêche explicitement.
-6. La version déployée pointe sur l'environnement de recette, pas sur la production.
-7. Chaque branche produit une prévisualisation.
+6. **Le bundle est servi sous la même origine que l'API qu'il appelle** (D46), par le frontal de son propre environnement.
+7. **Une connexion réelle a été faite depuis un navigateur**, et fermer l'onglet déconnecte (D39, vérifié à l'œil et pas seulement par un test).
+
+*Critères 6 et 7 réécrits le 26 septembre 2026.* Ils disaient « la version déployée pointe sur l'environnement de recette, pas sur la production » et « chaque branche produit une prévisualisation » — deux exigences d'un déploiement Vercel que l'architecture a abandonné en adoptant D46. Elles rendaient L6-18 impossible à clore, et auraient envoyé une nuit construire une chaîne de prévisualisation qui contredit la même origine.
+
+Le premier des deux est d'ailleurs **satisfait par construction** depuis D46, et plus solidement qu'il ne l'était : le bundle appelle `window.location.origin`, donc il ne peut pointer sur la production que s'il est servi par la production. Il n'y a plus de réglage à se tromper.
+
+La prévisualisation par branche, elle, appartient à l'intégration continue (L0-05), datée hors périmètre pilote le 15 septembre. Elle y reste.
 
 ### Piège
 
