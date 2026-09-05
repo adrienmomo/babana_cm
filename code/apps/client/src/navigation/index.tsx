@@ -7,6 +7,7 @@ import { ApiError, type AuthState, type AuthUser } from '@babana/api-client';
 import { apiClient, authClient, onSessionLost } from '../auth';
 import { bootstrap } from '../bootstrap';
 import { ConnectionBanner } from '../components/ConnectionBanner';
+import { WebDemoBanner } from '../components/WebDemoBanner';
 import { SignInScreen } from '../screens/SignInScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { QuoteScreen } from '../screens/QuoteScreen';
@@ -134,26 +135,35 @@ export function AppNavigator() {
   const { session, handleSignedIn } = useSession();
 
   return (
-    <NavigationContainer ref={navigationRef}>
-      <AuthGate<AuthUser>
-        session={session}
-        renderLoading={() => <LoadingScreen />}
-        renderSignedOut={() => <SignInStack onSignedIn={handleSignedIn} />}
-        renderSignedIn={() => (
-          <View style={styles.signedInRoot}>
-            {/* Permanent (L6-16, critère 1) : monté une fois pour toute la session authentifiée,
-                pas par écran -- un client qui change d'écran ne doit jamais perdre de vue son
-                état de connexion. */}
-            <ConnectionBanner />
-            <ClientNavigator />
-          </View>
-        )}
-      />
-    </NavigationContainer>
+    <View style={styles.root}>
+      {/* Avant même la connexion (L6-18) : c'est précisément l'écran où "session non
+          persistée" (D39) doit se comprendre avant que quelqu'un ne ferme l'onglet et s'étonne
+          d'être déconnecté au retour. No-op hors web (WebDemoBanner). */}
+      <WebDemoBanner />
+      <NavigationContainer ref={navigationRef}>
+        <AuthGate<AuthUser>
+          session={session}
+          renderLoading={() => <LoadingScreen />}
+          renderSignedOut={() => <SignInStack onSignedIn={handleSignedIn} />}
+          renderSignedIn={() => (
+            <View style={styles.signedInRoot}>
+              {/* Permanent (L6-16, critère 1) : monté une fois pour toute la session authentifiée,
+                  pas par écran -- un client qui change d'écran ne doit jamais perdre de vue son
+                  état de connexion. */}
+              <ConnectionBanner />
+              <ClientNavigator />
+            </View>
+          )}
+        />
+      </NavigationContainer>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   signedInRoot: {
     flex: 1,
   },

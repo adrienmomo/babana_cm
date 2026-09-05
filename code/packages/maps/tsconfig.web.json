@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "lib": ["ES2020", "DOM"]
+  },
+  "include": [
+    "src/**/*.web.ts",
+    "src/**/*.web.tsx",
+    "src/**/*.web.d.ts",
+    "src/providers/web/**/*.ts",
+    "src/providers/web/**/*.tsx",
+    "src/providers/web/**/*.d.ts"
+  ]
+}

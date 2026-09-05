@@ -4,5 +4,14 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src/**/*.tsx", "src/**/*.ts"]
+  "include": ["src/**/*.tsx", "src/**/*.ts"],
+  // Les variantes web (L6-18, D22 -- troisième fournisseur) sont compilées séparément par
+  // tsconfig.web.json, avec la lib DOM -- absente ici à dessein, même raisonnement que
+  // packages/api-client/tsconfig.json.
+  // "src/**/*.web.ts" attrape activeProvider.web.ts (racine du paquet, résolu par extension --
+  // même mécanisme que packages/api-client) ; "src/providers/web/**" exclut le fournisseur web
+  // entier (répertoire dédié, jamais atteint depuis la compilation native, donc pas besoin d'y
+  // suffixer chaque fichier en .web.ts -- seul le point d'entrée qui choisit entre fournisseurs
+  // a besoin de l'extension).
+  "exclude": ["src/**/*.web.ts", "src/**/*.web.tsx", "src/**/*.web.d.ts", "src/providers/web/**"]
 }

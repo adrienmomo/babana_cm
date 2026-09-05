@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src",
+    "lib": ["ES2020", "DOM"]
+  },
+  // Compile séparément les variantes web (`*.web.ts`, L6-18) avec la lib DOM -- réservée à ce
+  // seul projet pour que `tsconfig.json` (natif) continue de refuser `window`/`document` comme
+  // une erreur, pas une possibilité silencieusement ouverte à tout le paquet (même raisonnement
+  // que le commentaire d'`apps/client/index.web.tsx` sur `@react-native/typescript-config`).
+  // Sort dans le même `dist/`, aux côtés des fichiers natifs : c'est `resolve.extensions` du
+  // bundler web qui choisit `*.web.js` plutôt que `*.js`, jamais ce projet tsc.
+  "include": ["src/**/*.web.ts", "src/**/*.web.d.ts"]
+}

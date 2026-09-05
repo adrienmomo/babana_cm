@@ -4,5 +4,9 @@
     "outDir": "dist",
     "rootDir": "src"
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  // Les variantes web (L6-18, D22) sont compilées séparément par tsconfig.web.json, avec la
+  // lib DOM -- absente ici à dessein (voir ce fichier) pour qu'un usage de `window`/`document`
+  // dans un fichier natif reste une erreur de type, jamais masqué par une lib trop large.
+  "exclude": ["src/**/*.web.ts", "src/**/*.web.d.ts"]
 }
