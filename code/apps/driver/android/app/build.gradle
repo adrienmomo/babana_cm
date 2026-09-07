@@ -100,6 +100,14 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        // AndroidManifest.xml référence ${usesCleartextTraffic} -- jamais posé nulle part
+        // (trouvé au premier vrai build APK de ce module, jamais construit avant ce jour, seulement
+        // testé par Jest). Dérivé de BABANA_API_URL plutôt que codé en dur (invariant 5) : autorisé
+        // seulement quand le serveur visé est en http:// (développement local, ex. api.localhost),
+        // jamais par défaut -- une adresse absente ou https:// (recette, production) reste refusée.
+        manifestPlaceholders = [
+            usesCleartextTraffic: (System.getenv('BABANA_API_URL') ?: '').startsWith('http://') ? 'true' : 'false'
+        ]
     }
     signingConfigs {
         debug {

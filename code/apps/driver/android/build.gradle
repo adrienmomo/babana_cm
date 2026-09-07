@@ -19,3 +19,21 @@ buildscript {
 }
 
 apply plugin: "com.facebook.react.rootproject"
+
+// react-native-push-notification (8.1.1, dernière publiée, node_modules/react-native-push-
+// notification/android/build.gradle) appelle jcenter() -- une méthode retirée de
+// RepositoryHandler dans les versions récentes de Gradle (JCenter est fermé depuis 2022) -- à
+// la fois dans son bloc buildscript (ligne 5) ET dans son bloc allprojects (ligne 16), deux
+// RepositoryHandler distincts, tous deux évalués AVANT qu'un simple `allprojects {}` posé ici
+// n'ait la main sur ce sous-projet. Aucune option pour corriger ce fichier tiers autrement
+// qu'en le patchant nous-mêmes ; au lieu de ça, `beforeEvaluate` pose sur les deux handlers,
+// avant l'évaluation du script du sous-projet, une méthode jcenter() de secours qui redirige
+// vers mavenCentral() -- jcenter() n'a jamais servi qu'à résoudre des dépendances qui existent
+// aussi sur Maven Central. Découvert au premier vrai build Android de ce module (jamais
+// construit en APK avant ce jour, seulement testé par Jest).
+allprojects { subproject ->
+    subproject.buildscript.repositories.metaClass.jcenter = { subproject.buildscript.repositories.mavenCentral() }
+    subproject.beforeEvaluate {
+        subproject.repositories.metaClass.jcenter = { subproject.repositories.mavenCentral() }
+    }
+}

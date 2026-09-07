@@ -2,8 +2,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- L6-06 : position ponctuelle au chargement de l'écran d'accueil (centrage de la carte,
-         pré-remplissage du départ) -- ACCESS_COARSE_LOCATION non demandée, cette précision ne
-         sert à rien pour désigner un point sur la carte. -->
+         pré-remplissage du départ) — ACCESS_COARSE_LOCATION non demandée, cette précision ne
+         sert à rien pour désigner un point sur la carte. Note XML : jamais de double-tiret dans
+         un commentaire, la spécification l'interdit (trouvé au premier vrai build APK côté
+         Chauffeur, apps/driver/android/app/src/main/AndroidManifest.xml). -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
 
     <application

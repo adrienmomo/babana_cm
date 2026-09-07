@@ -2,11 +2,12 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- L6-12 : alerte de proposition (react-native-push-notification, D20 critère d'acceptation
-         1 -- réveille l'appareil, signal sonore et vibration). VIBRATE est le seul permission
+         1 — réveille l'appareil, signal sonore et vibration). VIBRATE est le seul permission
          requise pour une notification LOCALE (déclenchée par l'app elle-même à la réception de
          `proposal.new` sur la connexion WebSocket déjà ouverte, pas une notification distante via
-         Firebase -- L7-04, notification push hors connexion, reste une tâche distincte et
-         hors périmètre ce soir). -->
+         Firebase — L7-04, notification push hors connexion, reste une tâche distincte et
+         hors périmètre ce soir). Note XML : jamais de double-tiret dans un commentaire, la
+         spécification l'interdit (trouvé au premier vrai build APK de ce module). -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <application
@@ -18,7 +19,7 @@
       android:theme="@style/AppTheme"
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:supportsRtl="true">
-      <!-- Couleur système plutôt qu'une ressource inventée (D20 -- aucune direction artistique
+      <!-- Couleur système plutôt qu'une ressource inventée (D20 — aucune direction artistique
            avant le pilote) : cette meta-data ne colore que la petite icône de la barre de statut. -->
       <meta-data android:name="com.dieam.reactnativepushnotification.notification_color" android:resource="@android:color/white" />
 
@@ -35,7 +36,7 @@
         </intent-filter>
       </activity>
 
-      <!-- Strictement nécessaires pour une notification locale avec action au toucher --
+      <!-- Strictement nécessaires pour une notification locale avec action au toucher —
            RNPushNotificationBootEventReceiver (rejeu après redémarrage) et
            RNPushNotificationListenerService (réception Firebase) ne le sont pas : aucune
            notification programmée à l'avance ici, et aucun envoi distant (L7-04, hors périmètre). -->

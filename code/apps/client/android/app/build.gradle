@@ -100,6 +100,14 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0"
+        // Même défaut que côté Chauffeur (apps/driver/android/app/build.gradle) : le manifeste
+        // référence ${usesCleartextTraffic}, jamais posé nulle part -- trouvé au premier vrai
+        // build APK de l'app Chauffeur, jamais construit avant ce jour côté natif Android, ni
+        // ici. Dérivé de BABANA_API_URL (invariant 5) : autorisé seulement en http:// (dev
+        // local), jamais par défaut.
+        manifestPlaceholders = [
+            usesCleartextTraffic: (System.getenv('BABANA_API_URL') ?: '').startsWith('http://') ? 'true' : 'false'
+        ]
     }
     signingConfigs {
         debug {
