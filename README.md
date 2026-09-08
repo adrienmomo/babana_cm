@@ -42,6 +42,46 @@ qu'elle est faite au hasard.
 | PostgreSQL | Base d'Odoo |
 | `code/packages/*` | Contrats partagés (`@babana/contracts`), client API, client temps réel, abstraction carte (`@babana/maps`) |
 
+```mermaid
+flowchart LR
+    subgraph Apps["Applications mobiles (React Native)"]
+        Client["App Client"]
+        Driver["App Chauffeur"]
+    end
+
+    subgraph Backend["Backend"]
+        Odoo["Odoo 18<br/>back-office, facturation,<br/>module babana"]
+        RT["Service temps réel<br/>Node / TypeScript"]
+        Redis[("Redis<br/>position, pool chauffeurs")]
+        PG[("PostgreSQL")]
+    end
+
+    subgraph Ext["Fournisseurs externes<br/>(simulés en développement, D19)"]
+        Google["Google<br/>Identity + Maps"]
+        FCM["Firebase Cloud<br/>Messaging"]
+    end
+
+    Client -- "HTTP /api/v1" --> Odoo
+    Driver -- "HTTP /api/v1" --> Odoo
+    Client -- "WebSocket" --> RT
+    Driver -- "WebSocket" --> RT
+
+    RT -- "lit (jamais l'inverse, D27)" --> Odoo
+    Odoo -- "appel au commit (D32)" --> RT
+    RT --> Redis
+    Odoo --> PG
+
+    Client -.-> Google
+    Driver -.-> Google
+    Odoo -.-> Google
+    Odoo -.-> FCM
+```
+
+`services/realtime` ne possède aucune donnée durable (corollaire de l'invariant 1, voir plus bas)
+et ne dépend d'aucun paquet de `apps/*` — c'est pour ça que la flèche Odoo → Redis n'existe pas :
+Odoo n'écrit jamais dans Redis, il appelle le service temps réel au commit de sa transaction, qui
+seul écrit le pool des chauffeurs disponibles (D26, D27, D32).
+
 Deux invariants à connaître avant de lire le code : **une écriture Odoo par événement métier,
 jamais par tick GPS** (le service temps réel ne possède aucune donnée durable), et **les
 transitions sont les seules portes d'écriture sur une course** (aucune écriture directe de
