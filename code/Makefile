@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f infra/compose.yaml -f infra/compose.dev.yaml --env-file infra/env/.env
 
-.PHONY: up down logs reset seed seed-drivers client client-web driver test lint typecheck verify secrets-scan
+.PHONY: up down logs reset seed seed-drivers client client-app client-web driver test lint typecheck verify secrets-scan
 
 up:              ## Démarre tous les services et attend qu'ils soient sains
 	@test -f infra/env/.env || cp infra/env/.env.example infra/env/.env
@@ -52,13 +52,19 @@ BABANA_API_URL ?= https://api.localhost
 BABANA_REALTIME_WS_URL ?= wss://api.localhost/rt/ws
 
 client:          ## Démarre l'app Client (bundler React Native)
-	BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/client
+	BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/client  -- --port 8081 --reset-cache
+
+client-app:          ## Démarre l'app Client (bundler React Native et emulateur)
+	BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run android -w @babana/client -- --port 8081
 
 client-web:      ## Construit le bundle web du Client dans apps/client/dist-web (servi par Caddy, D46)
 	BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run build:web -w @babana/client
 
 driver:          ## Démarre l'app Chauffeur
-	BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/driver
+	BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/driver  -- --port 8083 --reset-cache
+
+driver-app:          ## Démarre l'app Chauffeur (bundler React Native et emulateur)
+	BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run android -w @babana/driver -- --port 8083
 
 test:            ## Tests de tous les paquets et services, plus la suite Odoo
 	# La suite Odoo (module babana, jamais installé par `make up` seul) vient AVANT `npm test` :
