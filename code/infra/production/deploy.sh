@@ -16,7 +16,7 @@
 #   - infra/env/.env présent, avec BABANA_DOMAIN=babana.cm et les secrets de production
 #     (JWT_SECRET, REALTIME_SHARED_SECRET, POSTGRES_PASSWORD, MinIO, SMTP réel...) ;
 #   - GOOGLE_JWKS_URL = https://www.googleapis.com/oauth2/v3/certs (pas de mock en prod) ;
-#   - GOOGLE_ROUTING_URL, BABANA_MAPS_SEARCH_URL, BABANA_GOOGLE_WEB_CLIENT_ID et
+#   - GOOGLE_ROUTING_URL, BABANA_MAPS_SEARCH_URL et
 #     BABANA_GOOGLE_MAPS_API_KEY = vraies valeurs (le défaut compose/développement pointe
 #     mock-maps ou l'identifiant de développement, qui n'existent pas en prod) ;
 #   - S3_PUBLIC_ENDPOINT = https://storage.babana.cm (D64) -- jamais minio:9000 (injoignable
@@ -97,9 +97,6 @@ esac
 # un lieu.
 case "${BABANA_MAPS_SEARCH_URL:-}" in
   ""|*localhost:4001*|*mock-maps*) die "BABANA_MAPS_SEARCH_URL vide ou vers mock-maps dans $ENV_FILE -- poser l'adresse Google réelle (searchPlace) avant de construire le bundle web de production." ;;
-esac
-case "${BABANA_GOOGLE_WEB_CLIENT_ID:-}" in
-  ""|dev-client-id.apps.googleusercontent.com) die "BABANA_GOOGLE_WEB_CLIENT_ID vide ou égal à la valeur de développement dans $ENV_FILE -- poser l'identifiant client OAuth Web réel (Google Cloud Console), déjà listé dans GOOGLE_OAUTH_CLIENT_IDS." ;;
 esac
 case "${BABANA_GOOGLE_MAPS_API_KEY:-}" in
   "") die "BABANA_GOOGLE_MAPS_API_KEY vide dans $ENV_FILE -- poser la clé Google Maps réelle (appels REST Places/Geocoding) avant de construire le bundle web de production." ;;

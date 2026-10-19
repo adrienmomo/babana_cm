@@ -29,7 +29,7 @@ const ClientStack = createNativeStackNavigator<ClientParamList>();
 export const navigationRef = createNavigationContainerRef<ClientParamList>();
 
 /**
- * Racine de navigation de l'app Client (L6-00). `bootstrap()` (Google Sign-In, fournisseur de
+ * Racine de navigation de l'app Client (L6-00). `bootstrap()` (fournisseur de
  * carte) et la relecture de la session sont faits une fois ici, avant que quoi que ce soit ne se
  * monte -- ni les écrans métier ni même l'écran de connexion n'ont à s'en soucier.
  *

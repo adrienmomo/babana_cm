@@ -5,9 +5,7 @@ import { API_BASE_URL } from '../config';
  * Bootstrap d'authentification (L6-02) -- le seul endroit de l'app qui construit `AuthClient`.
  * Les écrans (`SignInScreen.tsx`) et le reste de l'app importent `authClient`/`apiClient` d'ici,
  * jamais `@babana/api-client` directement pour construire les leurs : une seule session, un seul
- * client HTTP authentifié par app. La configuration de Google Sign-In elle-même vit désormais
- * dans `./bootstrap.ts` (L6-00, critère d'acceptation 7 -- un seul point de configuration nommé,
- * plutôt qu'un effet de bord au chargement de ce fichier).
+ * client HTTP authentifié par app.
  */
 const sessionLostListeners = new Set<() => void>();
 

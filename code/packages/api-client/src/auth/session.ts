@@ -13,7 +13,7 @@ export interface AuthState {
 }
 
 export interface AuthClientConfig {
-  /** Client HTTP non authentifié à l'authentification elle-même -- /auth/google, /auth/refresh
+  /** Client HTTP non authentifié à l'authentification elle-même -- /auth/refresh
    * et /auth/logout ne portent pas d'en-tête Authorization côté serveur (`_PUBLIC_AUTH_ROUTE`,
    * `controllers/auth.py`) ; ce client peut donc être le même que celui utilisé pour le reste de
    * l'app, `getAccessToken` n'y sera simplement jamais lu par ces trois endpoints. */
@@ -39,10 +39,10 @@ function expiresAtFromNow(expiresInSeconds: number): number {
 }
 
 /**
- * Session d'authentification (L6-02). Un seul point d'échange contre le jeton applicatif
- * (`exchangeGoogleIdToken`), quel que soit le chemin qui a produit l'ID token (natif ou web,
- * critère d'acceptation 6) -- ni `googleSignIn.ts` ni un futur `webGoogleSignIn.ts` (L6-18)
- * n'implémentent leur propre appel à `/auth/google`.
+ * Session d'authentification (L6-02). Un seul point d'entrée d'une session obtenue du serveur
+ * (`establishSession`), quel que soit l'appel qui l'a produite : les écrans ne stockent jamais
+ * de jetons eux-mêmes. La connexion par OTP SMS (remplaçante de Google Sign-In) y déposera la
+ * session que renvoie le serveur.
  */
 export class AuthClient {
   private state: AuthState | null = null;
@@ -71,11 +71,9 @@ export class AuthClient {
     return this.state;
   }
 
-  async exchangeGoogleIdToken(idToken: string, role: 'client' | 'driver'): Promise<AuthState> {
-    const response = (await this.config.httpClient.request('authGoogle', {
-      body: { idToken, role } satisfies http.GoogleAuthRequest,
-    })) as http.GoogleAuthResponse;
-    return this.applySession(response);
+  /** Adopte une session émise par le serveur : stockage sécurisé, puis état en mémoire. */
+  async establishSession(session: http.AuthSession): Promise<AuthState> {
+    return this.applySession(session);
   }
 
   /**

@@ -15,6 +15,7 @@ from . import test_fare_rule
 from . import test_zone
 from . import test_pricing
 from . import test_partner
+from . import test_phone_attributes
 from . import test_ride_model
 from . import test_ride_backoffice
 from . import test_ride_state_machine

@@ -4,7 +4,7 @@ import { Button } from '@babana/ui';
 
 /**
  * Première étape de l'inscription chauffeur (L6-15) : le chauffeur confirme l'identité issue de
- * sa connexion Google avant de déposer ses pièces. Rien d'autre n'est demandé ici -- le nom
+ * sa connexion avant de déposer ses pièces. Rien d'autre n'est demandé ici -- le nom
  * légal et la pièce d'identité sont vérifiés à l'étape suivante, et le numéro de téléphone
  * relève de L1-09 (voir `amoa/questions/L6-15.md`).
  *

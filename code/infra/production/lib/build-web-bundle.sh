@@ -5,7 +5,7 @@
 # Défaut du 13 septembre que ce fichier ferme : `deploy.sh` faisait `. infra/env/.env` (sans
 # `set -a`), ce qui pose des variables de SHELL mais ne les transmet à AUCUN processus fils sans
 # `export` explicite -- `npm run build:web -w @babana/client` tournait donc avec
-# BABANA_MAPS_SEARCH_URL/BABANA_GOOGLE_WEB_CLIENT_ID/BABANA_GOOGLE_MAPS_API_KEY absentes de son
+# BABANA_MAPS_SEARCH_URL/BABANA_GOOGLE_MAPS_API_KEY (et, à l'époque, l'identifiant Google OAuth, retiré avec Google Sign-In) absentes de son
 # environnement, quelle que soit leur valeur dans infra/env/.env. Preuve dans le dépôt (avant
 # correction) : apps/client/dist-web/bundle.js contenait littéralement
 # `MAPS_SEARCH_URL = false||undefined`.
@@ -13,9 +13,9 @@
 # Double garde-fou, pas un seul :
 #   1. `export` ci-dessous rend explicite ce que ce build a besoin de recevoir -- sert aussi
 #      d'ancrage pour tools/config-coherence/scan.ts (scanDeliveredByShellExport), qui vérifie
-#      mécaniquement que ces trois variables sont bien "livrées" quelque part.
+#      mécaniquement que ces variables sont bien "livrées" quelque part.
 #   2. Après le build, on grep le FICHIER PRODUIT (pas les variables d'environnement) pour
-#      chacune des trois valeurs -- c'est le contrôle que le critère d'acceptation 6 de L0-10
+#      chacune des valeurs -- c'est le contrôle que le critère d'acceptation 6 de L0-10
 #      exige : la preuve porte sur ce qui est réellement embarqué, pas sur ce qu'on a essayé de
 #      transmettre. `deploy.sh` valide déjà, avant d'appeler cette fonction, que ces valeurs ne
 #      sont ni vides ni un simulateur (D43).
@@ -26,7 +26,7 @@
 # variable exportée passe.
 set -eu
 
-_BUILD_WEB_BUNDLE_VARS="BABANA_MAPS_SEARCH_URL BABANA_GOOGLE_WEB_CLIENT_ID BABANA_GOOGLE_MAPS_API_KEY"
+_BUILD_WEB_BUNDLE_VARS="BABANA_MAPS_SEARCH_URL BABANA_GOOGLE_MAPS_API_KEY"
 
 build_web_bundle() {
   root_dir="$1"
@@ -46,7 +46,7 @@ build_web_bundle() {
   # exportée. `export` ci-dessous est donc la ligne qui ferme L0-10, pas un détail de style --
   # c'est aussi l'ancrage que tools/config-coherence/scan.ts (scanDeliveredByShellExport)
   # reconnaît pour vérifier mécaniquement que ces trois variables sont "livrées" quelque part.
-  export BABANA_MAPS_SEARCH_URL BABANA_GOOGLE_WEB_CLIENT_ID BABANA_GOOGLE_MAPS_API_KEY
+  export BABANA_MAPS_SEARCH_URL BABANA_GOOGLE_MAPS_API_KEY
   # NODE_ENV (D65, amoa/questions/L0-10.md) : `set -a` dans deploy.sh l'exporte déjà vers ce
   # processus quand cette fonction est appelée depuis deploy.sh -- mais tools/config-coherence
   # ne reconnaît que des `export NOM` explicites (jamais `set -a`, indétectable mécaniquement).

@@ -27,15 +27,15 @@ const SESSION_RESPONSE = {
   user: { id: 'u1', role: 'driver' as const, displayName: 'Chauffeur', photoUrl: null, phoneVerified: true, driverStatus: 'pending' as const },
 };
 
-describe('AuthClient.exchangeGoogleIdToken', () => {
-  it('échange un ID token et persiste la session (critère 1)', async () => {
-    const request = jest.fn().mockResolvedValue(SESSION_RESPONSE);
+describe('AuthClient.establishSession', () => {
+  it('adopte la session du serveur et la persiste (critère 1)', async () => {
+    const request = jest.fn();
     const storage = fakeStorage();
     const client = new AuthClient({ httpClient: { request }, storage });
 
-    const state = await client.exchangeGoogleIdToken('id-token', 'driver');
+    const state = await client.establishSession(SESSION_RESPONSE);
 
-    expect(request).toHaveBeenCalledWith('authGoogle', { body: { idToken: 'id-token', role: 'driver' } });
+    expect(request).not.toHaveBeenCalled();
     expect(state.accessToken).toBe('access-1');
     expect(client.getAccessToken()).toBe('access-1');
     expect(storage.peek()).toEqual({
@@ -49,7 +49,7 @@ describe('AuthClient.exchangeGoogleIdToken', () => {
     const request = jest.fn().mockResolvedValue(SESSION_RESPONSE);
     const client = new AuthClient({ httpClient: { request }, storage: fakeStorage() });
 
-    const state = await client.exchangeGoogleIdToken('id-token', 'driver');
+    const state = await client.establishSession(SESSION_RESPONSE);
 
     expect(state.user.driverStatus).toBe('pending');
   });
@@ -58,7 +58,7 @@ describe('AuthClient.exchangeGoogleIdToken', () => {
 describe('AuthClient.refreshUser (D35)', () => {
   it("appelle 'me' et remplace l'utilisateur, sans toucher aux jetons", async () => {
     const client = new AuthClient({ httpClient: { request: jest.fn().mockResolvedValue(SESSION_RESPONSE) }, storage: fakeStorage() });
-    await client.exchangeGoogleIdToken('id-token', 'driver');
+    await client.establishSession(SESSION_RESPONSE);
     const meRequest = jest.fn().mockResolvedValue({ ...SESSION_RESPONSE.user, driverStatus: 'approved' as const });
 
     const state = await client.refreshUser({ request: meRequest });
@@ -81,10 +81,9 @@ describe('AuthClient.refresh / logout', () => {
   it('refresh() remplace la session par la nouvelle', async () => {
     const request = jest
       .fn()
-      .mockResolvedValueOnce(SESSION_RESPONSE)
       .mockResolvedValueOnce({ ...SESSION_RESPONSE, accessToken: 'access-2' });
     const client = new AuthClient({ httpClient: { request }, storage: fakeStorage() });
-    await client.exchangeGoogleIdToken('id-token', 'driver');
+    await client.establishSession(SESSION_RESPONSE);
 
     const state = await client.refresh();
 
@@ -99,7 +98,7 @@ describe('AuthClient.refresh / logout', () => {
       .mockRejectedValueOnce(new Error('réseau tombé'));
     const storage = fakeStorage();
     const client = new AuthClient({ httpClient: { request }, storage });
-    await client.exchangeGoogleIdToken('id-token', 'driver');
+    await client.establishSession(SESSION_RESPONSE);
 
     await client.logout();
 
@@ -123,7 +122,7 @@ describe('withTransparentRefresh (critères 2 et 3)', () => {
     const auth = new AuthClient({ httpClient: { request: jest.fn().mockResolvedValue(SESSION_RESPONSE) }, storage: fakeStorage() });
     // Une session préexistante -- refresh() a besoin d'un refreshToken déjà en poche, comme ce
     // serait le cas en pratique (l'app a déjà signIn/restore avant qu'une requête n'échoue).
-    await auth.exchangeGoogleIdToken('id-token', 'driver');
+    await auth.establishSession(SESSION_RESPONSE);
     const refreshSpy = jest.spyOn(auth, 'refresh');
     const wrapped = withTransparentRefresh(base, auth);
 
@@ -140,7 +139,7 @@ describe('withTransparentRefresh (critères 2 et 3)', () => {
       request: jest.fn().mockRejectedValueOnce(tokenExpiredError()).mockRejectedValueOnce(secondError),
     };
     const auth = new AuthClient({ httpClient: { request: jest.fn().mockResolvedValue(SESSION_RESPONSE) }, storage: fakeStorage() });
-    await auth.exchangeGoogleIdToken('id-token', 'driver');
+    await auth.establishSession(SESSION_RESPONSE);
     const wrapped = withTransparentRefresh(base, auth);
 
     await expect(wrapped.request('driverCash', {})).rejects.toBe(secondError);
@@ -154,13 +153,12 @@ describe('withTransparentRefresh (critères 2 et 3)', () => {
     const refreshHttpClient: HttpClient = {
       request: jest
         .fn()
-        .mockResolvedValueOnce(SESSION_RESPONSE) // exchangeGoogleIdToken de préparation
         .mockRejectedValueOnce(new ApiError('TOKEN_REVOKED', 'révoqué', 401)) // refresh() échoue
         .mockResolvedValueOnce({ revoked: true }), // logout() best-effort
     };
     const onSessionLost = jest.fn();
     const auth = new AuthClient({ httpClient: refreshHttpClient, storage, onSessionLost });
-    await auth.exchangeGoogleIdToken('id-token', 'driver');
+    await auth.establishSession(SESSION_RESPONSE);
     const wrapped = withTransparentRefresh(base, auth);
 
     await expect(wrapped.request('driverCash', {})).rejects.toBe(originalError);

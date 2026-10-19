@@ -1,55 +1,24 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
-import { Button } from '@babana/ui';
-import {
-  GooglePlayServicesUnavailableError,
-  GoogleSignInCancelledError,
-  signInWithGoogleNative,
-  type AuthState,
-} from '@babana/api-client';
-import { authClient } from '../auth';
+import type { AuthState } from '@babana/api-client';
 
 /**
- * Connexion Google (L6-02) -- même écran que `apps/client`, seul le rôle échangé diffère
- * ('driver' plutôt que 'client', voir `handlePress`). Un chauffeur non approuvé se connecte
- * normalement : `session.user.driverStatus` porte 'pending', et c'est à l'appelant de router
- * vers le parcours d'inscription / suivi de dossier (L6-15) plutôt que vers l'accueil --
- * critère d'acceptation 5, la donnée existe déjà dans la session, ce n'est jamais une erreur de
- * connexion.
+ * Écran de connexion -- emplacement de la connexion par numéro de téléphone et code SMS (OTP),
+ * qui remplace Google Sign-In. Volontairement vide d'action tant que les endpoints OTP n'existent
+ * pas : aucune connexion n'est possible depuis l'app dans cet état, et c'est attendu.
+ *
+ * `onSignedIn` reste dans le contrat de l'écran : le routage qui suit la connexion (chauffeur) est
+ * décidé par l'appelant à partir de `session.user`, pas par cet écran.
  */
 export interface SignInScreenProps {
   onSignedIn: (session: AuthState) => void;
 }
 
-export function SignInScreen({ onSignedIn }: SignInScreenProps) {
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function handlePress() {
-    setError(null);
-    setPending(true);
-    try {
-      const idToken = await signInWithGoogleNative();
-      const session = await authClient.exchangeGoogleIdToken(idToken, 'driver');
-      onSignedIn(session);
-    } catch (cause) {
-      if (cause instanceof GoogleSignInCancelledError) {
-        // Annulation volontaire par l'utilisateur -- rien à signaler.
-      } else if (cause instanceof GooglePlayServicesUnavailableError) {
-        setError(cause.message);
-      } else {
-        setError('La connexion a échoué. Réessayez.');
-      }
-    } finally {
-      setPending(false);
-    }
-  }
-
+export function SignInScreen(_props: SignInScreenProps) {
   return (
     <View style={styles.container}>
       <Text style={styles.title}>Babana -- Chauffeur</Text>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-      <Button label={pending ? 'Connexion…' : 'Se connecter avec Google'} onPress={handlePress} disabled={pending} />
+      <Text style={styles.notice}>La connexion par numéro de téléphone arrive bientôt.</Text>
     </View>
   );
 }
@@ -66,8 +35,7 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
   },
-  error: {
-    color: '#B91C1C',
+  notice: {
     textAlign: 'center',
   },
 });

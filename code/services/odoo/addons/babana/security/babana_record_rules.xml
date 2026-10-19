@@ -45,7 +45,7 @@
         `driver_id.user_id` reste : « mes lignes, quel que soit l'état de mon dossier ».
 
         Les modèles absents d'ici (babana.quote, babana.incident, babana.ride.share,
-        babana.assignment, babana.device.token, babana.token, babana.fare.rule, babana.zone,
+        babana.assignment, babana.device.token, babana.phone.verification, babana.token, babana.fare.rule, babana.zone,
         babana.route.cache, babana.idempotency.record, babana.cash.discrepancy,
         babana.ride.rejection) n'ont aucune ligne `base.group_portal` dans ir.model.access.csv :
         un utilisateur mobile ne peut pas les lire du tout par l'ORM. La matrice

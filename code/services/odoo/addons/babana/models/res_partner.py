@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from odoo import api, fields, models
+from odoo.exceptions import ValidationError
 
 # États d'une course où client et chauffeur sont réellement réunis -- doit rester aligné sur
 # babana_ride.py::TOGETHER_STATES (le chauffeur joint son passager pendant la course, plus
@@ -28,11 +29,27 @@ class ResPartner(models.Model):
         help="Miroir de res.users.google_sub côté partenaire, pour retrouver le client sans "
         "passer par le compte de connexion (facturation, back-office).",
     )
+    babana_phone = fields.Char(
+        string="Numéro vérifié (E.164)",
+        index=True,
+        copy=False,
+        readonly=True,
+        help="Numéro de téléphone au format international (+237...), renseigné UNIQUEMENT par une "
+        "vérification OTP réussie (L1-09). Un numéro en cours de vérification vit dans "
+        "babana.phone.verification, jamais ici : c'est ce qui permet une unicité simple, deux "
+        "comptes ne partageant jamais un numéro vérifié (PHONE_ALREADY_VERIFIED).",
+    )
     babana_phone_verified = fields.Boolean(
         string="Numéro vérifié",
         default=False,
         copy=False,
-        help="Résultat de L1-09 (OTP unique dans la vie du compte, hors de ce lot).",
+        help="Vrai si et seulement si babana_phone est renseigné (L1-09, OTP unique dans la vie "
+        "du compte). Seule porte d'écriture : babana.phone.verification.",
+    )
+    babana_phone_verified_at = fields.Datetime(
+        string="Numéro vérifié le",
+        copy=False,
+        readonly=True,
     )
     babana_rides_count = fields.Integer(
         string="Nombre de courses",
@@ -50,7 +67,21 @@ class ResPartner(models.Model):
             "unique(babana_google_sub)",
             "Ce compte Google est déjà rattaché à un autre client babana.",
         ),
+        (
+            "babana_partner_phone_unique",
+            "unique(babana_phone)",
+            "Ce numéro est déjà vérifié sur un autre compte babana.",
+        ),
     ]
+
+    @api.constrains("babana_phone", "babana_phone_verified")
+    def _check_babana_phone_consistency(self):
+        for record in self:
+            if bool(record.babana_phone) != bool(record.babana_phone_verified):
+                raise ValidationError(
+                    "babana_phone_verified doit valoir vrai exactement quand babana_phone est "
+                    "renseigné."
+                )
 
     def _compute_babana_rides_count(self):
         for record in self:

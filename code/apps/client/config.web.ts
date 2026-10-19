@@ -23,8 +23,6 @@ export const REALTIME_WS_URL =
   process.env.BABANA_REALTIME_WS_URL ||
   (runtimeOrigin ? `${runtimeOrigin.replace(/^http/, 'ws')}/rt/ws` : '');
 
-export const GOOGLE_WEB_CLIENT_ID = process.env.BABANA_GOOGLE_WEB_CLIENT_ID || '';
-export const GOOGLE_IOS_CLIENT_ID = process.env.BABANA_GOOGLE_IOS_CLIENT_ID || undefined;
 export const GOOGLE_MAPS_API_KEY = process.env.BABANA_GOOGLE_MAPS_API_KEY || '';
 
 /**

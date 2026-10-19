@@ -24,7 +24,7 @@ const PROPOSAL_NOTIFICATION_ID = 'proposal-alert-current';
 
 let configured = false;
 
-/** Point d'accroche unique (même discipline que `bootstrap.ts::configureGoogleSignIn`/
+/** Point d'accroche unique (même discipline que `bootstrap.ts::configureMapsProvider`/
  * `configureMapsProvider`) -- crée le canal de notification une seule fois, avant toute alerte. */
 export function configureProposalAlerts(): void {
   if (configured) return;

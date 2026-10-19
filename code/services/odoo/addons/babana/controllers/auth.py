@@ -209,13 +209,9 @@ def _build_user_payload(user, *, picture=None) -> dict:
         "role": role,
         "displayName": user.name,
         "photoUrl": picture,
-        "phoneVerified": False,
+        # Une seule vérité pour les deux rôles : le partenaire du compte (L1-09).
+        "phoneVerified": user.partner_id.babana_phone_verified,
     }
-    if role == "client":
-        # L1-04 : le vrai champ existe côté partenaire. Toujours faux tant que L1-09 (OTP,
-        # hors de ce lot) ne l'écrit jamais -- mais ce n'est plus un champ-pont, c'est la valeur
-        # réelle d'un champ qui n'a simplement jamais été mis à vrai.
-        payload["phoneVerified"] = user.partner_id.babana_phone_verified
     if role == "driver":
         # babana.driver (L1-03) est désormais créé dès le premier sign-in chauffeur (L1-03R) :
         # la recherche trouve toujours une fiche.

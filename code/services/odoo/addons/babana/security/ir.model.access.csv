@@ -59,3 +59,4 @@ access_babana_driver_document_portal,babana.driver.document portal read-only own
 access_babana_motorcycle_portal,babana.motorcycle portal read-only assigned,model_babana_motorcycle,base.group_portal,1,0,0,0
 access_babana_cash_movement_portal,babana.cash.movement portal read-only own,model_babana_cash_movement,base.group_portal,1,0,0,0
 access_babana_cash_remittance_portal,babana.cash.remittance portal read-only own,model_babana_cash_remittance,base.group_portal,1,0,0,0
+access_babana_phone_verification_admin,babana.phone.verification admin,model_babana_phone_verification,group_babana_admin,1,1,1,1

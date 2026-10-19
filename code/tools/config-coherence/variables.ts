@@ -114,12 +114,4 @@ export const EXCEPTIONS: readonly ConfigException[] = [
       'avant L6-06").',
     closingTask: 'L6-06',
   },
-  {
-    name: 'BABANA_GOOGLE_IOS_CLIENT_ID',
-    reason:
-      'Consommée (apps/client/config.ts, apps/client/config.web.ts, apps/driver/config.ts) mais ' +
-      "jamais livrée : aucun build iOS n'existe encore -- Android est prioritaire (CDC §III.1), " +
-      'iOS après le pilote (amoa/03-decoupage-taches.md §6, pas de tâche numérotée à ce jour).',
-    closingTask: 'iOS après le pilote (amoa/03-decoupage-taches.md §6)',
-  },
 ];

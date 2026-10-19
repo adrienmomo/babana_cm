@@ -44,7 +44,7 @@ set -eu
 out="apps/client/dist-web/bundle.js"
 mkdir -p "$(dirname "$out")"
 : > "$out"
-for name in BABANA_MAPS_SEARCH_URL BABANA_GOOGLE_WEB_CLIENT_ID BABANA_GOOGLE_MAPS_API_KEY; do
+for name in BABANA_MAPS_SEARCH_URL BABANA_GOOGLE_MAPS_API_KEY; do
   eval "value=\${$name:-}"
   if [ -n "$value" ]; then
     printf 'var %s = "%s";\n' "$name" "$value" >> "$out"
@@ -56,11 +56,10 @@ EOF
 chmod +x "$FAKE_NPM"
 
 PROD_MAPS_SEARCH_URL="https://maps.googleapis.com/maps/api/place/textsearch/json"
-PROD_GOOGLE_WEB_CLIENT_ID="123456-real.apps.googleusercontent.com"
 PROD_GOOGLE_MAPS_API_KEY="test-maps-key"
 
 # --- 1. Reproduction du défaut du 13 septembre --------------------------------------------------
-# Les trois variables existent en tant que variables de SHELL (comme après `. infra/env/.env`
+# Les variables existent en tant que variables de SHELL (comme après `. infra/env/.env`
 # sans `set -a`), JAMAIS exportées -- puis on appelle le faux npm directement, sans passer par
 # build_web_bundle. C'est très exactement ce que faisait `infra/production/deploy.sh` avant
 # aujourd'hui.
@@ -69,7 +68,6 @@ mkdir -p "$BEFORE_DIR"
 (
   cd "$BEFORE_DIR"
   BABANA_MAPS_SEARCH_URL="$PROD_MAPS_SEARCH_URL"
-  BABANA_GOOGLE_WEB_CLIENT_ID="$PROD_GOOGLE_WEB_CLIENT_ID"
   BABANA_GOOGLE_MAPS_API_KEY="$PROD_GOOGLE_MAPS_API_KEY"
   # Volontairement PAS de `export` ici -- reproduction fidèle du bug.
   "$FAKE_NPM"
@@ -92,18 +90,17 @@ mkdir -p "$AFTER_DIR"
   cd "$AFTER_DIR"
   . "$LIB"
   BABANA_MAPS_SEARCH_URL="$PROD_MAPS_SEARCH_URL"
-  BABANA_GOOGLE_WEB_CLIENT_ID="$PROD_GOOGLE_WEB_CLIENT_ID"
   BABANA_GOOGLE_MAPS_API_KEY="$PROD_GOOGLE_MAPS_API_KEY"
   build_web_bundle "$AFTER_DIR" "$FAKE_NPM"
 )
 AFTER_BUNDLE="$AFTER_DIR/apps/client/dist-web/bundle.js"
 if [ ! -f "$AFTER_BUNDLE" ]; then
   ko "build_web_bundle n'a produit aucun bundle."
-elif ! grep -qF "$PROD_MAPS_SEARCH_URL" "$AFTER_BUNDLE" || ! grep -qF "$PROD_GOOGLE_WEB_CLIENT_ID" "$AFTER_BUNDLE" || ! grep -qF "$PROD_GOOGLE_MAPS_API_KEY" "$AFTER_BUNDLE"; then
-  ko "build_web_bundle : le bundle produit n'embarque pas les trois valeurs de production -- correction du 13 septembre non effective."
+elif ! grep -qF "$PROD_MAPS_SEARCH_URL" "$AFTER_BUNDLE" || ! grep -qF "$PROD_GOOGLE_MAPS_API_KEY" "$AFTER_BUNDLE"; then
+  ko "build_web_bundle : le bundle produit n'embarque pas les valeurs de production -- correction du 13 septembre non effective."
   cat "$AFTER_BUNDLE" >&2
 else
-  note "OK : build_web_bundle corrige le défaut -- les trois valeurs sont embarquées dans le bundle produit."
+  note "OK : build_web_bundle corrige le défaut -- les valeurs sont embarquées dans le bundle produit."
 fi
 
 # --- 3. build_web_bundle refuse une variable vide, AVANT d'appeler npm --------------------------
@@ -122,7 +119,6 @@ set +e
   cd "$EMPTY_DIR"
   . "$LIB"
   BABANA_MAPS_SEARCH_URL=""
-  BABANA_GOOGLE_WEB_CLIENT_ID="$PROD_GOOGLE_WEB_CLIENT_ID"
   BABANA_GOOGLE_MAPS_API_KEY="$PROD_GOOGLE_MAPS_API_KEY"
   build_web_bundle "$EMPTY_DIR" "$TATTLE_NPM"
 )

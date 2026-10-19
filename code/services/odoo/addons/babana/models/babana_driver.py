@@ -168,7 +168,12 @@ class BabanaDriver(models.Model):
         "babana.cash_limit, jamais une valeur propre à ce chauffeur -- pas de plafond "
         "individuel (L9-06, back-office, hors de ce lot, ajustera le paramètre, pas ce champ).",
     )
-    phone_verified = fields.Boolean(string="Numéro vérifié", default=False)
+    phone_verified = fields.Boolean(
+        string="Numéro vérifié",
+        related="user_id.partner_id.babana_phone_verified",
+        help="Lecture seule : le numéro est vérifié sur le partenaire du compte (L1-09), une seule "
+        "vérité pour clients et chauffeurs.",
+    )
     document_ids = fields.One2many(
         "babana.driver.document",
         "driver_id",
