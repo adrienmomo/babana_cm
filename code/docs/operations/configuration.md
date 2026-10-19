@@ -58,7 +58,6 @@ concurrence, adresse d'un mock choisie par le test — `GOOGLE_MOCK_IDENTITY_URL
 
 | Variable | Pourquoi elle manque un maillon | Tâche de fermeture |
 |---|---|---|
-| `SMS_GATEWAY_API_KEY`, `SMS_GATEWAY_SENDER_ID` | Passerelle SMS non choisie ; L1-09 journalise l'OTP au lieu de l'envoyer (D19) | L1-09 |
 | `GOOGLE_MAPS_API_KEY` | Clé du SDK natif de carte (rendu `<MapView>`, `AndroidManifest.xml`/`Info.plist`) — distincte de `BABANA_GOOGLE_MAPS_API_KEY` (appels REST, déjà suivie). Prérequis suivi hors code, à poser avant L6-06 (`amoa/05-prerequis-et-simulation.md` §5) | L6-06 |
 | `BABANA_GOOGLE_IOS_CLIENT_ID` | Consommée (`apps/*/config.ts`) mais jamais livrée : aucun build iOS n'existe encore, Android est prioritaire (CDC §III.1) | iOS après le pilote (`amoa/03-decoupage-taches.md` §6) |
 

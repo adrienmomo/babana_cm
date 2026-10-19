@@ -90,6 +90,12 @@ services:
       FCM_PROJECT_ID: ${FCM_PROJECT_ID:-}
       FCM_CLIENT_EMAIL: ${FCM_CLIENT_EMAIL:-}
       FCM_PRIVATE_KEY: ${FCM_PRIVATE_KEY:-}
+      # SMS (L1-09, services/sms.py) : 'console' par défaut journalise le code OTP (D19) ;
+      # 'tidjani_brothers' exige TB_SMS_API_URL et TB_SMS_API_KEY, sans repli (D43).
+      SMS_PROVIDER: ${SMS_PROVIDER:-console}
+      TB_SMS_API_URL: ${TB_SMS_API_URL:-}
+      TB_SMS_API_KEY: ${TB_SMS_API_KEY:-}
+      TB_SMS_TIMEOUT: ${TB_SMS_TIMEOUT:-}
     volumes:
       - ../services/odoo/addons:/mnt/extra-addons
       - ../services/odoo/config/odoo.conf:/etc/odoo/odoo.conf:ro

@@ -94,18 +94,6 @@ export interface ConfigException {
 // amoa/questions/L0-10.md.
 export const EXCEPTIONS: readonly ConfigException[] = [
   {
-    name: 'SMS_GATEWAY_API_KEY',
-    reason:
-      "Passerelle SMS non choisie (amoa/questions/L0-06.md) ; L1-09 journalise l'OTP au lieu de " +
-      "l'envoyer (D19). Rien ne la livre ni ne la consomme tant que L1-09 n'existe pas.",
-    closingTask: 'L1-09',
-  },
-  {
-    name: 'SMS_GATEWAY_SENDER_ID',
-    reason: 'Même passerelle que SMS_GATEWAY_API_KEY ci-dessus.',
-    closingTask: 'L1-09',
-  },
-  {
     name: 'GOOGLE_MAPS_API_KEY',
     reason:
       'Clé du SDK natif de carte (rendu <MapView>, AndroidManifest.xml / Info.plist) -- ' +

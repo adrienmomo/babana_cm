@@ -81,7 +81,8 @@ directe dans l'environnement du conteneur au démarrage. Documenté en détail d
 | `SMTP_USER`, `SMTP_PASSWORD` | Identifiants du relais SMTP | texte, secret | vides (mailpit n'authentifie pas) | Fournisseur SMTP retenu, gestionnaire de secrets |
 | `SMTP_FROM` | Adresse d'expédition des emails de facture | adresse email | `no-reply@babana.cm` | Adresse définitive du domaine `babana.cm` |
 | `FCM_PROJECT_ID`, `FCM_CLIENT_EMAIL`, `FCM_PRIVATE_KEY` | Compte de service Firebase Cloud Messaging (API HTTP v1), notifications push | identifiants de compte de service | vides, non consommées (L1-09/L7-01 journalisent, D19) | Console Firebase du projet babana.cm, compte de service dédié aux notifications |
-| `SMS_GATEWAY_API_KEY`, `SMS_GATEWAY_SENDER_ID` | Passerelle SMS pour l'OTP de rattachement de numéro | clé API, identifiant expéditeur | vides, non consommées (L1-09 journalise, D19) | Fournisseur SMS retenu (à choisir, hors de ce soir) |
+| `SMS_PROVIDER` | Implémentation SMS de `services/sms.py` | `console` ou `tidjani_brothers` | `console` (journalise le code OTP, D19) | `tidjani_brothers` |
+| `TB_SMS_API_URL`, `TB_SMS_API_KEY`, `TB_SMS_TIMEOUT` | API SMS Tidjani & Brothers (OTP) | URL, clé Bearer, secondes | URL publique, clé vide (non consommée en `console`) | Clé de l'espace client, liée à un expéditeur approuvé |
 | `GOOGLE_MAPS_API_KEY` | Clé API Google Maps consommée par les apps au build natif (D13) | clé API | vide, non consommée (mock-maps sert de doublure complète, D19) | Console Google Cloud, restreinte par empreinte de signature Android / bundle iOS |
 | `BABANA_MAPS_SEARCH_URL` | Adresse de la recherche de lieu REST (`searchPlace`, L6-01) consommée par `apps/client` **au build** (lue de `process.env` de l'hôte, pas d'un conteneur) | URL | **vide** dans `.env.example` ; `make client` / `make client-web` posent `http://localhost:4001/search` (mock-maps, port hôte exposé) | Adresse Google réelle — explicite au build (aucun repli : `getSearchUrl()` lève) |
 | `BABANA_API_URL` | Adresse de l'API pour les apps natives Client/Chauffeur (`apps/*/config.ts`), consommée **au build** | URL | **vide** dans `.env.example` ; `make client` / `make driver` posent `https://api.localhost` | Domaine réel (`https://api.babana.cm`) — explicite au build (aucun repli depuis D61 : `config.ts` lève) |
@@ -141,7 +142,7 @@ temps de la bascule. Sans objet en développement (mailpit n'authentifie pas).
 mettre à jour les trois variables `FCM_*` ensemble (`project_id`, `client_email`, `private_key`
 forment un tout cohérent), puis révoquer l'ancienne clé dans la console.
 
-**`SMS_GATEWAY_API_KEY`** — Régénérer depuis la console du fournisseur retenu ; mettre à jour la
+**`TB_SMS_API_KEY`** — Régénérer depuis https://tidjaniandbrothers.com/sms/cles-api ; mettre à jour la
 variable ; révoquer l'ancienne clé une fois la nouvelle confirmée fonctionnelle (envoyer un OTP
 de test).
 
