@@ -79,7 +79,7 @@ export function handleProposalPushMessage(data: ProposalPushData): ProposalRoute
     markHandled: markProposalHandled,
     showProposal: (rideId, expiresAt) => {
       if (navigationRef.isReady()) {
-        navigationRef.navigate('Proposal', { source: 'notification', rideId: asRideId(rideId), expiresAt });
+        navigationRef.navigate('Home', { proposal: { source: 'notification', rideId: asRideId(rideId), expiresAt } });
       } else {
         pendingProposal = { rideId, expiresAt };
       }

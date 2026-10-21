@@ -57,6 +57,17 @@ describe('buildLeafletHtml', () => {
     expect(out).not.toContain('</script><script>alert(1)');
   });
 
+  test("cadre la carte sur le tracé quand il change (fitBounds), sans le refaire à chaque position", () => {
+    const out = html({ route: { points: [CENTER, { latitude: 4.06, longitude: 9.71 }] } });
+    expect(out).toContain('fitBounds');
+    // Le cadrage est conditionné au changement de tracé, pas rejoué à chaque mise à jour.
+    expect(out).toContain('routeKey');
+  });
+
+  test("ne recentre que si la prop centre change (le cadrage d'un tracé ne saute pas à chaque position)", () => {
+    expect(html()).toContain('lastCenter');
+  });
+
   test('désactive les contrôles de zoom par défaut inutiles au pouce et signale les déplacements', () => {
     const out = html();
     expect(out).toContain('moveend');

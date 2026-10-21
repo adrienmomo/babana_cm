@@ -191,6 +191,22 @@ describe('createRealtimeClient -- file d\'actions hors connexion (critères 2 et
     expect(sentTypes).toEqual(['session.resync', 'availability.set']);
   });
 
+  it('route.share et ride.arrived ne sont jamais mis en file hors connexion (un tracé ou un « sur place » rejoué plus tard serait faux)', async () => {
+    const { sockets, config } = baseConfig();
+    const client = createRealtimeClient(config);
+
+    const point = { latitude: 4.05, longitude: 9.76 };
+    client.send('route.share', { rideId: 'r1', phase: 'approach', points: [point, point], distanceMeters: null, durationSeconds: null });
+    client.send('ride.arrived', { rideId: 'r1' });
+    client.send('availability.set', { online: true }); // témoin
+
+    await client.connect();
+    sockets[0].simulateOpen();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(sockets[0].sent.map((raw) => JSON.parse(raw).type)).toEqual(['session.resync', 'availability.set']);
+  });
+
   it('les positions ne sont jamais mises en file -- seule la dernière compte (critère 4)', async () => {
     const { sockets, config } = baseConfig();
     const client = createRealtimeClient(config);

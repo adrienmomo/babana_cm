@@ -1,5 +1,6 @@
 import { configureGoogleMapsProvider } from './providers/google/config';
 import { setMapTileUrl } from './providers/osm/config';
+import { setRoutingUrl } from './routingConfig';
 
 export interface MapsConfig {
   /** Clé Google pour la recherche de lieu et le géocodage inverse (appels REST). */
@@ -7,6 +8,8 @@ export interface MapsConfig {
   searchUrl?: string;
   /** Adresse des tuiles OpenStreetMap. Absente : la carte reste celle de Google. */
   tileUrl?: string;
+  /** Service de routage au format OSRM (itinéraires, `fetchRoute`). Absent : pas d'itinéraire. */
+  routingUrl?: string;
 }
 
 /**
@@ -16,4 +19,5 @@ export interface MapsConfig {
 export function configureMapsProvider(config: MapsConfig): void {
   configureGoogleMapsProvider({ apiKey: config.apiKey, searchUrl: config.searchUrl });
   setMapTileUrl(config.tileUrl);
+  setRoutingUrl(config.routingUrl);
 }

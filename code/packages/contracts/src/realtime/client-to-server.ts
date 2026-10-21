@@ -95,6 +95,50 @@ export const ProposalSeenPayloadSchema = z.object({
 export const ProposalSeenMessageSchema = envelopeSchema('proposal.seen', ProposalSeenPayloadSchema);
 export type ProposalSeenMessage = z.infer<typeof ProposalSeenMessageSchema>;
 
+
+/**
+ * Phase d'une course vue du chauffeur : l'approche vers le client, puis le trajet vers la
+ * destination. Le passage de l'une à l'autre reste la décision « Commencer la course » (HTTP,
+ * `POST /rides/{id}/start`) -- jamais déduit d'un tracé.
+ */
+export const RideRoutePhaseSchema = z.enum(['approach', 'transit']);
+export type RideRoutePhase = z.infer<typeof RideRoutePhaseSchema>;
+
+/**
+ * Tracé d'un itinéraire, tel que le chauffeur l'a calculé et l'affiche (`ride.route` le rediffuse
+ * au client à l'identique : les deux écrans montrent le **même** tracé). Borné ici (garde-fou
+ * anti-abus, pas une règle métier) : le chauffeur simplifie son tracé avant l'envoi.
+ */
+export const RideRouteSchema = z.object({
+  phase: RideRoutePhaseSchema,
+  points: z.array(LatLngSchema).min(2).max(1000),
+  distanceMeters: z.number().nonnegative().nullable(),
+  durationSeconds: z.number().nonnegative().nullable(),
+});
+export type RideRoute = z.infer<typeof RideRouteSchema>;
+
+/**
+ * Émetteur : chauffeur de la course. Aucune écriture Odoo (invariant 1) : un itinéraire n'est pas
+ * un événement métier. Le service ignore l'émetteur qui n'est pas le chauffeur engagé sur
+ * `rideId`, puis garde le dernier tracé (TTL) pour le rejouer à un client qui s'abonne tard.
+ */
+export const RouteSharePayloadSchema = RideRouteSchema.extend({
+  rideId: RideIdSchema,
+});
+export const RouteShareMessageSchema = envelopeSchema('route.share', RouteSharePayloadSchema);
+export type RouteShareMessage = z.infer<typeof RouteShareMessageSchema>;
+
+/**
+ * Émetteur : chauffeur de la course. « Sur place » -- le chauffeur déclare être arrivé au point
+ * de prise en charge. Notification pure vers le client (aucune transition d'état, aucune écriture
+ * Odoo) ; voir `driver.arrived`.
+ */
+export const RideArrivedPayloadSchema = z.object({
+  rideId: RideIdSchema,
+});
+export const RideArrivedMessageSchema = envelopeSchema('ride.arrived', RideArrivedPayloadSchema);
+export type RideArrivedMessage = z.infer<typeof RideArrivedMessageSchema>;
+
 // --- Client (passager) vers serveur -------------------------------------------------------
 
 /**
@@ -147,6 +191,8 @@ export const ClientToServerMessageSchema = z.discriminatedUnion('type', [
   ProposalAcceptMessageSchema,
   ProposalRejectMessageSchema,
   ProposalSeenMessageSchema,
+  RouteShareMessageSchema,
+  RideArrivedMessageSchema,
   NearbySubscribeMessageSchema,
   NearbyUnsubscribeMessageSchema,
   RideTrackMessageSchema,

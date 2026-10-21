@@ -11,6 +11,7 @@ import type { NearbyManager } from '../nearby/handler';
 import type { ProposalLifecycle } from '../proposal/lifecycle';
 import { proposalDeliveryMetrics } from '../proposal/delivery-metrics';
 import type { TrackingManager } from '../tracking/broadcast';
+import type { RideRouteRelay } from '../tracking/route';
 import { handleSessionResync } from './resync';
 
 /**
@@ -36,7 +37,8 @@ export function createMessageDispatcher(
   redis: Redis,
   nearby: NearbyManager,
   proposals: ProposalLifecycle,
-  tracking: TrackingManager
+  tracking: TrackingManager,
+  routes?: RideRouteRelay
 ): MessageDispatcher {
   const plausibility = plausibilityConfigFrom(config);
   const accumulation = accumulationConfigFrom(config);
@@ -121,6 +123,16 @@ export function createMessageDispatcher(
         );
         return;
       }
+      case 'route.share':
+        // Émetteur : chauffeur (C-02). Le relais vérifie que ce chauffeur est bien celui de la
+        // course (session de suivi) -- `rideId` n'est jamais une identité.
+        if (context.role !== 'driver' || !context.driverId) return;
+        await routes?.share(context, message.payload);
+        return;
+      case 'ride.arrived':
+        if (context.role !== 'driver' || !context.driverId) return;
+        await routes?.arrived(context, message.payload);
+        return;
       case 'ride.track':
         // Émetteur : client (C-02). L'identité vient du contexte de connexion (invariant L3-01) ;
         // rideId est une donnée métier, jamais une identité -- l'appartenance réelle est vérifiée

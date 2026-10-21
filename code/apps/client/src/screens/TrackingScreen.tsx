@@ -27,6 +27,12 @@ import type { ClientParamList } from '../navigation/types';
  * §1, referme l'écart `amoa/questions/L6-09.md`) : `ride.assigned` porte désormais `phoneNumber`.
  * Absent, jamais inerte (`CallButton`, même discipline que Share/Emergency) : rien ne s'affiche
  * tant que le profil chauffeur n'a pas fini de synchroniser (D30).
+ *
+ * **Itinéraire et « Sur place », miroirs de l'écran du chauffeur** : le chauffeur calcule le tracé
+ * (vers le client, puis vers la destination) et l'affiche ; le service temps réel nous le
+ * rediffuse tel quel (`ride.route`) -- les deux écrans montrent le **même** chemin, rien n'est
+ * recalculé ici. `driver.arrived` (« Sur place ») prévient que le chauffeur est au point de prise
+ * en charge. Les deux sont rejoués à l'abonnement `ride.track` : une reconnexion retrouve l'état.
  */
 
 type Props = NativeStackScreenProps<ClientParamList, 'Tracking'>;
@@ -35,6 +41,14 @@ type Phase = 'approach' | 'course';
 
 function isDriverPositionMessage(message: realtime.ServerToClientMessage): message is realtime.DriverPositionMessage {
   return message.type === 'driver.position';
+}
+
+function isRideRouteMessage(message: realtime.ServerToClientMessage): message is realtime.RideRouteMessage {
+  return message.type === 'ride.route';
+}
+
+function isDriverArrivedMessage(message: realtime.ServerToClientMessage): message is realtime.DriverArrivedMessage {
+  return message.type === 'driver.arrived';
 }
 
 function isRideStartedMessage(message: realtime.ServerToClientMessage): message is realtime.RideStartedMessage {
@@ -61,6 +75,9 @@ export function TrackingScreen({ route, navigation }: Props) {
   const [etaSeconds, setEtaSeconds] = useState<number | null>(null);
   const [lastPositionAt, setLastPositionAt] = useState<number | null>(null);
   const [trace, setTrace] = useState<LatLng[]>([]);
+  // Le tracé du chauffeur, tel quel : `phase` dit s'il mène au client ou à la destination.
+  const [sharedRoute, setSharedRoute] = useState<{ phase: 'approach' | 'transit'; points: LatLng[] } | null>(null);
+  const [driverArrived, setDriverArrived] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => realtimeClient.getState());
   // Silence de diffusion détecté par abonnement (L3-20, D47 -- amoa/questions/
   // L3-05-nearby-list-goes-silently-empty.md) : c'est précisément le risque nommé par ce défaut
@@ -108,10 +125,18 @@ export function TrackingScreen({ route, navigation }: Props) {
         if (phaseRef.current === 'course') {
           setTrace((previous) => [...previous, message.payload.position]);
         }
+      } else if (isRideRouteMessage(message) && message.payload.rideId === rideId) {
+        setSharedRoute({ phase: message.payload.phase, points: message.payload.points });
+      } else if (isDriverArrivedMessage(message) && message.payload.rideId === rideId) {
+        setDriverArrived(true);
       } else if (isRideStartedMessage(message) && message.payload.rideId === rideId) {
         phaseRef.current = 'course';
         setPhase('course');
         setTrace([]);
+        setDriverArrived(false);
+        // Le chemin vers le client n'a plus sa place sur la carte du trajet -- mais le tracé du
+        // trajet a pu arriver AVANT ce message (rien ne les ordonne) : celui-là reste.
+        setSharedRoute((current) => (current && current.phase === 'transit' ? current : null));
       } else if (isRideCompletedMessage(message) && message.payload.rideId === rideId) {
         // Le résumé de fin affiche exactement ce que le serveur a écrit dans ce message -- jamais
         // une distance ou une durée reconstituée depuis les positions accumulées ci-dessus, qui
@@ -155,6 +180,16 @@ export function TrackingScreen({ route, navigation }: Props) {
   const gamme = classLabel(driver.motorcycleClass);
   const disconnected = connectionState !== 'connected';
 
+  // Le tracé du chauffeur prime ; à défaut, en course, la trace des positions reçues (un affichage,
+  // pas une source de vérité). Le centre suit le chauffeur, ou à défaut le début du tracé reçu.
+  const mapRoute =
+    sharedRoute && sharedRoute.points.length > 1
+      ? { points: sharedRoute.points }
+      : phase === 'course' && trace.length > 1
+        ? { points: trace }
+        : undefined;
+  const mapCenter: LatLng | null = driverPosition ?? sharedRoute?.points[0] ?? null;
+
   const markers: MapMarker[] = [
     { id: 'pickup', kind: 'pickup' as const, position: origin.position, label: 'Prise en charge' },
     { id: 'dropoff', kind: 'dropoff' as const, position: destination.position, label: 'Arrivée' },
@@ -164,8 +199,14 @@ export function TrackingScreen({ route, navigation }: Props) {
   return (
     <View style={styles.container}>
       <Text style={styles.phaseTitle} testID="tracking-phase">
-        {phase === 'approach' ? 'Votre chauffeur arrive' : 'Course en cours'}
+        {phase === 'course' ? 'Course en cours' : driverArrived ? 'Votre chauffeur est arrivé' : 'Votre chauffeur arrive'}
       </Text>
+
+      {phase === 'approach' && driverArrived ? (
+        <View style={styles.arrivedBanner} testID="tracking-arrived">
+          <Text style={styles.arrivedText}>Votre chauffeur est sur place. Rejoignez-le pour commencer la course.</Text>
+        </View>
+      ) : null}
 
       {disconnected ? (
         <View style={styles.connectionBanner} testID="tracking-connection-banner">
@@ -212,11 +253,11 @@ export function TrackingScreen({ route, navigation }: Props) {
       </View>
 
       <View style={styles.mapWrap} testID="tracking-map">
-        {driverPosition ? (
+        {mapCenter ? (
           <MapView
-            center={driverPosition}
+            center={mapCenter}
             markers={markers}
-            route={phase === 'course' && trace.length > 1 ? { points: trace } : undefined}
+            route={mapRoute}
             style={styles.map}
           />
         ) : (
@@ -262,6 +303,15 @@ const styles = StyleSheet.create({
   },
   connectionText: {
     color: '#92400E',
+  },
+  arrivedBanner: {
+    backgroundColor: '#DCFCE7',
+    borderRadius: 8,
+    padding: 10,
+  },
+  arrivedText: {
+    color: '#166534',
+    fontWeight: '600',
   },
   driverCard: {
     flexDirection: 'row',

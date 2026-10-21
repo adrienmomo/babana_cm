@@ -77,6 +77,8 @@ export function buildLeafletHtml(input: LeafletState & { tileUrlTemplate: string
   }).addTo(map);
 
   var layer = L.layerGroup().addTo(map);
+  var routeKey = null;
+  var lastCenter = initial.center;
   var update = function (state) {
     layer.clearLayers();
     (state.markers || []).forEach(function (m) {
@@ -86,14 +88,29 @@ export function buildLeafletHtml(input: LeafletState & { tileUrlTemplate: string
       if (m.label) marker.bindTooltip(m.label);
       marker.addTo(layer);
     });
+    var framed = false;
     if (state.route && state.route.points && state.route.points.length) {
-      L.polyline(state.route.points.map(function (p) { return [p.latitude, p.longitude]; }),
-        { color: '#0A7D3D', weight: 4 }).addTo(layer);
+      var pts = state.route.points;
+      var line = L.polyline(pts.map(function (p) { return [p.latitude, p.longitude]; }),
+        { color: '#1D4ED8', weight: 5, opacity: 0.85 }).addTo(layer);
+      // Cadrer le tracé entier quand il change -- pas à chaque position du chauffeur, qui
+      // arracherait la carte au doigt du chauffeur toutes les quelques secondes.
+      var first = pts[0], last = pts[pts.length - 1];
+      var key = pts.length + ':' + first.latitude + ',' + first.longitude + ':' + last.latitude + ',' + last.longitude;
+      if (key !== routeKey) {
+        routeKey = key;
+        map.fitBounds(line.getBounds(), { padding: [48, 48], maxZoom: ${MAX_ZOOM - 3} });
+        framed = true;
+      }
+    } else {
+      routeKey = null;
     }
-    var c = map.getCenter();
-    if (Math.abs(c.lat - state.center.latitude) > ${RECENTER_EPSILON} || Math.abs(c.lng - state.center.longitude) > ${RECENTER_EPSILON}) {
-      map.setView([state.center.latitude, state.center.longitude], map.getZoom());
-    }
+    // Recentrer seulement quand la PROP « centre » change -- pas dès que la carte diffère du
+    // centre (le doigt du chauffeur, ou le cadrage d'un tracé, l'en écartent légitimement).
+    var changed = Math.abs(lastCenter.latitude - state.center.latitude) > ${RECENTER_EPSILON} ||
+      Math.abs(lastCenter.longitude - state.center.longitude) > ${RECENTER_EPSILON};
+    lastCenter = state.center;
+    if (changed && !framed) map.setView([state.center.latitude, state.center.longitude], map.getZoom());
   };
   map.on('moveend', function () {
     var c = map.getCenter();

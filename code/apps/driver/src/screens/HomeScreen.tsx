@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { asRideId } from '@babana/navigation';
@@ -6,19 +6,29 @@ import { MapView, type LatLng, type MapMarker } from '@babana/maps';
 import type { ConnectionState } from '@babana/api-client';
 import type { realtime } from '@babana/contracts';
 import { AvailabilityToggle } from '../components/AvailabilityToggle';
-import { getCurrentPosition } from '../location';
+import { getCurrentPosition, locationTracker } from '../location';
+import { ARRIVAL_RADIUS_METERS, ROUTE_RETRY_COOLDOWN_MS } from '../../config';
+import { ProposalPanel } from '../rideFlow/ProposalPanel';
+import { ActiveRidePanel, type RideFlowSettings, type RideMapState } from '../rideFlow/ActiveRidePanel';
+import { replaceWithSettlement } from '../navigation/transitions';
 import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { isProposalHandled, markProposalHandled } from '../proposalDedup';
 import { consumePendingProposalNavigation } from '../push/handlers';
-import type { DriverParamList } from '../navigation/types';
+import type { ActiveRideParams, DriverParamList, ProposalParams } from '../navigation/types';
 
 /**
- * Écran d'accueil (L6-11) : l'écran permanent de l'app Chauffeur (`navigation/types.ts`), que
- * les événements interrompent -- proposition reçue (L6-12), course en cours (L6-13). Il porte
- * donc deux responsabilités : la bascule en ligne/hors ligne elle-même, et l'écoute des messages
- * qui font quitter cet écran (`proposal.new`, et `session.synced.activeProposal` -- une
- * proposition retrouvée après reconnexion ou relance, L7-04), puisque `Proposal` n'a pas d'autre
- * point d'entrée depuis l'app.
+ * Écran d'accueil (L6-11) : l'écran permanent de l'app Chauffeur (`navigation/types.ts`) -- la
+ * carte, qui ne quitte jamais l'écran pendant une course. Il porte la bascule en ligne/hors ligne,
+ * et c'est lui qui héberge tout le déroulé sur cette même carte (`rideFlow/`) :
+ *
+ *   repos -> proposition (Refuser/Accepter prennent la place des deux boutons flottants)
+ *         -> approche (l'itinéraire vers le client s'affiche) -> « Sur place » à proximité
+ *         -> « Commencer la course » -> trajet (l'itinéraire vers la destination se charge)
+ *         -> « Terminer » -> écran de règlement.
+ *
+ * L'écoute des messages qui ouvrent une proposition (`proposal.new`, et
+ * `session.synced.activeProposal` -- une proposition retrouvée après reconnexion ou relance, L7-04)
+ * vit ici ; la notification qui ouvre l'app (`Home: { proposal }`) aboutit au même endroit.
  */
 
 type Props = NativeStackScreenProps<DriverParamList, 'Home'>;
@@ -27,6 +37,13 @@ type Props = NativeStackScreenProps<DriverParamList, 'Home'>;
 // repère que l'app Client : jamais un écran vide, jamais une position inventée pour le chauffeur
 // (le repère « chauffeur » n'apparaît qu'avec une vraie lecture).
 const DOUALA_DEFAULT_CENTER: LatLng = { latitude: 4.0511, longitude: 9.7679 };
+
+type Flow =
+  | { kind: 'idle' }
+  | { kind: 'proposal'; params: ProposalParams }
+  | { kind: 'ride'; ride: ActiveRideParams };
+
+const IDLE: Flow = { kind: 'idle' };
 
 // États de course qui interdisent le passage hors ligne (L3-04, critère 2) -- mêmes valeurs que
 // `TOGETHER_STATES` côté Odoo (`babana_ride.py`, cité dans TrackingScreen.tsx côté Client) : un
@@ -41,53 +58,69 @@ function isProposalNewMessage(message: realtime.ServerToClientMessage): message 
   return message.type === 'proposal.new';
 }
 
-export function HomeScreen({ navigation }: Props) {
+const RIDE_SETTINGS: RideFlowSettings = {
+  arrivalRadiusMeters: ARRIVAL_RADIUS_METERS,
+  routeRetryCooldownMs: ROUTE_RETRY_COOLDOWN_MS,
+};
+
+export function HomeScreen({ navigation, route }: Props) {
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => realtimeClient.getState());
   // Lu depuis session.synced (activeRideState), jamais deviné (invariant 3) -- session.resync est
   // déjà envoyé automatiquement à chaque connexion établie, initiale ou après coupure
   // (@babana/api-client/realtime/connection.ts), donc une réponse arrive sans action de cet écran.
   const [inCourse, setInCourse] = useState(false);
-  // Position lue une fois à l'ouverture (lecture ponctuelle, `location/oneShot.ts`) -- la capture
-  // continue reste celle de `tracker.ts`, cet écran n'y touche pas. `null` : refusée ou
-  // indisponible, la carte reste sur le centre par défaut.
+  // Dernière position connue : une lecture ponctuelle à l'ouverture, puis les relevés de la capture
+  // continue (`tracker.ts`, qui tourne déjà pour le service temps réel -- aucun second GPS). `null` :
+  // refusée ou indisponible, la carte reste sur le centre par défaut.
   const [position, setPosition] = useState<LatLng | null>(null);
+  const [flow, setFlow] = useState<Flow>(IDLE);
+  // Lu de façon synchrone par les gestionnaires de messages (l'effet d'abonnement ne s'exécute
+  // qu'une fois) : deux propositions ne s'affichent jamais ensemble (L6-12, critère 5).
+  const flowRef = useRef<Flow>(IDLE);
+  // Ce que le panneau de course demande à la carte de dessiner (étape + itinéraire).
+  const [rideMap, setRideMap] = useState<RideMapState | null>(null);
+
+  const changeFlow = useCallback((next: Flow) => {
+    flowRef.current = next;
+    setFlow(next);
+    if (next.kind !== 'ride') setRideMap(null);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     getCurrentPosition().then((fix) => {
       if (!cancelled && fix) setPosition(fix);
     });
+    const unsubscribeFix = locationTracker.subscribeFix((fix) => {
+      if (!cancelled) setPosition({ latitude: fix.latitude, longitude: fix.longitude });
+    });
     return () => {
       cancelled = true;
+      unsubscribeFix();
     };
   }, []);
 
   useEffect(() => {
     ensureRealtimeConnected();
 
-    // Deux propositions ne peuvent pas s'afficher simultanément (L6-12, critère 5) : si l'écran
-    // affiché est déjà Proposal, on n'en ouvre pas un second. Le registre partagé
-    // (`proposalDedup`) couvre en plus le cas où le WebSocket et la notification annoncent la
-    // même proposition (L7-04, critère 2).
-    function alreadyShowingAProposal(): boolean {
-      return navigation.getState().routes.some((route) => route.name === 'Proposal');
+    // Le registre partagé (`proposalDedup`) couvre en plus le cas où le WebSocket et la
+    // notification annoncent la même proposition (L7-04, critère 2).
+    function openProposal(params: ProposalParams): void {
+      if (flowRef.current.kind !== 'idle') return;
+      changeFlow({ kind: 'proposal', params });
     }
 
-    function openProposalFromRealtime(params: Extract<DriverParamList['Proposal'], { source?: 'realtime' }>): void {
-      if (isProposalHandled(params.rideId) || alreadyShowingAProposal()) return;
+    function openProposalFromRealtime(params: Extract<ProposalParams, { source?: 'realtime' }>): void {
+      if (isProposalHandled(params.rideId) || flowRef.current.kind !== 'idle') return;
       markProposalHandled(params.rideId);
-      navigation.navigate('Proposal', params);
+      openProposal(params);
     }
 
     // Démarrage à froid depuis un appui sur la notification, avant que la navigation ne soit
     // prête (`push/handlers.ts`) : la proposition en attente est ouverte ici, une fois montés.
     const pending = consumePendingProposalNavigation();
     if (pending) {
-      navigation.navigate('Proposal', {
-        source: 'notification',
-        rideId: asRideId(pending.rideId),
-        expiresAt: pending.expiresAt,
-      });
+      openProposal({ source: 'notification', rideId: asRideId(pending.rideId), expiresAt: pending.expiresAt });
     }
 
     const unsubscribeConnectionState = onRealtimeConnectionStateChange(setConnectionState);
@@ -120,9 +153,8 @@ export function HomeScreen({ navigation }: Props) {
         }
       } else if (isProposalNewMessage(message)) {
         // Le message entier est transmis (pas seulement rideId) : `proposal.new` ne repasse
-        // jamais deux fois sur `onRealtimeMessage`, un abonnement posé au montage de `Proposal`
-        // ne le recevrait donc jamais (voir navigation/types.ts). `emittedAt` vient de
-        // l'enveloppe -- signalé au serveur à l'affichage réel (`proposal.seen`, L7-04).
+        // jamais deux fois sur `onRealtimeMessage`. `emittedAt` vient de l'enveloppe -- signalé
+        // au serveur à l'affichage réel (`proposal.seen`, L7-04).
         openProposalFromRealtime({
           source: 'realtime',
           rideId: asRideId(message.payload.rideId),
@@ -141,51 +173,109 @@ export function HomeScreen({ navigation }: Props) {
       unsubscribeConnectionState();
       unsubscribeMessages();
     };
-  }, [navigation]);
+  }, [changeFlow]);
+
+  // Notification touchée app déjà ouverte (`push/handlers.ts` -> `navigate('Home', { proposal })`).
+  const notifiedProposal = route.params?.proposal;
+  useEffect(() => {
+    if (notifiedProposal && flowRef.current.kind === 'idle') {
+      changeFlow({ kind: 'proposal', params: notifiedProposal });
+    }
+  }, [notifiedProposal, changeFlow]);
+
+  const handleAccepted = useCallback(
+    (ride: ActiveRideParams) => {
+      setInCourse(true);
+      changeFlow({ kind: 'ride', ride });
+    },
+    [changeFlow]
+  );
+  const handleDismissed = useCallback(() => changeFlow(IDLE), [changeFlow]);
+  const handleSettle = useCallback(
+    (params: { rideId: ActiveRideParams['rideId']; amount: number }) => replaceWithSettlement(navigation, params),
+    [navigation]
+  );
+  const handleMapState = useCallback((state: RideMapState) => setRideMap(state), []);
 
   function goToRemittance() {
     navigation.navigate('Remittance');
   }
 
-  const markers: MapMarker[] = position ? [{ id: 'me', kind: 'driver', position }] : [];
+  const ride = flow.kind === 'ride' ? flow.ride : null;
+  const markers: MapMarker[] = [];
+  if (position) markers.push({ id: 'me', kind: 'driver', position });
+  if (ride && rideMap) {
+    markers.push(
+      rideMap.stage === 'transit'
+        ? { id: 'dropoff', kind: 'dropoff', position: ride.destination }
+        : { id: 'pickup', kind: 'pickup', position: ride.origin }
+    );
+  }
+  // Pendant une course la carte est cadrée sur l'itinéraire, pas sur le chauffeur : un centre qui
+  // suivrait chaque relevé défairait ce cadrage toutes les quelques secondes.
+  const center = ride ? ride.origin : (position ?? DOUALA_DEFAULT_CENTER);
 
   return (
     <View style={styles.container}>
-      {/* `key` : la carte ne se recentre pas d'elle-même quand `center` change (région initiale) --
-          elle est donc remontée une fois, quand la position arrive. */}
       <MapView
-        key={position ? 'located' : 'default'}
-        center={position ?? DOUALA_DEFAULT_CENTER}
+        center={center}
         markers={markers}
+        route={ride && rideMap?.route ? rideMap.route : undefined}
         style={styles.map}
       />
 
-      <View style={styles.statusChip} pointerEvents="none">
-        <Text style={styles.connectionState} testID="connection-state">
-          {connectionState === 'connected'
-            ? 'Connexion au service établie'
-            : connectionState === 'connecting'
-              ? 'Connexion en cours…'
-              : 'Hors connexion'}
-        </Text>
-      </View>
+      {flow.kind === 'idle' ? (
+        <>
+          <View style={styles.statusChip} pointerEvents="none">
+            <Text style={styles.connectionState} testID="connection-state">
+              {connectionState === 'connected'
+                ? 'Connexion au service établie'
+                : connectionState === 'connecting'
+                  ? 'Connexion en cours…'
+                  : 'Hors connexion'}
+            </Text>
+          </View>
 
-      {/* Boutons flottants aux deux coins du bas : au pouce, sur une moto, sans quitter la carte
-          des yeux (D20). */}
-      <View style={styles.floatingToggle} testID="home-floating-toggle">
-        <AvailabilityToggle inCourse={inCourse} onNavigateToRemittance={goToRemittance} />
-      </View>
+          {/* Boutons flottants aux deux coins du bas : au pouce, sur une moto, sans quitter la
+              carte des yeux (D20). Pendant une proposition, Refuser/Accepter prennent leur place. */}
+          <View style={styles.floatingToggle} testID="home-floating-toggle">
+            <AvailabilityToggle inCourse={inCourse} onNavigateToRemittance={goToRemittance} />
+          </View>
 
-      <View style={styles.floatingCash} testID="home-floating-cash">
-        <Pressable
-          testID="home-go-to-cash"
-          accessibilityRole="button"
-          onPress={() => navigation.navigate('Cash')}
-          style={styles.cashButton}
-        >
-          <Text style={styles.cashLinkLabel}>Ma caisse</Text>
-        </Pressable>
-      </View>
+          <View style={styles.floatingCash} testID="home-floating-cash">
+            <Pressable
+              testID="home-go-to-cash"
+              accessibilityRole="button"
+              onPress={() => navigation.navigate('Cash')}
+              style={styles.cashButton}
+            >
+              <Text style={styles.cashLinkLabel}>Ma caisse</Text>
+            </Pressable>
+          </View>
+        </>
+      ) : null}
+
+      {flow.kind === 'proposal' ? (
+        <ProposalPanel
+          // Une autre proposition (autre course) repart d'un panneau neuf.
+          key={flow.params.rideId}
+          params={flow.params}
+          onDismiss={handleDismissed}
+          onAccepted={handleAccepted}
+        />
+      ) : null}
+
+      {flow.kind === 'ride' ? (
+        <ActiveRidePanel
+          key={flow.ride.rideId}
+          ride={flow.ride}
+          position={position}
+          settings={RIDE_SETTINGS}
+          onMapState={handleMapState}
+          onSettle={handleSettle}
+          onEnded={handleDismissed}
+        />
+      ) : null}
     </View>
   );
 }

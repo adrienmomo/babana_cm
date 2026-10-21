@@ -12,6 +12,8 @@ import {
   NearbyUnsubscribeMessageSchema,
   RideTrackMessageSchema,
   SessionResyncMessageSchema,
+  RouteShareMessageSchema,
+  RideArrivedMessageSchema,
 } from '../src/realtime/client-to-server';
 import {
   ProposalNewMessageSchema,
@@ -28,6 +30,8 @@ import {
   RideStartedMessageSchema,
   RideCompletedMessageSchema,
   SessionSyncedMessageSchema,
+  RideRouteMessageSchema,
+  DriverArrivedMessageSchema,
   ServerToClientMessageSchema,
 } from '../src/realtime/server-to-client';
 import { NEARBY_POSITION_PRECISION_DECIMALS, roundToNearbyPrecision } from '../src/http/common';
@@ -571,5 +575,37 @@ describe('précision des positions diffusées (C2b)', () => {
     const rounded = roundToNearbyPrecision(4.05123456);
     const decimals = rounded.toString().split('.')[1]?.length ?? 0;
     assert.ok(decimals <= NEARBY_POSITION_PRECISION_DECIMALS);
+  });
+});
+
+describe('tracé partagé et « Sur place » (chauffeur -> serveur -> client)', () => {
+  const envelope = { id: randomUUID(), emittedAt: now };
+  const points = [
+    { latitude: 4.05, longitude: 9.76 },
+    { latitude: 4.06, longitude: 9.77 },
+  ];
+  const route = { rideId, phase: 'approach', points, distanceMeters: 1500, durationSeconds: 240 };
+
+  test('route.share est un message chauffeur -> serveur, ride.route le même tracé vers le client', () => {
+    const up = { ...envelope, type: 'route.share', payload: route };
+    assert.ok(RouteShareMessageSchema.safeParse(up).success);
+    assert.ok(ClientToServerMessageSchema.safeParse(up).success);
+    const down = { ...envelope, type: 'ride.route', payload: route };
+    assert.ok(RideRouteMessageSchema.safeParse(down).success);
+    assert.ok(ServerToClientMessageSchema.safeParse(down).success);
+  });
+
+  test('un tracé a deux points au moins, une phase connue, et un plafond de points', () => {
+    const bad = (payload: unknown) => RouteShareMessageSchema.safeParse({ ...envelope, type: 'route.share', payload }).success;
+    assert.equal(bad({ ...route, points: [points[0]] }), false);
+    assert.equal(bad({ ...route, phase: 'flying' }), false);
+    assert.equal(bad({ ...route, points: Array.from({ length: 1001 }, () => points[0]) }), false);
+    assert.equal(bad({ ...route, distanceMeters: null, durationSeconds: null }), true);
+  });
+
+  test('ride.arrived (chauffeur) et driver.arrived (client) ne portent que la course', () => {
+    assert.ok(RideArrivedMessageSchema.safeParse({ ...envelope, type: 'ride.arrived', payload: { rideId } }).success);
+    assert.ok(DriverArrivedMessageSchema.safeParse({ ...envelope, type: 'driver.arrived', payload: { rideId } }).success);
+    assert.equal(RideArrivedMessageSchema.safeParse({ ...envelope, type: 'ride.arrived', payload: {} }).success, false);
   });
 });

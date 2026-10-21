@@ -9,6 +9,7 @@ import {
   WS_CLOSE_UNAUTHENTICATED,
 } from './auth';
 import { createMessageDispatcher } from './dispatch';
+import { RideRouteRelay } from '../tracking/route';
 import { DisconnectGraceTimers } from '../driver/availability';
 import { NearbyManager } from '../nearby/handler';
 import { ProposalLifecycle } from '../proposal/lifecycle';
@@ -52,8 +53,9 @@ export function createConnectionHandler(config: Config, redis: Redis): Connectio
   // au chauffeur, ride.assigned/ride.rejected au client -- même registre que celui qui suit les
   // connexions actives (spécification L3-01).
   const proposals = new ProposalLifecycle(config, redis, registry);
-  const tracking = new TrackingManager(config, redis);
-  const dispatch = createMessageDispatcher(config, redis, nearby, proposals, tracking);
+  const routes = new RideRouteRelay(config, redis, registry);
+  const tracking = new TrackingManager(config, redis, routes);
+  const dispatch = createMessageDispatcher(config, redis, nearby, proposals, tracking, routes);
   const disconnectGrace = new DisconnectGraceTimers();
   // L3-20, D47 -- détection d'une connexion à moitié fermée, symétrique de la surveillance par
   // abonnement côté application (nearby/handler.ts, tracking/broadcast.ts). Posé sur `wss`

@@ -8,6 +8,7 @@ import type { ConnectionRegistry } from '../ws/auth';
 import { getRideSession } from './session';
 import { getPosition } from '../redis/positions';
 import { haversineDistanceMeters } from './validation';
+import type { RideRouteRelay } from './route';
 
 interface Subscription {
   rideId: string;
@@ -37,7 +38,9 @@ export class TrackingManager {
 
   constructor(
     private readonly config: Config,
-    private readonly redis: Redis
+    private readonly redis: Redis,
+    // Rejoue le dernier tracé / « sur place » à l'abonné tardif (`tracking/route.ts`).
+    private readonly routes?: RideRouteRelay
   ) {}
 
   async subscribe(context: ConnectionContext, socket: WebSocket, payload: realtime.RideTrackMessage['payload']): Promise<void> {
@@ -86,6 +89,13 @@ export class TrackingManager {
     };
 
     await push();
+
+    // Après le contrôle de propriété de `push()` : `push` s'arrête de lui-même pour une course qui
+    // n'est pas la sienne, mais ne le dit pas -- on relit donc la session ici avant de rejouer.
+    const owned = await getRideSession(this.redis, payload.rideId);
+    if (this.routes && owned && owned.clientUserId === context.userId) {
+      await this.routes.replay(socket, payload.rideId);
+    }
 
     if (this.latestRequestSequence.get(context.userId) !== mySequence) {
       // Réponse obsolète (L3-20, même raisonnement que nearby/handler.ts) -- n'installe jamais

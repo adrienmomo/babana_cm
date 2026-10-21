@@ -50,6 +50,26 @@ export const GOOGLE_MAPS_API_KEY = process.env.BABANA_GOOGLE_MAPS_API_KEY || '';
 export const MAP_TILE_URL = process.env.BABANA_MAP_TILE_URL || undefined;
 
 /**
+ * Service de routage (format OSRM) qui calcule l'itinéraire du chauffeur vers le client puis vers
+ * la destination (`fetchRoute`, @babana/maps). Absent : la carte reste sans tracé -- jamais un
+ * serveur public choisi à la place de l'exploitant (D43). `make driver` pose la valeur de
+ * développement (serveur de démonstration public, usage léger seulement) ; la production pose le
+ * service retenu. É8 : modèle voiture, la durée affichée est indicative.
+ */
+export const ROUTING_URL = process.env.BABANA_ROUTING_URL || undefined;
+
+/**
+ * Rayon (mètres) sous lequel le bouton « Sur place » apparaît. Un confort d'affichage, pas une règle
+ * métier : le serveur ne conditionne rien à cette proximité. Assez large pour absorber l'imprécision
+ * d'un GPS de terminal d'entrée de gamme (quelques dizaines de mètres), assez étroit pour ne pas
+ * proposer « Sur place » au bout de la rue.
+ */
+export const ARRIVAL_RADIUS_METERS = Number(process.env.BABANA_ARRIVAL_RADIUS_METERS) || 150;
+
+/** Délai avant de redemander un itinéraire qui a échoué (service de routage injoignable). */
+export const ROUTE_RETRY_COOLDOWN_MS = Number(process.env.BABANA_ROUTE_RETRY_COOLDOWN_MS) || 15_000;
+
+/**
  * Capture GPS (L6-05) -- tout paramétrable (invariant 5), rien codé en dur dans `location/*.ts`.
  * Un mauvais réglage au pilote se corrige en changeant une valeur ici et en reconstruisant
  * l'APK, jamais en réécrivant la logique de capture elle-même -- voir `location/adaptive.ts`

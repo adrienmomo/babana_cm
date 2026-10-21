@@ -1,5 +1,5 @@
 import { asRideId } from '@babana/navigation';
-import type { DriverParamList } from '../types';
+import type { ActiveRideParams, DriverParamList } from '../types';
 
 /**
  * Preuve de compilation (critère d'acceptation 2 de L6-00) -- même raisonnement que
@@ -7,7 +7,7 @@ import type { DriverParamList } from '../types';
  */
 const rideId = asRideId('r1');
 
-const valid: DriverParamList['ActiveRide'] = {
+const valid: ActiveRideParams = {
   rideId,
   origin: { latitude: 4.05, longitude: 9.7 },
   destination: { latitude: 4.061, longitude: 9.71 },
@@ -17,7 +17,7 @@ const valid: DriverParamList['ActiveRide'] = {
 };
 
 // @ts-expect-error -- un identifiant numérique n'est pas un RideId : doit casser la compilation.
-const wrongType: DriverParamList['ActiveRide'] = { ...valid, rideId: 42 };
+const wrongType: ActiveRideParams = { ...valid, rideId: 42 };
 
 // @ts-expect-error -- Home ne prend aucun paramètre.
 const extraParam: DriverParamList['Home'] = { rideId };

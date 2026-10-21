@@ -116,6 +116,12 @@ const ConfigSchema = z.object({
    * l'œil ne distingue pas entre deux points si proches dans le temps. */
   TRACKING_BROADCAST_INTERVAL_SECONDS: z.coerce.number().positive().default(10),
 
+  /** Durée de conservation du dernier tracé partagé par le chauffeur et du fait « sur place »
+   * (`tracking/route.ts`) : ce qu'on rejoue à un client qui s'abonne tard. Une course n'a pas de
+   * durée prévisible (même raisonnement que l'engagement, sans TTL) -- celle-ci borne seulement la
+   * vie d'une clé orpheline si la fin de course n'a jamais nettoyé. */
+  RIDE_ROUTE_TTL_SECONDS: z.coerce.number().int().positive().default(6 * 3600),
+
   /** Vitesse moyenne retenue pour l'ETA d'approche (L3-09) -- PROVISOIRE au sens de D21 : aucun
    * service de routage n'est accessible depuis le service temps réel (D3, aucune dépendance
    * externe hors Redis/Odoo), l'ETA est donc une distance à vol d'oiseau convertie par une

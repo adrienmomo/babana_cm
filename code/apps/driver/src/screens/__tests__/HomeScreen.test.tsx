@@ -34,17 +34,44 @@ jest.mock('../../realtime', () => ({
 // L6-05 : AvailabilityToggle.tsx (montée par cet écran) importe le singleton réel sinon -- voir
 // components/__tests__/AvailabilityToggle.test.tsx pour le même raisonnement.
 const mockGetCurrentPosition = jest.fn();
+let fixListener: ((fix: { latitude: number; longitude: number }) => void) | null = null;
 jest.mock('../../location', () => ({
-  locationTracker: { setOnline: jest.fn() },
+  locationTracker: {
+    setOnline: jest.fn(),
+    subscribeFix: (listener: (fix: { latitude: number; longitude: number }) => void) => {
+      fixListener = listener;
+      return () => {
+        fixListener = null;
+      };
+    },
+  },
   getCurrentPosition: (...args: unknown[]) => mockGetCurrentPosition(...args),
 }));
 
+// Le panneau de proposition réveille l'appareil à l'affichage (testé dans ProposalPanel.test.tsx).
+jest.mock('../../proposalAlert', () => ({
+  alertIncomingProposal: jest.fn(),
+  dismissProposalAlert: jest.fn(),
+}));
+
+const mockReplaceWithSettlement = jest.fn();
+jest.mock('../../navigation/transitions', () => ({
+  replaceWithSettlement: (...args: unknown[]) => mockReplaceWithSettlement(...args),
+}));
+
 import { HomeScreen } from '../HomeScreen';
+import { formatMoney } from '../../format';
 import { resetProposalDedup } from '../../proposalDedup';
+import type { ProposalParams } from '../../navigation/types';
 
 function fakeNavigation() {
-  return { navigate: jest.fn(), getState: jest.fn(() => ({ routes: [{ name: 'Home' }] })) };
+  return { navigate: jest.fn(), reset: jest.fn() };
 }
+
+// Nœuds natifs seulement : `findAllByProps` compterait aussi le composant qui les rend.
+const host = (root: ReactTestRenderer, testID: string) =>
+  root.root.findAll((node) => typeof node.type === 'string' && node.props.testID === testID);
+const shown = (root: ReactTestRenderer, testID: string) => host(root, testID).length > 0;
 
 const renderedRoots: ReactTestRenderer[] = [];
 
@@ -54,8 +81,11 @@ afterEach(async () => {
   });
 });
 
-async function renderHome(navigation = fakeNavigation()): Promise<{ root: ReactTestRenderer; navigation: ReturnType<typeof fakeNavigation> }> {
-  const route = { key: 'Home', name: 'Home' as const, params: undefined };
+async function renderHome(
+  navigation = fakeNavigation(),
+  params: { proposal?: ProposalParams } | undefined = undefined
+): Promise<{ root: ReactTestRenderer; navigation: ReturnType<typeof fakeNavigation> }> {
+  const route = { key: 'Home', name: 'Home' as const, params };
   let root!: ReactTestRenderer;
   await act(async () => {
     // @ts-expect-error -- fausse navigation minimale, suffisante pour cet écran
@@ -126,6 +156,7 @@ beforeEach(() => {
   mockGetCurrentPosition.mockResolvedValue(null);
   realtimeListener = null;
   connectionStateListener = null;
+  fixListener = null;
   mockConnectionState = 'offline';
   resetProposalDedup();
 });
@@ -189,83 +220,190 @@ describe('HomeScreen (L6-11)', () => {
     expect(root.root.findByProps({ testID: 'availability-toggle' }).props.disabled).toBe(true);
   });
 
-  it('une proposition reçue navigue vers l’écran Proposal avec son rideId', async () => {
-    const { navigation } = await renderHome();
+  it('une proposition reçue s’affiche sur la carte, avec son montant — sans quitter l’écran', async () => {
+    const { root, navigation } = await renderHome();
 
     await act(async () => {
       emitProposal('ride-42');
     });
 
-    expect(navigation.navigate).toHaveBeenCalledWith(
-      'Proposal',
-      expect.objectContaining({ rideId: 'ride-42', amount: 1200, distanceMeters: 3000, distanceToOriginMeters: 1200 })
-    );
+    expect(shown(root, 'proposal-screen')).toBe(true);
+    expect(texts(root)).toContain(formatMoney(1200));
+    expect(navigation.navigate).not.toHaveBeenCalled();
+    expect(root.root.findAllByProps({ testID: 'mock-map-view' }).length).toBeGreaterThan(0);
+  });
+
+  it('Refuser / Accepter prennent la place des deux boutons flottants, puis ceux-ci reviennent', async () => {
+    mockConnectionState = 'connected';
+    const { root } = await renderHome();
+    expect(shown(root, 'home-floating-toggle')).toBe(true);
+    expect(shown(root, 'home-floating-cash')).toBe(true);
+
+    await act(async () => {
+      emitProposal('ride-swap');
+    });
+    expect(shown(root, 'proposal-accept')).toBe(true);
+    expect(shown(root, 'proposal-reject')).toBe(true);
+    expect(shown(root, 'home-floating-toggle')).toBe(false);
+    expect(shown(root, 'home-floating-cash')).toBe(false);
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'proposal-reject' }).props.onPress();
+    });
+    expect(shown(root, 'proposal-screen')).toBe(false);
+    expect(shown(root, 'home-floating-toggle')).toBe(true);
+    expect(shown(root, 'home-floating-cash')).toBe(true);
   });
 
   it("critère 5 (L6-12) -- une seconde proposition n'est pas ouverte par-dessus une déjà affichée", async () => {
-    const navigation = fakeNavigation();
-    navigation.getState.mockReturnValue({ routes: [{ name: 'Home' }, { name: 'Proposal' }] });
-    await renderHome(navigation);
+    const { root } = await renderHome();
 
     await act(async () => {
-      emitProposal('ride-99');
+      emitProposal('ride-first');
+    });
+    await act(async () => {
+      emitProposal('ride-second');
     });
 
-    expect(navigation.navigate).not.toHaveBeenCalled();
+    expect(host(root, 'proposal-screen')).toHaveLength(1);
+    // La seconde ne s'est pas substituée à la première.
+    expect(host(root, 'proposal-accept')).toHaveLength(1);
   });
 
-  it('proposal.new est ouvert en mode realtime avec emittedAt (pour proposal.seen, L7-04)', async () => {
-    const { navigation } = await renderHome();
+  it('L7-04 -- une proposition active retrouvée dans session.synced.activeProposal s’affiche (app relancée / reconnexion)', async () => {
+    const { root } = await renderHome();
 
     await act(async () => {
-      emitProposal('ride-77');
+      emitSessionSynced(null, anActiveProposal('ride-resync'));
     });
 
-    expect(navigation.navigate).toHaveBeenCalledWith(
-      'Proposal',
-      expect.objectContaining({ source: 'realtime', rideId: 'ride-77', emittedAt: expect.any(String) })
-    );
+    expect(shown(root, 'proposal-screen')).toBe(true);
+    expect(texts(root)).toContain(formatMoney(1500));
   });
 
-  it('L7-04 -- une proposition active retrouvée dans session.synced.activeProposal ouvre l’écran (app relancée / reconnexion)', async () => {
-    const { navigation } = await renderHome();
-    const active = anActiveProposal('ride-resync');
-
-    await act(async () => {
-      emitSessionSynced(null, active);
-    });
-
-    expect(navigation.navigate).toHaveBeenCalledWith(
-      'Proposal',
-      expect.objectContaining({
-        source: 'realtime',
-        rideId: 'ride-resync',
-        amount: 1500,
-        expiresAt: active.expiresAt,
-        emittedAt: active.emittedAt,
-      })
-    );
-  });
-
-  it("L7-04 -- session.synced sans activeProposal n'ouvre aucun écran (l'absence est un fait, pas un silence)", async () => {
-    const { navigation } = await renderHome();
+  it("L7-04 -- session.synced sans activeProposal n'ouvre aucun panneau (l'absence est un fait, pas un silence)", async () => {
+    const { root } = await renderHome();
 
     await act(async () => {
       emitSessionSynced('assigned', null);
     });
 
-    expect(navigation.navigate).not.toHaveBeenCalled();
+    expect(shown(root, 'proposal-screen')).toBe(false);
   });
 
-  it('L7-04 -- déduplication : le WebSocket puis session.synced pour la même course n’ouvrent qu’un écran', async () => {
-    const { navigation } = await renderHome();
+  it('L7-04 -- déduplication : le WebSocket puis session.synced pour la même course n’ouvrent qu’un panneau', async () => {
+    const { root } = await renderHome();
 
     await act(async () => {
       emitProposal('ride-dup');
       emitSessionSynced(null, anActiveProposal('ride-dup'));
     });
 
-    expect(navigation.navigate).toHaveBeenCalledTimes(1);
+    expect(host(root, 'proposal-screen')).toHaveLength(1);
+  });
+
+  it('L7-04 -- l’app ouverte depuis la notification (Home: { proposal }) affiche la proposition à revalider', async () => {
+    const { root } = await renderHome(fakeNavigation(), {
+      proposal: { source: 'notification', rideId: 'ride-notif' as never, expiresAt: null },
+    });
+
+    expect(shown(root, 'proposal-screen')).toBe(true);
+    expect(shown(root, 'proposal-revalidating')).toBe(true);
+    expect(mockSend).toHaveBeenCalledWith('session.resync', { lastKnownRideId: 'ride-notif' });
+  });
+
+  describe('déroulé de la course sur la même carte', () => {
+    async function acceptedRide(root: ReactTestRenderer, rideId = 'ride-flow') {
+      mockConnectionState = 'connected';
+      await act(async () => {
+        emitProposal(rideId);
+      });
+      await act(async () => {
+        root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
+      });
+      await act(async () => {
+        realtimeListener?.({
+          type: 'proposal.accepted',
+          id: 'a1',
+          emittedAt: new Date().toISOString(),
+          payload: { rideId, clientPhoneNumber: '+237691234567' },
+        });
+      });
+    }
+
+    it("l'acceptation ouvre le panneau de course sur la carte déjà là -- aucune navigation, la carte n'est pas remontée", async () => {
+      const { root, navigation } = await renderHome();
+      const mapBefore = root.root.findAllByProps({ testID: 'mock-map-view' })[0];
+
+      await acceptedRide(root);
+
+      expect(shown(root, 'active-ride-screen')).toBe(true);
+      expect(shown(root, 'proposal-screen')).toBe(false);
+      expect(navigation.navigate).not.toHaveBeenCalled();
+      expect(navigation.reset).not.toHaveBeenCalled();
+      expect(root.root.findAllByProps({ testID: 'mock-map-view' })[0]).toBe(mapBefore);
+      // Les boutons du repos ne reviennent pas pendant la course.
+      expect(shown(root, 'home-floating-toggle')).toBe(false);
+    });
+
+    it('le repère du client apparaît sur la carte, avec celui du chauffeur', async () => {
+      mockGetCurrentPosition.mockResolvedValue({ latitude: 4.049, longitude: 9.695 });
+      const { root } = await renderHome();
+      await acceptedRide(root);
+      expect(host(root, 'mock-map-marker')).toHaveLength(2);
+    });
+
+    it('la position suit les relevés de la capture continue (aucun second GPS)', async () => {
+      const { root } = await renderHome();
+      expect(host(root, 'mock-map-marker')).toHaveLength(0);
+
+      await act(async () => {
+        fixListener?.({ latitude: 4.05, longitude: 9.7 });
+      });
+
+      expect(host(root, 'mock-map-marker')).toHaveLength(1);
+    });
+
+    it('la fin de course bascule vers le règlement', async () => {
+      const { root, navigation } = await renderHome();
+      await acceptedRide(root);
+
+      await act(async () => {
+        realtimeListener?.({
+          type: 'ride.completed',
+          id: 'c1',
+          emittedAt: new Date().toISOString(),
+          payload: { rideId: 'ride-flow', distanceMeters: 3300, durationSeconds: 700, measured: true, amount: 1450, breakdown: {} },
+        });
+      });
+
+      expect(mockReplaceWithSettlement).toHaveBeenCalledWith(navigation, { rideId: 'ride-flow', amount: 1450 });
+    });
+
+    it('une course annulée rend la carte au repos, boutons flottants compris', async () => {
+      jest.useFakeTimers();
+      try {
+        const { root } = await renderHome();
+        await acceptedRide(root);
+
+        await act(async () => {
+          realtimeListener?.({
+            type: 'ride.cancelled',
+            id: 'x1',
+            emittedAt: new Date().toISOString(),
+            payload: { rideId: 'ride-flow', cancelledBy: 'client' },
+          });
+        });
+        await act(async () => {
+          await jest.advanceTimersByTimeAsync(3000);
+        });
+
+        expect(shown(root, 'active-ride-screen')).toBe(false);
+        expect(shown(root, 'home-floating-toggle')).toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
   });
 
   it("L5-07 -- « Ma caisse » navigue vers l'écran de recette, accessible en permanence depuis l'accueil", async () => {

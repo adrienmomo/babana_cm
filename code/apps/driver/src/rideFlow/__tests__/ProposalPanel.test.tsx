@@ -43,15 +43,10 @@ function setConnectionState(state: 'offline' | 'connecting' | 'connected') {
   mockConnectionStateListener?.(state);
 }
 
-const mockReplaceWithActiveRide = jest.fn();
-jest.mock('../../navigation/transitions', () => ({
-  replaceWithActiveRide: (...args: unknown[]) => mockReplaceWithActiveRide(...args),
-}));
-
-import { ProposalScreen } from '../ProposalScreen';
+import { ProposalPanel } from '../ProposalPanel';
 import { formatMoney } from '../../format';
 import { resetProposalDedup } from '../../proposalDedup';
-import type { DriverParamList } from '../../navigation/types';
+import type { ProposalParams } from '../../navigation/types';
 
 const RIDE_ID = asRideId('ride-1');
 const PARAMS = {
@@ -70,8 +65,10 @@ const PARAMS = {
   emittedAt: new Date().toISOString(),
 };
 
+// Les deux issues du panneau : il se referme sans course (`goBack`), ou la course commence
+// (`accepted`). Anciennement navigation.goBack() / replaceWithActiveRide() quand c'était un écran.
 function fakeNavigation() {
-  return { goBack: jest.fn(), reset: jest.fn(), navigate: jest.fn() };
+  return { goBack: jest.fn(), accepted: jest.fn() };
 }
 
 const renderedRoots: ReactTestRenderer[] = [];
@@ -98,14 +95,12 @@ afterEach(async () => {
 });
 
 async function renderProposal(
-  params: DriverParamList['Proposal'] = PARAMS,
+  params: ProposalParams = PARAMS,
   navigation = fakeNavigation()
 ): Promise<{ root: ReactTestRenderer; navigation: ReturnType<typeof fakeNavigation> }> {
-  const route = { key: 'Proposal', name: 'Proposal' as const, params };
   let root!: ReactTestRenderer;
   await act(async () => {
-    // @ts-expect-error -- fausse navigation minimale, suffisante pour cet écran
-    root = create(<ProposalScreen navigation={navigation} route={route} />);
+    root = create(<ProposalPanel params={params} onDismiss={navigation.goBack} onAccepted={navigation.accepted} />);
   });
   renderedRoots.push(root);
   return { root, navigation };
@@ -182,7 +177,7 @@ const NOTIF_PARAMS = {
   expiresAt: null as string | null,
 };
 
-describe('ProposalScreen (L6-12)', () => {
+describe('ProposalPanel (L6-12)', () => {
   it('critère 1 -- réveille l’appareil au montage, efface l’alerte au démontage', async () => {
     const { root } = await renderProposal();
     expect(mockAlertIncomingProposal).toHaveBeenCalledTimes(1);
@@ -299,15 +294,14 @@ describe('ProposalScreen (L6-12)', () => {
     await act(async () => {
       await jest.advanceTimersByTimeAsync(60_000);
     });
-    expect(mockReplaceWithActiveRide).not.toHaveBeenCalled();
+    expect(navigation.accepted).not.toHaveBeenCalled();
 
     await act(async () => {
       emitAccepted();
     });
     // D42 (amoa/questions/REPONSES-2026-09-02.md §1) : le numéro du client, porté par
     // proposal.accepted, voyage jusqu'à ActiveRide.
-    expect(mockReplaceWithActiveRide).toHaveBeenCalledWith(
-      navigation,
+    expect(navigation.accepted).toHaveBeenCalledWith(
       expect.objectContaining({
         rideId: RIDE_ID,
         origin: PARAMS.origin,
@@ -320,17 +314,17 @@ describe('ProposalScreen (L6-12)', () => {
   });
 
   it('D49 -- proposal.accepted pour une autre course est ignoré', async () => {
-    const { root } = await renderProposal();
+    const { root, navigation } = await renderProposal();
     await act(async () => {
       root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
     });
     await act(async () => {
       emitAccepted(asRideId('another-ride'));
     });
-    expect(mockReplaceWithActiveRide).not.toHaveBeenCalled();
+    expect(navigation.accepted).not.toHaveBeenCalled();
   });
 
-  it('D49 -- filet : session.synced confirmant la course bascule vers ActiveRide si proposal.accepted s’est perdu', async () => {
+  it('D49 -- filet : session.synced confirmant la course démarre la course si proposal.accepted s’est perdu', async () => {
     const { navigation, root } = await renderProposal();
     await act(async () => {
       root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
@@ -341,14 +335,13 @@ describe('ProposalScreen (L6-12)', () => {
       emitSynced(asRideId('another-ride'), 'in_progress');
       emitSynced(RIDE_ID, 'requested');
     });
-    expect(mockReplaceWithActiveRide).not.toHaveBeenCalled();
+    expect(navigation.accepted).not.toHaveBeenCalled();
 
     await act(async () => {
       emitSynced(RIDE_ID, 'assigned');
     });
     // D42 : le filet session.synced ne porte pas le numéro du client -- absent, jamais inventé.
-    expect(mockReplaceWithActiveRide).toHaveBeenCalledWith(
-      navigation,
+    expect(navigation.accepted).toHaveBeenCalledWith(
       expect.objectContaining({
         rideId: RIDE_ID,
         origin: PARAMS.origin,
@@ -372,13 +365,13 @@ describe('ProposalScreen (L6-12)', () => {
 
     expect(texts(root)).toContain('Cette course a été attribuée -- votre acceptation est arrivée trop tard.');
     expect(root.root.findAllByProps({ testID: 'proposal-accept' })).toHaveLength(0);
-    expect(mockReplaceWithActiveRide).not.toHaveBeenCalled();
+    expect(navigation.accepted).not.toHaveBeenCalled();
 
     // Un proposal.accepted qui arriverait après coup (course déjà attribuée à un autre) ne rouvre rien.
     await act(async () => {
       emitAccepted();
     });
-    expect(mockReplaceWithActiveRide).not.toHaveBeenCalled();
+    expect(navigation.accepted).not.toHaveBeenCalled();
 
     // Critère 4 -- retour automatique, sans action requise.
     await act(async () => {

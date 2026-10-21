@@ -2,6 +2,7 @@ export * from './types';
 export { MapView } from './MapView';
 export { openNavigation } from './navigation';
 export { searchPlace, reverseGeocode } from './places';
+export { fetchRoute } from './routing';
 
 // Injection de la clé Google Maps pour les appels REST (Places, Geocoding) -- voir
 // providers/google/config.ts. Ce ré-export nomme la fonction d'après le paquet, pas le

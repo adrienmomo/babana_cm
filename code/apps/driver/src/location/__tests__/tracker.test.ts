@@ -128,6 +128,22 @@ describe('LocationTracker (L6-05)', () => {
     expect(tracker.getState()).toBe('offline');
   });
 
+  test('chaque relevé réussi est aussi diffusé aux abonnés locaux (la carte suit le chauffeur sans second GPS)', async () => {
+    const deps = fakeDeps();
+    const tracker = new LocationTracker(deps, CONFIG);
+    const fixes: Array<{ latitude: number; longitude: number }> = [];
+    const unsubscribe = tracker.subscribeFix((fix) => fixes.push({ latitude: fix.latitude, longitude: fix.longitude }));
+    tracker.start();
+    tracker.setOnline(true);
+
+    await jest.advanceTimersByTimeAsync(0);
+    expect(fixes).toEqual([AKWA]);
+
+    unsubscribe();
+    await jest.advanceTimersByTimeAsync(CONFIG.idleIntervalMs);
+    expect(fixes).toHaveLength(1);
+  });
+
   test('en ligne, immobile -- capture à la cadence idle, notification affichée', async () => {
     const deps = fakeDeps();
     const tracker = new LocationTracker(deps, CONFIG);

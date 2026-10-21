@@ -57,6 +57,8 @@ réel en commentaire au-dessus de son schéma.
 | `proposal.reject` | Chauffeur | `{ rideId, reason? }` | Transition `proposed → rejected` |
 | `nearby.subscribe` | Client | `{ position, radiusMeters, excludeDriverIds }` | S'abonne à `nearby.drivers` |
 | `nearby.unsubscribe` | Client | `{}` | Se désabonne |
+| `route.share` | Chauffeur | `{ rideId, phase, points, distanceMeters, durationSeconds }` | Partage le tracé affiché sur la carte du chauffeur. Aucune écriture Odoo ; ignoré si l'émetteur n'est pas le chauffeur engagé sur `rideId` |
+| `ride.arrived` | Chauffeur | `{ rideId }` | « Sur place » : notification du client, sans transition d'état (la décision « Commencer la course » reste HTTP `start`) |
 | `ride.track` | Client | `{ rideId }` | S'abonne au suivi d'une course affectée ou en cours |
 | `session.resync` | Client ou chauffeur | `{ lastKnownRideId }` | Voir « Politique de reconnexion » |
 
@@ -95,6 +97,8 @@ s'il était arrivé seul.
 | `ride.assigned` | Client | `{ rideId, driverId, firstName, photoUrl, motorcycleClass, licensePlate, phoneNumber }` | Le chauffeur a accepté |
 | `ride.rejected` | Client | `{ rideId, driverId, reason }` | Le chauffeur a refusé ou le délai a expiré |
 | `driver.position` | Client | `{ rideId, position, etaSeconds }` | Suivi pendant une course affectée ou en cours |
+| `ride.route` | Client | `{ rideId, phase, points, distanceMeters, durationSeconds }` | Le tracé calculé par le chauffeur (`route.share`), rediffusé à l'identique — `approach` vers le client, `transit` vers la destination. Rejoué à `ride.track` |
+| `driver.arrived` | Client | `{ rideId }` | Le chauffeur est « Sur place » (`ride.arrived`) |
 | `ride.started` | Client | `{ rideId }` | Transition `→ in_progress` |
 | `ride.completed` | Client | `{ rideId, distanceMeters, durationSeconds, measured, amount, breakdown }` | Transition `→ completed` — `distanceMeters` / `durationSeconds` à `null` quand `measured` est faux (course terminée sans accumulation temps réel, L3-10 / `amoa/questions/L6-13.md`) |
 | `session.synced` | Client ou chauffeur | `{ activeRideId, activeRideState, activeProposal, rideStateKnown, serverTime }` | Voir « Politique de reconnexion » |

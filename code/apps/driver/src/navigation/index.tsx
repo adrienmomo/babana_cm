@@ -9,8 +9,6 @@ import { bootstrap } from '../bootstrap';
 import { ConnectionBanner } from '../components/ConnectionBanner';
 import { SignInScreen } from '../screens/SignInScreen';
 import { HomeScreen } from '../screens/HomeScreen';
-import { ProposalScreen } from '../screens/ProposalScreen';
-import { ActiveRideScreen } from '../screens/ActiveRideScreen';
 import { SettlementScreen } from '../screens/SettlementScreen';
 import { CashScreen } from '../screens/CashScreen';
 import { RemittanceScreen } from '../screens/RemittanceScreen';
@@ -177,12 +175,9 @@ function DriverNavigator() {
   return (
     <DriverStack.Navigator initialRouteName="Home">
       <DriverStack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
-      <DriverStack.Screen name="Proposal" component={ProposalScreen} options={{ presentation: 'fullScreenModal' }} />
-      <DriverStack.Screen name="ActiveRide" component={ActiveRideScreen} options={{ headerShown: false, gestureEnabled: false }} />
       <DriverStack.Screen name="Settlement" component={SettlementScreen} options={{ headerShown: false, gestureEnabled: false }} />
       <DriverStack.Screen name="Cash" component={CashScreen} options={{ title: 'Ma caisse' }} />
       <DriverStack.Screen name="Remittance" component={RemittanceScreen} options={{ title: 'Déclarer une remise' }} />
-
     </DriverStack.Navigator>
   );
 }

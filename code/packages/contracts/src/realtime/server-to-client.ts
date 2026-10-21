@@ -4,6 +4,7 @@ import { LatLngSchema, MoneyAmountSchema, RideIdSchema, DriverIdSchema, IsoDateT
 import { NearbyDriverSchema } from '../http/driver';
 import { RideStateSchema } from '../http/ride';
 import { FareBreakdownSchema, VehicleClassSchema } from '../http/quote';
+import { RideRouteSchema } from './client-to-server';
 
 /**
  * Tous les messages émis DEPUIS le serveur, à destination de l'application Chauffeur ou de
@@ -251,6 +252,25 @@ export const DriverPositionPayloadSchema = z.object({
 export const DriverPositionMessageSchema = envelopeSchema('driver.position', DriverPositionPayloadSchema);
 export type DriverPositionMessage = z.infer<typeof DriverPositionMessageSchema>;
 
+/**
+ * Destinataire : client. Le tracé que le chauffeur a calculé (`route.share`), rediffusé tel quel :
+ * chemin vers le client pendant l'approche (`approach`), puis vers la destination une fois la
+ * course commencée (`transit`). Rejoué à l'abonnement `ride.track` pour un client qui arrive tard
+ * (reconnexion, app relancée).
+ */
+export const RideRoutePayloadSchema = RideRouteSchema.extend({
+  rideId: RideIdSchema,
+});
+export const RideRouteMessageSchema = envelopeSchema('ride.route', RideRoutePayloadSchema);
+export type RideRouteMessage = z.infer<typeof RideRouteMessageSchema>;
+
+/** Destinataire : client. Le chauffeur a déclaré être « Sur place » (`ride.arrived`). */
+export const DriverArrivedPayloadSchema = z.object({
+  rideId: RideIdSchema,
+});
+export const DriverArrivedMessageSchema = envelopeSchema('driver.arrived', DriverArrivedPayloadSchema);
+export type DriverArrivedMessage = z.infer<typeof DriverArrivedMessageSchema>;
+
 /** Destinataire : client. Transition -> in_progress. */
 export const RideStartedPayloadSchema = z.object({
   rideId: RideIdSchema,
@@ -329,6 +349,8 @@ export const ServerToClientMessageSchema = z.discriminatedUnion('type', [
   RideAssignedMessageSchema,
   RideRejectedMessageSchema,
   DriverPositionMessageSchema,
+  RideRouteMessageSchema,
+  DriverArrivedMessageSchema,
   RideStartedMessageSchema,
   RideCompletedMessageSchema,
   SessionSyncedMessageSchema,

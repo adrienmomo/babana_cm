@@ -116,6 +116,12 @@ export function adaptiveConfigFromEnv(): AdaptiveCaptureConfig {
   };
 }
 
+/** Ce que les abonnés locaux reçoivent d'un relevé : la position seule. */
+export interface LocalFix {
+  latitude: number;
+  longitude: number;
+}
+
 export class LocationTracker {
   private online = false;
   private rideActive = false;
@@ -131,6 +137,7 @@ export class LocationTracker {
   private readonly movement: MovementDetector;
   private foregroundGranted = false;
   private unsubscribeMessages: (() => void) | null = null;
+  private readonly fixListeners = new Set<(fix: LocalFix) => void>();
 
   private readonly metrics: LocationMetricsSnapshot = {
     positionsCaptured: 0,
@@ -144,6 +151,16 @@ export class LocationTracker {
     private readonly config: AdaptiveCaptureConfig
   ) {
     this.movement = new MovementDetector(config);
+  }
+
+  /**
+   * Abonnement local aux relevés réussis : la carte de `Home` suit le chauffeur avec les relevés
+   * que la capture fait DÉJÀ, sans demander un second GPS (batterie, CLAUDE.md). N'ouvre aucune
+   * capture : tant que le chauffeur est hors ligne, aucun relevé n'est émis.
+   */
+  subscribeFix(listener: (fix: LocalFix) => void): () => void {
+    this.fixListeners.add(listener);
+    return () => this.fixListeners.delete(listener);
   }
 
   /** Point d'accroche unique (même discipline que `bootstrap.ts`) -- démarre l'écoute des
@@ -325,6 +342,7 @@ export class LocationTracker {
       this.metrics.positionsCaptured += 1;
       const capturedAtIso = new Date(this.deps.now()).toISOString();
       this.movement.record(fix, this.deps.now());
+      this.fixListeners.forEach((listener) => listener({ latitude: fix.latitude, longitude: fix.longitude }));
       this.buffer.push({ ...fix, capturedAtIso });
       if (this.batchStartedAtMs === null) this.batchStartedAtMs = this.deps.now();
 

@@ -31,6 +31,12 @@ export interface MapRoute {
   points: LatLng[];
 }
 
+/** Itinéraire calculé (`fetchRoute`) : le tracé plus ce que le service de routage en sait. */
+export interface RouteResult extends MapRoute {
+  distanceMeters: number | null;
+  durationSeconds: number | null;
+}
+
 export interface MapViewProps {
   /** Carte centrée sur ce point (L6-06 : position du client par défaut). */
   center: LatLng;

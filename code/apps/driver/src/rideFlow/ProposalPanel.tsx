@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { reverseGeocode } from '@babana/maps';
 import type { LatLng } from '@babana/maps';
 import type { realtime } from '@babana/contracts';
@@ -10,11 +9,11 @@ import type { ConnectionState } from '@babana/api-client';
 import { alertIncomingProposal, dismissProposalAlert } from '../proposalAlert';
 import { onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { markProposalHandled, forgetProposal } from '../proposalDedup';
-import { replaceWithActiveRide } from '../navigation/transitions';
-import type { DriverParamList } from '../navigation/types';
+import type { ActiveRideParams, ProposalParams } from '../navigation/types';
 
 /**
- * Réception de proposition (L6-12) : plein écran, par-dessus Home (`navigation/types.ts`). Un
+ * Réception de proposition (L6-12) : un panneau posé sur la carte de Home (`rideFlow/`) -- la
+ * carte ne disparaît jamais, Refuser/Accepter prennent la place des deux boutons flottants. Un
  * chauffeur en circulation ne regarde pas son écran -- `proposalAlert.ts` réveille l'appareil,
  * joue un son, vibre (critère 1) dès le montage.
  *
@@ -39,7 +38,14 @@ import type { DriverParamList } from '../navigation/types';
  * dit ce qu'on observe, on n'en tire aucune conclusion sur la proposition.
  */
 
-type Props = NativeStackScreenProps<DriverParamList, 'Proposal'>;
+export interface ProposalPanelProps {
+  params: ProposalParams;
+  /** La proposition est terminée sans course (refusée, expirée, plus à prendre) : la carte revient
+   * à son état de repos. */
+  onDismiss: () => void;
+  /** Le serveur a tranché en faveur du chauffeur : la course commence sur cette même carte. */
+  onAccepted: (ride: ActiveRideParams) => void;
+}
 
 type Decision = 'idle' | 'accepting' | 'rejecting' | 'resolved';
 
@@ -89,7 +95,7 @@ function remainingSeconds(expiresAt: string): number {
 }
 
 function detailsFromRealtimeParams(
-  params: Extract<DriverParamList['Proposal'], { source?: 'realtime' }>
+  params: Extract<ProposalParams, { source?: 'realtime' }>
 ): ProposalDisplayDetails {
   return {
     origin: params.origin,
@@ -114,8 +120,7 @@ function detailsFromActiveProposal(active: realtime.ActiveProposal): ProposalDis
   };
 }
 
-export function ProposalScreen({ route, navigation }: Props) {
-  const params = route.params;
+export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelProps) {
   const rideId = params.rideId;
   const fromNotification = params.source === 'notification';
 
@@ -291,14 +296,14 @@ export function ProposalScreen({ route, navigation }: Props) {
     });
     // rideId/fromNotification stables pour la vie de l'écran -- jamais une raison de se réabonner.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rideId, navigation]);
+  }, [rideId]);
 
   function navigateToActiveRide(clientPhoneNumber: string | null) {
     // Les détails sont garantis présents ici : une acceptation n'est possible qu'après affichage
     // des boutons, donc après `setDetails`. Repli défensif sur les params `realtime` malgré tout.
     const d = details ?? (fromNotification ? null : detailsFromRealtimeParams(params));
     if (!d) return;
-    replaceWithActiveRide(navigation, {
+    onAccepted({
       rideId,
       origin: d.origin,
       destination: d.destination,
@@ -312,9 +317,9 @@ export function ProposalScreen({ route, navigation }: Props) {
   // avant de disparaître, l'un n'empêche pas l'autre. Couvre aussi « plus à prendre » (notif).
   useEffect(() => {
     if (!resolutionMessage) return;
-    const timer = setTimeout(() => navigation.goBack(), RESOLUTION_DISPLAY_MS);
+    const timer = setTimeout(() => onDismiss(), RESOLUTION_DISPLAY_MS);
     return () => clearTimeout(timer);
-  }, [resolutionMessage, navigation]);
+  }, [resolutionMessage, onDismiss]);
 
   function handleAccept() {
     if (decision !== 'idle' || !details) return;
@@ -339,113 +344,137 @@ export function ProposalScreen({ route, navigation }: Props) {
     // Une proposition refusée peut être re-proposée plus tard (cas rare) : le registre de
     // déduplication ne doit pas l'avaler en silence.
     forgetProposal(rideId);
-    navigation.goBack();
+    onDismiss();
   }
 
   const provisionalExpiresAt = details?.expiresAt ?? (fromNotification && params.expiresAt ? params.expiresAt : null);
+  const canRespond = !resolutionMessage && details !== null;
 
   return (
-    <View style={styles.container} testID="proposal-screen">
-      <Text style={styles.title}>Nouvelle proposition</Text>
+    <View style={styles.overlay} pointerEvents="box-none" testID="proposal-screen">
+      <View style={styles.card}>
+        <Text style={styles.title}>Nouvelle proposition</Text>
 
-      {details ? (
-        <>
-          <View style={styles.pointsSummary}>
-            <Text style={styles.pointText} numberOfLines={1} testID="proposal-origin">
-              Départ : {originLabel ?? '…'}
+        {details ? (
+          <>
+            <Text style={styles.amount} testID="proposal-amount">
+              {formatMoney(details.amount)}
             </Text>
-            <Text style={styles.pointText} numberOfLines={1} testID="proposal-destination">
-              Arrivée : {destinationLabel ?? '…'}
+            <View style={styles.pointsSummary}>
+              <Text style={styles.pointText} numberOfLines={1} testID="proposal-origin">
+                Départ : {originLabel ?? '…'}
+              </Text>
+              <Text style={styles.pointText} numberOfLines={1} testID="proposal-destination">
+                Arrivée : {destinationLabel ?? '…'}
+              </Text>
+            </View>
+            <Text style={styles.distance} testID="proposal-distance">
+              Course : {formatDistance(details.distanceMeters)}
             </Text>
+            {/* D51 -- distance à vide jusqu'au client, souvent le chiffre le plus déterminant pour
+                décider en trente secondes. Approximation à vol d'oiseau (É8), pas un itinéraire. */}
+            <Text style={styles.approachDistance} testID="proposal-approach-distance">
+              {details.distanceToOriginMeters === null
+                ? 'Distance jusqu’au client indisponible'
+                : `≈ ${formatDistance(details.distanceToOriginMeters)} pour rejoindre le client`}
+            </Text>
+          </>
+        ) : !resolutionMessage ? (
+          <Text style={styles.revalidating} testID="proposal-revalidating">
+            {connectionState === 'connected'
+              ? 'Vérification de la proposition…'
+              : 'Vérification de la proposition… — hors connexion'}
+          </Text>
+        ) : null}
+
+        {provisionalExpiresAt && !resolutionMessage ? (
+          <CountdownRing remainingSeconds={remainingSeconds(provisionalExpiresAt)} />
+        ) : null}
+
+        {resolutionMessage ? (
+          <View style={styles.resolutionBanner} testID="proposal-resolution">
+            <Text style={styles.resolutionText}>{resolutionMessage}</Text>
           </View>
+        ) : null}
 
-          <Text style={styles.amount} testID="proposal-amount">
-            {formatMoney(details.amount)}
+        {canRespond && offlineActionBlocked ? (
+          <Text style={styles.offlineBlockedText} testID="proposal-offline-blocked">
+            Hors connexion — impossible de répondre maintenant. Réessayez dès que la connexion revient.
           </Text>
-          <Text style={styles.distance} testID="proposal-distance">
-            Course : {formatDistance(details.distanceMeters)}
-          </Text>
-          {/* D51 -- distance à vide jusqu'au client, souvent le chiffre le plus déterminant pour
-              décider en trente secondes. Approximation à vol d'oiseau (É8), pas un itinéraire. */}
-          <Text style={styles.approachDistance} testID="proposal-approach-distance">
-            {details.distanceToOriginMeters === null
-              ? 'Distance jusqu’au client indisponible'
-              : `≈ ${formatDistance(details.distanceToOriginMeters)} pour rejoindre le client`}
-          </Text>
-        </>
-      ) : !resolutionMessage ? (
-        <Text style={styles.revalidating} testID="proposal-revalidating">
-          {connectionState === 'connected'
-            ? 'Vérification de la proposition…'
-            : 'Vérification de la proposition… — hors connexion'}
-        </Text>
-      ) : null}
+        ) : null}
 
-      {provisionalExpiresAt && !resolutionMessage ? (
-        <CountdownRing remainingSeconds={remainingSeconds(provisionalExpiresAt)} />
-      ) : null}
+        {decision === 'accepting' ? (
+          <Text style={styles.pending} testID="proposal-accepting">
+            Envoi de votre acceptation…
+          </Text>
+        ) : null}
+      </View>
 
-      {resolutionMessage ? (
-        <View style={styles.resolutionBanner} testID="proposal-resolution">
-          <Text style={styles.resolutionText}>{resolutionMessage}</Text>
-        </View>
-      ) : details ? (
+      {/* Refuser / Accepter prennent la place des deux boutons flottants de l'accueil, aux mêmes
+          coins du bas : au pouce, sans quitter la carte des yeux (D20). */}
+      {canRespond ? (
         <>
-          {offlineActionBlocked ? (
-            <Text style={styles.offlineBlockedText} testID="proposal-offline-blocked">
-              Hors connexion — impossible de répondre maintenant. Réessayez dès que la connexion
-              revient.
-            </Text>
-          ) : null}
-          <View style={styles.actionsRow}>
-            <Pressable
-              testID="proposal-reject"
-              accessibilityRole="button"
-              accessibilityLabel="Refuser la proposition"
-              disabled={decision !== 'idle'}
-              onPress={handleReject}
-              style={({ pressed }) => [styles.actionButton, styles.rejectButton, pressed ? styles.pressed : null]}
-            >
-              <Text style={styles.actionLabel}>Refuser</Text>
-            </Pressable>
-            <Pressable
-              testID="proposal-accept"
-              accessibilityRole="button"
-              accessibilityLabel="Accepter la proposition"
-              disabled={decision !== 'idle'}
-              onPress={handleAccept}
-              style={({ pressed }) => [styles.actionButton, styles.acceptButton, pressed ? styles.pressed : null]}
-            >
-              <Text style={styles.actionLabel}>Accepter</Text>
-            </Pressable>
-          </View>
+          <Pressable
+            testID="proposal-reject"
+            accessibilityRole="button"
+            accessibilityLabel="Refuser la proposition"
+            disabled={decision !== 'idle'}
+            onPress={handleReject}
+            style={({ pressed }) => [styles.actionButton, styles.rejectButton, styles.leftCorner, pressed ? styles.pressed : null]}
+          >
+            <Text style={styles.rejectLabel}>Refuser</Text>
+          </Pressable>
+          <Pressable
+            testID="proposal-accept"
+            accessibilityRole="button"
+            accessibilityLabel="Accepter la proposition"
+            disabled={decision !== 'idle'}
+            onPress={handleAccept}
+            style={({ pressed }) => [styles.actionButton, styles.acceptButton, styles.rightCorner, pressed ? styles.pressed : null]}
+          >
+            <Text style={styles.acceptLabel}>Accepter</Text>
+          </Pressable>
         </>
-      ) : null}
-
-      {decision === 'accepting' ? (
-        <Text style={styles.pending} testID="proposal-accepting">
-          Envoi de votre acceptation…
-        </Text>
       ) : null}
     </View>
   );
 }
 
+const shadow = {
+  elevation: 3,
+  shadowColor: '#000000',
+  shadowOpacity: 0.14,
+  shadowRadius: 8,
+  shadowOffset: { width: 0, height: 2 },
+} as const;
+
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  overlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  card: {
+    position: 'absolute',
+    top: 12,
+    left: 16,
+    right: 16,
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
-    padding: 24,
-    backgroundColor: '#FFFFFF',
+    gap: 6,
+    padding: 16,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.96)',
+    ...shadow,
   },
   title: {
-    fontSize: 22,
-    fontWeight: '700',
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#6B7280',
   },
   pointsSummary: {
-    gap: 4,
+    gap: 2,
     alignItems: 'center',
   },
   pointText: {
@@ -466,42 +495,53 @@ const styles = StyleSheet.create({
   revalidating: {
     color: '#6B7280',
   },
-  actionsRow: {
-    flexDirection: 'row',
-    gap: 16,
-    marginTop: 16,
-  },
   // D20 -- cibles tactiles larges, le chauffeur est sur sa moto, parfois avec des gants (L6-12).
   actionButton: {
+    position: 'absolute',
+    bottom: 28,
     minWidth: 140,
-    minHeight: 72,
-    borderRadius: 12,
+    minHeight: 56,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 20,
+    paddingHorizontal: 22,
+    ...shadow,
+  },
+  leftCorner: {
+    left: 16,
+  },
+  rightCorner: {
+    right: 16,
   },
   acceptButton: {
     backgroundColor: '#0A7D3D',
   },
   rejectButton: {
-    backgroundColor: '#DC2626',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
   },
   pressed: {
     opacity: 0.85,
   },
-  actionLabel: {
+  acceptLabel: {
     color: '#FFFFFF',
-    fontSize: 18,
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  rejectLabel: {
+    color: '#B91C1C',
+    fontSize: 17,
     fontWeight: '700',
   },
   pending: {
     color: '#6B7280',
   },
   resolutionBanner: {
-    marginTop: 16,
+    marginTop: 4,
     backgroundColor: '#FEF3C7',
-    borderRadius: 8,
-    padding: 16,
+    borderRadius: 10,
+    padding: 12,
     maxWidth: 320,
   },
   resolutionText: {
@@ -511,6 +551,5 @@ const styles = StyleSheet.create({
   offlineBlockedText: {
     color: '#92400E',
     textAlign: 'center',
-    marginBottom: 8,
   },
 });

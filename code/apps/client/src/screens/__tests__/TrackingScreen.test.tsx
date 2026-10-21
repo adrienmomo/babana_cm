@@ -3,10 +3,15 @@ import { Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { asDriverId, asRideId } from '@babana/navigation';
 
+// Capture les props de la carte : c'est ce qu'elle reçoit (tracé, repères) que ces tests vérifient.
+const mockMapProps = jest.fn();
 jest.mock('@babana/maps', () => {
   const { View } = jest.requireActual('react-native');
   return {
-    MapView: () => <View testID="mock-map" />,
+    MapView: (props: unknown) => {
+      mockMapProps(props);
+      return <View testID="mock-map" />;
+    },
   };
 });
 
@@ -135,6 +140,30 @@ beforeEach(() => {
   connectionStateListener = null;
   mockConnectionState = 'connected';
 });
+
+const lastMapProps = () => mockMapProps.mock.calls[mockMapProps.mock.calls.length - 1]?.[0] as
+  | { route?: { points: unknown[] }; markers: Array<{ id: string }> }
+  | undefined;
+
+function emitRoute(phase: 'approach' | 'transit', points: Array<{ latitude: number; longitude: number }>, rideId: string = RIDE_ID) {
+  realtimeListener?.({
+    type: 'ride.route',
+    id: `route-${phase}`,
+    emittedAt: new Date().toISOString(),
+    payload: { rideId, phase, points, distanceMeters: 1800, durationSeconds: 420 },
+  });
+}
+
+const APPROACH_POINTS = [
+  { latitude: 4.049, longitude: 9.699 },
+  { latitude: 4.0495, longitude: 9.6995 },
+  { latitude: 4.05, longitude: 9.7 },
+];
+const TRANSIT_POINTS = [
+  { latitude: 4.05, longitude: 9.7 },
+  { latitude: 4.055, longitude: 9.705 },
+  { latitude: 4.06, longitude: 9.71 },
+];
 
 describe('TrackingScreen (L6-09)', () => {
   it("s'abonne à ride.track au montage", async () => {
@@ -361,5 +390,95 @@ describe('TrackingScreen (L6-09)', () => {
     });
 
     expect(root.root.findAllByProps({ testID: 'emergency-button' }).length).toBeGreaterThan(0);
+  });
+});
+
+describe('itinéraire du chauffeur et « Sur place » (déroulé sur la carte du chauffeur, miroir chez le client)', () => {
+  it("le tracé calculé par le chauffeur s'affiche à l'identique sur la carte, avant même la première position", async () => {
+    const { root } = await renderTracking();
+    expect(lastMapProps()?.route).toBeUndefined();
+
+    await act(async () => {
+      emitRoute('approach', APPROACH_POINTS);
+    });
+
+    expect(root.root.findAllByProps({ testID: 'mock-map' }).length).toBeGreaterThan(0);
+    expect(lastMapProps()?.route).toEqual({ points: APPROACH_POINTS });
+  });
+
+  it('un tracé pour une autre course est ignoré', async () => {
+    await renderTracking();
+    await act(async () => {
+      emitRoute('approach', APPROACH_POINTS, 'autre-course');
+    });
+    expect(lastMapProps()?.route).toBeUndefined();
+  });
+
+  it('le démarrage de la course remplace le tracé de l’approche par celui du trajet', async () => {
+    await renderTracking();
+    await act(async () => {
+      emitRoute('approach', APPROACH_POINTS);
+      emitPosition();
+    });
+    expect(lastMapProps()?.route).toEqual({ points: APPROACH_POINTS });
+
+    await act(async () => {
+      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+    });
+    // Le chemin vers le client n'a plus rien à faire sur la carte du trajet.
+    expect(lastMapProps()?.route).toBeUndefined();
+
+    await act(async () => {
+      emitRoute('transit', TRANSIT_POINTS);
+    });
+    expect(lastMapProps()?.route).toEqual({ points: TRANSIT_POINTS });
+  });
+
+  it('un tracé du trajet arrivé avant ride.started n’est pas effacé par lui (les deux messages ne sont pas ordonnés)', async () => {
+    await renderTracking();
+    await act(async () => {
+      emitPosition();
+      emitRoute('transit', TRANSIT_POINTS);
+      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+    });
+    expect(lastMapProps()?.route).toEqual({ points: TRANSIT_POINTS });
+  });
+
+  it('un tracé rejoué à la reconnexion remplace le précédent sans doublon', async () => {
+    await renderTracking();
+    await act(async () => {
+      emitRoute('approach', APPROACH_POINTS);
+      emitRoute('approach', APPROACH_POINTS.slice(1));
+    });
+    expect(lastMapProps()?.route).toEqual({ points: APPROACH_POINTS.slice(1) });
+  });
+
+  it('« Sur place » : le client est prévenu que son chauffeur est arrivé', async () => {
+    const { root } = await renderTracking();
+    expect(root.root.findAllByProps({ testID: 'tracking-arrived' })).toHaveLength(0);
+    expect(texts(root)).toContain('Votre chauffeur arrive');
+
+    await act(async () => {
+      realtimeListener?.({ type: 'driver.arrived', id: 'm3', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+    });
+
+    expect(root.root.findByProps({ testID: 'tracking-arrived' })).toBeTruthy();
+    expect(texts(root)).toContain('Votre chauffeur est arrivé');
+    expect(texts(root)).not.toContain('Votre chauffeur arrive"');
+  });
+
+  it('« Sur place » pour une autre course est ignoré, et disparaît quand la course démarre', async () => {
+    const { root } = await renderTracking();
+    await act(async () => {
+      realtimeListener?.({ type: 'driver.arrived', id: 'm3', emittedAt: new Date().toISOString(), payload: { rideId: 'autre' } });
+    });
+    expect(root.root.findAllByProps({ testID: 'tracking-arrived' })).toHaveLength(0);
+
+    await act(async () => {
+      realtimeListener?.({ type: 'driver.arrived', id: 'm4', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+      realtimeListener?.({ type: 'ride.started', id: 'm5', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+    });
+    expect(root.root.findAllByProps({ testID: 'tracking-arrived' })).toHaveLength(0);
+    expect(texts(root)).toContain('Course en cours');
   });
 });
