@@ -20,7 +20,11 @@ const PROPOSAL_CHANNEL_ID = 'proposal-alert';
 // notification peut exister à la fois (L6-12, critère 5 : deux propositions ne s'affichent
 // jamais simultanément côté écran, donc jamais deux alertes non plus). Poser la même la remplace
 // plutôt que d'en empiler une seconde.
-const PROPOSAL_NOTIFICATION_ID = 'proposal-alert-current';
+// Numérique sous forme de chaîne : sur Android, react-native-push-notification fait un
+// Integer.parseInt de l'identifiant et ne poste rien s'il échoue (« failed to send push
+// notification »). Un identifiant fixe, pas un compteur : une seule alerte de proposition à la
+// fois, la suivante remplace la précédente.
+const PROPOSAL_NOTIFICATION_ID = '4201';
 
 let configured = false;
 
