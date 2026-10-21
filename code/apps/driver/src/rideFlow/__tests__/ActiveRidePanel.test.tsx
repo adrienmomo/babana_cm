@@ -84,7 +84,7 @@ const PARAMS = {
 // distanceMeters ne sert plus à `complete` : la fin de course ne porte que la décision (J24,
 // amoa/questions/L6-13.md).
 
-const SETTINGS = { arrivalRadiusMeters: 150, routeRetryCooldownMs: 15_000 };
+const SETTINGS = { arrivalRadiusMeters: 150, routeRetryCooldownMs: 15_000, routeDeviationMeters: 80, routeRefreshMs: 120_000 };
 // ~0,0045° de latitude ≈ 500 m du client ; 0,0003° ≈ 33 m.
 const FAR = { latitude: 4.0545, longitude: 9.7 };
 const NEAR = { latitude: 4.0503, longitude: 9.7 };
@@ -509,5 +509,62 @@ describe('adresses du client et de l’arrivée', () => {
     const { root } = await renderActiveRide();
     expect(has(root, 'active-ride-origin')).toBe(false);
     expect(has(root, 'active-ride-destination')).toBe(false);
+  });
+});
+
+describe('itinéraire recalculé quand le chauffeur avance', () => {
+  // Le tracé d'approche va de FAR (nord) au client ; ces positions en sont proches ou éloignées.
+  const ON_ROUTE = { latitude: 4.052, longitude: 9.7 };
+  const OFF_ROUTE = { latitude: 4.052, longitude: 9.702 }; // ~220 m à l'est du tracé
+
+  it('le chauffeur quitte le tracé : nouvel itinéraire depuis sa position, partagé au client', async () => {
+    const { rerender } = await renderActiveRide({ position: FAR });
+    expect(mockFetchRoute).toHaveBeenCalledTimes(1);
+    mockSend.mockClear();
+
+    await rerender(OFF_ROUTE);
+
+    expect(mockFetchRoute).toHaveBeenCalledTimes(2);
+    expect(mockFetchRoute).toHaveBeenLastCalledWith(OFF_ROUTE, ORIGIN);
+    expect(mockSend).toHaveBeenCalledWith('route.share', expect.objectContaining({ phase: 'approach' }));
+  });
+
+  it('sur le tracé : aucun recalcul (forfait de données compté)', async () => {
+    const { rerender } = await renderActiveRide({ position: FAR });
+    await rerender(ON_ROUTE);
+    expect(mockFetchRoute).toHaveBeenCalledTimes(1);
+  });
+
+  it('recalcul périodique, même sur le tracé, pour rafraîchir distance et durée', async () => {
+    const { rerender } = await renderActiveRide({ position: FAR });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(SETTINGS.routeRefreshMs + 1);
+    });
+    await rerender(ON_ROUTE);
+    expect(mockFetchRoute).toHaveBeenCalledTimes(2);
+    expect(mockFetchRoute).toHaveBeenLastCalledWith(ON_ROUTE, ORIGIN);
+  });
+
+  it('pendant le trajet aussi : nouvel itinéraire vers la destination depuis la position', async () => {
+    const { root, rerender } = await renderActiveRide();
+    await reachTransit(root);
+    const calls = mockFetchRoute.mock.calls.length;
+
+    const offTransit = { latitude: 4.05, longitude: 9.72 };
+    await rerender(offTransit);
+
+    expect(mockFetchRoute).toHaveBeenCalledTimes(calls + 1);
+    expect(mockFetchRoute).toHaveBeenLastCalledWith(offTransit, DESTINATION);
+  });
+
+  it('sur place (en attente du client) : aucun recalcul', async () => {
+    const { root, rerender } = await renderActiveRide({ position: NEAR });
+    await press(root, 'active-ride-arrived');
+    const calls = mockFetchRoute.mock.calls.length;
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(SETTINGS.routeRefreshMs + 1);
+    });
+    await rerender({ latitude: 4.0506, longitude: 9.7012 });
+    expect(mockFetchRoute).toHaveBeenCalledTimes(calls);
   });
 });

@@ -69,6 +69,14 @@ export const ARRIVAL_RADIUS_METERS = Number(process.env.BABANA_ARRIVAL_RADIUS_ME
 /** Délai avant de redemander un itinéraire qui a échoué (service de routage injoignable). */
 export const ROUTE_RETRY_COOLDOWN_MS = Number(process.env.BABANA_ROUTE_RETRY_COOLDOWN_MS) || 15_000;
 
+/** Écart (m) au tracé au-delà duquel l'itinéraire est recalculé depuis la position du chauffeur --
+ * au-dessus de l'imprécision d'un GPS d'entrée de gamme, pour ne pas recalculer à chaque relevé. */
+export const ROUTE_DEVIATION_METERS = Number(process.env.BABANA_ROUTE_DEVIATION_METERS) || 80;
+
+/** Âge (ms) au-delà duquel l'itinéraire est recalculé même sans écart : distance et durée
+ * restantes à jour, chez le chauffeur comme chez le client (qui reçoit le même tracé). */
+export const ROUTE_REFRESH_MS = Number(process.env.BABANA_ROUTE_REFRESH_MS) || 120_000;
+
 /**
  * Capture GPS (L6-05) -- tout paramétrable (invariant 5), rien codé en dur dans `location/*.ts`.
  * Un mauvais réglage au pilote se corrige en changeant une valeur ici et en reconstruisant

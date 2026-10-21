@@ -7,7 +7,7 @@ import type { ConnectionState } from '@babana/api-client';
 import type { realtime } from '@babana/contracts';
 import { AvailabilityToggle } from '../components/AvailabilityToggle';
 import { getCurrentPosition, locationTracker } from '../location';
-import { ARRIVAL_RADIUS_METERS, ROUTE_RETRY_COOLDOWN_MS } from '../../config';
+import { ARRIVAL_RADIUS_METERS, ROUTE_DEVIATION_METERS, ROUTE_REFRESH_MS, ROUTE_RETRY_COOLDOWN_MS } from '../../config';
 import { ProposalPanel } from '../rideFlow/ProposalPanel';
 import { ActiveRidePanel, type RideFlowSettings, type RideMapState } from '../rideFlow/ActiveRidePanel';
 import { replaceWithSettlement } from '../navigation/transitions';
@@ -62,6 +62,8 @@ function isProposalNewMessage(message: realtime.ServerToClientMessage): message 
 const RIDE_SETTINGS: RideFlowSettings = {
   arrivalRadiusMeters: ARRIVAL_RADIUS_METERS,
   routeRetryCooldownMs: ROUTE_RETRY_COOLDOWN_MS,
+  routeDeviationMeters: ROUTE_DEVIATION_METERS,
+  routeRefreshMs: ROUTE_REFRESH_MS,
 };
 
 export function HomeScreen({ navigation, route }: Props) {

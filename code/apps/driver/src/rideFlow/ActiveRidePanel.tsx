@@ -11,7 +11,7 @@ import { EmergencyButton } from '../components/EmergencyButton';
 import { SwipeButton } from '../components/SwipeButton';
 import { onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { formatDistance } from '../format';
-import { isWithinRadius } from './proximity';
+import { distanceToRouteMeters, isWithinRadius } from './proximity';
 import type { ActiveRideParams } from '../navigation/types';
 import { cards, colors } from '../theme';
 
@@ -66,6 +66,10 @@ export interface RideFlowSettings {
   arrivalRadiusMeters: number;
   /** Délai (ms) avant de redemander un itinéraire qui a échoué. */
   routeRetryCooldownMs: number;
+  /** Écart (m) au tracé au-delà duquel le chauffeur est considéré hors itinéraire : recalcul. */
+  routeDeviationMeters: number;
+  /** Âge (ms) au-delà duquel un itinéraire est recalculé même sur le tracé (distance/durée à jour). */
+  routeRefreshMs: number;
 }
 
 export interface ActiveRidePanelProps {
@@ -128,11 +132,13 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
   // `completeRide`, et le message `ride.completed` (L3-19, poussé aussi au chauffeur). Un seul
   // doit conclure.
   const resolvedRef = useRef(false);
-  // Itinéraire : la phase pour laquelle un tracé est chargé (ou en cours de chargement), le
-  // dernier tracé pour le réémettre à la reconnexion, l'instant du dernier échec (délai avant un
-  // nouvel essai), et l'état de montage (une réponse tardive ne touche rien après démontage).
-  const routePhaseRef = useRef<'approach' | 'transit' | null>(null);
+  // Itinéraire : la phase d'une requête en vol (une seule à la fois par phase), le dernier tracé
+  // (réémis à la reconnexion, comparé à la position pour détecter un écart) et son âge, l'instant
+  // du dernier échec (délai avant un nouvel essai), et l'état de montage (une réponse tardive ne
+  // touche rien après démontage).
+  const inFlightPhaseRef = useRef<'approach' | 'transit' | null>(null);
   const routeRef = useRef<SharedRoute | null>(null);
+  const routeFetchedAtRef = useRef<number | null>(null);
   const lastRouteFailureAtRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
 
@@ -190,34 +196,56 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
   );
 
   // Itinéraire de la phase courante : vers le client pendant l'approche (depuis la position du
-  // chauffeur, donc dès qu'elle est connue), vers la destination au trajet (depuis le point de
-  // prise en charge, où la course commence). Un seul tracé par phase ; un échec réessaie à la
-  // position suivante, après `routeRetryCooldownMs`.
+  // chauffeur, donc dès qu'elle est connue), vers la destination au trajet (depuis la position, ou
+  // à défaut le point de prise en charge). Recalculé quand le chauffeur s'écarte du tracé
+  // (`routeDeviationMeters`) ou que le tracé vieillit (`routeRefreshMs`) -- jamais en attente sur
+  // place. Un échec réessaie à la position suivante, après `routeRetryCooldownMs`.
   useEffect(() => {
-    if (routePhaseRef.current === phase) return;
-    const start = phase === 'approach' ? position : (position ?? origin);
-    if (!start) return;
+    if (stage === 'arrived') return;
+    if (inFlightPhaseRef.current === phase) return;
     const lastFailure = lastRouteFailureAtRef.current;
     if (lastFailure !== null && Date.now() - lastFailure < settings.routeRetryCooldownMs) return;
 
-    routePhaseRef.current = phase;
+    const current = routeRef.current && routeRef.current.phase === phase ? routeRef.current : null;
+    if (current) {
+      if (!position) return;
+      const offRoute = distanceToRouteMeters(position, current.points) > settings.routeDeviationMeters;
+      const stale = routeFetchedAtRef.current !== null && Date.now() - routeFetchedAtRef.current >= settings.routeRefreshMs;
+      if (!offRoute && !stale) return;
+    }
+    const start = phase === 'approach' ? position : (position ?? origin);
+    if (!start) return;
+
+    inFlightPhaseRef.current = phase;
     const target = phase === 'approach' ? origin : destination;
     fetchRoute(start, target).then((result) => {
+      if (inFlightPhaseRef.current === phase) inFlightPhaseRef.current = null;
       if (!mountedRef.current) return;
       if (!result) {
-        if (routePhaseRef.current === phase) routePhaseRef.current = null;
         lastRouteFailureAtRef.current = Date.now();
         return;
       }
-      // Phase dépassée pendant l'attente (« Commencer » cliqué entre-temps) : ce tracé est périmé.
-      if (routePhaseRef.current !== phase) return;
+      // Phase dépassée pendant l'attente (« Commencer » glissé entre-temps) : ce tracé est périmé.
+      const nowPhase = stageRef.current === 'transit' ? 'transit' : 'approach';
+      if (nowPhase !== phase) return;
       lastRouteFailureAtRef.current = null;
       const shared: SharedRoute = { phase, ...result };
       routeRef.current = shared;
+      routeFetchedAtRef.current = Date.now();
       setRoute(shared);
       shareRoute(shared);
     });
-  }, [phase, position, origin, destination, settings.routeRetryCooldownMs, shareRoute]);
+  }, [
+    stage,
+    phase,
+    position,
+    origin,
+    destination,
+    settings.routeRetryCooldownMs,
+    settings.routeDeviationMeters,
+    settings.routeRefreshMs,
+    shareRoute,
+  ]);
 
   // Changement de phase : le tracé de l'approche n'a plus rien à faire sur la carte du trajet.
   const previousPhaseRef = useRef(phase);
