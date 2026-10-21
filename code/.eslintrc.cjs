@@ -20,6 +20,7 @@ module.exports = {
           {
             paths: [
               { name: 'react-native-maps', message: MAP_SDK_IMPORT_MESSAGE },
+              { name: 'react-native-webview', message: MAP_SDK_IMPORT_MESSAGE },
               { name: 'react-native-google-maps', message: MAP_SDK_IMPORT_MESSAGE },
               { name: 'expo-maps', message: MAP_SDK_IMPORT_MESSAGE },
               { name: '@react-native-mapbox-gl/maps', message: MAP_SDK_IMPORT_MESSAGE },
@@ -43,6 +44,7 @@ module.exports = {
           {
             paths: [
               { name: 'react-native-maps', message: MAP_SDK_IMPORT_MESSAGE_INSIDE_PACKAGE },
+              { name: 'react-native-webview', message: MAP_SDK_IMPORT_MESSAGE_INSIDE_PACKAGE },
               { name: 'react-native-google-maps', message: MAP_SDK_IMPORT_MESSAGE_INSIDE_PACKAGE },
               { name: 'expo-maps', message: MAP_SDK_IMPORT_MESSAGE_INSIDE_PACKAGE },
               { name: '@react-native-mapbox-gl/maps', message: MAP_SDK_IMPORT_MESSAGE_INSIDE_PACKAGE },

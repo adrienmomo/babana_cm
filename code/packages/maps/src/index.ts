@@ -13,4 +13,5 @@ export { searchPlace, reverseGeocode } from './places';
 // react-native-maps dès l'évaluation du module, ce qui l'aurait tiré dans le bundle web pour la
 // seule configuration d'une clé REST qui n'a besoin d'aucun SDK natif (L6-18, critère
 // d'acceptation 6 -- webpack.config.js n'a donc plus besoin d'alias vers ce module sur le web).
-export { configureGoogleMapsProvider as configureMapsProvider } from './providers/google/config';
+export { configureMapsProvider } from './configure';
+export type { MapsConfig } from './configure';

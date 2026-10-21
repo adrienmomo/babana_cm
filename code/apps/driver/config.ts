@@ -41,6 +41,15 @@ export const REALTIME_WS_URL = requireServerAddress(
 export const GOOGLE_MAPS_API_KEY = process.env.BABANA_GOOGLE_MAPS_API_KEY || '';
 
 /**
+ * Adresse des tuiles de la carte OpenStreetMap de l'app Chauffeur (`https://.../{z}/{x}/{y}.png`).
+ * Absente, la carte reste celle de Google -- ce n'est pas un repli vers un serveur public choisi
+ * à la place de l'exploitant (D43) : `make driver` pose la valeur de développement, un build de
+ * production pose le fournisseur de tuiles retenu. La recherche de lieu reste celle de Google
+ * (clé ci-dessus).
+ */
+export const MAP_TILE_URL = process.env.BABANA_MAP_TILE_URL || undefined;
+
+/**
  * Capture GPS (L6-05) -- tout paramétrable (invariant 5), rien codé en dur dans `location/*.ts`.
  * Un mauvais réglage au pilote se corrige en changeant une valeur ici et en reconstruisant
  * l'APK, jamais en réécrivant la logique de capture elle-même -- voir `location/adaptive.ts`

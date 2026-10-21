@@ -30,3 +30,11 @@ for (const permission of new Set(requested)) {
 test('la permission de notification (Android 13+) est déclarée, sinon aucune alerte de proposition', () => {
   assert.ok(declared.has('android.permission.POST_NOTIFICATIONS'));
 });
+
+test("la carte native a sa clé Google Maps dans le manifeste, injectée depuis l'environnement (jamais en dur)", () => {
+  const meta = manifest.match(/<meta-data android:name="com\.google\.android\.geo\.API_KEY" android:value="([^"]*)"/);
+  assert.ok(meta, 'meta-data com.google.android.geo.API_KEY absente : MapView plante ou reste grise');
+  assert.equal(meta![1], '${googleMapsApiKey}', 'la clé doit venir du placeholder gradle, pas être écrite ici');
+  const gradle = readFileSync(join(root, 'apps/driver/android/app/build.gradle'), 'utf8');
+  assert.match(gradle, /googleMapsApiKey:\s*System\.getenv\('GOOGLE_MAPS_API_KEY'\)/);
+});

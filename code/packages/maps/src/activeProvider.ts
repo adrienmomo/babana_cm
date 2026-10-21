@@ -1,12 +1,22 @@
-import type { MapProvider } from './types';
+import React from 'react';
+import type { MapProvider, MapViewProps } from './types';
 import { googleMapProvider } from './providers/google';
+import { OsmMapView } from './providers/osm/MapView';
+import { getMapTileUrl } from './providers/osm/config';
 
 /**
- * Le seul endroit qui choisit un fournisseur concret. En v1, un seul existe (Google, natif) ;
- * L6-18 ajoutera `providers/web` et fera dépendre ce choix de la plateforme ici -- jamais dans un
- * écran (critère d'acceptation 6, "aucune branche conditionnelle dans les écrans", même règle que
- * `@babana/ui`). `MapView.tsx`, `navigation.ts` et `places.ts` (racine du paquet) ne font que
- * relayer `activeMapProvider` : ce sont les seuls fichiers que L6-18 devra toucher pour brancher
- * un troisième fournisseur, jamais `apps/*`.
+ * Le seul endroit qui choisit un fournisseur concret. Natif : la carte est celle d'OpenStreetMap
+ * quand l'app a configuré une adresse de tuiles (`configureMapsProvider({ tileUrl })`), celle de
+ * Google sinon ; la recherche de lieu, le géocodage inverse et la navigation restent ceux de
+ * Google dans les deux cas. Le choix se lit au rendu, ici -- jamais dans un écran (critère
+ * d'acceptation 6 de L6-18, "aucune branche conditionnelle dans les écrans").
+ * `MapView.tsx`, `navigation.ts` et `places.ts` ne font que relayer `activeMapProvider`.
  */
-export const activeMapProvider: MapProvider = googleMapProvider;
+function ConfiguredMapView(props: MapViewProps) {
+  const tileUrl = getMapTileUrl();
+  return tileUrl
+    ? React.createElement(OsmMapView, { ...props, tileUrlTemplate: tileUrl })
+    : React.createElement(googleMapProvider.MapView, props);
+}
+
+export const activeMapProvider: MapProvider = { ...googleMapProvider, MapView: ConfiguredMapView };

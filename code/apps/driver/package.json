@@ -27,7 +27,8 @@
     "react-native-maps": "^1.29.0",
     "react-native-push-notification": "^8.1.1",
     "react-native-safe-area-context": "^5.5.2",
-    "react-native-screens": "^4.27.0"
+    "react-native-screens": "^4.27.0",
+    "react-native-webview": "^14.0.1"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

@@ -5,7 +5,9 @@
   "description": "Abstraction carte et navigation (C3, D12, D13, L6-01). Aucun écran de apps/* n'importe un SDK de carte directement -- seulement cette interface, vérifié par le lint (no-restricted-imports, .eslintrc.cjs racine et .eslintrc.js local).",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.web.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.web.json --noEmit",
@@ -13,7 +15,8 @@
     "test": "jest"
   },
   "dependencies": {
-    "react-native-maps": "^1.29.0"
+    "react-native-maps": "^1.29.0",
+    "react-native-webview": "^14.0.1"
   },
   "peerDependencies": {
     "react": ">=19",

@@ -22,7 +22,12 @@ function MockPolyline({ testID }: { testID?: string }) {
   return <View testID={testID ?? 'mock-map-polyline'} />;
 }
 
+function MockUrlTile({ testID }: { testID?: string }) {
+  return <View testID={testID ?? 'mock-map-url-tile'} />;
+}
+
 export const PROVIDER_GOOGLE = 'google';
+export const UrlTile = MockUrlTile;
 export const Marker = MockMarker;
 export const Polyline = MockPolyline;
 export default MockMapView;

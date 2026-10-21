@@ -106,7 +106,8 @@ android {
         // seulement quand le serveur visé est en http:// (développement local, ex. api.localhost),
         // jamais par défaut -- une adresse absente ou https:// (recette, production) reste refusée.
         manifestPlaceholders = [
-            usesCleartextTraffic: (System.getenv('BABANA_API_URL') ?: '').startsWith('http://') ? 'true' : 'false'
+            usesCleartextTraffic: (System.getenv('BABANA_API_URL') ?: '').startsWith('http://') ? 'true' : 'false',
+            googleMapsApiKey: System.getenv('GOOGLE_MAPS_API_KEY') ?: ''
         ]
     }
     signingConfigs {

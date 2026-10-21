@@ -49,6 +49,9 @@ BABANA_MAPS_SEARCH_URL ?= http://localhost:4001/search
 # -- c'est donc ici, comme pour BABANA_MAPS_SEARCH_URL, que le développement pose la valeur
 # locale, vers l'origine dédiée aux apps natives (infra/caddy/Caddyfile, api.$BABANA_DOMAIN).
 BABANA_API_URL ?= https://api.localhost
+# Tuiles OpenStreetMap de l'app Chauffeur (développement seulement : le serveur public de la
+# fondation interdit l'usage intensif -- la production pose un fournisseur de tuiles).
+BABANA_MAP_TILE_URL ?= https://tile.openstreetmap.org/{z}/{x}/{y}.png
 BABANA_REALTIME_WS_URL ?= wss://api.localhost/rt/ws
 
 client:          ## Démarre l'app Client (bundler React Native)
@@ -61,10 +64,10 @@ client-web:      ## Construit le bundle web du Client dans apps/client/dist-web 
 	BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run build:web -w @babana/client
 
 driver:          ## Démarre l'app Chauffeur
-	BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/driver  -- --port 8083 --reset-cache
+	BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/driver  -- --port 8083 --reset-cache
 
 driver-app:          ## Démarre l'app Chauffeur (bundler React Native et emulateur)
-	BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run android -w @babana/driver -- --port 8083
+	BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run android -w @babana/driver -- --port 8083
 
 test:            ## Tests de tous les paquets et services, plus la suite Odoo
 	# La suite Odoo (module babana, jamais installé par `make up` seul) vient AVANT `npm test` :

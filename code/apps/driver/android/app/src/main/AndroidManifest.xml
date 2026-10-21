@@ -29,6 +29,11 @@
       android:theme="@style/AppTheme"
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:supportsRtl="true">
+      <!-- Clé du SDK natif de carte (L6-06), injectée au build depuis GOOGLE_MAPS_API_KEY
+           (build.gradle, manifestPlaceholders) : jamais écrite ici. Vide, la carte reste grise
+           sans planter. Distincte de BABANA_GOOGLE_MAPS_API_KEY (appels REST). -->
+      <meta-data android:name="com.google.android.geo.API_KEY" android:value="${googleMapsApiKey}" />
+
       <!-- Couleur système plutôt qu'une ressource inventée (D20 — aucune direction artistique
            avant le pilote) : cette meta-data ne colore que la petite icône de la barre de statut. -->
       <meta-data android:name="com.dieam.reactnativepushnotification.notification_color" android:resource="@android:color/white" />
