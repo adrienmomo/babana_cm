@@ -400,6 +400,8 @@ describe('HomeScreen (L6-11)', () => {
 
         expect(shown(root, 'active-ride-screen')).toBe(false);
         expect(shown(root, 'home-floating-toggle')).toBe(true);
+        // Plus de course : la bascule en ligne/hors ligne redevient utilisable.
+        expect(root.root.findByProps({ testID: 'availability-toggle' }).props.disabled).toBe(false);
       } finally {
         jest.useRealTimers();
       }

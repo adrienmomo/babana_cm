@@ -191,6 +191,12 @@ export function HomeScreen({ navigation, route }: Props) {
     [changeFlow]
   );
   const handleDismissed = useCallback(() => changeFlow(IDLE), [changeFlow]);
+  // Course terminée autrement que par « Terminer » (annulée) : le chauffeur est libre -- sans cela
+  // `inCourse`, posé à l'acceptation, resterait vrai et la bascule hors ligne bloquée.
+  const handleRideEnded = useCallback(() => {
+    setInCourse(false);
+    changeFlow(IDLE);
+  }, [changeFlow]);
   const handleSettle = useCallback(
     (params: { rideId: ActiveRideParams['rideId']; amount: number }) => replaceWithSettlement(navigation, params),
     [navigation]
@@ -273,7 +279,7 @@ export function HomeScreen({ navigation, route }: Props) {
           settings={RIDE_SETTINGS}
           onMapState={handleMapState}
           onSettle={handleSettle}
-          onEnded={handleDismissed}
+          onEnded={handleRideEnded}
         />
       ) : null}
     </View>
