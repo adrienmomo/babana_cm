@@ -156,9 +156,14 @@ async function renderActiveRide(
   return { root, callbacks, rerender };
 }
 
+// Sur place / Commencer / Terminer se confirment d'un glissement (SwipeButton, `onConfirm`) ; les
+// autres boutons restent des appuis (`onPress`).
+const SWIPES = new Set(['active-ride-arrived', 'active-ride-start', 'active-ride-finish']);
 const press = (root: ReactTestRenderer, testID: string) =>
   act(async () => {
-    root.root.findByProps({ testID }).props.onPress();
+    const node = root.root.findByProps({ testID });
+    if (SWIPES.has(testID)) node.props.onConfirm();
+    else node.props.onPress();
   });
 const has = (root: ReactTestRenderer, testID: string) => root.root.findAllByProps({ testID }).length > 0;
 
@@ -209,24 +214,29 @@ describe('ActiveRidePanel (L6-13)', () => {
     expect(has(root, 'active-ride-start')).toBe(true);
   });
 
-  it('critère 4 -- la fin de course exige un maintien prolongé (pas un simple appui), puis complete + règlement', async () => {
+  it('critère 4 -- la fin de course exige un glissement complet (ni appui, ni maintien), puis complete + règlement', async () => {
     const { root, callbacks } = await renderActiveRide();
     await reachTransit(root);
 
     const finish = root.root.findByProps({ testID: 'active-ride-finish' });
-    // Un simple appui ne termine rien -- il n'y a pas de onPress qui complète.
+    // Aucun appui ni maintien ne termine : seul le glissement confirmé (`onConfirm`) le fait.
     expect(finish.props.onPress).toBeUndefined();
-    expect(finish.props.delayLongPress).toBeGreaterThanOrEqual(600);
+    expect(finish.props.onLongPress).toBeUndefined();
 
-    await act(async () => {
-      finish.props.onLongPress();
-    });
+    await press(root, 'active-ride-finish');
     // La fin de course ne porte que la décision (J24) : corps vide, aucun relevé de trajet.
     expect(mockRequest).toHaveBeenCalledWith(
       'completeRide',
       expect.objectContaining({ pathParams: { id: RIDE_ID }, body: {} })
     );
     expect(callbacks.onSettle).toHaveBeenCalledWith({ rideId: RIDE_ID, amount: 1500 });
+  });
+
+  it('Sur place et Commencer se confirment aussi d’un glissement, pas d’un appui', async () => {
+    const { root } = await renderActiveRide();
+    expect(root.root.findByProps({ testID: 'active-ride-arrived' }).props.onPress).toBeUndefined();
+    await press(root, 'active-ride-arrived');
+    expect(root.root.findByProps({ testID: 'active-ride-start' }).props.onPress).toBeUndefined();
   });
 
   it('L6-16 -- hors connexion, la fin de course est mise en attente puis confirmée automatiquement au retour du réseau', async () => {
@@ -236,9 +246,7 @@ describe('ActiveRidePanel (L6-13)', () => {
     // La rejection ne vise que le prochain appel (completeRide), pas celui de startRide déjà
     // consommé ci-dessus (mockRequest.mockResolvedValue({}) par défaut, beforeEach).
     mockRequest.mockRejectedValueOnce(new Error('network down'));
-    await act(async () => {
-      root.root.findByProps({ testID: 'active-ride-finish' }).props.onLongPress();
-    });
+    await press(root, 'active-ride-finish');
     expect(root.root.findByProps({ testID: 'active-ride-finish-queued' })).toBeTruthy();
     expect(has(root, 'active-ride-finish')).toBe(false);
     expect(callbacks.onSettle).not.toHaveBeenCalled();
@@ -258,9 +266,7 @@ describe('ActiveRidePanel (L6-13)', () => {
     const { root, callbacks } = await renderActiveRide();
     await reachTransit(root);
     mockRequest.mockRejectedValueOnce(new Error('network down')).mockResolvedValueOnce({});
-    await act(async () => {
-      root.root.findByProps({ testID: 'active-ride-finish' }).props.onLongPress();
-    });
+    await press(root, 'active-ride-finish');
     await press(root, 'active-ride-finish-retry');
 
     const completeCalls = mockRequest.mock.calls.filter((c) => c[0] === 'completeRide');

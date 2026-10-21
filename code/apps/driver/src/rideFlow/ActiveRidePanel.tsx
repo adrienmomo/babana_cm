@@ -8,11 +8,12 @@ import { offlineRunner } from '../offline';
 import { getCurrentPosition } from '../location';
 import { CallButton } from '../components/CallButton';
 import { EmergencyButton } from '../components/EmergencyButton';
+import { SwipeButton } from '../components/SwipeButton';
 import { onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { formatDistance } from '../format';
 import { isWithinRadius } from './proximity';
 import type { ActiveRideParams } from '../navigation/types';
-import { buttonLabels, buttons, cards, colors } from '../theme';
+import { cards, colors } from '../theme';
 
 /**
  * Course en cours, côté chauffeur (L6-13, D12) -- un panneau posé sur la carte de Home, qui ne la
@@ -78,8 +79,6 @@ export interface ActiveRidePanelProps {
   /** La course s'est terminée autrement que par « Terminer » (annulée) : retour à l'accueil. */
   onEnded: () => void;
 }
-
-const HOLD_TO_FINISH_MS = 900;
 
 interface SharedRoute {
   phase: 'approach' | 'transit';
@@ -381,36 +380,24 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
         <CallButton clientPhoneNumber={clientPhoneNumber} />
       </View>
 
+      {/* Les trois décisions de la course se confirment d'un glissement, jamais d'un simple appui :
+          rien ne se déclenche en roulant, avec des gants, ni par un double appui qui tomberait
+          sur le bouton suivant. */}
       <View style={styles.mainAction}>
         {stage === 'approach' && nearPickup ? (
-          <Pressable
-            testID="active-ride-arrived"
-            accessibilityRole="button"
-            accessibilityLabel="Je suis sur place"
-            onPress={handleArrived}
-            style={({ pressed }) => [buttons.base, buttons.lg, buttons.primary, buttons.floating, pressed ? buttons.pressed : null]}
-          >
-            <Text style={[buttonLabels.lg, buttonLabels.primary]}>Sur place</Text>
-          </Pressable>
+          <SwipeButton testID="active-ride-arrived" label="Sur place" accessibilityLabel="Je suis sur place" onConfirm={handleArrived} />
         ) : null}
 
         {stage === 'arrived' ? (
-          <Pressable
+          <SwipeButton
             testID="active-ride-start"
-            accessibilityRole="button"
-            accessibilityLabel="Commencer la course"
+            label={busy === 'starting' ? 'Démarrage…' : 'Commencer la course'}
             disabled={busy !== null}
-            onPress={handleStart}
-            style={({ pressed }) => [buttons.base, buttons.lg, buttons.primary, buttons.floating, pressed ? buttons.pressed : null]}
-          >
-            <Text style={[buttonLabels.lg, buttonLabels.primary]}>{busy === 'starting' ? 'Démarrage…' : 'Commencer la course'}</Text>
-          </Pressable>
+            onConfirm={handleStart}
+          />
         ) : null}
 
         {stage === 'transit' ? (
-          // Fin de course : maintien prolongé (pas un dialogue à lire), loin du bouton de guidage
-          // qu'on touche en roulant -- une fin déclenchée par erreur est pénible à rattraper
-          // (spécification L6-13, critère 4).
           finishQueued ? (
             <View style={styles.finishQueued} testID="active-ride-finish-queued">
               <Text style={styles.finishQueuedText}>
@@ -421,20 +408,12 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
               </Pressable>
             </View>
           ) : (
-            <View style={styles.finishZone}>
-              <Text style={styles.finishHint}>Maintenez pour terminer</Text>
-              <Pressable
-                testID="active-ride-finish"
-                accessibilityRole="button"
-                accessibilityLabel="Maintenir pour terminer la course"
-                disabled={busy !== null}
-                delayLongPress={HOLD_TO_FINISH_MS}
-                onLongPress={handleFinish}
-                style={({ pressed }) => [buttons.base, buttons.lg, buttons.primary, buttons.floating, styles.finishButton, pressed ? styles.finishButtonHeld : null]}
-              >
-                <Text style={[buttonLabels.lg, buttonLabels.primary]}>{busy === 'finishing' ? 'Fin de course…' : 'Terminer la course'}</Text>
-              </Pressable>
-            </View>
+            <SwipeButton
+              testID="active-ride-finish"
+              label={busy === 'finishing' ? 'Fin de course…' : 'Terminer la course'}
+              disabled={busy !== null}
+              onConfirm={handleFinish}
+            />
           )
         ) : null}
       </View>
@@ -491,26 +470,6 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     bottom: 28,
-  },
-  finishZone: {
-    gap: 6,
-    alignItems: 'center',
-  },
-  finishHint: {
-    ...cards.floating,
-    color: colors.inkSoft,
-    fontSize: 13,
-    paddingHorizontal: 10,
-    paddingVertical: 2,
-    overflow: 'hidden',
-  },
-  finishButton: {
-    alignSelf: 'stretch',
-  },
-  // Maintien en cours : le vert fonce -- un retour visible que le geste est bien pris en compte.
-  finishButtonHeld: {
-    backgroundColor: colors.brandPressed,
-    borderColor: colors.brandPressed,
   },
   finishQueued: {
     ...cards.floating,
