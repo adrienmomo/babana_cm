@@ -13,6 +13,7 @@
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 import os
 import uuid
 from unittest.mock import patch
@@ -200,6 +201,66 @@ class TestRideController(HttpCase):
         start_response = self._post(f"/api/v1/rides/{ride.public_id}/start", driver_token)
         self.assertEqual(start_response.status_code, 200)
         self.assertEqual(start_response.json()["state"], "in_progress")
+
+    # --- « Sur place », attente, « client absent » --------------------------------------------
+
+    def _assigned_ride_over_http(self, sub):
+        client_token, client_public_id = self._sign_in(f"{sub}-client", "client")
+        client_user = self.env["res.users"].sudo().search([("babana_public_id", "=", client_public_id)])
+        driver_token, driver = self._make_selectable_driver(f"{sub}-driver", client_token)
+        ride = self._make_ride(client_user.partner_id)
+        self.assertEqual(
+            self._post(f"/api/v1/rides/{ride.public_id}/select-driver", client_token, {"driverId": driver.public_id}).status_code,
+            200,
+        )
+        self.assertEqual(self._accept_via_internal_channel(ride.public_id, driver.public_id).status_code, 200)
+        return ride, client_token, driver_token
+
+    def test_driver_arrived_returns_the_arrival_time_and_the_grace_period(self):
+        self.env["ir.config_parameter"].sudo().set_param("babana.no_show_grace_seconds", "300")
+        ride, _client_token, driver_token = self._assigned_ride_over_http("sub-arrived")
+
+        response = self._post(f"/api/v1/rides/{ride.public_id}/arrived", driver_token)
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["state"], "assigned")
+        self.assertTrue(body["arrivedAt"].endswith("Z"))
+        self.assertEqual(body["noShowGraceSeconds"], 300)
+        self.assertTrue(ride.arrived_at)
+
+    def test_the_client_cannot_declare_the_driver_arrived(self):
+        ride, client_token, _driver_token = self._assigned_ride_over_http("sub-arrived-client")
+        response = self._post(f"/api/v1/rides/{ride.public_id}/arrived", client_token)
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"]["code"], "DRIVER_NOT_IN_PROPOSAL")
+
+    def test_no_show_too_early_is_refused_with_its_own_code(self):
+        ride, _client_token, driver_token = self._assigned_ride_over_http("sub-noshow-early")
+        self._post(f"/api/v1/rides/{ride.public_id}/arrived", driver_token)
+
+        response = self._post(f"/api/v1/rides/{ride.public_id}/cancel", driver_token, {"reason": "client_no_show"})
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"]["code"], "NO_SHOW_TOO_EARLY")
+        self.assertEqual(ride.state, "assigned")
+
+    def test_no_show_after_the_grace_period_cancels(self):
+        ride, _client_token, driver_token = self._assigned_ride_over_http("sub-noshow-late")
+        self._post(f"/api/v1/rides/{ride.public_id}/arrived", driver_token)
+        ride.sudo().write({"arrived_at": ride.arrived_at - timedelta(seconds=3600)})
+
+        response = self._post(f"/api/v1/rides/{ride.public_id}/cancel", driver_token, {"reason": "client_no_show"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["state"], "cancelled")
+        self.assertEqual(ride.cancel_category, "client_no_show")
+
+    def test_a_client_cannot_use_the_no_show_reason(self):
+        ride, client_token, _driver_token = self._assigned_ride_over_http("sub-noshow-client")
+        response = self._post(f"/api/v1/rides/{ride.public_id}/cancel", client_token, {"reason": "client_no_show"})
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(ride.state, "assigned")
 
     # --- Critère 1 : requête non conforme rejetée avant tout traitement -----------------------
 
@@ -438,6 +499,44 @@ class TestRideController(HttpCase):
         self.assertEqual(ride.fare_rule_id, quote.fare_rule_id)
         self.assertEqual(ride.quote_id, quote)
         self.assertTrue(ride.fare_rule_snapshot)
+
+    def test_create_ride_keeps_the_clients_pickup_note_trimmed(self):
+        # Douala navigue par repères : l'indication du client part avec la course, telle quelle
+        # (espaces de bord retirés), pour être montrée au chauffeur dès la proposition.
+        client_token, _ = self._sign_in("sub-createride-note", "client")
+        quote_id = self._make_quote(client_token)
+
+        response = self._post(
+            "/api/v1/rides",
+            client_token,
+            {"quoteId": quote_id, "pickupNote": "  Devant la pharmacie du rond-point  "},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        ride = self.env["babana.ride"].sudo().search([("public_id", "=", response.json()["id"])])
+        self.assertEqual(ride.pickup_note, "Devant la pharmacie du rond-point")
+
+    def test_create_ride_without_pickup_note_stores_none(self):
+        client_token, _ = self._sign_in("sub-createride-nonote", "client")
+        quote_id = self._make_quote(client_token)
+
+        response = self._post("/api/v1/rides", client_token, {"quoteId": quote_id})
+
+        self.assertEqual(response.status_code, 201)
+        ride = self.env["babana.ride"].sudo().search([("public_id", "=", response.json()["id"])])
+        self.assertFalse(ride.pickup_note)
+
+    def test_create_ride_with_an_invalid_pickup_note_is_a_validation_error(self):
+        client_token, _ = self._sign_in("sub-createride-badnote", "client")
+        for bad in ("x" * 141, "   ", 42):
+            quote_id = self._make_quote(client_token)
+            response = self._post("/api/v1/rides", client_token, {"quoteId": quote_id, "pickupNote": bad})
+            self.assertEqual(response.status_code, 400, bad)
+            self.assertEqual(response.json()["error"]["code"], "VALIDATION_ERROR")
+        self.assertFalse(
+            self.env["babana.ride"].sudo().search([("pickup_note", "=", "x" * 141)]),
+            "aucune course créée avec une indication refusée",
+        )
 
     def test_create_ride_with_missing_quote_id_is_a_validation_error(self):
         client_token, _ = self._sign_in("sub-createride-badbody", "client")

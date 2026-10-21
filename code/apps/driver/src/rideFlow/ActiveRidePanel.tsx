@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { fetchRoute, reverseGeocode, type LatLng, type MapRoute } from '@babana/maps';
-import { ApiError, translateApiError } from '@babana/api-client';
-import type { realtime } from '@babana/contracts';
+import { ApiError, QUICK_MESSAGE_LABELS, quickMessagesFor, translateApiError } from '@babana/api-client';
+import { MessageBubble, QuickMessageChips } from '@babana/ui';
+import { http, type realtime } from '@babana/contracts';
 import { apiClient } from '../auth';
 import { offlineRunner } from '../offline';
 import { getCurrentPosition } from '../location';
@@ -13,7 +14,7 @@ import { onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } fr
 import { formatDistance } from '../format';
 import { distanceToRouteMeters, isWithinRadius } from './proximity';
 import type { ActiveRideParams } from '../navigation/types';
-import { cards, colors } from '../theme';
+import { buttonLabels, buttons, cards, colors } from '../theme';
 
 /**
  * Course en cours, côté chauffeur (L6-13, D12) -- un panneau posé sur la carte de Home, qui ne la
@@ -100,6 +101,24 @@ function isRideCompletedMessage(m: realtime.ServerToClientMessage): m is realtim
 function isRideCancelledMessage(m: realtime.ServerToClientMessage): m is realtime.RideCancelledMessage {
   return m.type === 'ride.cancelled';
 }
+function isChatMessage(m: realtime.ServerToClientMessage): m is realtime.ChatMessageMessage {
+  return m.type === 'chat.message';
+}
+
+// Les messages rapides que le chauffeur peut envoyer, avec leur libellé (même liste que le client
+// lit chez lui -- `@babana/api-client`).
+const DRIVER_QUICK_MESSAGES = quickMessagesFor('driver').map((code) => ({ code, label: QUICK_MESSAGE_LABELS[code] }));
+
+function isDriverArrivedMessage(m: realtime.ServerToClientMessage): m is realtime.DriverArrivedMessage {
+  return m.type === 'driver.arrived';
+}
+
+/** « 2:05 » -- minutes et secondes d'attente, jamais négatif. */
+export function formatWait(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
 function isSessionSyncedMessage(m: realtime.ServerToClientMessage): m is realtime.SessionSyncedMessage {
   return m.type === 'session.synced';
 }
@@ -117,13 +136,22 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
   const [route, setRoute] = useState<SharedRoute | null>(null);
   const [originLabel, setOriginLabel] = useState<string | null>(null);
   const [destinationLabel, setDestinationLabel] = useState<string | null>(null);
-  const [busy, setBusy] = useState<null | 'starting' | 'finishing'>(null);
+  const [busy, setBusy] = useState<null | 'arriving' | 'starting' | 'finishing' | 'cancelling'>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [endedNotice, setEndedNotice] = useState<string | null>(null);
   // Fin de course mise en file (réseau absent, L6-16) : distinct de `busy === 'finishing'`, qui
   // ne dure que le temps d'une tentative -- celui-ci peut durer jusqu'à la prochaine
   // reconnexion.
   const [finishQueued, setFinishQueued] = useState(false);
+  // Messages rapides : la rangée de messages ouverte ou non, et le dernier message du client
+  // (affiché jusqu'à ce que le chauffeur le ferme -- pas de minuteur à deviner).
+  const [messagesOpen, setMessagesOpen] = useState(false);
+  // « Sur place » tel qu'Odoo l'a enregistré : l'heure d'arrivée (qui fait foi pour l'attente, des
+  // deux côtés) et le délai de grâce avant « client absent » -- jamais une valeur de l'app.
+  const [arrival, setArrival] = useState<{ arrivedAtMs: number; graceSeconds: number } | null>(null);
+  const [noShowConfirm, setNoShowConfirm] = useState(false);
+  const [, forceTick] = useState(0);
+  const [incomingMessage, setIncomingMessage] = useState<realtime.QuickMessageCode | null>(null);
 
   // Lu de façon synchrone par les gestionnaires de messages -- `stage` (état React) y serait
   // périmé (l'effet d'abonnement ne s'exécute qu'une fois, dépendances [rideId]).
@@ -143,6 +171,15 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
   const mountedRef = useRef(true);
 
   const phase: 'approach' | 'transit' = stage === 'transit' ? 'transit' : 'approach';
+
+  // `arrivedAtMs` est une heure de CE téléphone : jamais l'heure du serveur comparée à l'horloge
+  // locale (deux horloges qui dérivent -- l'attente afficherait 0:00 ou un délai déjà écoulé).
+  const enterArrived = useCallback((localArrivedAtMs: number, graceSeconds: number) => {
+    setArrival((current) => current ?? { arrivedAtMs: localArrivedAtMs, graceSeconds });
+    if (stageRef.current !== 'approach') return;
+    stageRef.current = 'arrived';
+    setStage('arrived');
+  }, []);
 
   const enterTransit = useCallback(() => {
     if (stageRef.current === 'transit') return;
@@ -258,7 +295,15 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
 
   useEffect(() => {
     return onRealtimeMessage((message) => {
-      if (isRideStartedMessage(message) && message.payload.rideId === rideId) {
+      if (isDriverArrivedMessage(message) && message.payload.rideId === rideId) {
+        // « Sur place » déclaré depuis un autre appareil du chauffeur, ou rejoué après reconnexion.
+        // Âge de l'arrivée mesuré entre deux heures du serveur (émission du message, arrivée),
+        // puis reporté sur l'horloge locale.
+        const ageMs = Math.max(0, Date.parse(message.emittedAt) - Date.parse(message.payload.arrivedAt));
+        enterArrived(Date.now() - (Number.isNaN(ageMs) ? 0 : ageMs), message.payload.noShowGraceSeconds);
+      } else if (isChatMessage(message) && message.payload.rideId === rideId) {
+        if (message.payload.from === 'client') setIncomingMessage(message.payload.code);
+      } else if (isRideStartedMessage(message) && message.payload.rideId === rideId) {
         enterTransit();
       } else if (isRideCompletedMessage(message) && message.payload.rideId === rideId) {
         if (resolvedRef.current) return;
@@ -281,7 +326,7 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
         enterTransit();
       }
     });
-  }, [rideId, onSettle, enterTransit]);
+  }, [rideId, onSettle, enterTransit, enterArrived]);
 
   useEffect(() => {
     if (!endedNotice) return;
@@ -289,18 +334,67 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
     return () => clearTimeout(timer);
   }, [endedNotice, onEnded]);
 
+  // Le compteur d'attente avance chaque seconde, seulement pendant l'attente.
+  useEffect(() => {
+    if (stage !== 'arrived') return undefined;
+    const timer = setInterval(() => forceTick((n) => n + 1), 1000);
+    return () => clearInterval(timer);
+  }, [stage]);
+
   const getEmergencyPosition = useCallback(() => getCurrentPosition(), []);
 
-  function handleArrived() {
-    if (stage !== 'approach') return;
+  function handleSendQuickMessage(code: realtime.QuickMessageCode) {
+    setMessagesOpen(false);
+    // Jamais mis en file (un « J'arrive » lu dix minutes plus tard serait faux) : hors connexion,
+    // on le dit tout de suite.
     if (realtimeClient.getState() !== 'connected') {
-      setErrorMessage('Hors connexion — impossible de prévenir le client maintenant. Réessayez.');
+      setErrorMessage('Hors connexion — message non envoyé. Réessayez ou appelez le client.');
       return;
     }
     setErrorMessage(null);
-    realtimeClient.send('ride.arrived', { rideId });
-    stageRef.current = 'arrived';
-    setStage('arrived');
+    realtimeClient.send('chat.send', { rideId, code });
+  }
+
+  async function handleArrived() {
+    if (stage !== 'approach' || busy) return;
+    setBusy('arriving');
+    setErrorMessage(null);
+    try {
+      // Une décision, une écriture (invariant 1) : Odoo enregistre l'heure d'arrivée et prévient le
+      // client au commit. Jamais mis en file : un « Sur place » rejoué plus tard mentirait sur
+      // l'heure, qui fait foi pour l'attente.
+      const response = (await apiClient.request('driverArrived', {
+        pathParams: { id: rideId },
+        body: {},
+      })) as http.DriverArrivedResponse;
+      // Odoo vient de l'écrire : l'attente commence maintenant, à l'heure de ce téléphone.
+      enterArrived(Date.now(), response.noShowGraceSeconds);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof ApiError
+          ? translateApiError(error)
+          : 'Hors connexion — « Sur place » non enregistré. Réessayez dès que le réseau revient.'
+      );
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleNoShow() {
+    if (busy) return;
+    setBusy('cancelling');
+    setErrorMessage(null);
+    try {
+      // Le serveur seul juge du délai (NO_SHOW_TOO_EARLY sinon) -- l'app n'a fait qu'afficher le
+      // bouton au bon moment.
+      await apiClient.request('cancelRide', { pathParams: { id: rideId }, body: { reason: http.NO_SHOW_CANCEL_REASON } });
+      onEnded();
+    } catch (error) {
+      setErrorMessage(error instanceof ApiError ? translateApiError(error) : 'Hors connexion — réessayez dès que le réseau revient.');
+      setNoShowConfirm(false);
+    } finally {
+      setBusy(null);
+    }
   }
 
   async function handleStart() {
@@ -358,7 +452,7 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
   if (endedNotice) {
     return (
       <View style={styles.overlay} pointerEvents="box-none" testID="active-ride-screen">
-        <View style={[styles.card, styles.endedBanner]} testID="active-ride-cancelled">
+        <View style={[styles.card, styles.endedFloating, styles.endedBanner]} testID="active-ride-cancelled">
           <Text style={styles.endedText}>{endedNotice}</Text>
         </View>
       </View>
@@ -370,13 +464,61 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
 
   return (
     <View style={styles.overlay} pointerEvents="box-none" testID="active-ride-screen">
+      <View style={styles.topStack} pointerEvents="box-none">
       <View style={styles.card}>
         <Text style={styles.phaseTitle} testID="active-ride-phase">
           {stage === 'approach' ? 'En route vers le client' : stage === 'arrived' ? 'Sur place' : 'Course en cours'}
         </Text>
-        {tripSummary ? (
+        {tripSummary && stage !== 'arrived' ? (
           <Text style={styles.summary} testID="active-ride-summary">
             {tripSummary}
+          </Text>
+        ) : null}
+        {stage === 'arrived' && arrival ? (
+          <Text style={styles.waiting} testID="active-ride-waiting">
+            En attente du client · {formatWait((Date.now() - arrival.arrivedAtMs) / 1000)}
+          </Text>
+        ) : null}
+        {/* « Client absent » : seulement une fois le délai de grâce écoulé (le serveur tranche). */}
+        {stage === 'arrived' && arrival && Date.now() - arrival.arrivedAtMs >= arrival.graceSeconds * 1000 ? (
+          <View style={styles.noShowRow}>
+            {noShowConfirm ? (
+              <>
+                <Pressable
+                  testID="active-ride-no-show-cancel"
+                  accessibilityRole="button"
+                  onPress={() => setNoShowConfirm(false)}
+                  style={({ pressed }) => [buttons.base, buttons.md, buttons.secondary, buttons.floating, pressed ? buttons.pressed : null]}
+                >
+                  <Text style={[buttonLabels.base, buttonLabels.secondary]}>Attendre encore</Text>
+                </Pressable>
+                <Pressable
+                  testID="active-ride-no-show-confirm"
+                  accessibilityRole="button"
+                  accessibilityLabel="Confirmer : le client est absent, annuler la course"
+                  disabled={busy !== null}
+                  onPress={handleNoShow}
+                  style={({ pressed }) => [buttons.base, buttons.md, buttons.dangerSoft, buttons.floating, pressed ? buttons.pressed : null]}
+                >
+                  <Text style={[buttonLabels.base, buttonLabels.danger]}>{busy === 'cancelling' ? 'Annulation…' : 'Confirmer : client absent'}</Text>
+                </Pressable>
+              </>
+            ) : (
+              <Pressable
+                testID="active-ride-no-show"
+                accessibilityRole="button"
+                onPress={() => setNoShowConfirm(true)}
+                style={({ pressed }) => [buttons.base, buttons.md, buttons.secondary, buttons.floating, pressed ? buttons.pressed : null]}
+              >
+                <Text style={[buttonLabels.base, buttonLabels.danger]}>Client absent</Text>
+              </Pressable>
+            )}
+          </View>
+        ) : null}
+        {/* Le repère du client sert à le trouver : montré jusqu'au départ, pas pendant le trajet. */}
+        {ride.pickupNote && stage !== 'transit' ? (
+          <Text style={styles.pickupNote} numberOfLines={2} testID="active-ride-pickup-note">
+            Repère : « {ride.pickupNote} »
           </Text>
         ) : null}
         {/* Une adresse inconnue (géocodage indisponible) ne laisse pas de ligne vide « … » :
@@ -397,6 +539,15 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
           </Text>
         ) : null}
       </View>
+      {incomingMessage ? (
+        <MessageBubble
+          testID="active-ride-incoming-message"
+          author="Client"
+          text={QUICK_MESSAGE_LABELS[incomingMessage]}
+          onDismiss={() => setIncomingMessage(null)}
+        />
+      ) : null}
+      </View>
 
       {/* Le bouton d'urgence reste toujours atteignable, loin du bouton principal, jamais confondu
           avec lui (spécification L6-13). `getPosition` rappelle le GPS à l'instant. */}
@@ -405,8 +556,26 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
       </View>
 
       <View style={styles.sideActions}>
+        {stage !== 'transit' ? (
+          <Pressable
+            testID="active-ride-messages-toggle"
+            accessibilityRole="button"
+            accessibilityLabel="Envoyer un message rapide au client"
+            accessibilityState={{ expanded: messagesOpen }}
+            onPress={() => setMessagesOpen((open) => !open)}
+            style={({ pressed }) => [buttons.base, buttons.md, buttons.secondary, buttons.floating, pressed ? buttons.pressed : null]}
+          >
+            <Text style={[buttonLabels.base, buttonLabels.secondary]}>Message</Text>
+          </Pressable>
+        ) : null}
         <CallButton clientPhoneNumber={clientPhoneNumber} />
       </View>
+
+      {messagesOpen && stage !== 'transit' ? (
+        <View style={styles.messagesTray}>
+          <QuickMessageChips options={DRIVER_QUICK_MESSAGES} onSend={handleSendQuickMessage} testID="active-ride-quick-messages" />
+        </View>
+      ) : null}
 
       {/* Les trois décisions de la course se confirment d'un glissement, jamais d'un simple appui :
           rien ne se déclenche en roulant, avec des gants, ni par un double appui qui tomberait
@@ -457,14 +626,25 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
   },
-  card: {
-    ...cards.floating,
+  topStack: {
     position: 'absolute',
     top: 12,
     left: 16,
     right: 16,
+    gap: 8,
+  },
+  card: {
+    ...cards.floating,
     gap: 3,
     padding: 16,
+  },
+  messagesTray: {
+    ...cards.floating,
+    position: 'absolute',
+    left: 16,
+    right: 16,
+    bottom: 220,
+    padding: 10,
   },
   phaseTitle: {
     fontSize: 18,
@@ -477,6 +657,20 @@ const styles = StyleSheet.create({
   },
   pointText: {
     color: colors.inkSoft,
+  },
+  pickupNote: {
+    color: colors.ink,
+    fontWeight: '600',
+  },
+  waiting: {
+    color: colors.warningText,
+    fontWeight: '700',
+  },
+  noShowRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 6,
   },
   error: {
     color: colors.dangerText,
@@ -514,6 +708,12 @@ const styles = StyleSheet.create({
     color: colors.warningText,
     fontWeight: '700',
     textDecorationLine: 'underline',
+  },
+  endedFloating: {
+    position: 'absolute',
+    top: 12,
+    left: 16,
+    right: 16,
   },
   endedBanner: {
     backgroundColor: colors.warningSoft,

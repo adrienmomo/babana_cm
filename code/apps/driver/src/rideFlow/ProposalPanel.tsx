@@ -60,6 +60,7 @@ interface ProposalDisplayDetails {
   distanceToOriginMeters: number | null;
   expiresAt: string;
   emittedAt: string;
+  pickupNote: string | null;
 }
 
 /** Durée d'affichage du message de résolution avant le retour automatique (critère 4) -- assez
@@ -91,8 +92,21 @@ function isSessionSyncedMessage(message: realtime.ServerToClientMessage): messag
   return message.type === 'session.synced';
 }
 
-function remainingSeconds(expiresAt: string): number {
-  return Math.max(0, Math.round((new Date(expiresAt).getTime() - Date.now()) / 1000));
+/**
+ * Secondes restantes avant `expiresAt` (heure du SERVEUR), mesurées sur l'horloge du serveur
+ * estimée : heure locale + `serverOffsetMs`. Un téléphone dont l'horloge dérive de deux minutes
+ * afficherait sinon 150 s pour une fenêtre de 30 (constaté sur émulateur, 21 octobre).
+ */
+function remainingSeconds(expiresAt: string, serverOffsetMs: number): number {
+  return Math.max(0, Math.round((new Date(expiresAt).getTime() - (Date.now() + serverOffsetMs)) / 1000));
+}
+
+/** Écart horloge serveur - horloge locale, estimé à la réception d'une heure du serveur (la
+ * latence du réseau, quelques centaines de ms, est négligée -- l'affichage est à la seconde). */
+function serverOffsetFrom(serverNow: string | undefined): number {
+  if (!serverNow) return 0;
+  const parsed = Date.parse(serverNow);
+  return Number.isNaN(parsed) ? 0 : parsed - Date.now();
 }
 
 function detailsFromRealtimeParams(
@@ -106,6 +120,7 @@ function detailsFromRealtimeParams(
     distanceToOriginMeters: params.distanceToOriginMeters,
     expiresAt: params.expiresAt,
     emittedAt: params.emittedAt,
+    pickupNote: params.pickupNote,
   };
 }
 
@@ -118,6 +133,7 @@ function detailsFromActiveProposal(active: realtime.ActiveProposal): ProposalDis
     distanceToOriginMeters: active.distanceToOriginMeters,
     expiresAt: active.expiresAt,
     emittedAt: active.emittedAt,
+    pickupNote: active.pickupNote,
   };
 }
 
@@ -151,6 +167,9 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
   // Revalidation en mode notification : ne conclure « plus à prendre » qu'une fois, sur le
   // premier session.synced qui répond.
   const revalidationSettledRef = useRef(false);
+  // Écart d'horloge avec le serveur : l'heure du serveur portée par ce qui a ouvert la proposition
+  // (`serverNow`), puis celle de la resynchronisation en mode notification (`serverTime`).
+  const serverOffsetRef = useRef(serverOffsetFrom(params.source === 'notification' ? undefined : params.serverNow));
 
   function updateDecision(next: Decision) {
     decisionRef.current = next;
@@ -240,6 +259,7 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
           if (active && active.rideId === rideId) {
             revalidationSettledRef.current = true;
             markProposalHandled(rideId);
+            serverOffsetRef.current = serverOffsetFrom(message.payload.serverTime);
             setDetails(detailsFromActiveProposal(active));
           } else {
             // `activeProposal` absent, ou pour une autre course : il n'y a plus rien à prendre.
@@ -264,6 +284,10 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
 
       if (isProposalNewMessage(message) && message.payload.rideId === rideId) {
         if (decisionRef.current !== 'idle') return;
+        // Mode notification : premier contact avec une heure du serveur (enveloppe de ce message).
+        if (fromNotification && !revalidationSettledRef.current) {
+          serverOffsetRef.current = serverOffsetFrom(message.emittedAt);
+        }
         revalidationSettledRef.current = true;
         markProposalHandled(rideId);
         setDetails((current) => current ?? {
@@ -274,6 +298,7 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
           distanceToOriginMeters: message.payload.distanceToOriginMeters,
           expiresAt: message.payload.expiresAt,
           emittedAt: message.emittedAt,
+          pickupNote: message.payload.pickupNote,
         });
         return;
       }
@@ -311,6 +336,7 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
       amount: d.amount,
       distanceMeters: d.distanceMeters,
       clientPhoneNumber,
+      pickupNote: d.pickupNote,
     });
   }
 
@@ -376,6 +402,11 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
                 ) : null}
               </View>
             ) : null}
+            {details.pickupNote ? (
+              <Text style={styles.pickupNote} numberOfLines={2} testID="proposal-pickup-note">
+                « {details.pickupNote} »
+              </Text>
+            ) : null}
             <Text style={styles.distance} testID="proposal-distance">
               Course : {formatDistance(details.distanceMeters)}
             </Text>
@@ -396,7 +427,7 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
         ) : null}
 
         {provisionalExpiresAt && !resolutionMessage ? (
-          <CountdownRing remainingSeconds={remainingSeconds(provisionalExpiresAt)} />
+          <CountdownRing remainingSeconds={remainingSeconds(provisionalExpiresAt, serverOffsetRef.current)} />
         ) : null}
 
         {resolutionMessage ? (
@@ -488,6 +519,12 @@ const styles = StyleSheet.create({
   },
   distance: {
     color: colors.muted,
+  },
+  pickupNote: {
+    color: colors.ink,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    maxWidth: 320,
   },
   approachDistance: {
     color: colors.brandText,

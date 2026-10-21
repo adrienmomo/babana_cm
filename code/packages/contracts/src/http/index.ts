@@ -156,6 +156,16 @@ export const HTTP_ENDPOINTS = {
     requestExample: ride.startRideRequestExample,
     responseExample: ride.startRideResponseExample,
   },
+  driverArrived: {
+    method: 'POST',
+    path: '/api/v1/rides/{id}/arrived',
+    requiresAuth: true,
+    requestSchema: ride.DriverArrivedRequestSchema,
+    responseSchema: ride.DriverArrivedResponseSchema,
+    errors: ride.DriverArrivedErrors,
+    requestExample: ride.driverArrivedRequestExample,
+    responseExample: ride.driverArrivedResponseExample,
+  },
   completeRide: {
     method: 'POST',
     path: '/api/v1/rides/{id}/complete',

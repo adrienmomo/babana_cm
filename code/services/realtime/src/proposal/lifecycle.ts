@@ -44,6 +44,10 @@ export interface ProposalDetails {
    * émis avant tout `await` sur Odoo ou le cache de profils) ne change pas avec ce champ.
    */
   clientPhoneNumber: string | null;
+  /** Indication laissée par le client à la commande (« devant la pharmacie »), transmise par Odoo
+   * comme le reste ; `null` s'il n'en a pas laissé. Rendue au chauffeur dans `proposal.new` et à la
+   * resynchronisation (`peekActiveProposal`). */
+  pickupNote: string | null;
 }
 
 export type ProposeOutcome = { proposed: true; expiresAt: string } | { proposed: false };
@@ -146,6 +150,7 @@ export class ProposalLifecycle {
         distanceMeters: details.distanceMeters,
         distanceToOriginMeters,
         expiresAt,
+        pickupNote: details.pickupNote,
       },
     });
 
@@ -349,6 +354,8 @@ export class ProposalLifecycle {
       distanceToOriginMeters: stored.distanceToOriginMeters,
       expiresAt: stored.expiresAt,
       emittedAt: stored.emittedAt,
+      // Un enregistrement posé avant cette version n'a pas le champ.
+      pickupNote: stored.pickupNote ?? null,
     };
   }
 

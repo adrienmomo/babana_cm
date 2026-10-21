@@ -40,6 +40,18 @@ class RideInvalidTransition(UserError):
     contrôleur de L4-03, hors de ce lot."""
 
 
+class RideNoShowTooEarly(RideInvalidTransition):
+    """« Client absent » demandé avant la fin du délai de grâce (ou sans « Sur place » préalable)
+    -- traduit en NO_SHOW_TOO_EARLY (C-01)."""
+
+
+# Motif réservé d'une annulation « client absent » (cancel_reason), et le délai de grâce qui
+# l'autorise, compté depuis « Sur place » (`arrived_at`). Paramètre métier : Paramètres > Babana.
+NO_SHOW_REASON = "client_no_show"
+NO_SHOW_GRACE_PARAM = "babana.no_show_grace_seconds"
+NO_SHOW_GRACE_DEFAULT = 300
+
+
 class BabanaRideState(models.Model):
     _inherit = "babana.ride"
 
@@ -48,7 +60,11 @@ class BabanaRideState(models.Model):
     # ordinaire : L9-09 (hors de ce lot) mesure ce taux d'abandon pour décider s'il faut rouvrir
     # D11, un indicateur que reconstituer après coup depuis l'historique des refus fragiliserait.
     cancel_category = fields.Selection(
-        [("ordinary", "Annulation ordinaire"), ("abandon_after_rejection", "Abandon après refus")],
+        [
+            ("ordinary", "Annulation ordinaire"),
+            ("abandon_after_rejection", "Abandon après refus"),
+            ("client_no_show", "Client absent"),
+        ],
         default="ordinary",
     )
     cancelled_after_rejection_rank = fields.Integer(
@@ -57,6 +73,10 @@ class BabanaRideState(models.Model):
     )
 
     # --- Garde d'écriture (invariant 2) -------------------------------------------------------
+
+    # « Sur place » (décision du chauffeur) : une écriture, jamais une transition -- la course
+    # reste `assigned`. Point de départ du délai de grâce « client absent ».
+    arrived_at = fields.Datetime(string="Arrivé au point de prise en charge", readonly=True, copy=False)
 
     def write(self, vals):
         # Immuabilité totale après settled, y compris pour un administrateur, y compris pour une
@@ -286,6 +306,66 @@ class BabanaRideState(models.Model):
         )
         return self
 
+    # --- « Sur place » et « client absent » (course `assigned`) ----------------------------------
+
+    def _babana_no_show_grace_seconds(self):
+        raw = self.env["ir.config_parameter"].sudo().get_param(NO_SHOW_GRACE_PARAM)
+        try:
+            value = int(raw)
+        except (TypeError, ValueError):
+            return NO_SHOW_GRACE_DEFAULT
+        return value if value > 0 else NO_SHOW_GRACE_DEFAULT
+
+    def action_mark_arrived(self, *, by_driver):
+        """« Sur place » : le chauffeur affecté déclare être au point de prise en charge. Écrit
+        `arrived_at` UNE fois (une décision, une écriture -- invariant 1) ; un second appel (rejeu
+        réseau) ne déplace pas l'heure, qui fait foi pour le délai « client absent ». Aucune
+        transition d'état. Prévient le client au commit (D32), avec le délai de grâce."""
+        self.ensure_one()
+        self._lock_for_update()
+        if self.state != "assigned":
+            raise RideInvalidTransition(f"« Sur place » impossible depuis l'état '{self.state}'.")
+        if by_driver != self.driver_id:
+            raise RideInvalidTransition("Ce chauffeur n'est pas celui affecté à cette course.")
+        if self.arrived_at:
+            return self
+
+        self.write({"arrived_at": fields.Datetime.now()})
+        self._babana_journalize("ride_arrived", before_state="assigned")
+        client_public_id = self._babana_client_public_id()
+        if client_public_id:
+            realtime_client.notify_driver_arrived(
+                self.env,
+                ride_public_id=self.public_id,
+                client_user_public_id=client_public_id,
+                driver_public_id=by_driver.public_id,
+                arrived_at=self.arrived_at,
+                no_show_grace_seconds=self._babana_no_show_grace_seconds(),
+            )
+        return self
+
+    def action_cancel_no_show(self, *, by_driver):
+        """« Client absent » : annulation par le chauffeur, permise seulement une fois le délai de
+        grâce écoulé depuis « Sur place ». La règle vit ici, jamais dans l'app (invariant 3) :
+        l'app n'affiche le bouton qu'après le délai, mais c'est ce contrôle qui fait foi."""
+        self.ensure_one()
+        self._lock_for_update()
+        if self.state != "assigned":
+            raise RideInvalidTransition(f"« Client absent » impossible depuis l'état '{self.state}'.")
+        if by_driver != self.driver_id:
+            raise RideInvalidTransition("Ce chauffeur n'est pas celui affecté à cette course.")
+        grace = self._babana_no_show_grace_seconds()
+        if not self.arrived_at:
+            raise RideNoShowTooEarly("« Client absent » exige d'avoir d'abord déclaré « Sur place ».")
+        waited = (fields.Datetime.now() - self.arrived_at).total_seconds()
+        if waited < grace:
+            raise RideNoShowTooEarly(
+                f"Délai d'attente non écoulé : encore {int(grace - waited)} s avant « client absent »."
+            )
+        return self.action_cancel(
+            actor_role="driver", actor_record=by_driver, reason=NO_SHOW_REASON, category="client_no_show"
+        )
+
     # --- 6. assigned -> in_progress -----------------------------------------------------------
 
     def action_start(self, *, by_driver):
@@ -492,7 +572,7 @@ class BabanaRideState(models.Model):
 
     _CANCELLABLE_STATES = ("requested", "proposed", "assigned", "rejected", "in_progress")
 
-    def action_cancel(self, *, actor_role, actor_record=None, reason=None):
+    def action_cancel(self, *, actor_role, actor_record=None, reason=None, category=None):
         """Annulation, règles distinctes selon l'état et l'acteur (L4-07, hors de ce lot pour le
         détail complet -- seules les règles nécessaires aux critères de L4-02 sont ici : chaque
         transition valide de C-03 passe, chaque transition interdite échoue). `actor_role` vaut
@@ -530,6 +610,8 @@ class BabanaRideState(models.Model):
             # REPONSES-2026-08-11.md).
             cancel_vals["cancel_category"] = "abandon_after_rejection"
             cancel_vals["cancelled_after_rejection_rank"] = len(self.rejection_ids)
+        elif category:
+            cancel_vals["cancel_category"] = category
 
         self._babana_write_transition(cancel_vals)
         self._babana_journalize(

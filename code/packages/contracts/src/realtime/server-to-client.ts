@@ -2,9 +2,9 @@ import { z } from 'zod';
 import { envelopeSchema } from './envelope';
 import { LatLngSchema, MoneyAmountSchema, RideIdSchema, DriverIdSchema, IsoDateTimeSchema } from '../http/common';
 import { NearbyDriverSchema } from '../http/driver';
-import { RideStateSchema } from '../http/ride';
+import { PICKUP_NOTE_MAX_LENGTH, RideStateSchema } from '../http/ride';
 import { FareBreakdownSchema, VehicleClassSchema } from '../http/quote';
-import { RideRouteSchema } from './client-to-server';
+import { QuickMessageCodeSchema, RideRouteSchema } from './client-to-server';
 
 /**
  * Tous les messages émis DEPUIS le serveur, à destination de l'application Chauffeur ou de
@@ -35,6 +35,8 @@ export const ProposalNewPayloadSchema = z.object({
   distanceMeters: z.number().int().nonnegative(),
   distanceToOriginMeters: z.number().int().nonnegative().nullable(),
   expiresAt: IsoDateTimeSchema,
+  /** Indication du client (`CreateRideRequest.pickupNote`), `null` s'il n'en a pas laissé. */
+  pickupNote: z.string().max(PICKUP_NOTE_MAX_LENGTH).nullable().default(null),
 });
 export const ProposalNewMessageSchema = envelopeSchema('proposal.new', ProposalNewPayloadSchema);
 export type ProposalNewMessage = z.infer<typeof ProposalNewMessageSchema>;
@@ -264,12 +266,28 @@ export const RideRoutePayloadSchema = RideRouteSchema.extend({
 export const RideRouteMessageSchema = envelopeSchema('ride.route', RideRoutePayloadSchema);
 export type RideRouteMessage = z.infer<typeof RideRouteMessageSchema>;
 
-/** Destinataire : client. Le chauffeur a déclaré être « Sur place » (`ride.arrived`). */
+/**
+ * Destinataire : client (et appareils du chauffeur). Le chauffeur a déclaré « Sur place »
+ * (`POST /rides/{id}/arrived`, écrit dans Odoo, poussé au commit). `arrivedAt` est l'heure d'Odoo :
+ * les deux apps comptent l'attente depuis elle ; `noShowGraceSeconds` est le délai après lequel le
+ * chauffeur peut annuler pour « client absent ». Rejoué à l'abonnement `ride.track`.
+ */
 export const DriverArrivedPayloadSchema = z.object({
   rideId: RideIdSchema,
+  arrivedAt: IsoDateTimeSchema,
+  noShowGraceSeconds: z.number().int().positive(),
 });
 export const DriverArrivedMessageSchema = envelopeSchema('driver.arrived', DriverArrivedPayloadSchema);
 export type DriverArrivedMessage = z.infer<typeof DriverArrivedMessageSchema>;
+
+/** Destinataire : l'autre participant de la course. Un message rapide (`chat.send`) relayé. */
+export const ChatMessagePayloadSchema = z.object({
+  rideId: RideIdSchema,
+  code: QuickMessageCodeSchema,
+  from: z.enum(['driver', 'client']),
+});
+export const ChatMessageMessageSchema = envelopeSchema('chat.message', ChatMessagePayloadSchema);
+export type ChatMessageMessage = z.infer<typeof ChatMessageMessageSchema>;
 
 /** Destinataire : client. Transition -> in_progress. */
 export const RideStartedPayloadSchema = z.object({
@@ -351,6 +369,7 @@ export const ServerToClientMessageSchema = z.discriminatedUnion('type', [
   DriverPositionMessageSchema,
   RideRouteMessageSchema,
   DriverArrivedMessageSchema,
+  ChatMessageMessageSchema,
   RideStartedMessageSchema,
   RideCompletedMessageSchema,
   SessionSyncedMessageSchema,

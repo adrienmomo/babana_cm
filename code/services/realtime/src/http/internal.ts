@@ -14,6 +14,7 @@ import { blockForCash, unblockForCash } from '../driver/cash-guard';
 import { holdDriver, releaseHold } from '../driver/admin-hold';
 import { broadcastRideStarted, broadcastRideCompleted, broadcastRideCancelled } from '../tracking/broadcast';
 import { startAccumulation, getAccumulation, endAccumulation } from '../tracking/accumulator';
+import { recordDriverArrived } from '../tracking/route';
 
 /**
  * Endpoint HTTP interne, sens Odoo -> temps réel (L3-17). Authentifié par `REALTIME_SHARED_SECRET`
@@ -45,6 +46,8 @@ import { startAccumulation, getAccumulation, endAccumulation } from '../tracking
  *   `ride.started`/`ride.completed` (C-02) au client suivi ET au chauffeur -- déclenché au
  *   COMMIT (D32) par `action_start`/`action_complete`. `started` démarre en plus l'accumulation
  *   distance/durée/tracé (L3-10).
+ * - `POST /internal/rides/arrived` : « Sur place » écrit par Odoo (`action_mark_arrived`, au
+ *   COMMIT, D32) -- pousse `driver.arrived` au client et au chauffeur, et le garde pour le rejeu.
  * - `POST /internal/rides/measurement` (L3-10) : renvoie le relevé de trajet accumulé pour un
  *   chauffeur -- LU par Odoo AVANT la transition `in_progress -> completed` (une lecture, jamais
  *   une écriture Redis : sans risque D25/D32, même exception assumée que `reserve_and_propose`).
@@ -83,6 +86,9 @@ const ReservationRequestSchema = z.object({
   // proposal/lifecycle.ts::accept). `.nullable()` : rien ne garantit qu'un client a un numéro
   // renseigné.
   clientPhoneNumber: z.string().nullable(),
+  // Indication du client (`CreateRideRequest.pickupNote`) -- facultative pour rester compatible
+  // avec un Odoo qui ne l'envoie pas encore.
+  pickupNote: z.string().max(140).nullable().default(null),
 });
 
 export type ReservationOutcome =
@@ -101,6 +107,14 @@ const DriverAvailableRequestSchema = z.object({ driverId: z.string().min(1) });
 // (babana.ride.client_id/driver_id) -- pas une lecture de tracking/session.ts, qui introduirait
 // une dépendance d'ordre avec /internal/engagement/clear (même requête HTTP côté Odoo, voir
 // controllers/ride.py::_complete_ride) sans rien apporter.
+const RideArrivedRequestSchema = z.object({
+  rideId: z.string().min(1),
+  clientUserId: z.string().min(1),
+  driverId: z.string().min(1),
+  arrivedAt: z.string().min(1),
+  noShowGraceSeconds: z.number().int().positive(),
+});
+
 const RideStartedRequestSchema = z.object({
   rideId: z.string().min(1),
   clientUserId: z.string().min(1),
@@ -176,6 +190,7 @@ async function handleReservation(deps: InternalRouterDeps, rawBody: unknown, res
         amount: body.amount,
         distanceMeters: body.distanceMeters,
         clientPhoneNumber: body.clientPhoneNumber,
+        pickupNote: body.pickupNote,
       };
       const proposeOutcome = await deps.proposals.propose(body.driverId, details);
       if (!proposeOutcome.proposed) {
@@ -359,6 +374,18 @@ export function createInternalHandler(deps: InternalRouterDeps) {
       case '/internal/drivers/available':
         await handleDriverAvailable(deps, body, res);
         return;
+      case '/internal/rides/arrived': {
+        // « Sur place » (au commit de action_mark_arrived, D32) : garde l'arrivée et la pousse
+        // au client et au chauffeur (tracking/route.ts::recordDriverArrived).
+        const parsed = RideArrivedRequestSchema.safeParse(body);
+        if (!parsed.success) {
+          sendJson(res, 400, { error: 'VALIDATION_ERROR' });
+          return;
+        }
+        await recordDriverArrived(deps.redis, deps.config, deps.registry, parsed.data);
+        sendJson(res, 200, { ok: true });
+        return;
+      }
       case '/internal/rides/started':
         await handleRideStarted(deps, body, res);
         return;

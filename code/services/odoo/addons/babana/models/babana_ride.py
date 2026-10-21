@@ -47,6 +47,10 @@ CLIENT_ACTIVE_STATES = ("requested", "proposed", "assigned", "in_progress")
 TOGETHER_STATES = ("assigned", "in_progress")
 
 
+# Même borne que le contrat (`PickupNoteSchema`, packages/contracts/src/http/ride.ts) -- une
+# borne de format, pas une valeur métier.
+PICKUP_NOTE_MAX_LENGTH = 140
+
 class BabanaRide(models.Model):
     _name = "babana.ride"
     _description = "Course (L4-01)"
@@ -86,6 +90,10 @@ class BabanaRide(models.Model):
     # --- Géographie ----------------------------------------------------------------------------
     pickup_latitude = fields.Float(required=True, digits=(10, 6))
     pickup_longitude = fields.Float(required=True, digits=(10, 6))
+    # Repère laissé par le client à la commande (« devant la pharmacie du rond-point ») -- l'adresse
+    # formelle n'existe presque pas à Douala. Validé par le contrat (`PickupNoteSchema`, 140
+    # caractères), montré au chauffeur dès la proposition.
+    pickup_note = fields.Char(string="Indication de prise en charge", size=PICKUP_NOTE_MAX_LENGTH)
     pickup_label = fields.Char(
         string="Départ", help="Repère ou adresse saisie par le client (Douala, D-quoi)."
     )

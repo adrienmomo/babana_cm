@@ -55,6 +55,7 @@ export const USER_MESSAGES = {
 
   RIDE_NOT_FOUND: "Cette course n'existe pas ou n'est plus disponible.",
   RIDE_INVALID_TRANSITION: "Cette action n'est plus possible pour cette course.",
+  NO_SHOW_TOO_EARLY: "Le délai d'attente du client n'est pas encore écoulé.",
   RIDE_NOT_OWNED: "Cette course ne vous appartient pas.",
   NO_DRIVER_AVAILABLE: "Aucun chauffeur n'est disponible pour le moment.",
   DRIVER_ALREADY_TAKEN: "Ce chauffeur vient d'être choisi par quelqu'un d'autre.",

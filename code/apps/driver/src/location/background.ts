@@ -28,7 +28,10 @@ import PushNotification, { Importance } from 'react-native-push-notification';
  */
 
 const TRACKING_CHANNEL_ID = 'location-tracking';
-const TRACKING_NOTIFICATION_ID = 'location-tracking-current';
+// Numérique sous forme de chaîne : sur Android, react-native-push-notification fait un
+// Integer.parseInt de l'identifiant et ne poste rien s'il échoue -- même exigence que l'alerte de
+// proposition (proposalAlert.ts, '4201'), identifiant distinct pour ne jamais la remplacer.
+const TRACKING_NOTIFICATION_ID = '4202';
 
 let configured = false;
 

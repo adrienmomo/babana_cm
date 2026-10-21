@@ -129,9 +129,10 @@ export function createMessageDispatcher(
         if (context.role !== 'driver' || !context.driverId) return;
         await routes?.share(context, message.payload);
         return;
-      case 'ride.arrived':
-        if (context.role !== 'driver' || !context.driverId) return;
-        await routes?.arrived(context, message.payload);
+      case 'chat.send':
+        // Émetteur : chauffeur OU client (C-02) -- le relais vérifie la participation à la course
+        // et la correspondance code/rôle ; pas de garde de rôle ici.
+        await routes?.chat(context, message.payload);
         return;
       case 'ride.track':
         // Émetteur : client (C-02). L'identité vient du contexte de connexion (invariant L3-01) ;

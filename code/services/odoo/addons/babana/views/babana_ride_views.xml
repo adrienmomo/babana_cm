@@ -82,6 +82,7 @@
                             <field name="pickup_latitude"/>
                             <field name="pickup_longitude"/>
                             <field name="pickup_zone_id"/>
+                            <field name="pickup_note"/>
                             <field name="dropoff_label"/>
                             <field name="dropoff_latitude"/>
                             <field name="dropoff_longitude"/>

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type Redis from 'ioredis';
+import { z } from 'zod';
 import type { WebSocket } from 'ws';
 import { realtime } from '@babana/contracts';
 import type { Config } from '../config';
@@ -17,6 +18,9 @@ import { getRideSession } from './session';
  * **L'émetteur est vérifié, pas le `rideId`** (L3-01) : seul le chauffeur engagé sur la course
  * (session de suivi, `tracking/session.ts`) peut partager un tracé ou se déclarer sur place ; un
  * message forgé est ignoré en silence, comme les autres messages hors rôle.
+ *
+ * « Sur place » n'arrive plus par ici depuis l'app : c'est une décision écrite dans Odoo (`POST
+ * /rides/{id}/arrived`), qui la pousse au commit (`recordDriverArrived`).
  *
  * Le dernier tracé et le fait « sur place » sont gardés (TTL) pour être rejoués à un client qui
  * s'abonne tard -- reconnexion, app relancée. Une course terminée n'a plus de session : plus rien
@@ -49,12 +53,26 @@ export class RideRouteRelay {
     this.sendToClient(clientUserId, buildRideRouteMessage(payload));
   }
 
-  async arrived(context: ConnectionContext, payload: realtime.RideArrivedMessage['payload']): Promise<void> {
-    const clientUserId = await this.clientOfDriversRide(context, payload.rideId);
-    if (!clientUserId) return;
+  /**
+   * Message rapide (`chat.send`) : relayé à l'AUTRE participant. L'émetteur doit être le chauffeur
+   * ou le client de la course (session de suivi), et le code doit correspondre à son rôle
+   * (`driver_*` / `client_*`). Rien n'est gardé : un message manqué n'est pas rejoué.
+   */
+  async chat(context: ConnectionContext, payload: realtime.ChatSendMessage['payload']): Promise<void> {
+    const session = await getRideSession(this.redis, payload.rideId);
+    if (!session) return;
 
-    await this.redis.set(rideArrivedKey(payload.rideId), '1', 'EX', this.config.RIDE_ROUTE_TTL_SECONDS);
-    this.sendToClient(clientUserId, buildDriverArrivedMessage(payload.rideId));
+    const fromDriver = context.role === 'driver' && context.driverId !== null && session.driverId === context.driverId;
+    const fromClient = context.role === 'client' && session.clientUserId === context.userId;
+    if (!fromDriver && !fromClient) return;
+    if (!payload.code.startsWith(fromDriver ? 'driver_' : 'client_')) return;
+
+    const message = buildChatMessage(payload.rideId, payload.code, fromDriver ? 'driver' : 'client');
+    const encoded = JSON.stringify(message);
+    const recipients = fromDriver ? this.registry.getByUserId(session.clientUserId) : this.registry.getByDriverId(session.driverId);
+    for (const socket of recipients) {
+      if (socket.readyState === socket.OPEN) socket.send(encoded);
+    }
   }
 
   /** Rejoue au client qui vient de s'abonner (`ride.track`) ce qu'il a pu manquer. L'appelant a
@@ -71,7 +89,8 @@ export class RideRouteRelay {
       }
     }
     if (arrived && socket.readyState === socket.OPEN) {
-      socket.send(JSON.stringify(buildDriverArrivedMessage(rideId)));
+      const parsed = StoredArrivalSchema.safeParse(JSON.parse(arrived));
+      if (parsed.success) socket.send(JSON.stringify(buildDriverArrivedMessage({ rideId, ...parsed.data })));
     }
   }
 
@@ -94,6 +113,41 @@ function buildRideRouteMessage(payload: realtime.RideRouteMessage['payload']): r
   return { type: 'ride.route', id: randomUUID(), emittedAt: new Date().toISOString(), payload };
 }
 
-function buildDriverArrivedMessage(rideId: string): realtime.DriverArrivedMessage {
-  return { type: 'driver.arrived', id: randomUUID(), emittedAt: new Date().toISOString(), payload: { rideId } };
+function buildDriverArrivedMessage(payload: realtime.DriverArrivedMessage['payload']): realtime.DriverArrivedMessage {
+  return { type: 'driver.arrived', id: randomUUID(), emittedAt: new Date().toISOString(), payload };
+}
+
+const StoredArrivalSchema = z.object({ arrivedAt: z.string(), noShowGraceSeconds: z.number().int().positive() });
+
+/**
+ * « Sur place », sens Odoo -> temps réel (`/internal/rides/arrived`, au COMMIT de
+ * `action_mark_arrived`, D32) : garde l'arrivée (pour la rejouer à un client qui s'abonne tard) et
+ * pousse `driver.arrived` au client ET aux appareils du chauffeur. Odoo désigne les destinataires
+ * (il les connaît) : aucune relecture de session ici, même patron que `broadcastRideStarted`.
+ */
+export async function recordDriverArrived(
+  redis: Redis,
+  config: Config,
+  registry: ConnectionRegistry,
+  params: { rideId: string; clientUserId: string; driverId: string; arrivedAt: string; noShowGraceSeconds: number }
+): Promise<void> {
+  const { rideId, clientUserId, driverId, arrivedAt, noShowGraceSeconds } = params;
+  await redis.set(
+    rideArrivedKey(rideId),
+    JSON.stringify({ arrivedAt, noShowGraceSeconds }),
+    'EX',
+    config.RIDE_ROUTE_TTL_SECONDS
+  );
+  const encoded = JSON.stringify(buildDriverArrivedMessage({ rideId, arrivedAt, noShowGraceSeconds }));
+  for (const socket of [...registry.getByUserId(clientUserId), ...registry.getByDriverId(driverId)]) {
+    if (socket.readyState === socket.OPEN) socket.send(encoded);
+  }
+}
+
+function buildChatMessage(
+  rideId: string,
+  code: realtime.ChatMessageMessage['payload']['code'],
+  from: realtime.ChatMessageMessage['payload']['from']
+): realtime.ChatMessageMessage {
+  return { type: 'chat.message', id: randomUUID(), emittedAt: new Date().toISOString(), payload: { rideId, code, from } };
 }

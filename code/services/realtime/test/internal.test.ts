@@ -428,6 +428,38 @@ describe('POST /internal/rides/started|completed (sens Odoo -> temps réel, L3-1
     }
   });
 
+  test('driver.arrived (« Sur place », écrit par Odoo) part au client et au chauffeur avec l’heure et le délai de grâce', async () => {
+    const rideId = randomUUID();
+    const clientUserId = randomUUID();
+    const driverId = randomUUID();
+    const strangerUserId = randomUUID();
+    const clientWs = await connectWs(tokenFor('client', clientUserId));
+    const driverWs = await connectWs(tokenFor('driver', driverId, driverId));
+    const strangerWs = await connectWs(tokenFor('client', strangerUserId));
+    const arrivedAt = '2026-10-21T19:00:00Z';
+
+    try {
+      const [clientMessage, driverMessage, { status }] = await Promise.all([
+        waitForMessage(clientWs, 'driver.arrived'),
+        waitForMessage(driverWs, 'driver.arrived'),
+        post('/internal/rides/arrived', { rideId, clientUserId, driverId, arrivedAt, noShowGraceSeconds: 300 }),
+      ]);
+      assert.equal(status, 200);
+      assert.deepEqual(clientMessage.payload, { rideId, arrivedAt, noShowGraceSeconds: 300 });
+      assert.deepEqual(driverMessage.payload, { rideId, arrivedAt, noShowGraceSeconds: 300 });
+      await assertNoMessage(strangerWs, 'driver.arrived');
+    } finally {
+      clientWs.close();
+      driverWs.close();
+      strangerWs.close();
+    }
+  });
+
+  test('/internal/rides/arrived refuse un corps incomplet (400)', async () => {
+    const { status } = await post('/internal/rides/arrived', { rideId: randomUUID(), clientUserId: 'c', driverId: 'd' });
+    assert.equal(status, 400);
+  });
+
   test('ride.completed porte le détail décomposé transmis par Odoo, aux deux destinataires', async () => {
     const rideId = randomUUID();
     const clientUserId = randomUUID();

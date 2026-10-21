@@ -80,10 +80,12 @@ const PARAMS = {
   amount: 1500,
   distanceMeters: 3200,
   clientPhoneNumber: '+237691234567',
+  pickupNote: 'Devant la pharmacie du rond-point' as string | null,
 };
 // distanceMeters ne sert plus à `complete` : la fin de course ne porte que la décision (J24,
 // amoa/questions/L6-13.md).
 
+const GRACE_SECONDS = 300;
 const SETTINGS = { arrivalRadiusMeters: 150, routeRetryCooldownMs: 15_000, routeDeviationMeters: 80, routeRefreshMs: 120_000 };
 // ~0,0045° de latitude ≈ 500 m du client ; 0,0003° ≈ 33 m.
 const FAR = { latitude: 4.0545, longitude: 9.7 };
@@ -109,7 +111,11 @@ beforeEach(() => {
   connectionListener = null;
   mockConnectionState = 'connected';
   mockReverseGeocode.mockResolvedValue(null);
-  mockRequest.mockResolvedValue({});
+  // « Sur place » est écrit par Odoo (POST /rides/{id}/arrived) : l'heure d'arrivée et le délai de
+  // grâce viennent de sa réponse. Les autres appels répondent un corps vide.
+  mockRequest.mockImplementation(async (name: string) =>
+    name === 'driverArrived' ? { arrivedAt: new Date(Date.now()).toISOString(), noShowGraceSeconds: GRACE_SECONDS } : {}
+  );
   // Itinéraire vers le client (départ = position du chauffeur) ou vers la destination (départ = client).
   mockFetchRoute.mockImplementation(async (_from: unknown, to: unknown) => (to === ORIGIN ? APPROACH_ROUTE : TRANSIT_ROUTE));
 });
@@ -204,9 +210,9 @@ describe('ActiveRidePanel (L6-13)', () => {
   });
 
   it('un échec de démarrage affiche un message compréhensible, sans basculer en trajet', async () => {
-    mockRequest.mockRejectedValueOnce(new ApiError('RIDE_INVALID_TRANSITION', 'transition invalide', 409));
     const { root } = await renderActiveRide();
     await press(root, 'active-ride-arrived');
+    mockRequest.mockRejectedValueOnce(new ApiError('RIDE_INVALID_TRANSITION', 'transition invalide', 409));
     await press(root, 'active-ride-start');
     expect(root.root.findByProps({ testID: 'active-ride-error' })).toBeTruthy();
     expect(texts(root)).not.toContain('Course en cours');
@@ -376,29 +382,127 @@ describe('« Sur place » -- à proximité seulement, puis « Commencer la cours
     expect(has(root, 'active-ride-arrived')).toBe(true);
   });
 
-  it('« Sur place » prévient le client (ride.arrived), puis laisse la place à « Commencer la course »', async () => {
+  it('« Sur place » est écrit par Odoo (POST /arrived), puis laisse la place à « Commencer la course »', async () => {
     const { root } = await renderActiveRide();
     expect(has(root, 'active-ride-start')).toBe(false);
 
     await press(root, 'active-ride-arrived');
 
-    expect(mockSend).toHaveBeenCalledWith('ride.arrived', { rideId: RIDE_ID });
+    expect(mockRequest).toHaveBeenCalledWith('driverArrived', { pathParams: { id: RIDE_ID }, body: {} });
     expect(has(root, 'active-ride-arrived')).toBe(false);
     expect(has(root, 'active-ride-start')).toBe(true);
     expect(texts(root)).toContain('Sur place');
-    // Aucune décision serveur n'est prise par « Sur place » : le départ reste le seul appel HTTP.
-    expect(mockRequest).not.toHaveBeenCalled();
+    // « Sur place » ne démarre rien : la course commence seulement au glissement suivant.
+    expect(mockRequest).not.toHaveBeenCalledWith('startRide', expect.anything());
   });
 
-  it('hors connexion, « Sur place » est refusé avec une explication -- le client n’est pas prévenu dans le vide', async () => {
-    mockConnectionState = 'offline';
+  it('réseau absent : « Sur place » n’est pas enregistré, le chauffeur le voit et peut réessayer', async () => {
     const { root } = await renderActiveRide();
+    mockRequest.mockRejectedValueOnce(new Error('network down'));
 
     await press(root, 'active-ride-arrived');
 
-    expect(mockSend).not.toHaveBeenCalledWith('ride.arrived', expect.anything());
     expect(has(root, 'active-ride-start')).toBe(false);
+    expect(has(root, 'active-ride-arrived')).toBe(true);
     expect(texts(root)).toContain('Hors connexion');
+  });
+
+  it('un « Sur place » venu d’un autre appareil du chauffeur (driver.arrived) est repris', async () => {
+    const { root } = await renderActiveRide();
+    await act(async () => {
+      emit({ type: 'driver.arrived', payload: { rideId: RIDE_ID, arrivedAt: new Date(Date.now()).toISOString(), noShowGraceSeconds: GRACE_SECONDS } });
+    });
+    expect(has(root, 'active-ride-start')).toBe(true);
+  });
+});
+
+describe('attente du client après « Sur place »', () => {
+  it('le temps d’attente se compte depuis l’heure d’arrivée d’Odoo', async () => {
+    const { root } = await renderActiveRide();
+    await press(root, 'active-ride-arrived');
+    expect(root.root.findByProps({ testID: 'active-ride-waiting' })).toBeTruthy();
+    expect(texts(root)).toContain('0:00');
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(73_000);
+    });
+    expect(texts(root)).toContain('1:13');
+  });
+
+  it('horloge du téléphone décalée de celle du serveur : le compteur part quand même de 0 et avance', async () => {
+    // Le serveur a 2 min d'avance sur le téléphone : son « arrivedAt » est dans le futur local.
+    mockRequest.mockImplementation(async (name: string) =>
+      name === 'driverArrived' ? { arrivedAt: new Date(Date.now() + 120_000).toISOString(), noShowGraceSeconds: GRACE_SECONDS } : {}
+    );
+    const { root } = await renderActiveRide();
+    await press(root, 'active-ride-arrived');
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(10_000);
+    });
+    expect(texts(root)).toContain('0:10');
+  });
+
+  it('« Sur place » reçu en différé (driver.arrived) : l’attente se mesure entre deux heures du serveur', async () => {
+    const { root } = await renderActiveRide();
+    // Arrivée 30 s avant l'émission du message, d'après le serveur ; l'horloge du téléphone
+    // (Date.now) n'entre pas dans ce calcul.
+    const serverArrival = Date.parse('2030-01-01T10:00:00Z');
+    await act(async () => {
+      realtimeListener?.({
+        type: 'driver.arrived',
+        id: 'late',
+        emittedAt: new Date(serverArrival + 30_000).toISOString(),
+        payload: { rideId: RIDE_ID, arrivedAt: new Date(serverArrival).toISOString(), noShowGraceSeconds: GRACE_SECONDS },
+      });
+    });
+    expect(texts(root)).toContain('0:30');
+  });
+
+  it('« Client absent » n’apparaît qu’une fois le délai de grâce écoulé', async () => {
+    const { root } = await renderActiveRide();
+    await press(root, 'active-ride-arrived');
+    expect(has(root, 'active-ride-no-show')).toBe(false);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(GRACE_SECONDS * 1000 - 2000);
+    });
+    expect(has(root, 'active-ride-no-show')).toBe(false);
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3000);
+    });
+    expect(has(root, 'active-ride-no-show')).toBe(true);
+  });
+
+  it('« Client absent » demande une confirmation, puis annule avec le motif réservé et rend la main', async () => {
+    const { root, callbacks } = await renderActiveRide();
+    await press(root, 'active-ride-arrived');
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(GRACE_SECONDS * 1000 + 1000);
+    });
+
+    await press(root, 'active-ride-no-show');
+    // Premier appui : rien n'est envoyé, on demande de confirmer.
+    expect(mockRequest).not.toHaveBeenCalledWith('cancelRide', expect.anything());
+    await press(root, 'active-ride-no-show-confirm');
+
+    expect(mockRequest).toHaveBeenCalledWith('cancelRide', { pathParams: { id: RIDE_ID }, body: { reason: 'client_no_show' } });
+    expect(callbacks.onEnded).toHaveBeenCalledTimes(1);
+  });
+
+  it('refus du serveur (délai pas encore écoulé chez lui) : le message s’affiche, la course reste', async () => {
+    const { root, callbacks } = await renderActiveRide();
+    await press(root, 'active-ride-arrived');
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(GRACE_SECONDS * 1000 + 1000);
+    });
+    mockRequest.mockRejectedValueOnce(new ApiError('NO_SHOW_TOO_EARLY', 'trop tôt', 409));
+
+    await press(root, 'active-ride-no-show');
+    await press(root, 'active-ride-no-show-confirm');
+
+    expect(callbacks.onEnded).not.toHaveBeenCalled();
+    expect(texts(root)).toContain('Le délai d’attente du client n’est pas encore écoulé.'.replace(/’/g, "'"));
   });
 });
 
@@ -566,5 +670,77 @@ describe('itinéraire recalculé quand le chauffeur avance', () => {
     });
     await rerender({ latitude: 4.0506, longitude: 9.7012 });
     expect(mockFetchRoute).toHaveBeenCalledTimes(calls);
+  });
+});
+
+describe('messages rapides avec le client', () => {
+  it('« Message » ouvre les messages du chauffeur ; en toucher un l’envoie et referme', async () => {
+    const { root } = await renderActiveRide();
+    expect(has(root, 'quick-message-driver_outside')).toBe(false);
+
+    await press(root, 'active-ride-messages-toggle');
+    expect(has(root, 'quick-message-driver_outside')).toBe(true);
+    // Jamais les messages du client.
+    expect(has(root, 'quick-message-client_coming')).toBe(false);
+
+    await press(root, 'quick-message-driver_outside');
+    expect(mockSend).toHaveBeenCalledWith('chat.send', { rideId: RIDE_ID, code: 'driver_outside' });
+    expect(has(root, 'quick-message-driver_outside')).toBe(false);
+  });
+
+  it('une fois la course commencée, plus de messages (ils servent à se retrouver)', async () => {
+    const { root } = await renderActiveRide();
+    await reachTransit(root);
+    expect(has(root, 'active-ride-messages-toggle')).toBe(false);
+  });
+
+  it('hors connexion : rien n’est envoyé, le chauffeur le voit', async () => {
+    mockConnectionState = 'offline';
+    const { root } = await renderActiveRide();
+    await press(root, 'active-ride-messages-toggle');
+    await press(root, 'quick-message-driver_on_my_way');
+    expect(mockSend).not.toHaveBeenCalledWith('chat.send', expect.anything());
+    expect(texts(root)).toContain('Hors connexion');
+  });
+
+  it('un message du client s’affiche en bulle, jusqu’à ce que le chauffeur la ferme', async () => {
+    const { root } = await renderActiveRide();
+    await act(async () => {
+      emit({ type: 'chat.message', payload: { rideId: RIDE_ID, code: 'client_wait_please', from: 'client' } });
+    });
+    expect(has(root, 'active-ride-incoming-message')).toBe(true);
+    expect(texts(root)).toContain('Attendez-moi, s’il vous plaît');
+
+    await press(root, 'active-ride-incoming-message-dismiss');
+    expect(has(root, 'active-ride-incoming-message')).toBe(false);
+  });
+
+  it('un message pour une autre course, ou venant du chauffeur lui-même, est ignoré', async () => {
+    const { root } = await renderActiveRide();
+    await act(async () => {
+      emit({ type: 'chat.message', payload: { rideId: 'autre', code: 'client_coming', from: 'client' } });
+      emit({ type: 'chat.message', payload: { rideId: RIDE_ID, code: 'driver_outside', from: 'driver' } });
+    });
+    expect(has(root, 'active-ride-incoming-message')).toBe(false);
+  });
+});
+
+describe('repère du client sur la carte de course', () => {
+  it('visible pendant l’approche et sur place -- c’est là qu’il sert', async () => {
+    const { root } = await renderActiveRide();
+    expect(texts(root)).toContain('Devant la pharmacie du rond-point');
+    await press(root, 'active-ride-arrived');
+    expect(has(root, 'active-ride-pickup-note')).toBe(true);
+  });
+
+  it('retiré une fois la course commencée', async () => {
+    const { root } = await renderActiveRide();
+    await reachTransit(root);
+    expect(has(root, 'active-ride-pickup-note')).toBe(false);
+  });
+
+  it('sans repère, aucune ligne vide', async () => {
+    const { root } = await renderActiveRide({ params: { ...PARAMS, pickupNote: null } });
+    expect(has(root, 'active-ride-pickup-note')).toBe(false);
   });
 });

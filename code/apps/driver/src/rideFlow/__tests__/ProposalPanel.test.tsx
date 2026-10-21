@@ -57,6 +57,8 @@ const PARAMS = {
   amount: 1200,
   distanceMeters: 3200,
   distanceToOriginMeters: 1400 as number | null,
+  pickupNote: null as string | null,
+  serverNow: new Date().toISOString(),
   // Recalculé dans beforeEach() une fois les faux minuteurs installés -- sinon `expiresAt` est
   // figé à l'heure réelle du chargement du module, alors que `Date.now()` vu par l'écran est
   // gelé par jest à l'heure réelle du beforeEach : sous forte charge (suite complète en
@@ -80,6 +82,7 @@ beforeEach(() => {
   // `expiresAt` doit être calé pour que `remainingSeconds()` parte bien de 30.
   PARAMS.expiresAt = new Date(Date.now() + 30_000).toISOString();
   PARAMS.emittedAt = new Date().toISOString();
+  PARAMS.serverNow = new Date().toISOString();
   realtimeListener = null;
   mockConnectionStateListener = null;
   mockConnectionState = 'connected';
@@ -535,5 +538,87 @@ describe('adresses de départ et d’arrivée', () => {
     const { root } = await renderProposal();
     expect(texts(root)).toContain('Rue Joffre, Akwa');
     expect(texts(root)).toContain('Bonatene');
+  });
+});
+
+describe('repère laissé par le client (pickupNote)', () => {
+  it('affiché sur la proposition, puis transmis à la course acceptée', async () => {
+    const { root, navigation } = await renderProposal({ ...PARAMS, pickupNote: 'Devant la pharmacie du rond-point' });
+    expect(root.root.findByProps({ testID: 'proposal-pickup-note' })).toBeTruthy();
+    expect(texts(root)).toContain('Devant la pharmacie du rond-point');
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
+    });
+    await act(async () => {
+      emitAccepted();
+    });
+    expect(navigation.accepted).toHaveBeenCalledWith(expect.objectContaining({ pickupNote: 'Devant la pharmacie du rond-point' }));
+  });
+
+  it('sans repère, aucune ligne vide', async () => {
+    const { root } = await renderProposal();
+    expect(root.root.findAllByProps({ testID: 'proposal-pickup-note' })).toHaveLength(0);
+  });
+});
+
+describe('horloge du téléphone décalée de celle du serveur (compte à rebours)', () => {
+  // Constaté sur émulateur (21 octobre) : téléphone ~2 min en retard sur le serveur, compte à
+  // rebours affiché 145 s pour une fenêtre de 30 s -- un chauffeur croirait avoir le temps.
+  const SKEW_MS = 115_000;
+
+  it('mode realtime : le compte à rebours se mesure sur l’heure du serveur, pas celle du téléphone', async () => {
+    const serverNow = Date.now() + SKEW_MS;
+    const { root } = await renderProposal({
+      ...PARAMS,
+      serverNow: new Date(serverNow).toISOString(),
+      expiresAt: new Date(serverNow + 30_000).toISOString(),
+    });
+    expect(root.root.findByProps({ testID: 'countdown-value' }).props.children).toBe(30);
+  });
+
+  it('mode notification rattrapé par proposal.new : l’heure du serveur vient de son enveloppe', async () => {
+    const { root } = await renderProposal(NOTIF_PARAMS);
+    const serverNow = Date.now() + SKEW_MS;
+    await act(async () => {
+      realtimeListener?.({
+        type: 'proposal.new',
+        id: 'p-skew',
+        emittedAt: new Date(serverNow).toISOString(),
+        payload: {
+          rideId: RIDE_ID,
+          origin: PARAMS.origin,
+          destination: PARAMS.destination,
+          amount: 1200,
+          distanceMeters: 3200,
+          distanceToOriginMeters: 1400,
+          expiresAt: new Date(serverNow + 30_000).toISOString(),
+          pickupNote: null,
+        },
+      });
+    });
+    expect(root.root.findByProps({ testID: 'countdown-value' }).props.children).toBe(30);
+  });
+
+  it('mode notification : l’heure du serveur vient de session.synced (serverTime)', async () => {
+    const { root } = await renderProposal(NOTIF_PARAMS);
+    const serverNow = Date.now() + SKEW_MS;
+    await act(async () => {
+      realtimeListener?.({
+        type: 'session.synced',
+        id: 's-skew',
+        emittedAt: new Date(serverNow).toISOString(),
+        payload: {
+          activeRideId: null,
+          activeRideState: null,
+          activeProposal: activeProposalFor(RIDE_ID, { expiresAt: new Date(serverNow + 5_000).toISOString() }),
+          rideStateKnown: true,
+          serverTime: new Date(serverNow).toISOString(),
+        },
+      });
+    });
+    const remaining = root.root.findByProps({ testID: 'countdown-value' }).props.children as number;
+    expect(remaining).toBeGreaterThanOrEqual(4);
+    expect(remaining).toBeLessThanOrEqual(5);
   });
 });

@@ -152,6 +152,8 @@ export function HomeScreen({ navigation, route }: Props) {
             distanceToOriginMeters: active.distanceToOriginMeters,
             expiresAt: active.expiresAt,
             emittedAt: active.emittedAt,
+            pickupNote: active.pickupNote,
+            serverNow: message.payload.serverTime,
           });
         }
       } else if (isProposalNewMessage(message)) {
@@ -168,6 +170,8 @@ export function HomeScreen({ navigation, route }: Props) {
           distanceToOriginMeters: message.payload.distanceToOriginMeters,
           expiresAt: message.payload.expiresAt,
           emittedAt: message.emittedAt,
+          pickupNote: message.payload.pickupNote,
+          serverNow: message.emittedAt,
         });
       }
     });

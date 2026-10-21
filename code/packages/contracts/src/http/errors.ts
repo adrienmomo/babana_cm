@@ -45,6 +45,8 @@ export const ErrorCode = z.enum([
   // Cycle de vie de la course
   'RIDE_NOT_FOUND',
   'RIDE_INVALID_TRANSITION',
+  // « Client absent » demandé avant la fin du délai de grâce compté depuis « Sur place ».
+  'NO_SHOW_TOO_EARLY',
   'RIDE_NOT_OWNED',
   'NO_DRIVER_AVAILABLE',
   'DRIVER_ALREADY_TAKEN',
@@ -102,6 +104,7 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
 
   RIDE_NOT_FOUND: 404,
   RIDE_INVALID_TRANSITION: 409,
+  NO_SHOW_TOO_EARLY: 409,
   RIDE_NOT_OWNED: 403,
   NO_DRIVER_AVAILABLE: 404,
   DRIVER_ALREADY_TAKEN: 409,
@@ -151,6 +154,7 @@ export const ERROR_DESCRIPTION: Record<ErrorCode, string> = {
 
   RIDE_NOT_FOUND: "Aucune course pour cet identifiant.",
   RIDE_INVALID_TRANSITION: "La transition demandée n'est pas permise depuis l'état courant de la course (voir docs/contracts/ride-state-machine.md).",
+  NO_SHOW_TOO_EARLY: "« Client absent » n'est permis qu'une fois le délai de grâce écoulé depuis « Sur place » (paramètre babana.no_show_grace_seconds).",
   RIDE_NOT_OWNED: "Cette course n'appartient pas à l'appelant.",
   NO_DRIVER_AVAILABLE: "Aucun chauffeur disponible dans le rayon de recherche.",
   DRIVER_ALREADY_TAKEN: "Le chauffeur vient d'être réservé par un autre client (réservation atomique, L3-06).",

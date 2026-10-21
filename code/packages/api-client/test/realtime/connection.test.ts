@@ -191,13 +191,13 @@ describe('createRealtimeClient -- file d\'actions hors connexion (critères 2 et
     expect(sentTypes).toEqual(['session.resync', 'availability.set']);
   });
 
-  it('route.share et ride.arrived ne sont jamais mis en file hors connexion (un tracé ou un « sur place » rejoué plus tard serait faux)', async () => {
+  it('route.share et chat.send ne sont jamais mis en file hors connexion (un tracé ou un « sur place » rejoué plus tard serait faux)', async () => {
     const { sockets, config } = baseConfig();
     const client = createRealtimeClient(config);
 
     const point = { latitude: 4.05, longitude: 9.76 };
     client.send('route.share', { rideId: 'r1', phase: 'approach', points: [point, point], distanceMeters: null, durationSeconds: null });
-    client.send('ride.arrived', { rideId: 'r1' });
+    client.send('chat.send', { rideId: 'r1', code: 'driver_outside' });
     client.send('availability.set', { online: true }); // témoin
 
     await client.connect();

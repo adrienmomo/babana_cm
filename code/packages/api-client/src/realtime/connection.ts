@@ -80,10 +80,11 @@ const NEVER_QUEUED_MESSAGE_TYPES: ReadonlySet<realtime.ClientToServerMessage['ty
   'ride.track',
   'proposal.accept',
   'proposal.reject',
-  // Un tracé périmé ou un « sur place » rejoué après coup serait faux : l'écran réémet lui-même,
+  // Un tracé périmé rejoué après coup serait faux : l'écran réémet lui-même,
   // à jour, quand la connexion revient.
   'route.share',
-  'ride.arrived',
+  // « J'arrive » lu dix minutes plus tard dirait le contraire de la vérité.
+  'chat.send',
 ]);
 
 function buildEnvelope<Type extends realtime.ClientToServerMessage['type']>(

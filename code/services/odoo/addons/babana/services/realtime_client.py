@@ -94,6 +94,8 @@ def reserve_and_propose(*, ride, driver, client_user, idempotency_key: str | Non
             # propose(), voir sa docstring). `None` si le client n'a pas de numéro renseigné --
             # L1-09 (vérification) est hors de ce lot, ce champ n'est donc pas garanti aujourd'hui.
             "clientPhoneNumber": client_user.partner_id.phone or None,
+            # Repère du client (« devant la pharmacie »), affiché au chauffeur dès la proposition.
+            "pickupNote": ride.pickup_note or None,
         },
     )
 
@@ -496,5 +498,47 @@ def notify_ride_cancelled(
             reason=reason,
             notify_client_user_id=notify_client_user_id,
             notify_driver_id=notify_driver_id,
+        )
+    )
+
+
+def _notify_driver_arrived_now(
+    *, ride_public_id: str, client_user_public_id: str, driver_public_id: str, arrived_at: str, no_show_grace_seconds: int
+) -> None:
+    try:
+        _post(
+            "/internal/rides/arrived",
+            {
+                "rideId": ride_public_id,
+                "clientUserId": client_user_public_id,
+                "driverId": driver_public_id,
+                "arrivedAt": arrived_at,
+                "noShowGraceSeconds": no_show_grace_seconds,
+            },
+        )
+    except RealtimeUnavailable:
+        _logger.warning(
+            "échec de la notification driver.arrived pour la course %s -- le client le verra à sa "
+            "prochaine resynchronisation (ride.track rejoue l'arrivée).",
+            ride_public_id,
+        )
+
+
+def notify_driver_arrived(
+    env, *, ride_public_id: str, client_user_public_id: str, driver_public_id: str, arrived_at, no_show_grace_seconds: int
+) -> None:
+    """« Sur place » (`action_mark_arrived`) : pousse `driver.arrived` au client (et aux appareils
+    du chauffeur) avec l'heure d'arrivée et le délai de grâce -- les deux écrans comptent l'attente
+    depuis la même heure, celle d'Odoo. Best-effort, au COMMIT (D32), comme notify_ride_started."""
+    # Datetime Odoo : naïf, déjà en UTC -- même sérialisation que les contrôleurs (D40,
+    # controllers/_common.py::iso_datetime) : UTC suffixé « Z ».
+    arrived_iso = arrived_at.replace(microsecond=0).isoformat() + "Z"
+    env.cr.postcommit.add(
+        lambda: _notify_driver_arrived_now(
+            ride_public_id=ride_public_id,
+            client_user_public_id=client_user_public_id,
+            driver_public_id=driver_public_id,
+            arrived_at=arrived_iso,
+            no_show_grace_seconds=no_show_grace_seconds,
         )
     )

@@ -38,6 +38,12 @@ export type ProposalParams =
       /** Émission d'origine de la proposition -- signalée au serveur quand l'écran s'est
        * réellement affiché (`proposal.seen`, L7-04 critère 4). */
       emittedAt: string;
+      /** Repère laissé par le client (« devant la pharmacie »), `null` s'il n'en a pas laissé. */
+      pickupNote: string | null;
+      /** L'heure du SERVEUR à l'envoi (enveloppe de `proposal.new`, ou `serverTime` de
+       * `session.synced`) : le compte à rebours se mesure sur elle, jamais sur l'horloge du
+       * téléphone, qui peut dériver de plusieurs minutes. */
+      serverNow: string;
     }
   | {
       source: 'notification';
@@ -71,6 +77,8 @@ export type ActiveRideParams = {
    * dans ce cas -- absent, jamais inventé). Effacé à `Settlement` : n'y figure jamais.
    */
   clientPhoneNumber: string | null;
+  /** Repère du client, montré pendant l'approche et sur place ; `null` s'il n'en a pas laissé. */
+  pickupNote: string | null;
 };
 
 /**

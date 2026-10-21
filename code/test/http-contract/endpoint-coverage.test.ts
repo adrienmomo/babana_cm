@@ -214,6 +214,15 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     assert.equal(started.state, 'in_progress');
   },
 
+  driverArrived: async () => {
+    const rig = await setupAssignedRide('driver-arrived');
+    const arrived = (await clientFor(rig.driverSession.accessToken).request('driverArrived', {
+      pathParams: { id: rig.ride.id },
+    })) as http.DriverArrivedResponse;
+    assert.equal(arrived.state, 'assigned');
+    assert.ok(arrived.noShowGraceSeconds > 0);
+  },
+
   completeRide: async () => {
     const rig = await setupAssignedRide('complete-ride');
     const driverClient = clientFor(rig.driverSession.accessToken);

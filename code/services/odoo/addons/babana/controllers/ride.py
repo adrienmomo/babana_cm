@@ -20,7 +20,8 @@ from odoo.http import request
 from odoo.service.model import PG_CONCURRENCY_EXCEPTIONS_TO_RETRY
 
 from . import _common
-from ..models.babana_ride_state import RideInvalidTransition
+from ..models.babana_ride import PICKUP_NOTE_MAX_LENGTH
+from ..models.babana_ride_state import NO_SHOW_REASON, RideInvalidTransition, RideNoShowTooEarly
 from ..services import realtime_client
 
 _logger = logging.getLogger(__name__)
@@ -79,6 +80,8 @@ class RideController(http.Controller):
             return _common.json_response(payload, status)
         except _common.AuthenticationFailed as exc:
             return _common.error_response(exc.code, "authentification requise", exc.status)
+        except RideNoShowTooEarly as exc:
+            return _common.error_response("NO_SHOW_TOO_EARLY", str(exc), 409)
         except RideInvalidTransition as exc:
             return _common.error_response("RIDE_INVALID_TRANSITION", str(exc), 409)
         except UserError as exc:
@@ -121,6 +124,16 @@ class RideController(http.Controller):
         quote_id = (body or {}).get("quoteId")
         if not quote_id:
             return _common.error_payload("VALIDATION_ERROR", "quoteId est requis"), 400
+        # Repère facultatif du client -- même règle que le contrat (`PickupNoteSchema`) : texte,
+        # espaces de bord retirés, 1 à 140 caractères. Une indication invalide refuse la commande
+        # plutôt que d'être tronquée en silence.
+        pickup_note = (body or {}).get("pickupNote")
+        if pickup_note is not None:
+            if not isinstance(pickup_note, str) or not pickup_note.strip() or len(pickup_note.strip()) > PICKUP_NOTE_MAX_LENGTH:
+                return _common.error_payload(
+                    "VALIDATION_ERROR", f"pickupNote doit contenir de 1 à {PICKUP_NOTE_MAX_LENGTH} caractères"
+                ), 400
+            pickup_note = pickup_note.strip()
 
         # Un client ne peut référencer que sa propre estimation -- traité comme "introuvable",
         # pas comme un défaut d'appartenance distinct : le catalogue de createRide (C-01) ne
@@ -148,6 +161,7 @@ class RideController(http.Controller):
                 "pickup_zone_id": quote.pickup_zone_id.id,
                 "dropoff_zone_id": quote.dropoff_zone_id.id,
                 "quote_id": quote.id,
+                "pickup_note": pickup_note or False,
                 "currency_id": quote.currency_id.id,
                 "estimated_amount": quote.amount,
                 "reference_distance_km": quote.distance_meters / 1000.0,
@@ -257,6 +271,25 @@ class RideController(http.Controller):
             return error
         ride.sudo().action_start(by_driver=driver)
         return _summary(ride), 200
+
+    # --- POST /rides/{id}/arrived -- « Sur place » ---------------------------------------------
+
+    @http.route("/api/v1/rides/<string:ride_id>/arrived", **_ROUTE)
+    def driver_arrived(self, ride_id, **_kwargs):
+        return self._dispatch("driverArrived", lambda: self._driver_arrived(ride_id))
+
+    def _driver_arrived(self, ride_id):
+        env, user = _common.authenticated_user()
+        ride, driver, error = self._find_ride_and_assigned_driver(env, user, ride_id)
+        if error:
+            return error
+        ride = ride.sudo().action_mark_arrived(by_driver=driver)
+        # L'heure d'arrivée d'Odoo fait foi pour l'attente, des deux côtés : renvoyée telle quelle
+        # avec le délai de grâce, jamais recalculée par l'app.
+        payload = _summary(ride)
+        payload["arrivedAt"] = _common.iso_datetime(ride.arrived_at)
+        payload["noShowGraceSeconds"] = ride._babana_no_show_grace_seconds()
+        return payload, 200
 
     # --- POST /rides/{id}/complete (L4-03R) ----------------------------------------------------
 
@@ -409,7 +442,14 @@ class RideController(http.Controller):
 
         reason = (_common.parse_json_body() or {}).get("reason")
         cancelled_driver = ride.driver_id  # action_cancel ne l'efface jamais (contrairement au refus)
-        ride.sudo().action_cancel(actor_role=actor_role, actor_record=actor_record, reason=reason)
+        if reason == NO_SHOW_REASON:
+            # « Client absent » : motif réservé au chauffeur affecté, permis seulement après le
+            # délai de grâce depuis « Sur place » -- tranché par action_cancel_no_show.
+            if actor_role != "driver":
+                raise RideInvalidTransition("« Client absent » est réservé au chauffeur de la course.")
+            ride.sudo().action_cancel_no_show(by_driver=actor_record)
+        else:
+            ride.sudo().action_cancel(actor_role=actor_role, actor_record=actor_record, reason=reason)
 
         # Sens Odoo -> temps réel (L3-17) : une annulation met fin à l'implication du chauffeur,
         # quel qu'ait été son état réel côté temps réel -- réservé ('proposed' annulé, critère 4

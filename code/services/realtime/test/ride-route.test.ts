@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import type { WebSocket } from 'ws';
-import { RideRouteRelay } from '../src/tracking/route';
+import { RideRouteRelay, recordDriverArrived } from '../src/tracking/route';
 import { TrackingManager } from '../src/tracking/broadcast';
 import { startRideSession } from '../src/tracking/session';
 import { ConnectionRegistry, type ConnectionContext } from '../src/ws/auth';
@@ -136,26 +136,57 @@ describe('rejeu à l’abonnement ride.track', () => {
   });
 });
 
-describe('ride.arrived -- « Sur place »', () => {
-  test('prévient le client (driver.arrived) et est rejoué à un abonné tardif', async () => {
+describe('« Sur place » rejoué à un abonné tardif', () => {
+  test('un client qui s’abonne après l’arrivée reçoit driver.arrived avec l’heure et le délai d’Odoo', async () => {
     const ride = await engagedRide('arrived');
-    await ride.relay.arrived(ride.driverContext, { rideId: ride.rideId });
-
-    assert.deepEqual(ride.client.messages.map((m) => m.type), ['driver.arrived']);
-    assert.equal(ride.client.messages[0]!.payload.rideId, ride.rideId);
+    await recordDriverArrived(redis, config, ride.registry, {
+      rideId: ride.rideId,
+      clientUserId: ride.clientUserId,
+      driverId: ride.driverId,
+      arrivedAt: '2026-10-21T19:00:00Z',
+      noShowGraceSeconds: 300,
+    });
 
     const late = fakeSocket();
     const tracking = new TrackingManager(config, redis, ride.relay);
     await tracking.subscribe(ride.clientContext, late.socket, { rideId: ride.rideId });
     tracking.unsubscribe(ride.clientContext);
-    assert.equal(late.messages.filter((m) => m.type === 'driver.arrived').length, 1);
+    const arrived = late.messages.filter((m) => m.type === 'driver.arrived');
+    assert.equal(arrived.length, 1);
+    assert.deepEqual(arrived[0]!.payload, { rideId: ride.rideId, arrivedAt: '2026-10-21T19:00:00Z', noShowGraceSeconds: 300 });
+  });
+});
+
+describe('chat.send -- messages rapides entre les deux participants', () => {
+  test('du chauffeur au client, avec son émetteur', async () => {
+    const ride = await engagedRide('chat-d2c');
+    await ride.relay.chat(ride.driverContext, { rideId: ride.rideId, code: 'driver_outside' });
+    assert.deepEqual(ride.client.messages.map((m) => [m.type, m.payload.code, m.payload.from]), [['chat.message', 'driver_outside', 'driver']]);
+    assert.equal(ride.driver.messages.length, 0);
   });
 
-  test('ignoré s’il ne vient pas du chauffeur de la course', async () => {
-    const ride = await engagedRide('arrived-forged');
-    await ride.relay.arrived(ride.clientContext, { rideId: ride.rideId });
-    const other: ConnectionContext = Object.freeze({ userId: id('af-other-user'), role: 'driver', driverId: id('af-other') });
-    await ride.relay.arrived(other, { rideId: ride.rideId });
+  test('du client au chauffeur', async () => {
+    const ride = await engagedRide('chat-c2d');
+    await ride.relay.chat(ride.clientContext, { rideId: ride.rideId, code: 'client_coming' });
+    assert.deepEqual(ride.driver.messages.map((m) => [m.type, m.payload.code, m.payload.from]), [['chat.message', 'client_coming', 'client']]);
+    assert.equal(ride.client.messages.length, 0);
+  });
+
+  test('un code de l’autre rôle est refusé (un client ne parle pas « au nom » du chauffeur)', async () => {
+    const ride = await engagedRide('chat-role');
+    await ride.relay.chat(ride.clientContext, { rideId: ride.rideId, code: 'driver_outside' });
+    await ride.relay.chat(ride.driverContext, { rideId: ride.rideId, code: 'client_coming' });
+    assert.equal(ride.driver.messages.length, 0);
+    assert.equal(ride.client.messages.length, 0);
+  });
+
+  test('un tiers (ni le chauffeur ni le client de la course) est ignoré', async () => {
+    const ride = await engagedRide('chat-third');
+    const stranger: ConnectionContext = Object.freeze({ userId: id('chat-stranger'), role: 'client', driverId: null });
+    await ride.relay.chat(stranger, { rideId: ride.rideId, code: 'client_coming' });
+    const otherDriver: ConnectionContext = Object.freeze({ userId: id('chat-od-user'), role: 'driver', driverId: id('chat-od') });
+    await ride.relay.chat(otherDriver, { rideId: ride.rideId, code: 'driver_outside' });
+    assert.equal(ride.driver.messages.length, 0);
     assert.equal(ride.client.messages.length, 0);
   });
 });

@@ -104,3 +104,22 @@ describe('QUOTE_EXPIRED — une estimation expirée doit être refusée par /rid
     assert.ok(HTTP_ENDPOINTS.createRide.errors.includes('QUOTE_EXPIRED'));
   });
 });
+
+describe('indication de prise en charge (pickupNote) -- l’adresse formelle n’existe presque pas à Douala', () => {
+  const schema = HTTP_ENDPOINTS.createRide.requestSchema;
+  const quoteId = '7c9e2a1b-3d4e-4f5a-9b8c-1d2e3f4a5b6c';
+
+  test('facultative : une commande sans indication reste valide', () => {
+    assert.ok(schema.safeParse({ quoteId }).success);
+  });
+
+  test('un repère court est accepté, débarrassé de ses espaces', () => {
+    const parsed = schema.parse({ quoteId, pickupNote: '  Devant la pharmacie du rond-point  ' });
+    assert.equal(parsed.pickupNote, 'Devant la pharmacie du rond-point');
+  });
+
+  test('au-delà de 140 caractères, ou vide, refusé', () => {
+    assert.equal(schema.safeParse({ quoteId, pickupNote: 'x'.repeat(141) }).success, false);
+    assert.equal(schema.safeParse({ quoteId, pickupNote: '   ' }).success, false);
+  });
+});

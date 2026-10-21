@@ -102,6 +102,7 @@ function proposalDetails(rideId: string, clientUserId: string, clientPhoneNumber
     amount: 1_200,
     distanceMeters: 3_400,
     clientPhoneNumber,
+    pickupNote: null,
   };
 }
 
@@ -464,6 +465,24 @@ describe('ProposalLifecycle -- notification push et relecture (L7-04)', () => {
       `échéance ~20 s (acceptation), pas ~40 s (réservation) -- obtenu ${remainingMs} ms`
     );
     assert.ok(Math.abs(Date.parse(stored.emittedAt) - before) < 2_000, 'emittedAt = instant d’émission');
+  });
+
+  test('l’indication du client (pickupNote) part avec proposal.new et revient à la resynchronisation', async () => {
+    const config = configWith();
+    const registry = new ConnectionRegistry();
+    const lifecycle = new ProposalLifecycle(config, redis, registry);
+
+    const driverId = await availableDriver('note-driver');
+    const rideId = randomUUID();
+    const driverSocket = fakeSocket();
+    registry.add(driverContext(driverId), driverSocket.socket);
+
+    await lifecycle.propose(driverId, { ...proposalDetails(rideId, id('note-client')), pickupNote: 'Devant la pharmacie du rond-point' });
+
+    const proposalNew = driverSocket.messages.find((m) => m.type === 'proposal.new');
+    assert.equal((proposalNew!.payload as { pickupNote: string | null }).pickupNote, 'Devant la pharmacie du rond-point');
+    const peeked = await lifecycle.peekActiveProposal(driverId);
+    assert.equal(peeked!.pickupNote, 'Devant la pharmacie du rond-point');
   });
 
   test('peekActiveProposal restitue la proposition vivante avec son échéance réelle -- pas trente secondes fraîches', async () => {

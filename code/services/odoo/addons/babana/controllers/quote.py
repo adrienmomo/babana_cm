@@ -14,14 +14,15 @@ from odoo import fields, http
 
 from . import _common
 from ..services import routing
+from ..models.babana_quote import QUOTE_VALIDITY_DEFAULT, QUOTE_VALIDITY_PARAM
 from ..services.pricing import FareRuleInput, compute_fare, round_breakdown_for_wire
 
 _logger = logging.getLogger(__name__)
 
 _ROUTE = {"type": "http", "auth": "none", "methods": ["POST"], "csrf": False, "readonly": False}
 
-QUOTE_VALIDITY_PARAM = "babana.quote_validity_seconds"
-QUOTE_VALIDITY_DEFAULT = 300  # 5 minutes -- "de l'ordre de quelques minutes" (L2-04).
+# Paramètre et repli de validité d'une estimation : déclarés avec le modèle (models/babana_quote.py),
+# que la page Paramètres > Babana lit aussi -- un modèle n'importe jamais un contrôleur.
 
 # Facteur de correction de l'ETA voiture -> deux-roues (É8). L10-03, qui calibrera sa vraie
 # valeur sur données de pilote, est hors de ce lot -- 1.0 (aucune correction) est un défaut

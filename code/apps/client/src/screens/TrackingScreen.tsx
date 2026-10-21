@@ -2,7 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MapView, type LatLng, type MapMarker } from '@babana/maps';
-import { StreamLivenessWatchdog, type ConnectionState } from '@babana/api-client';
+import { QUICK_MESSAGE_LABELS, StreamLivenessWatchdog, quickMessagesFor, type ConnectionState } from '@babana/api-client';
+import { MessageBubble, QuickMessageChips } from '@babana/ui';
 import type { realtime } from '@babana/contracts';
 import { GENERIC_AVATAR, classLabel } from '../components/driverFormatting';
 import { CallButton } from '../components/CallButton';
@@ -51,6 +52,13 @@ function isDriverArrivedMessage(message: realtime.ServerToClientMessage): messag
   return message.type === 'driver.arrived';
 }
 
+function isChatMessage(message: realtime.ServerToClientMessage): message is realtime.ChatMessageMessage {
+  return message.type === 'chat.message';
+}
+
+// Messages rapides du client, avec le libellé que le chauffeur lira aussi (`@babana/api-client`).
+const CLIENT_QUICK_MESSAGES = quickMessagesFor('client').map((code) => ({ code, label: QUICK_MESSAGE_LABELS[code] }));
+
 function isRideStartedMessage(message: realtime.ServerToClientMessage): message is realtime.RideStartedMessage {
   return message.type === 'ride.started';
 }
@@ -61,6 +69,12 @@ function isRideCompletedMessage(message: realtime.ServerToClientMessage): messag
 
 function isRideTrackAckMessage(message: realtime.ServerToClientMessage): message is realtime.RideTrackAckMessage {
   return message.type === 'ride.track.ack';
+}
+
+/** « 2:05 » -- minutes et secondes, jamais négatif. */
+function formatClock(seconds: number): string {
+  const total = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
 function secondsSince(at: number): number {
@@ -78,6 +92,10 @@ export function TrackingScreen({ route, navigation }: Props) {
   // Le tracé du chauffeur, tel quel : `phase` dit s'il mène au client ou à la destination.
   const [sharedRoute, setSharedRoute] = useState<{ phase: 'approach' | 'transit'; points: LatLng[] } | null>(null);
   const [driverArrived, setDriverArrived] = useState(false);
+  // Heure d'arrivée d'Odoo et délai de grâce : le chauffeur voit le même compteur, depuis la même heure.
+  const [arrival, setArrival] = useState<{ arrivedAtMs: number; graceSeconds: number } | null>(null);
+  // Dernier message rapide du chauffeur, affiché jusqu'à ce que le client le ferme.
+  const [incomingMessage, setIncomingMessage] = useState<realtime.QuickMessageCode | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => realtimeClient.getState());
   // Silence de diffusion détecté par abonnement (L3-20, D47 -- amoa/questions/
   // L3-05-nearby-list-goes-silently-empty.md) : c'est précisément le risque nommé par ce défaut
@@ -127,8 +145,18 @@ export function TrackingScreen({ route, navigation }: Props) {
         }
       } else if (isRideRouteMessage(message) && message.payload.rideId === rideId) {
         setSharedRoute({ phase: message.payload.phase, points: message.payload.points });
+      } else if (isChatMessage(message) && message.payload.rideId === rideId) {
+        if (message.payload.from === 'driver') setIncomingMessage(message.payload.code);
       } else if (isDriverArrivedMessage(message) && message.payload.rideId === rideId) {
         setDriverArrived(true);
+        // Âge de l'arrivée mesuré entre deux heures du SERVEUR (émission du message, arrivée), puis
+        // reporté sur l'horloge de ce téléphone -- jamais l'heure du serveur comparée à l'horloge
+        // locale, qui peut dériver de plusieurs minutes.
+        const ageMs = Math.max(0, Date.parse(message.emittedAt) - Date.parse(message.payload.arrivedAt));
+        setArrival({
+          arrivedAtMs: Date.now() - (Number.isNaN(ageMs) ? 0 : ageMs),
+          graceSeconds: message.payload.noShowGraceSeconds,
+        });
       } else if (isRideStartedMessage(message) && message.payload.rideId === rideId) {
         phaseRef.current = 'course';
         setPhase('course');
@@ -205,6 +233,24 @@ export function TrackingScreen({ route, navigation }: Props) {
       {phase === 'approach' && driverArrived ? (
         <View style={styles.arrivedBanner} testID="tracking-arrived">
           <Text style={styles.arrivedText}>Votre chauffeur est sur place. Rejoignez-le pour commencer la course.</Text>
+          {arrival ? (
+            <>
+              <Text style={styles.arrivedWait} testID="tracking-waiting">
+                Il vous attend depuis {formatClock((Date.now() - arrival.arrivedAtMs) / 1000)}
+              </Text>
+              {Date.now() - arrival.arrivedAtMs < arrival.graceSeconds * 1000 ? (
+                <Text style={styles.arrivedHint}>
+                  Il pourra annuler dans{' '}
+                  {/* Compte à rebours arrondi au-dessus : « 4:30 » tant que la seconde n'est pas écoulée. */}
+                  {formatClock(Math.ceil(arrival.graceSeconds - (Date.now() - arrival.arrivedAtMs) / 1000))} si vous n’êtes pas là.
+                </Text>
+              ) : (
+                <Text style={styles.noShowWarning} testID="tracking-no-show-warning">
+                  Votre chauffeur peut maintenant annuler la course. Rejoignez-le vite ou envoyez-lui un message.
+                </Text>
+              )}
+            </>
+          ) : null}
         </View>
       ) : null}
 
@@ -245,6 +291,26 @@ export function TrackingScreen({ route, navigation }: Props) {
           </Text>
         ) : null}
       </View>
+
+      {incomingMessage ? (
+        <MessageBubble
+          testID="tracking-incoming-message"
+          author="Votre chauffeur"
+          text={QUICK_MESSAGE_LABELS[incomingMessage]}
+          onDismiss={() => setIncomingMessage(null)}
+        />
+      ) : null}
+
+      {/* Messages rapides : utiles pour se retrouver, donc pendant l'approche seulement. Jamais mis
+          en file hors connexion -- désactivés tant que la connexion n'est pas là. */}
+      {phase === 'approach' ? (
+        <QuickMessageChips
+          testID="tracking-quick-messages"
+          options={CLIENT_QUICK_MESSAGES}
+          disabled={disconnected}
+          onSend={(code) => realtimeClient.send('chat.send', { rideId, code })}
+        />
+      ) : null}
 
       <View style={styles.actionsRow} testID="tracking-actions">
         <CallButton phoneNumber={driver.phoneNumber} />
@@ -312,6 +378,20 @@ const styles = StyleSheet.create({
   arrivedText: {
     color: '#166534',
     fontWeight: '600',
+  },
+  arrivedWait: {
+    color: '#166534',
+    fontWeight: '700',
+    marginTop: 4,
+  },
+  arrivedHint: {
+    color: '#166534',
+    fontSize: 13,
+  },
+  noShowWarning: {
+    color: '#8A5A00',
+    fontWeight: '600',
+    marginTop: 2,
   },
   driverCard: {
     flexDirection: 'row',

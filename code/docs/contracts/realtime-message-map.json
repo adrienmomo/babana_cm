@@ -173,13 +173,6 @@
       "consumer": "réel et testé : services/realtime/src/ws/dispatch.ts (case 'route.share') -> tracking/route.ts::RideRouteRelay.share, services/realtime/test/ride-route.test.ts."
     },
     {
-      "name": "ride.arrived",
-      "direction": "client-to-server",
-      "status": "wired",
-      "emitter": "apps/driver/src/screens/HomeScreen.tsx -- bouton « Sur place », visible à proximité du client.",
-      "consumer": "réel et testé : dispatch.ts (case 'ride.arrived') -> tracking/route.ts::RideRouteRelay.arrived, services/realtime/test/ride-route.test.ts."
-    },
-    {
       "name": "ride.route",
       "direction": "server-to-client",
       "status": "wired",
@@ -190,8 +183,22 @@
       "name": "driver.arrived",
       "direction": "server-to-client",
       "status": "wired",
-      "emitter": "services/realtime/src/tracking/route.ts::RideRouteRelay.arrived, services/realtime/test/ride-route.test.ts.",
-      "consumer": "apps/client/src/screens/TrackingScreen.tsx -- « Votre chauffeur est arrivé »."
+      "emitter": "services/realtime/src/http/internal.ts (/internal/rides/arrived, au COMMIT de babana_ride_state.py::action_mark_arrived, D32) -> tracking/route.ts::recordDriverArrived ; rejoué à ride.track (RideRouteRelay.replay). services/realtime/test/internal.test.ts, test/ride-route.test.ts.",
+      "consumer": "apps/client/src/screens/TrackingScreen.tsx (« votre chauffeur vous attend », compteur depuis arrivedAt) et apps/driver/src/rideFlow/ActiveRidePanel.tsx (même compteur, « Client absent » après noShowGraceSeconds)."
+    },
+    {
+      "name": "chat.send",
+      "direction": "client-to-server",
+      "status": "wired",
+      "emitter": "apps/driver/src/rideFlow/ActiveRidePanel.tsx (bouton « Message », approche) et apps/client/src/screens/TrackingScreen.tsx (pastilles, approche) -- codes prédéfinis seulement (QuickMessageCodeSchema), libellés dans @babana/api-client/realtime/quickMessages.ts.",
+      "consumer": "réel et testé : services/realtime/src/ws/dispatch.ts (case 'chat.send') -> tracking/route.ts::RideRouteRelay.chat (participation à la course + code conforme au rôle), services/realtime/test/ride-route.test.ts."
+    },
+    {
+      "name": "chat.message",
+      "direction": "server-to-client",
+      "status": "wired",
+      "emitter": "services/realtime/src/tracking/route.ts::RideRouteRelay.chat, services/realtime/test/ride-route.test.ts.",
+      "consumer": "apps/driver/src/rideFlow/ActiveRidePanel.tsx et apps/client/src/screens/TrackingScreen.tsx (bulle MessageBubble, @babana/ui)."
     }
   ]
 }

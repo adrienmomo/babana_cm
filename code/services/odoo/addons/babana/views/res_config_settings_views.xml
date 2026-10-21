@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Paramètres > Babana : les délais d'une course tenus par Odoo (models/res_config_settings.py). -->
+    <record id="res_config_settings_view_form_babana" model="ir.ui.view">
+        <field name="name">res.config.settings.view.form.inherit.babana</field>
+        <field name="model">res.config.settings</field>
+        <field name="priority" eval="80"/>
+        <field name="inherit_id" ref="base.res_config_settings_view_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//form" position="inside">
+                <app data-string="Babana" string="Babana" name="babana" groups="base.group_system">
+                    <block title="Course" name="babana_ride_settings">
+                        <setting id="babana_no_show_grace" string="Attente du client"
+                                 help="Après « Sur place », délai avant que le chauffeur puisse annuler pour client absent.">
+                            <div class="d-flex align-items-center gap-2">
+                                <field name="babana_no_show_grace_seconds" class="o_light_label" style="width: 6rem"/>
+                                <span>secondes</span>
+                            </div>
+                        </setting>
+                        <setting id="babana_quote_validity" string="Validité d'une estimation"
+                                 help="Au-delà, le client redemande un prix avant de commander.">
+                            <div class="d-flex align-items-center gap-2">
+                                <field name="babana_quote_validity_seconds" style="width: 6rem"/>
+                                <span>secondes</span>
+                            </div>
+                        </setting>
+                    </block>
+                    <block title="Connexion" name="babana_auth_settings">
+                        <setting id="babana_otp_ttl" string="Validité d'un code SMS"
+                                 help="Durée pendant laquelle le code de connexion reçu par SMS est accepté.">
+                            <div class="d-flex align-items-center gap-2">
+                                <field name="babana_otp_ttl_seconds" style="width: 6rem"/>
+                                <span>secondes</span>
+                            </div>
+                        </setting>
+                    </block>
+                </app>
+            </xpath>
+        </field>
+    </record>
+
+    <record id="babana_settings_action" model="ir.actions.act_window">
+        <field name="name">Paramètres</field>
+        <field name="res_model">res.config.settings</field>
+        <field name="view_mode">form</field>
+        <field name="target">inline</field>
+        <field name="context">{'module': 'babana', 'bin_size': False}</field>
+    </record>
+
+    <menuitem id="babana_menu_settings" name="Paramètres" parent="babana_menu_root"
+              action="babana_settings_action" sequence="100" groups="base.group_system"/>
+</odoo>

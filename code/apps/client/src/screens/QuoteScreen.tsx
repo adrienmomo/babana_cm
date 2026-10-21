@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '@babana/ui';
 import { asDriverId, asRideId } from '@babana/navigation';
 import { ApiError, USER_MESSAGES, translateApiError, type ConnectionState } from '@babana/api-client';
-import type { http, realtime } from '@babana/contracts';
+import { http } from '@babana/contracts';
+import type { realtime } from '@babana/contracts';
 import { apiClient } from '../auth';
 import { DriverCard } from '../components/DriverCard';
 import { FARE_LINES } from '../components/fareBreakdown';
@@ -63,6 +64,9 @@ export function QuoteScreen({ route, navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [expired, setExpired] = useState(false);
+  // Repère libre pour le chauffeur (« devant la pharmacie ») : l'adresse formelle n'existe presque
+  // pas à Douala. Facultatif, envoyé avec la commande seulement s'il n'est pas vide.
+  const [pickupNote, setPickupNote] = useState('');
   const [selecting, setSelecting] = useState(false);
   const [selectError, setSelectError] = useState<string | null>(null);
   // Suivi uniquement pour affiner le message d'échec de `handleSelectDriver` (L6-16, "actions
@@ -169,7 +173,10 @@ export function QuoteScreen({ route, navigation }: Props) {
       // esprit) et laisserait la première `rejected` orpheline en base.
       let rideId = selection.rideId;
       if (!rideId) {
-        const ride = (await apiClient.request('createRide', { body: { quoteId: quote.quoteId } })) as http.CreateRideResponse;
+        const note = pickupNote.trim();
+        const ride = (await apiClient.request('createRide', {
+          body: note ? { quoteId: quote.quoteId, pickupNote: note } : { quoteId: quote.quoteId },
+        })) as http.CreateRideResponse;
         rideId = asRideId(ride.id);
       }
       const proposal = (await apiClient.request('selectDriver', {
@@ -265,6 +272,22 @@ export function QuoteScreen({ route, navigation }: Props) {
         </View>
       ) : null}
 
+      {quote && !loading && !expired ? (
+        <View style={styles.noteBox}>
+          <Text style={styles.noteLabel}>Un repère pour le chauffeur (facultatif)</Text>
+          <TextInput
+            testID="pickup-note-input"
+            value={pickupNote}
+            onChangeText={setPickupNote}
+            placeholder="Ex. : devant la pharmacie du rond-point"
+            placeholderTextColor="#9CA3AF"
+            maxLength={http.PICKUP_NOTE_MAX_LENGTH}
+            style={styles.noteInput}
+            returnKeyType="done"
+          />
+        </View>
+      ) : null}
+
       {selectError ? <Text style={styles.errorText}>{selectError}</Text> : null}
 
       {availableDrivers.length === 0 ? (
@@ -345,6 +368,23 @@ const styles = StyleSheet.create({
   validity: {
     fontSize: 12,
     color: '#6B7280',
+  },
+  noteBox: {
+    gap: 6,
+  },
+  noteLabel: {
+    color: '#374151',
+    fontWeight: '600',
+  },
+  noteInput: {
+    minHeight: 48,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    fontSize: 16,
+    color: '#1F2937',
+    backgroundColor: '#FFFFFF',
   },
   errorBox: {
     gap: 8,

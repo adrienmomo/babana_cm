@@ -459,7 +459,7 @@ describe('itinéraire du chauffeur et « Sur place » (déroulé sur la carte du
     expect(texts(root)).toContain('Votre chauffeur arrive');
 
     await act(async () => {
-      realtimeListener?.({ type: 'driver.arrived', id: 'm3', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+      realtimeListener?.({ type: 'driver.arrived', id: 'm3', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, arrivedAt: new Date().toISOString(), noShowGraceSeconds: 300 } });
     });
 
     expect(root.root.findByProps({ testID: 'tracking-arrived' })).toBeTruthy();
@@ -470,15 +470,128 @@ describe('itinéraire du chauffeur et « Sur place » (déroulé sur la carte du
   it('« Sur place » pour une autre course est ignoré, et disparaît quand la course démarre', async () => {
     const { root } = await renderTracking();
     await act(async () => {
-      realtimeListener?.({ type: 'driver.arrived', id: 'm3', emittedAt: new Date().toISOString(), payload: { rideId: 'autre' } });
+      realtimeListener?.({ type: 'driver.arrived', id: 'm3', emittedAt: new Date().toISOString(), payload: { rideId: 'autre', arrivedAt: new Date().toISOString(), noShowGraceSeconds: 300 } });
     });
     expect(root.root.findAllByProps({ testID: 'tracking-arrived' })).toHaveLength(0);
 
     await act(async () => {
-      realtimeListener?.({ type: 'driver.arrived', id: 'm4', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+      realtimeListener?.({ type: 'driver.arrived', id: 'm4', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, arrivedAt: new Date().toISOString(), noShowGraceSeconds: 300 } });
       realtimeListener?.({ type: 'ride.started', id: 'm5', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
     });
     expect(root.root.findAllByProps({ testID: 'tracking-arrived' })).toHaveLength(0);
     expect(texts(root)).toContain('Course en cours');
+  });
+});
+
+describe('messages rapides avec le chauffeur', () => {
+  const has = (root: ReactTestRenderer, testID: string) => root.root.findAllByProps({ testID }).length > 0;
+
+  it('le client voit ses propres messages, et en toucher un l’envoie', async () => {
+    const { root } = await renderTracking();
+    expect(has(root, 'quick-message-client_coming')).toBe(true);
+    expect(has(root, 'quick-message-driver_outside')).toBe(false);
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'quick-message-client_coming' }).props.onPress();
+    });
+    expect(mockSend).toHaveBeenCalledWith('chat.send', { rideId: RIDE_ID, code: 'client_coming' });
+  });
+
+  it('hors connexion, les messages sont désactivés (jamais mis en file)', async () => {
+    mockConnectionState = 'offline';
+    const { root } = await renderTracking();
+    expect(root.root.findByProps({ testID: 'quick-message-client_coming' }).props.disabled).toBe(true);
+  });
+
+  it('un message du chauffeur s’affiche en bulle, jusqu’à ce que le client la ferme', async () => {
+    const { root } = await renderTracking();
+    await act(async () => {
+      realtimeListener?.({ type: 'chat.message', id: 'c1', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, code: 'driver_outside', from: 'driver' } });
+    });
+    expect(has(root, 'tracking-incoming-message')).toBe(true);
+    expect(texts(root)).toContain('Je suis devant');
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'tracking-incoming-message-dismiss' }).props.onPress();
+    });
+    expect(has(root, 'tracking-incoming-message')).toBe(false);
+  });
+
+  it('un message pour une autre course, ou venant du client lui-même, est ignoré', async () => {
+    const { root } = await renderTracking();
+    await act(async () => {
+      realtimeListener?.({ type: 'chat.message', id: 'c2', emittedAt: new Date().toISOString(), payload: { rideId: 'autre', code: 'driver_outside', from: 'driver' } });
+      realtimeListener?.({ type: 'chat.message', id: 'c3', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, code: 'client_coming', from: 'client' } });
+    });
+    expect(has(root, 'tracking-incoming-message')).toBe(false);
+  });
+
+  it('les messages disparaissent une fois la course commencée (ils servent à se retrouver)', async () => {
+    const { root } = await renderTracking();
+    await act(async () => {
+      realtimeListener?.({ type: 'ride.started', id: 'm9', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+    });
+    expect(has(root, 'quick-message-client_coming')).toBe(false);
+  });
+});
+
+describe('attente : le client voit depuis quand son chauffeur l’attend', () => {
+  function emitArrived(arrivedAt = new Date().toISOString(), noShowGraceSeconds = 300) {
+    realtimeListener?.({ type: 'driver.arrived', id: 'a1', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, arrivedAt, noShowGraceSeconds } });
+  }
+
+  it('compteur depuis l’heure d’arrivée d’Odoo, et le temps restant avant que le chauffeur puisse annuler', async () => {
+    jest.useFakeTimers();
+    try {
+      const { root } = await renderTracking();
+      await act(async () => {
+        emitArrived();
+      });
+      expect(texts(root)).toContain('0:00');
+      expect(texts(root)).toContain('5:00');
+
+      await act(async () => {
+        jest.advanceTimersByTime(65_000);
+      });
+      expect(texts(root)).toContain('1:05');
+      expect(texts(root)).toContain('3:55');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('horloge du téléphone décalée : l’attente se mesure entre deux heures du serveur', async () => {
+    // Horloge figée : aucune milliseconde ne s'écoule entre le message et l'affichage.
+    jest.useFakeTimers();
+    try {
+      const { root } = await renderTracking();
+      const serverArrival = Date.parse('2030-01-01T10:00:00Z');
+      await act(async () => {
+        realtimeListener?.({
+          type: 'driver.arrived',
+          id: 'late',
+          emittedAt: new Date(serverArrival + 30_000).toISOString(),
+          payload: { rideId: RIDE_ID, arrivedAt: new Date(serverArrival).toISOString(), noShowGraceSeconds: 300 },
+        });
+      });
+      expect(texts(root)).toContain('0:30');
+      expect(texts(root)).toContain('4:30');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('délai écoulé : le client est prévenu que le chauffeur peut annuler', async () => {
+    const { root } = await renderTracking();
+    const serverArrival = Date.parse('2030-01-01T10:00:00Z');
+    await act(async () => {
+      realtimeListener?.({
+        type: 'driver.arrived',
+        id: 'late2',
+        emittedAt: new Date(serverArrival + 301_000).toISOString(),
+        payload: { rideId: RIDE_ID, arrivedAt: new Date(serverArrival).toISOString(), noShowGraceSeconds: 300 },
+      });
+    });
+    expect(root.root.findByProps({ testID: 'tracking-no-show-warning' })).toBeTruthy();
   });
 });

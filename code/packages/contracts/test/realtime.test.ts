@@ -13,7 +13,7 @@ import {
   RideTrackMessageSchema,
   SessionResyncMessageSchema,
   RouteShareMessageSchema,
-  RideArrivedMessageSchema,
+  ChatSendMessageSchema,
 } from '../src/realtime/client-to-server';
 import {
   ProposalNewMessageSchema,
@@ -32,6 +32,7 @@ import {
   SessionSyncedMessageSchema,
   RideRouteMessageSchema,
   DriverArrivedMessageSchema,
+  ChatMessageMessageSchema,
   ServerToClientMessageSchema,
 } from '../src/realtime/server-to-client';
 import { NEARBY_POSITION_PRECISION_DECIMALS, roundToNearbyPrecision } from '../src/http/common';
@@ -603,9 +604,58 @@ describe('tracé partagé et « Sur place » (chauffeur -> serveur -> client)', 
     assert.equal(bad({ ...route, distanceMeters: null, durationSeconds: null }), true);
   });
 
-  test('ride.arrived (chauffeur) et driver.arrived (client) ne portent que la course', () => {
-    assert.ok(RideArrivedMessageSchema.safeParse({ ...envelope, type: 'ride.arrived', payload: { rideId } }).success);
-    assert.ok(DriverArrivedMessageSchema.safeParse({ ...envelope, type: 'driver.arrived', payload: { rideId } }).success);
-    assert.equal(RideArrivedMessageSchema.safeParse({ ...envelope, type: 'ride.arrived', payload: {} }).success, false);
+  test('driver.arrived porte l’heure d’arrivée d’Odoo et le délai de grâce', () => {
+    const payload = { rideId, arrivedAt: now, noShowGraceSeconds: 300 };
+    assert.ok(DriverArrivedMessageSchema.safeParse({ ...envelope, type: 'driver.arrived', payload }).success);
+    assert.equal(DriverArrivedMessageSchema.safeParse({ ...envelope, type: 'driver.arrived', payload: { rideId } }).success, false);
+  });
+
+  test('« Sur place » ne passe plus par le WebSocket : ride.arrived n’existe plus (HTTP /arrived)', () => {
+    assert.equal(ClientToServerMessageSchema.safeParse({ ...envelope, type: 'ride.arrived', payload: { rideId } }).success, false);
+  });
+});
+
+describe('messages rapides (codes prédéfinis, jamais de texte libre)', () => {
+  const envelope = { id: randomUUID(), emittedAt: now };
+  test('chat.send porte un code connu, chat.message ajoute son émetteur', () => {
+    assert.ok(ChatSendMessageSchema.safeParse({ ...envelope, type: 'chat.send', payload: { rideId, code: 'driver_outside' } }).success);
+    assert.ok(ClientToServerMessageSchema.safeParse({ ...envelope, type: 'chat.send', payload: { rideId, code: 'client_coming' } }).success);
+    assert.ok(
+      ChatMessageMessageSchema.safeParse({ ...envelope, type: 'chat.message', payload: { rideId, code: 'client_coming', from: 'client' } }).success
+    );
+  });
+
+  test('du texte libre ou un code inconnu est refusé', () => {
+    assert.equal(ChatSendMessageSchema.safeParse({ ...envelope, type: 'chat.send', payload: { rideId, code: 'Bonjour !' } }).success, false);
+    assert.equal(
+      ChatSendMessageSchema.safeParse({ ...envelope, type: 'chat.send', payload: { rideId, code: 'driver_outside', text: 'x' } }).success,
+      true,
+      'un champ en trop est ignoré par zod, jamais relayé (le relais reconstruit le message)'
+    );
+  });
+});
+
+describe('proposal.new porte l’indication du client (pickupNote)', () => {
+  const base = {
+    id: randomUUID(),
+    emittedAt: now,
+    type: 'proposal.new',
+    payload: {
+      rideId,
+      origin: { latitude: 4.05, longitude: 9.76 },
+      destination: { latitude: 4.06, longitude: 9.77 },
+      amount: 650,
+      distanceMeters: 3100,
+      distanceToOriginMeters: 600,
+      expiresAt: now,
+    },
+  };
+  test('absente : vaut null (forme additive, un émetteur antérieur reste valide)', () => {
+    const parsed = ProposalNewMessageSchema.parse(base);
+    assert.equal(parsed.payload.pickupNote, null);
+  });
+  test('présente : transmise telle quelle', () => {
+    const parsed = ProposalNewMessageSchema.parse({ ...base, payload: { ...base.payload, pickupNote: 'Devant la pharmacie' } });
+    assert.equal(parsed.payload.pickupNote, 'Devant la pharmacie');
   });
 });

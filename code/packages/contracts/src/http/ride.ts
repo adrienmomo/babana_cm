@@ -35,8 +35,17 @@ export type RideSummary = z.infer<typeof RideSummarySchema>;
  * POST /rides
  * Transition draft -> requested : création de la demande à partir d'une estimation.
  */
+/**
+ * Indication du client pour le chauffeur (« devant la pharmacie du rond-point ») : l'adresse
+ * formelle n'existe presque pas à Douala, la navigation se fait par repères (CLAUDE.md). Texte
+ * court, facultatif, affiché tel quel au chauffeur dès la proposition.
+ */
+export const PICKUP_NOTE_MAX_LENGTH = 140;
+export const PickupNoteSchema = z.string().trim().min(1).max(PICKUP_NOTE_MAX_LENGTH);
+
 export const CreateRideRequestSchema = z.object({
   quoteId: z.string().uuid(),
+  pickupNote: PickupNoteSchema.optional(),
 });
 export type CreateRideRequest = z.infer<typeof CreateRideRequestSchema>;
 
@@ -131,6 +140,31 @@ export const startRideResponseExample: StartRideResponse = {
 };
 
 /**
+ * POST /rides/{id}/arrived -- « Sur place ». Le chauffeur affecté déclare être au point de prise en
+ * charge : une écriture (l'heure d'arrivée, une seule fois), jamais une transition -- la course
+ * reste `assigned`. La réponse porte l'heure d'arrivée d'Odoo et le délai de grâce avant
+ * « client absent » : les deux apps comptent l'attente depuis cette même heure.
+ */
+export const DriverArrivedRequestSchema = z.object({});
+export type DriverArrivedRequest = z.infer<typeof DriverArrivedRequestSchema>;
+
+export const DriverArrivedResponseSchema = RideSummarySchema.extend({
+  arrivedAt: IsoDateTimeSchema,
+  noShowGraceSeconds: z.number().int().positive(),
+});
+export type DriverArrivedResponse = z.infer<typeof DriverArrivedResponseSchema>;
+
+export const DriverArrivedErrors = ['RIDE_NOT_FOUND', 'RIDE_INVALID_TRANSITION', 'DRIVER_NOT_IN_PROPOSAL'] as const;
+
+export const driverArrivedRequestExample: DriverArrivedRequest = {};
+
+export const driverArrivedResponseExample: DriverArrivedResponse = {
+  ...rideAcceptedExample,
+  arrivedAt: '2026-08-10T07:09:00Z',
+  noShowGraceSeconds: 300,
+};
+
+/**
  * POST /rides/{id}/complete
  * Transition in_progress -> completed.
  *
@@ -187,7 +221,14 @@ export type CancelRideRequest = z.infer<typeof CancelRideRequestSchema>;
 export const CancelRideResponseSchema = RideSummarySchema;
 export type CancelRideResponse = z.infer<typeof CancelRideResponseSchema>;
 
-export const CancelRideErrors = ['RIDE_NOT_FOUND', 'RIDE_NOT_OWNED', 'RIDE_INVALID_TRANSITION'] as const;
+export const CancelRideErrors = ['RIDE_NOT_FOUND', 'RIDE_NOT_OWNED', 'RIDE_INVALID_TRANSITION', 'NO_SHOW_TOO_EARLY'] as const;
+
+/**
+ * Motif réservé d'une annulation par le chauffeur : « client absent ». Permis seulement une fois
+ * le délai de grâce écoulé depuis « Sur place » (`POST /rides/{id}/arrived`) -- sinon
+ * `NO_SHOW_TOO_EARLY`. Le serveur seul en juge (invariant 3).
+ */
+export const NO_SHOW_CANCEL_REASON = 'client_no_show';
 
 export const cancelRideRequestExample: CancelRideRequest = {
   reason: 'Changement de plan',

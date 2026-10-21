@@ -58,7 +58,7 @@ réel en commentaire au-dessus de son schéma.
 | `nearby.subscribe` | Client | `{ position, radiusMeters, excludeDriverIds }` | S'abonne à `nearby.drivers` |
 | `nearby.unsubscribe` | Client | `{}` | Se désabonne |
 | `route.share` | Chauffeur | `{ rideId, phase, points, distanceMeters, durationSeconds }` | Partage le tracé affiché sur la carte du chauffeur. Aucune écriture Odoo ; ignoré si l'émetteur n'est pas le chauffeur engagé sur `rideId` |
-| `ride.arrived` | Chauffeur | `{ rideId }` | « Sur place » : notification du client, sans transition d'état (la décision « Commencer la course » reste HTTP `start`) |
+| `chat.send` | Chauffeur ou client de la course | `{ rideId, code }` | Message rapide (`QuickMessageCode`, préfixe `driver_`/`client_` conforme au rôle). Aucune écriture Odoo, jamais mis en file, jamais rejoué |
 | `ride.track` | Client | `{ rideId }` | S'abonne au suivi d'une course affectée ou en cours |
 | `session.resync` | Client ou chauffeur | `{ lastKnownRideId }` | Voir « Politique de reconnexion » |
 
@@ -86,7 +86,7 @@ s'il était arrivé seul.
 
 | Message | Destinataire | Payload | Rôle |
 |---|---|---|---|
-| `proposal.new` | Chauffeur | `{ rideId, origin, destination, amount, distanceMeters, distanceToOriginMeters, expiresAt }` | Nouvelle proposition — `distanceToOriginMeters` = distance à vide jusqu'au client, Haversine, `null` si position illisible (D51) |
+| `proposal.new` | Chauffeur | `{ rideId, origin, destination, amount, distanceMeters, distanceToOriginMeters, expiresAt, pickupNote }` | Nouvelle proposition — `pickupNote` = repère laissé par le client (`null` sinon) ; `distanceToOriginMeters` = distance à vide jusqu'au client, Haversine, `null` si position illisible (D51) |
 | `proposal.expired` | Chauffeur | `{ rideId }` | Délai d'acceptation dépassé |
 | `proposal.accepted` | Chauffeur | `{ rideId, clientPhoneNumber }` | Son `proposal.accept` a été résolu en sa faveur (transition `proposed → assigned`) — symétrique de `ride.assigned` (D49) ; `clientPhoneNumber` : numéro du client, même discipline que `licensePlate` (D42) |
 | `ride.cancelled` | Chauffeur et/ou client, selon `cancelledBy` (L4-12) | `{ rideId, cancelledBy, reason? }` | La course a été annulée |
@@ -98,7 +98,8 @@ s'il était arrivé seul.
 | `ride.rejected` | Client | `{ rideId, driverId, reason }` | Le chauffeur a refusé ou le délai a expiré |
 | `driver.position` | Client | `{ rideId, position, etaSeconds }` | Suivi pendant une course affectée ou en cours |
 | `ride.route` | Client | `{ rideId, phase, points, distanceMeters, durationSeconds }` | Le tracé calculé par le chauffeur (`route.share`), rediffusé à l'identique — `approach` vers le client, `transit` vers la destination. Rejoué à `ride.track` |
-| `driver.arrived` | Client | `{ rideId }` | Le chauffeur est « Sur place » (`ride.arrived`) |
+| `driver.arrived` | Client et chauffeur | `{ rideId, arrivedAt, noShowGraceSeconds }` | Le chauffeur a déclaré « Sur place » (`POST /rides/{id}/arrived`, écrit dans Odoo, poussé au commit). Les deux apps comptent l'attente depuis `arrivedAt` ; « client absent » permis après `noShowGraceSeconds`. Rejoué à `ride.track` |
+| `chat.message` | L'autre participant | `{ rideId, code, from }` | Message rapide relayé (`chat.send`) — un code prédéfini, jamais du texte libre |
 | `ride.started` | Client | `{ rideId }` | Transition `→ in_progress` |
 | `ride.completed` | Client | `{ rideId, distanceMeters, durationSeconds, measured, amount, breakdown }` | Transition `→ completed` — `distanceMeters` / `durationSeconds` à `null` quand `measured` est faux (course terminée sans accumulation temps réel, L3-10 / `amoa/questions/L6-13.md`) |
 | `session.synced` | Client ou chauffeur | `{ activeRideId, activeRideState, activeProposal, rideStateKnown, serverTime }` | Voir « Politique de reconnexion » |

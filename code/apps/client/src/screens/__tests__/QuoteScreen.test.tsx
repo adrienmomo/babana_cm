@@ -249,6 +249,50 @@ describe('QuoteScreen (L6-07)', () => {
     jest.useRealTimers();
   });
 
+  describe('indication pour le chauffeur (repère, facultatif)', () => {
+    function mockOrderFlow() {
+      mockRequest.mockImplementation(async (name: string) => {
+        if (name === 'quote') return quoteResponse();
+        if (name === 'createRide') return { id: 'ride-1', state: 'requested' };
+        if (name === 'selectDriver') {
+          return { id: 'ride-1', state: 'proposed', amount: 1200, currency: 'XAF', proposalExpiresAt: new Date(Date.now() + 30_000).toISOString() };
+        }
+        throw new Error(`unexpected call: ${name}`);
+      });
+    }
+
+    it('un repère saisi part avec la commande, sans les espaces de bord', async () => {
+      mockOrderFlow();
+      const { root } = await renderQuote({ nearbyDrivers: [driver({ driverId: 'chosen' })] });
+
+      const input = root.root.findByProps({ testID: 'pickup-note-input' });
+      expect(input.props.maxLength).toBe(140);
+      await act(async () => {
+        input.props.onChangeText('  Devant la pharmacie du rond-point ');
+      });
+      await act(async () => {
+        root.root.findByProps({ testID: 'driver-card-chosen' }).props.onPress();
+      });
+
+      expect(mockRequest).toHaveBeenCalledWith(
+        'createRide',
+        expect.objectContaining({ body: { quoteId: quoteResponse().quoteId, pickupNote: 'Devant la pharmacie du rond-point' } })
+      );
+    });
+
+    it('un repère vide (ou fait d’espaces) n’est pas envoyé', async () => {
+      mockOrderFlow();
+      const { root } = await renderQuote({ nearbyDrivers: [driver({ driverId: 'chosen' })] });
+      await act(async () => {
+        root.root.findByProps({ testID: 'pickup-note-input' }).props.onChangeText('   ');
+      });
+      await act(async () => {
+        root.root.findByProps({ testID: 'driver-card-chosen' }).props.onPress();
+      });
+      expect(mockRequest).toHaveBeenCalledWith('createRide', expect.objectContaining({ body: { quoteId: quoteResponse().quoteId } }));
+    });
+  });
+
   it("choisir un chauffeur crée la course puis l'affecte, et remplace la pile par l'attente (L6-00)", async () => {
     const proposalExpiresAt = new Date(Date.now() + 30_000).toISOString();
     mockRequest.mockImplementation(async (name: string) => {

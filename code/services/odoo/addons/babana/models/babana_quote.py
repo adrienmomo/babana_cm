@@ -10,6 +10,9 @@ import uuid
 
 from odoo import fields, models
 
+QUOTE_VALIDITY_PARAM = "babana.quote_validity_seconds"
+QUOTE_VALIDITY_DEFAULT = 300  # 5 minutes -- "de l'ordre de quelques minutes" (L2-04).
+
 
 class BabanaQuote(models.Model):
     _name = "babana.quote"

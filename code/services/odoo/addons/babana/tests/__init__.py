@@ -50,3 +50,5 @@ from . import test_access_rights
 from . import test_admin_password
 from . import test_smtp_server
 from . import test_audit_log
+from . import test_pickup_note
+from . import test_ride_arrival

@@ -128,16 +128,36 @@ export const RouteSharePayloadSchema = RideRouteSchema.extend({
 export const RouteShareMessageSchema = envelopeSchema('route.share', RouteSharePayloadSchema);
 export type RouteShareMessage = z.infer<typeof RouteShareMessageSchema>;
 
+
+
 /**
- * Émetteur : chauffeur de la course. « Sur place » -- le chauffeur déclare être arrivé au point
- * de prise en charge. Notification pure vers le client (aucune transition d'état, aucune écriture
- * Odoo) ; voir `driver.arrived`.
+ * Messages rapides entre chauffeur et client pendant une course : un **code** prédéfini, jamais du
+ * texte libre -- rien à modérer, rien à taper sur une moto, et chaque app affiche le libellé dans
+ * sa langue. Le préfixe dit qui a le droit de l'envoyer (`driver_*` / `client_*`) : le service
+ * temps réel refuse un code qui ne correspond pas au rôle de l'émetteur.
  */
-export const RideArrivedPayloadSchema = z.object({
+export const QuickMessageCodeSchema = z.enum([
+  'driver_on_my_way',
+  'driver_outside',
+  'driver_where_are_you',
+  'driver_in_traffic',
+  'client_coming',
+  'client_wait_please',
+  'client_where_are_you',
+  'client_at_pickup',
+]);
+export type QuickMessageCode = z.infer<typeof QuickMessageCodeSchema>;
+
+/**
+ * Émetteur : chauffeur OU client de la course. Relayé à l'autre participant (`chat.message`).
+ * Aucune écriture Odoo (invariant 1), jamais mis en file hors connexion, jamais rejoué.
+ */
+export const ChatSendPayloadSchema = z.object({
   rideId: RideIdSchema,
+  code: QuickMessageCodeSchema,
 });
-export const RideArrivedMessageSchema = envelopeSchema('ride.arrived', RideArrivedPayloadSchema);
-export type RideArrivedMessage = z.infer<typeof RideArrivedMessageSchema>;
+export const ChatSendMessageSchema = envelopeSchema('chat.send', ChatSendPayloadSchema);
+export type ChatSendMessage = z.infer<typeof ChatSendMessageSchema>;
 
 // --- Client (passager) vers serveur -------------------------------------------------------
 
@@ -192,7 +212,7 @@ export const ClientToServerMessageSchema = z.discriminatedUnion('type', [
   ProposalRejectMessageSchema,
   ProposalSeenMessageSchema,
   RouteShareMessageSchema,
-  RideArrivedMessageSchema,
+  ChatSendMessageSchema,
   NearbySubscribeMessageSchema,
   NearbyUnsubscribeMessageSchema,
   RideTrackMessageSchema,

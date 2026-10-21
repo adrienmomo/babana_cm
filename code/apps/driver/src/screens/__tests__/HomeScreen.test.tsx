@@ -233,6 +233,54 @@ describe('HomeScreen (L6-11)', () => {
     expect(root.root.findAllByProps({ testID: 'mock-map-view' }).length).toBeGreaterThan(0);
   });
 
+  it('compte à rebours : l’heure du serveur portée par le message est transmise au panneau', async () => {
+    // Téléphone 2 min en retard : la fenêtre de 30 s doit s'afficher 30, pas 150.
+    const serverNow = Date.now() + 120_000;
+    const { root } = await renderHome();
+    await act(async () => {
+      realtimeListener?.({
+        type: 'proposal.new',
+        id: 'p-skew',
+        emittedAt: new Date(serverNow).toISOString(),
+        payload: {
+          rideId: 'ride-skew',
+          origin: { latitude: 4.05, longitude: 9.7 },
+          destination: { latitude: 4.06, longitude: 9.71 },
+          amount: 1200,
+          distanceMeters: 3000,
+          distanceToOriginMeters: 1200,
+          expiresAt: new Date(serverNow + 30_000).toISOString(),
+          pickupNote: null,
+        },
+      });
+    });
+    const remaining = root.root.findByProps({ testID: 'countdown-value' }).props.children as number;
+    expect(remaining).toBeGreaterThanOrEqual(29);
+    expect(remaining).toBeLessThanOrEqual(30);
+  });
+
+  it('le repère laissé par le client s’affiche avec la proposition', async () => {
+    const { root } = await renderHome();
+    await act(async () => {
+      realtimeListener?.({
+        type: 'proposal.new',
+        id: 'p-note',
+        emittedAt: new Date().toISOString(),
+        payload: {
+          rideId: 'ride-note',
+          origin: { latitude: 4.05, longitude: 9.7 },
+          destination: { latitude: 4.06, longitude: 9.71 },
+          amount: 1200,
+          distanceMeters: 3000,
+          distanceToOriginMeters: 1200,
+          expiresAt: new Date(Date.now() + 30_000).toISOString(),
+          pickupNote: 'Devant la pharmacie du rond-point',
+        },
+      });
+    });
+    expect(texts(root)).toContain('Devant la pharmacie du rond-point');
+  });
+
   it('Refuser / Accepter prennent la place des deux boutons flottants, puis ceux-ci reviennent', async () => {
     mockConnectionState = 'connected';
     const { root } = await renderHome();

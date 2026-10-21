@@ -14,6 +14,7 @@ const valid: ActiveRideParams = {
   amount: 1500,
   distanceMeters: 3200,
   clientPhoneNumber: '+237691234567',
+  pickupNote: null,
 };
 
 // @ts-expect-error -- un identifiant numérique n'est pas un RideId : doit casser la compilation.

@@ -88,6 +88,7 @@ function anActiveProposal(overrides: Partial<realtime.ActiveProposal> = {}): rea
     destination: { latitude: 4.06, longitude: 9.71 },
     amount: 1500,
     distanceMeters: 2200,
+    pickupNote: null,
     distanceToOriginMeters: 800,
     expiresAt: new Date(Date.now() + 5000).toISOString(),
     emittedAt: new Date(Date.now() - 25000).toISOString(),

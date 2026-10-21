@@ -167,10 +167,13 @@ doute, le code (`packages/contracts/src/http/`) a raison, pas cette colonne.
 
 | Endpoint | Transition | Erreurs spécifiques | Implémenté |
 |---|---|---|---|
-| `POST /rides` | `draft → requested` | `QUOTE_EXPIRED`, `QUOTE_NOT_FOUND` | Oui |
+| `POST /rides` | `draft → requested` | `QUOTE_EXPIRED`, `QUOTE_NOT_FOUND`, `VALIDATION_ERROR` (indication > 140 caractères) | Oui |
 | `POST /rides/{id}/select-driver` | `requested → proposed` ou `rejected → proposed` | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_INVALID_TRANSITION`, `DRIVER_ALREADY_TAKEN`, `DRIVER_NOT_APPROVED` | Oui |
 | `POST /rides/{id}/start` | `assigned → in_progress` | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui |
+| `POST /rides/{id}/arrived` | aucune (`assigned`, écrit `arrived_at` une fois) | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui |
 | `POST /rides/{id}/complete` | `in_progress → completed` | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui |
+
+`POST /rides` accepte `{ quoteId, pickupNote? }` : `pickupNote` est un repère libre du client (« devant la pharmacie du rond-point »), 140 caractères au plus, transmis au chauffeur dès la proposition (`proposal.new.pickupNote`).
 
 `POST /rides/{id}/complete` ne porte **que la décision** (J24, `amoa/questions/L6-13.md`) : le
 corps est vide, l'app dit « terminée » et rien d'autre. Le relevé du trajet (distance parcourue,
@@ -179,7 +182,7 @@ l'app. La réponse porte `{ ..., distanceMeters, durationSeconds, measured }` : 
 `durationSeconds` sont **`null`** quand `measured` est faux — course terminée sans accumulation
 disponible, aucune distance ni tracé enregistrés, écart de distance de L4-04 non calculé
 (D30, D43).
-| `POST /rides/{id}/cancel` | `{requested,proposed,assigned,rejected} → cancelled` | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_INVALID_TRANSITION` | Oui |
+| `POST /rides/{id}/cancel` | `{requested,proposed,assigned,rejected} → cancelled` | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_INVALID_TRANSITION`, `NO_SHOW_TOO_EARLY` (motif `client_no_show` avant la fin du délai de grâce) | Oui |
 | `POST /rides/{id}/rate` | (aucune — ride déjà `settled`) | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RATING_NOT_ALLOWED`, `RATING_ALREADY_SUBMITTED` | Non — attend L4-09 |
 
 Exemple — `POST /rides/{id}/select-driver` :
