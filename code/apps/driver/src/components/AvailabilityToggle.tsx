@@ -101,12 +101,6 @@ export function AvailabilityToggle({ inCourse, onNavigateToRemittance }: Availab
         </Text>
       </Pressable>
 
-      {inCourse ? (
-        <Text style={styles.explanation} testID="availability-in-course-explanation">
-          Vous ne pouvez pas repasser hors ligne pendant une course.
-        </Text>
-      ) : null}
-
       {refusalError ? (
         <View style={styles.refusal} testID="availability-refusal">
           <Text style={styles.refusalText}>{translateApiError(refusalError)}</Text>

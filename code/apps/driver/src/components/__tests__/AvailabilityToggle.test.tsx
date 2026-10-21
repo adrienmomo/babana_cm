@@ -131,11 +131,12 @@ describe('AvailabilityToggle (L6-11, D7)', () => {
     expect(root.root.findAllByProps({ testID: 'availability-go-to-remittance' })).toHaveLength(0);
   });
 
-  it('critère 3 -- l’interrupteur est désactivé en course, avec explication', async () => {
+  it('critère 3 -- l’interrupteur est inactif en course, sans message permanent', async () => {
     const root = await renderToggle({ inCourse: true });
 
     expect(root.root.findByProps({ testID: 'availability-toggle' }).props.disabled).toBe(true);
-    expect(texts(root)).toContain('Vous ne pouvez pas repasser hors ligne pendant une course.');
+    expect(texts(root)).not.toContain('Vous ne pouvez pas repasser hors ligne');
+    expect(root.root.findAllByProps({ testID: 'availability-in-course-explanation' })).toHaveLength(0);
 
     await press(root);
     expect(mockRequest).not.toHaveBeenCalled();
