@@ -11,7 +11,9 @@ import { ARRIVAL_RADIUS_METERS, ROUTE_DEVIATION_METERS, ROUTE_REFRESH_MS, ROUTE_
 import { ProposalPanel } from '../rideFlow/ProposalPanel';
 import { ActiveRidePanel, type RideFlowSettings, type RideMapState } from '../rideFlow/ActiveRidePanel';
 import { replaceWithSettlement } from '../navigation/transitions';
-import { buttonLabels, buttons, cards, colors } from '../theme';
+import { buttonLabels, buttons, cards, colors, radius, shadow } from '../theme';
+import { fetchCashSummary } from '../api/cash';
+import { formatMoney } from '../format';
 import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { isProposalHandled, markProposalHandled } from '../proposalDedup';
 import { consumePendingProposalNavigation } from '../push/handlers';
@@ -82,6 +84,9 @@ export function HomeScreen({ navigation, route }: Props) {
   const flowRef = useRef<Flow>(IDLE);
   // Ce que le panneau de course demande à la carte de dessiner (étape + itinéraire).
   const [rideMap, setRideMap] = useState<RideMapState | null>(null);
+  // « Encaissé aujourd'hui » : le chiffre d'Odoo (`collectedToday`), jamais recalculé ici
+  // (invariant 3) -- `null` tant qu'il n'est pas connu, affiché « — » plutôt qu'un zéro inventé.
+  const [collectedToday, setCollectedToday] = useState<number | null>(null);
 
   const changeFlow = useCallback((next: Flow) => {
     flowRef.current = next;
@@ -182,6 +187,26 @@ export function HomeScreen({ navigation, route }: Props) {
     };
   }, [changeFlow]);
 
+  // Relu à l'ouverture et à chaque retour sur l'accueil : après un règlement (qui remplace la pile,
+  // donc remonte cet écran) ou une remise déclarée depuis « Ma caisse ».
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      fetchCashSummary().then(
+        (cash) => {
+          if (!cancelled) setCollectedToday(cash.collectedToday);
+        },
+        () => undefined // hors connexion : on garde le dernier chiffre connu
+      );
+    };
+    load();
+    const unsubscribeFocus = navigation.addListener('focus', load);
+    return () => {
+      cancelled = true;
+      unsubscribeFocus();
+    };
+  }, [navigation]);
+
   // Notification touchée app déjà ouverte (`push/handlers.ts` -> `navigate('Home', { proposal })`).
   const notifiedProposal = route.params?.proposal;
   useEffect(() => {
@@ -249,21 +274,27 @@ export function HomeScreen({ navigation, route }: Props) {
             </Text>
           </View>
 
-          {/* Boutons flottants aux deux coins du bas : au pouce, sur une moto, sans quitter la
-              carte des yeux (D20). Pendant une proposition, Refuser/Accepter prennent leur place. */}
-          <View style={styles.floatingToggle} testID="home-floating-toggle">
+          {/* Panneau du bas, collé au bord de l'écran : « Ma caisse » et l'encaissé du jour sur une
+              ligne, la bascule à glisser dessous -- au pouce, sur une moto, sans quitter la carte
+              des yeux (D20). Pendant une proposition ou une course, le panneau du déroulé prend sa place. */}
+          <View style={styles.bottomPanel} testID="home-bottom-panel">
+            <View style={styles.panelRow} testID="home-panel-row">
+              <Pressable
+                testID="home-go-to-cash"
+                accessibilityRole="button"
+                onPress={() => navigation.navigate('Cash')}
+                style={styles.cashButton}
+              >
+                <Text style={styles.cashLinkLabel}>Ma caisse</Text>
+              </Pressable>
+              <View style={styles.todayTotal} testID="home-today-total">
+                <Text style={styles.todayLabel}>Encaissé aujourd’hui</Text>
+                <Text style={styles.todayAmount} testID="home-today-amount">
+                  {collectedToday === null ? '—' : formatMoney(collectedToday)}
+                </Text>
+              </View>
+            </View>
             <AvailabilityToggle inCourse={inCourse} onNavigateToRemittance={goToRemittance} />
-          </View>
-
-          <View style={styles.floatingCash} testID="home-floating-cash">
-            <Pressable
-              testID="home-go-to-cash"
-              accessibilityRole="button"
-              onPress={() => navigation.navigate('Cash')}
-              style={styles.cashButton}
-            >
-              <Text style={styles.cashLinkLabel}>Ma caisse</Text>
-            </Pressable>
           </View>
         </>
       ) : null}
@@ -316,22 +347,45 @@ const styles = StyleSheet.create({
     color: colors.inkSoft,
     fontWeight: '600',
   },
-  floatingToggle: {
+  // Feuille du bas : pleine largeur, coins du haut arrondis seulement -- elle sort du bord de
+  // l'écran, comme dans les grandes apps de VTC.
+  bottomPanel: {
     position: 'absolute',
-    left: 16,
-    bottom: 28,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.card,
+    borderTopRightRadius: radius.card,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 20,
+    gap: 14,
+    ...shadow,
+    shadowOffset: { width: 0, height: -3 },
   },
-  floatingCash: {
-    position: 'absolute',
-    right: 16,
-    bottom: 28,
+  panelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   cashButton: {
     ...buttons.base,
     ...buttons.md,
     ...buttons.secondary,
-    ...buttons.floating,
     minWidth: 112,
+  },
+  todayTotal: {
+    alignItems: 'flex-end',
+  },
+  todayLabel: {
+    color: colors.muted,
+    fontSize: 13,
+  },
+  todayAmount: {
+    color: colors.ink,
+    fontSize: 20,
+    fontWeight: '700',
   },
   cashLinkLabel: {
     ...buttonLabels.base,

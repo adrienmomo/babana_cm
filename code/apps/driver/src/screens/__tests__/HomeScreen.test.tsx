@@ -54,6 +54,12 @@ jest.mock('../../proposalAlert', () => ({
   dismissProposalAlert: jest.fn(),
 }));
 
+// « Encaissé aujourd'hui » du panneau du bas : lu sur GET /drivers/me/cash (`api/cash.ts`).
+const mockFetchCashSummary = jest.fn();
+jest.mock('../../api/cash', () => ({
+  fetchCashSummary: (...args: unknown[]) => mockFetchCashSummary(...args),
+}));
+
 const mockReplaceWithSettlement = jest.fn();
 jest.mock('../../navigation/transitions', () => ({
   replaceWithSettlement: (...args: unknown[]) => mockReplaceWithSettlement(...args),
@@ -65,7 +71,7 @@ import { resetProposalDedup } from '../../proposalDedup';
 import type { ProposalParams } from '../../navigation/types';
 
 function fakeNavigation() {
-  return { navigate: jest.fn(), reset: jest.fn() };
+  return { navigate: jest.fn(), reset: jest.fn(), addListener: jest.fn((_event: string, _listener: () => void) => () => undefined) };
 }
 
 // Nœuds natifs seulement : `findAllByProps` compterait aussi le composant qui les rend.
@@ -154,6 +160,8 @@ function emitProposal(rideId = 'r1') {
 beforeEach(() => {
   jest.clearAllMocks();
   mockGetCurrentPosition.mockResolvedValue(null);
+  mockFetchCashSummary.mockReset();
+  mockFetchCashSummary.mockResolvedValue({ collectedToday: 0 });
   realtimeListener = null;
   connectionStateListener = null;
   fixListener = null;
@@ -182,7 +190,7 @@ describe('HomeScreen (L6-11)', () => {
     expect(texts(root)).toContain('Hors ligne');
 
     await act(async () => {
-      root.root.findByProps({ testID: 'availability-toggle' }).props.onPress();
+      root.root.findByProps({ testID: 'availability-toggle' }).props.onConfirm();
     });
     expect(texts(root)).toContain('En ligne');
     expect(texts(root)).toContain('Connexion au service établie');
@@ -281,26 +289,23 @@ describe('HomeScreen (L6-11)', () => {
     expect(texts(root)).toContain('Devant la pharmacie du rond-point');
   });
 
-  it('Refuser / Accepter prennent la place des deux boutons flottants, puis ceux-ci reviennent', async () => {
+  it('Refuser / Accepter prennent la place du panneau du bas, puis celui-ci revient', async () => {
     mockConnectionState = 'connected';
     const { root } = await renderHome();
-    expect(shown(root, 'home-floating-toggle')).toBe(true);
-    expect(shown(root, 'home-floating-cash')).toBe(true);
+    expect(shown(root, 'home-bottom-panel')).toBe(true);
 
     await act(async () => {
       emitProposal('ride-swap');
     });
     expect(shown(root, 'proposal-accept')).toBe(true);
     expect(shown(root, 'proposal-reject')).toBe(true);
-    expect(shown(root, 'home-floating-toggle')).toBe(false);
-    expect(shown(root, 'home-floating-cash')).toBe(false);
+    expect(shown(root, 'home-bottom-panel')).toBe(false);
 
     await act(async () => {
       root.root.findByProps({ testID: 'proposal-reject' }).props.onPress();
     });
     expect(shown(root, 'proposal-screen')).toBe(false);
-    expect(shown(root, 'home-floating-toggle')).toBe(true);
-    expect(shown(root, 'home-floating-cash')).toBe(true);
+    expect(shown(root, 'home-bottom-panel')).toBe(true);
   });
 
   it("critère 5 (L6-12) -- une seconde proposition n'est pas ouverte par-dessus une déjà affichée", async () => {
@@ -391,7 +396,7 @@ describe('HomeScreen (L6-11)', () => {
       expect(navigation.reset).not.toHaveBeenCalled();
       expect(root.root.findAllByProps({ testID: 'mock-map-view' })[0]).toBe(mapBefore);
       // Les boutons du repos ne reviennent pas pendant la course.
-      expect(shown(root, 'home-floating-toggle')).toBe(false);
+      expect(shown(root, 'home-bottom-panel')).toBe(false);
     });
 
     it('le repère du client apparaît sur la carte, avec celui du chauffeur', async () => {
@@ -447,7 +452,7 @@ describe('HomeScreen (L6-11)', () => {
         });
 
         expect(shown(root, 'active-ride-screen')).toBe(false);
-        expect(shown(root, 'home-floating-toggle')).toBe(true);
+        expect(shown(root, 'home-bottom-panel')).toBe(true);
         // Plus de course : la bascule en ligne/hors ligne redevient utilisable.
         expect(root.root.findByProps({ testID: 'availability-toggle' }).props.disabled).toBe(false);
       } finally {
@@ -464,6 +469,31 @@ describe('HomeScreen (L6-11)', () => {
     });
 
     expect(navigation.navigate).toHaveBeenCalledWith('Cash');
+  });
+
+  it("affiche la recette encaissée aujourd'hui telle qu'Odoo l'a calculée (GET /drivers/me/cash)", async () => {
+    mockFetchCashSummary.mockResolvedValue({ collectedToday: 8400 });
+    const { root } = await renderHome();
+    expect(mockFetchCashSummary).toHaveBeenCalled();
+    const amount = host(root, 'home-today-amount')[0]!;
+    expect(amount.props.children).toBe(formatMoney(8400));
+    expect(texts(root)).toContain('Encaissé aujourd’hui');
+  });
+
+  it("sans réponse du serveur, l'encaissé du jour reste un tiret -- jamais un zéro inventé", async () => {
+    mockFetchCashSummary.mockRejectedValue(new Error('fetch failed'));
+    const { root } = await renderHome();
+    expect(host(root, 'home-today-amount')[0]!.props.children).toBe('—');
+  });
+
+  it("l'encaissé du jour est relu au retour sur l'accueil (après un règlement, une remise)", async () => {
+    mockFetchCashSummary.mockResolvedValueOnce({ collectedToday: 8400 }).mockResolvedValueOnce({ collectedToday: 9900 });
+    const { root, navigation } = await renderHome();
+    const focus = navigation.addListener.mock.calls.find(([event]) => event === 'focus')?.[1] as () => void;
+    await act(async () => {
+      focus();
+    });
+    expect(host(root, 'home-today-amount')[0]!.props.children).toBe(formatMoney(9900));
   });
 
   describe('carte et boutons flottants', () => {
@@ -485,22 +515,32 @@ describe('HomeScreen (L6-11)', () => {
       expect(markers(root)).toHaveLength(1);
     });
 
-    it('la bascule flotte en bas à gauche, au-dessus de la carte', async () => {
+    it('un panneau collé en bas, pleine largeur, coins du haut arrondis', async () => {
       const { root } = await renderHome();
-      const style = flat(root, 'home-floating-toggle');
+      const style = flat(root, 'home-bottom-panel');
       expect(style.position).toBe('absolute');
-      expect(style.bottom).toBeGreaterThan(0);
-      expect(style.left).toBeGreaterThan(0);
-      expect(style.right).toBeUndefined();
+      expect(style.bottom).toBe(0);
+      expect(style.left).toBe(0);
+      expect(style.right).toBe(0);
+      expect(style.borderTopLeftRadius).toBeGreaterThan(0);
+      expect(style.borderTopRightRadius).toBeGreaterThan(0);
+      expect(style.borderBottomLeftRadius ?? 0).toBe(0);
+      expect(style.borderBottomRightRadius ?? 0).toBe(0);
     });
 
-    it('« Ma caisse » flotte en bas à droite, au-dessus de la carte', async () => {
+    it("le panneau porte « Ma caisse » à gauche et l'encaissé du jour à droite, au-dessus de la bascule", async () => {
       const { root } = await renderHome();
-      const style = flat(root, 'home-floating-cash');
-      expect(style.position).toBe('absolute');
-      expect(style.bottom).toBeGreaterThan(0);
-      expect(style.right).toBeGreaterThan(0);
-      expect(style.left).toBeUndefined();
+      const panel = host(root, 'home-bottom-panel')[0]!;
+      const order = panel
+        .findAll((node) => typeof node.type === 'string' && typeof node.props.testID === 'string')
+        .map((node) => node.props.testID as string);
+      const index = (id: string) => order.indexOf(id);
+      expect(index('home-go-to-cash')).toBeGreaterThanOrEqual(0);
+      expect(index('home-today-total')).toBeGreaterThan(index('home-go-to-cash'));
+      expect(index('availability-toggle')).toBeGreaterThan(index('home-today-total'));
+      const row = flat(root, 'home-panel-row');
+      expect(row.flexDirection).toBe('row');
+      expect(row.justifyContent).toBe('space-between');
     });
 
     it('« Ma caisse » est compact : entre 48 et 56 dp de haut', async () => {

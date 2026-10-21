@@ -22,6 +22,7 @@ jest.mock('../../location', () => ({
 }));
 
 import { AvailabilityToggle } from '../AvailabilityToggle';
+import { SwipeButton } from '../SwipeButton';
 
 function texts(root: ReactTestRenderer): string {
   return root.root
@@ -42,7 +43,7 @@ async function renderToggle(props: Partial<{ inCourse: boolean; onNavigateToRemi
 
 async function press(root: ReactTestRenderer) {
   await act(async () => {
-    root.root.findByProps({ testID: 'availability-toggle' }).props.onPress();
+    root.root.findByProps({ testID: 'availability-toggle' }).props.onConfirm();
   });
 }
 
@@ -151,18 +152,26 @@ describe('AvailabilityToggle (L6-11, D7)', () => {
     expect(texts(root)).toContain('La mise à jour a échoué. Réessayez.');
   });
 
-  it('bouton compact mais utilisable : entre 48 et 56 dp de haut, pas la pastille de 72', async () => {
+  it('un curseur à glisser, pas un appui : 48 à 56 dp de haut, sur toute la largeur du panneau', async () => {
     const root = await renderToggle();
-    const styleFn = root.root.findByProps({ testID: 'availability-toggle' }).props.style;
-    const style = StyleSheet.flatten(styleFn({ pressed: false }));
+    const toggle = root.root.findByProps({ testID: 'availability-toggle' });
+    expect(toggle.type).toBe(SwipeButton);
+    const track = root.root.findAll((n) => typeof n.type === 'string' && n.props.testID === 'availability-toggle')[0]!;
+    const style = StyleSheet.flatten(track.props.style);
     expect(style.minHeight).toBeGreaterThanOrEqual(48);
     expect(style.minHeight).toBeLessThanOrEqual(56);
-    expect(style.minWidth).toBeLessThanOrEqual(140);
+    expect(style.alignSelf).toBe('stretch');
   });
 
-  it("l'état est lisible sans dépendre de la couleur seule (pastille et libellé)", async () => {
+  it("l'état est lisible sans dépendre de la couleur seule (libellé et teinte)", async () => {
+    mockRequest.mockResolvedValue({ online: true });
     const root = await renderToggle();
-    expect(root.root.findAllByProps({ testID: 'availability-dot' }).length).toBeGreaterThan(0);
-    expect(root.root.findByProps({ testID: 'availability-status' }).props.children).toBe('Hors ligne');
+    const status = () => root.root.findAll((n) => typeof n.type === 'string' && n.props.testID === 'availability-status')[0]!;
+    expect(status().props.children).toContain('Hors ligne');
+    expect(root.root.findByProps({ testID: 'availability-toggle' }).props.variant).toBe('primary');
+
+    await press(root);
+    expect(status().props.children).toContain('En ligne');
+    expect(root.root.findByProps({ testID: 'availability-toggle' }).props.variant).toBe('soft');
   });
 });

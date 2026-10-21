@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { buttonLabels, buttons, cards, colors } from '../theme';
+import { buttonLabels, buttons, colors, radius } from '../theme';
+import { SwipeButton } from './SwipeButton';
 import { ApiError, translateApiError } from '@babana/api-client';
 import type { http } from '@babana/contracts';
 import { apiClient } from '../auth';
@@ -8,10 +9,9 @@ import { locationTracker } from '../location';
 import { realtimeClient } from '../realtime';
 
 /**
- * Bascule en ligne / hors ligne (L6-11, D7). Cible tactile large (D20, exigence non esthétique) :
- * le chauffeur est sur sa moto, parfois avec des gants -- même discipline que
- * `EmergencyButton.tsx` (Pressable dimensionné directement, pas le `Button` générique de
- * `@babana/ui`, pensé pour un usage assis).
+ * Bascule en ligne / hors ligne (L6-11, D7). Un curseur à glisser sur toute la largeur (D20,
+ * exigence non esthétique) : le chauffeur est sur sa moto, parfois avec des gants -- un geste
+ * ample se fait sans viser, et ne part pas d'un effleurement (`SwipeButton.tsx`).
  *
  * **Aucune décision ici, seulement l'application de celle du serveur** (invariant 3) : Odoo
  * reste seul juge de l'éligibilité (L3-04) -- ce composant se contente d'afficher le motif exact
@@ -49,7 +49,7 @@ export function AvailabilityToggle({ inCourse, onNavigateToRemittance }: Availab
   const disabled = inCourse || pending;
 
   async function toggle() {
-    // Filet défensif : `Pressable`'s `disabled` empêche déjà l'appui réel d'atteindre `onPress`,
+    // Filet défensif : le `disabled` du curseur empêche déjà le geste réel d'atteindre `onConfirm`,
     // mais rien ne garantit qu'un appelant (ou un test) ne rappelle jamais cette fonction
     // directement pendant que l'interrupteur doit rester inerte (en course, ou une requête déjà
     // en vol) -- une bascule qui partirait quand même serait exactement ce que le critère 3
@@ -82,25 +82,18 @@ export function AvailabilityToggle({ inCourse, onNavigateToRemittance }: Availab
 
   return (
     <View style={styles.container}>
-      <Pressable
+      {/* Un glissement, pas un appui : passer hors ligne par un effleurement de poche ferait
+          disparaître le chauffeur du pool sans qu'il le sache. L'état courant est dans le libellé
+          (« Hors ligne » / « En ligne ») et dans la teinte -- jamais la couleur seule. */}
+      <SwipeButton
         testID="availability-toggle"
-        accessibilityRole="switch"
-        accessibilityLabel={online ? 'En ligne -- appuyer pour se mettre hors ligne' : 'Hors ligne -- appuyer pour se mettre en ligne'}
-        accessibilityState={{ checked: online, disabled }}
+        labelTestID="availability-status"
+        variant={online ? 'soft' : 'primary'}
+        label={pending ? 'Mise à jour…' : online ? 'En ligne · glisser pour arrêter' : 'Hors ligne · glisser pour démarrer'}
+        accessibilityLabel={online ? 'En ligne -- glisser pour se mettre hors ligne' : 'Hors ligne -- glisser pour se mettre en ligne'}
         disabled={disabled}
-        onPress={toggle}
-        style={({ pressed }) => [
-          styles.toggle,
-          online ? styles.toggleOnline : styles.toggleOffline,
-          disabled ? styles.toggleDisabled : null,
-          pressed && !disabled ? styles.togglePressed : null,
-        ]}
-      >
-        <View testID="availability-dot" style={[styles.dot, online ? styles.dotOnline : styles.dotOffline]} />
-        <Text style={[styles.toggleLabel, online ? styles.toggleLabelOnline : null]} testID="availability-status">
-          {pending ? 'Mise à jour…' : online ? 'En ligne' : 'Hors ligne'}
-        </Text>
-      </Pressable>
+        onConfirm={toggle}
+      />
 
       {refusalError ? (
         <View style={styles.refusal} testID="availability-refusal">
@@ -123,58 +116,26 @@ export function AvailabilityToggle({ inCourse, onNavigateToRemittance }: Availab
 }
 
 const styles = StyleSheet.create({
+  // Pleine largeur du panneau du bas (HomeScreen) : le curseur a toute la place pour glisser.
   container: {
-    alignItems: 'center',
+    alignSelf: 'stretch',
     gap: 8,
   },
-  // Compact et doux : pilule de 48 dp (cible tactile minimale, D20 -- le chauffeur porte des
-  // gants), même forme que tous les boutons de l'app ; état porté par une pastille ET un libellé.
-  toggle: {
-    ...buttons.base,
-    ...buttons.md,
-    ...buttons.floating,
-    minWidth: 128,
-    paddingHorizontal: 16,
-  },
-  toggleOnline: buttons.brandSoft,
-  toggleOffline: buttons.secondary,
-  dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  dotOnline: {
-    backgroundColor: colors.brand,
-  },
-  dotOffline: {
-    backgroundColor: colors.subtle,
-  },
-  toggleDisabled: buttons.disabled,
-  togglePressed: buttons.pressed,
-  toggleLabel: {
-    ...buttonLabels.base,
-    color: colors.inkSoft,
-  },
-  toggleLabelOnline: {
-    color: colors.brandText,
-  },
-  // Messages sous la bascule : une carte douce, jamais du texte nu posé sur la carte.
+  // Messages sous la bascule : un encart doux, jamais du texte nu.
   explanation: {
-    ...cards.floating,
+    borderRadius: radius.field,
     color: colors.warningText,
     backgroundColor: colors.warningSoft,
     textAlign: 'center',
-    maxWidth: 260,
     paddingHorizontal: 12,
     paddingVertical: 8,
     overflow: 'hidden',
   },
   refusal: {
-    ...cards.floating,
+    borderRadius: radius.field,
     backgroundColor: colors.dangerSoft,
     alignItems: 'center',
     gap: 8,
-    maxWidth: 280,
     padding: 12,
   },
   refusalText: {

@@ -1,6 +1,8 @@
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { SwipeButton, isSwipeConfirmed, SWIPE_CONFIRM_RATIO } from '../SwipeButton';
+import { colors } from '../../theme';
 
 const WIDTH = 360;
 // Course du curseur = largeur − curseur (48) − marges (2 × 4).
@@ -70,5 +72,17 @@ describe('SwipeButton', () => {
   it('affiche son libellé', async () => {
     const { root } = await render();
     expect(JSON.stringify(root.toJSON())).toContain('Glisser pour commencer');
+  });
+
+  it('variante « soft » : piste vert pâle, libellé vert -- un état en cours, pas une action principale', async () => {
+    const { host, root } = await render({ variant: 'soft', labelTestID: 'swipe-label' });
+    expect(StyleSheet.flatten(host.props.style).backgroundColor).toBe(colors.brandSoft);
+    const label = root.root.findAll((n) => typeof n.type === 'string' && n.props.testID === 'swipe-label')[0]!;
+    expect(StyleSheet.flatten(label.props.style).color).toBe(colors.brandText);
+  });
+
+  it('variante par défaut : piste verte pleine', async () => {
+    const { host } = await render();
+    expect(StyleSheet.flatten(host.props.style).backgroundColor).toBe(colors.brand);
   });
 });

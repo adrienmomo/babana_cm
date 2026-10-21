@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { Animated, PanResponder, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
-import { buttonLabels, buttons, colors, radius } from '../theme';
+import { buttonLabels, buttons, colors, radius, shadow } from '../theme';
 
 /**
  * « Glisser pour … » : l'action principale d'une course (Sur place, Commencer, Terminer). Un
@@ -16,7 +16,11 @@ export interface SwipeButtonProps {
   onConfirm: () => void;
   disabled?: boolean;
   testID?: string;
+  labelTestID?: string;
   accessibilityLabel?: string;
+  /** `primary` (vert plein) : l'action principale du moment. `soft` (vert pâle) : un état déjà en
+   * cours qu'on peut arrêter -- « En ligne · glisser pour arrêter ». */
+  variant?: 'primary' | 'soft';
 }
 
 const KNOB_SIZE = 48;
@@ -31,7 +35,15 @@ export function isSwipeConfirmed(dx: number, trackWidth: number): boolean {
   return dx >= travel * SWIPE_CONFIRM_RATIO;
 }
 
-export function SwipeButton({ label, onConfirm, disabled = false, testID, accessibilityLabel }: SwipeButtonProps) {
+export function SwipeButton({
+  label,
+  onConfirm,
+  disabled = false,
+  testID,
+  labelTestID,
+  accessibilityLabel,
+  variant = 'primary',
+}: SwipeButtonProps) {
   const [trackWidth, setTrackWidth] = useState(0);
   const offset = useRef(new Animated.Value(0)).current;
   // Lus par le PanResponder, créé une seule fois.
@@ -76,14 +88,26 @@ export function SwipeButton({ label, onConfirm, disabled = false, testID, access
         if (event.nativeEvent.actionName === 'activate' && !disabled) onConfirm();
       }}
       onLayout={(event: LayoutChangeEvent) => setTrackWidth(event.nativeEvent.layout.width)}
-      style={[buttons.base, buttons.lg, buttons.primary, buttons.floating, styles.track, disabled ? buttons.disabled : null]}
+      style={[
+        buttons.base,
+        buttons.lg,
+        variant === 'soft' ? buttons.brandSoft : buttons.primary,
+        variant === 'soft' ? null : buttons.floating,
+        styles.track,
+        disabled ? buttons.disabled : null,
+      ]}
     >
-      <Animated.Text style={[buttonLabels.lg, buttonLabels.primary, styles.label, { opacity: labelOpacity }]}>
+      <Animated.Text
+        testID={labelTestID}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+        style={[buttonLabels.lg, variant === 'soft' ? buttonLabels.brand : buttonLabels.primary, styles.label, { opacity: labelOpacity }]}
+      >
         {label}
       </Animated.Text>
       <Animated.View
         {...responder.panHandlers}
-        style={[styles.knob, { transform: [{ translateX: offset }] }]}
+        style={[styles.knob, variant === 'soft' ? styles.knobSoft : null, { transform: [{ translateX: offset }] }]}
         testID={testID ? `${testID}-knob` : undefined}
       >
         <Text style={styles.chevron}>›</Text>
@@ -98,8 +122,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
     justifyContent: 'center',
   },
+  // Le curseur n'occupe que la gauche : le libellé prend le reste, sur une seule ligne.
   label: {
-    paddingHorizontal: KNOB_SIZE + 12,
+    paddingLeft: KNOB_SIZE + 12,
+    paddingRight: 16,
     textAlign: 'center',
   },
   knob: {
@@ -112,6 +138,12 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  // Sur la piste pâle, le curseur blanc a besoin d'un contour et d'une ombre pour se détacher.
+  knobSoft: {
+    borderWidth: 1,
+    borderColor: colors.brandBorder,
+    ...shadow,
   },
   chevron: {
     color: colors.brand,
