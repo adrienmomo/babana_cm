@@ -176,7 +176,7 @@ function OnboardingNavigator({ user }: { user: AuthUser }) {
 function DriverNavigator() {
   return (
     <DriverStack.Navigator initialRouteName="Home">
-      <DriverStack.Screen name="Home" component={HomeScreen} />
+      <DriverStack.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
       <DriverStack.Screen name="Proposal" component={ProposalScreen} options={{ presentation: 'fullScreenModal' }} />
       <DriverStack.Screen name="ActiveRide" component={ActiveRideScreen} options={{ headerShown: false, gestureEnabled: false }} />
       <DriverStack.Screen name="Settlement" component={SettlementScreen} options={{ headerShown: false, gestureEnabled: false }} />

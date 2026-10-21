@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { ApiError } from '@babana/api-client';
 
@@ -148,5 +148,20 @@ describe('AvailabilityToggle (L6-11, D7)', () => {
     await press(root);
 
     expect(texts(root)).toContain('La mise à jour a échoué. Réessayez.');
+  });
+
+  it('bouton compact mais utilisable : entre 48 et 56 dp de haut, pas la pastille de 72', async () => {
+    const root = await renderToggle();
+    const styleFn = root.root.findByProps({ testID: 'availability-toggle' }).props.style;
+    const style = StyleSheet.flatten(styleFn({ pressed: false }));
+    expect(style.minHeight).toBeGreaterThanOrEqual(48);
+    expect(style.minHeight).toBeLessThanOrEqual(56);
+    expect(style.minWidth).toBeLessThanOrEqual(140);
+  });
+
+  it("l'état est lisible sans dépendre de la couleur seule (pastille et libellé)", async () => {
+    const root = await renderToggle();
+    expect(root.root.findAllByProps({ testID: 'availability-dot' }).length).toBeGreaterThan(0);
+    expect(root.root.findByProps({ testID: 'availability-status' }).props.children).toBe('Hors ligne');
   });
 });

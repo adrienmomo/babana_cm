@@ -2,9 +2,11 @@ import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { asRideId } from '@babana/navigation';
+import { MapView, type LatLng, type MapMarker } from '@babana/maps';
 import type { ConnectionState } from '@babana/api-client';
 import type { realtime } from '@babana/contracts';
 import { AvailabilityToggle } from '../components/AvailabilityToggle';
+import { getCurrentPosition } from '../location';
 import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { isProposalHandled, markProposalHandled } from '../proposalDedup';
 import { consumePendingProposalNavigation } from '../push/handlers';
@@ -20,6 +22,11 @@ import type { DriverParamList } from '../navigation/types';
  */
 
 type Props = NativeStackScreenProps<DriverParamList, 'Home'>;
+
+// Centre de la carte tant que la position du chauffeur n'est pas connue (ou refusée) -- même
+// repère que l'app Client : jamais un écran vide, jamais une position inventée pour le chauffeur
+// (le repère « chauffeur » n'apparaît qu'avec une vraie lecture).
+const DOUALA_DEFAULT_CENTER: LatLng = { latitude: 4.0511, longitude: 9.7679 };
 
 // États de course qui interdisent le passage hors ligne (L3-04, critère 2) -- mêmes valeurs que
 // `TOGETHER_STATES` côté Odoo (`babana_ride.py`, cité dans TrackingScreen.tsx côté Client) : un
@@ -40,6 +47,20 @@ export function HomeScreen({ navigation }: Props) {
   // déjà envoyé automatiquement à chaque connexion établie, initiale ou après coupure
   // (@babana/api-client/realtime/connection.ts), donc une réponse arrive sans action de cet écran.
   const [inCourse, setInCourse] = useState(false);
+  // Position lue une fois à l'ouverture (lecture ponctuelle, `location/oneShot.ts`) -- la capture
+  // continue reste celle de `tracker.ts`, cet écran n'y touche pas. `null` : refusée ou
+  // indisponible, la carte reste sur le centre par défaut.
+  const [position, setPosition] = useState<LatLng | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentPosition().then((fix) => {
+      if (!cancelled && fix) setPosition(fix);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     ensureRealtimeConnected();
@@ -126,30 +147,45 @@ export function HomeScreen({ navigation }: Props) {
     navigation.navigate('Remittance');
   }
 
+  const markers: MapMarker[] = position ? [{ id: 'me', kind: 'driver', position }] : [];
+
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Babana Chauffeur</Text>
+      {/* `key` : la carte ne se recentre pas d'elle-même quand `center` change (région initiale) --
+          elle est donc remontée une fois, quand la position arrive. */}
+      <MapView
+        key={position ? 'located' : 'default'}
+        center={position ?? DOUALA_DEFAULT_CENTER}
+        markers={markers}
+        style={styles.map}
+      />
 
-      <Text style={styles.connectionState} testID="connection-state">
-        {connectionState === 'connected'
-          ? 'Connexion au service établie'
-          : connectionState === 'connecting'
-            ? 'Connexion en cours…'
-            : 'Hors connexion'}
-      </Text>
+      <View style={styles.statusChip} pointerEvents="none">
+        <Text style={styles.connectionState} testID="connection-state">
+          {connectionState === 'connected'
+            ? 'Connexion au service établie'
+            : connectionState === 'connecting'
+              ? 'Connexion en cours…'
+              : 'Hors connexion'}
+        </Text>
+      </View>
 
-      <View style={styles.toggleWrap}>
+      {/* Boutons flottants aux deux coins du bas : au pouce, sur une moto, sans quitter la carte
+          des yeux (D20). */}
+      <View style={styles.floatingToggle} testID="home-floating-toggle">
         <AvailabilityToggle inCourse={inCourse} onNavigateToRemittance={goToRemittance} />
       </View>
 
-      <Pressable
-        testID="home-go-to-cash"
-        accessibilityRole="button"
-        onPress={() => navigation.navigate('Cash')}
-        style={styles.cashLink}
-      >
-        <Text style={styles.cashLinkLabel}>Ma caisse</Text>
-      </Pressable>
+      <View style={styles.floatingCash} testID="home-floating-cash">
+        <Pressable
+          testID="home-go-to-cash"
+          accessibilityRole="button"
+          onPress={() => navigation.navigate('Cash')}
+          style={styles.cashButton}
+        >
+          <Text style={styles.cashLinkLabel}>Ma caisse</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
@@ -157,30 +193,56 @@ export function HomeScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 24,
-    padding: 24,
   },
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
+  map: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  statusChip: {
+    position: 'absolute',
+    top: 12,
+    alignSelf: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderRadius: 16,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
   },
   connectionState: {
-    color: '#6B7280',
+    color: '#374151',
+    fontWeight: '600',
   },
-  toggleWrap: {
-    marginTop: 8,
+  floatingToggle: {
+    position: 'absolute',
+    left: 16,
+    bottom: 28,
   },
-  cashLink: {
-    minHeight: 44,
+  floatingCash: {
+    position: 'absolute',
+    right: 16,
+    bottom: 28,
+  },
+  cashButton: {
+    minHeight: 48,
+    minWidth: 104,
     paddingHorizontal: 16,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
     alignItems: 'center',
     justifyContent: 'center',
+    elevation: 2,
+    shadowColor: '#000000',
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
   },
   cashLinkLabel: {
-    color: '#0A7D3D',
-    fontWeight: '700',
-    fontSize: 16,
+    color: '#374151',
+    fontWeight: '600',
+    fontSize: 15,
   },
 });

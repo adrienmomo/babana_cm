@@ -163,6 +163,14 @@ describe('AppNavigator Chauffeur (L6-00)', () => {
     expect(texts.join(' ')).toContain('Accueil chauffeur');
   });
 
+  it("l'accueil n'a pas de barre de navigation : la carte occupe tout l'écran", async () => {
+    mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
+    mockRefreshUser.mockResolvedValue({ user: driverUser('approved') });
+    await renderApp();
+
+    expect((navigationRef.getCurrentOptions() as { headerShown?: boolean } | undefined)?.headerShown).toBe(false);
+  });
+
   it("la perte de session en cours d'usage ramène à la connexion depuis les écrans de course (critère 4)", async () => {
     mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
     mockRefreshUser.mockResolvedValue({ user: driverUser('approved') });

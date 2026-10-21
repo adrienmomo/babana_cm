@@ -95,7 +95,8 @@ export function AvailabilityToggle({ inCourse, onNavigateToRemittance }: Availab
           pressed && !disabled ? styles.togglePressed : null,
         ]}
       >
-        <Text style={styles.toggleLabel} testID="availability-status">
+        <View testID="availability-dot" style={[styles.dot, online ? styles.dotOnline : styles.dotOffline]} />
+        <Text style={[styles.toggleLabel, online ? styles.toggleLabelOnline : null]} testID="availability-status">
           {pending ? 'Mise à jour…' : online ? 'En ligne' : 'Hors ligne'}
         </Text>
       </Pressable>
@@ -131,19 +132,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
+  // Compact et doux : 48 dp de haut (cible tactile minimale, D20 -- le chauffeur porte des gants),
+  // surface claire plutôt qu'un aplat plein, état porté par une pastille ET un libellé.
   toggle: {
-    minWidth: 220,
-    minHeight: 72,
-    borderRadius: 36,
+    minWidth: 128,
+    minHeight: 48,
+    borderRadius: 24,
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 24,
+    gap: 8,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    elevation: 2,
+    shadowColor: '#000000',
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
   },
   toggleOnline: {
-    backgroundColor: '#0A7D3D',
+    backgroundColor: '#ECFDF3',
+    borderColor: '#A7E3C0',
   },
   toggleOffline: {
-    backgroundColor: '#6B7280',
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E5E7EB',
+  },
+  dot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  dotOnline: {
+    backgroundColor: '#16A34A',
+  },
+  dotOffline: {
+    backgroundColor: '#9CA3AF',
   },
   toggleDisabled: {
     opacity: 0.5,
@@ -152,9 +176,12 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   toggleLabel: {
-    color: '#FFFFFF',
-    fontSize: 20,
-    fontWeight: '700',
+    color: '#374151',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  toggleLabelOnline: {
+    color: '#166534',
   },
   explanation: {
     color: '#374151',

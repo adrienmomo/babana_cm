@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 const mockRequest = jest.fn();
@@ -33,8 +33,10 @@ jest.mock('../../realtime', () => ({
 
 // L6-05 : AvailabilityToggle.tsx (montée par cet écran) importe le singleton réel sinon -- voir
 // components/__tests__/AvailabilityToggle.test.tsx pour le même raisonnement.
+const mockGetCurrentPosition = jest.fn();
 jest.mock('../../location', () => ({
   locationTracker: { setOnline: jest.fn() },
+  getCurrentPosition: (...args: unknown[]) => mockGetCurrentPosition(...args),
 }));
 
 import { HomeScreen } from '../HomeScreen';
@@ -121,6 +123,7 @@ function emitProposal(rideId = 'r1') {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockGetCurrentPosition.mockResolvedValue(null);
   realtimeListener = null;
   connectionStateListener = null;
   mockConnectionState = 'offline';
@@ -273,5 +276,55 @@ describe('HomeScreen (L6-11)', () => {
     });
 
     expect(navigation.navigate).toHaveBeenCalledWith('Cash');
+  });
+
+  describe('carte et boutons flottants', () => {
+    // Nœuds natifs seulement : `findAllByProps` compterait aussi le composant qui les rend.
+    const markers = (root: ReactTestRenderer) =>
+      root.root.findAll((node) => typeof node.type === 'string' && node.props.testID === 'mock-map-marker');
+    const flat = (root: ReactTestRenderer, testID: string) =>
+      StyleSheet.flatten(root.root.findByProps({ testID }).props.style);
+
+    it("affiche la carte même sans position (repli sur le centre par défaut, jamais d'écran vide)", async () => {
+      const { root } = await renderHome();
+      expect(root.root.findAllByProps({ testID: 'mock-map-view' }).length).toBeGreaterThan(0);
+      expect(markers(root)).toHaveLength(0);
+    });
+
+    it('place un repère « chauffeur » à la position lue', async () => {
+      mockGetCurrentPosition.mockResolvedValue({ latitude: 4.049, longitude: 9.695 });
+      const { root } = await renderHome();
+      expect(markers(root)).toHaveLength(1);
+    });
+
+    it('la bascule flotte en bas à gauche, au-dessus de la carte', async () => {
+      const { root } = await renderHome();
+      const style = flat(root, 'home-floating-toggle');
+      expect(style.position).toBe('absolute');
+      expect(style.bottom).toBeGreaterThan(0);
+      expect(style.left).toBeGreaterThan(0);
+      expect(style.right).toBeUndefined();
+    });
+
+    it('« Ma caisse » flotte en bas à droite, au-dessus de la carte', async () => {
+      const { root } = await renderHome();
+      const style = flat(root, 'home-floating-cash');
+      expect(style.position).toBe('absolute');
+      expect(style.bottom).toBeGreaterThan(0);
+      expect(style.right).toBeGreaterThan(0);
+      expect(style.left).toBeUndefined();
+    });
+
+    it('« Ma caisse » est compact : entre 48 et 56 dp de haut', async () => {
+      const { root } = await renderHome();
+      const style = flat(root, 'home-go-to-cash');
+      expect(style.minHeight).toBeGreaterThanOrEqual(48);
+      expect(style.minHeight).toBeLessThanOrEqual(56);
+    });
+
+    it("l'état de connexion reste affiché, en puce flottante", async () => {
+      const { root } = await renderHome();
+      expect(root.root.findByProps({ testID: 'connection-state' })).toBeTruthy();
+    });
   });
 });
