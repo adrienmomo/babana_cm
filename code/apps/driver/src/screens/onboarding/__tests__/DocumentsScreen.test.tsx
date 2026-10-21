@@ -9,6 +9,7 @@ import { ApiError } from '@babana/api-client';
 import { DocumentsScreen } from '../DocumentsScreen';
 import type { DocumentSlot } from '../state';
 import type { ImageSource, PickImageOptions } from '../imageSource';
+import { colors } from '../../../theme';
 
 const MAX_BYTES = 4 * 1024 * 1024;
 
@@ -213,7 +214,7 @@ describe('DocumentsScreen (L6-15)', () => {
   it('focusType met la ligne concernée en avant', async () => {
     const { root } = await render({ focusType: 'license' });
     expect(root.root.findByProps({ testID: 'doc-row-license' }).props.style).toEqual(
-      expect.arrayContaining([expect.objectContaining({ borderColor: '#0A7D3D' })])
+      expect.arrayContaining([expect.objectContaining({ borderColor: colors.brand })])
     );
   });
 });

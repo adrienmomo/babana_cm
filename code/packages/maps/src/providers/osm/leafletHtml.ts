@@ -22,11 +22,13 @@ const MAX_ZOOM = 19;
  * boucle déplacement -> onRegionChange -> centre -> déplacement. */
 export const RECENTER_EPSILON = 0.00001;
 
+// Une couleur par rôle, jamais deux rôles de la même couleur : le chauffeur (vert de l'app), le
+// point de prise en charge (bleu, comme le tracé qui y mène), l'arrivée (rouge adouci).
 const MARKER_COLORS: Record<MapMarkerKind, string> = {
-  driver: '#0A7D3D',
-  client: '#1D4ED8',
-  pickup: '#0A7D3D',
-  dropoff: '#B91C1C',
+  driver: '#1A9E5C',
+  client: '#3E7BFA',
+  pickup: '#3E7BFA',
+  dropoff: '#E5484D',
   reticle: '#6B7280',
 };
 
@@ -92,7 +94,7 @@ export function buildLeafletHtml(input: LeafletState & { tileUrlTemplate: string
     if (state.route && state.route.points && state.route.points.length) {
       var pts = state.route.points;
       var line = L.polyline(pts.map(function (p) { return [p.latitude, p.longitude]; }),
-        { color: '#1D4ED8', weight: 5, opacity: 0.85 }).addTo(layer);
+        { color: '#3E7BFA', weight: 5, opacity: 0.9 }).addTo(layer);
       // Cadrer le tracé entier quand il change -- pas à chaque position du chauffeur, qui
       // arracherait la carte au doigt du chauffeur toutes les quelques secondes.
       var first = pts[0], last = pts[pts.length - 1];

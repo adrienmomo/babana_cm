@@ -11,6 +11,7 @@ import { ARRIVAL_RADIUS_METERS, ROUTE_RETRY_COOLDOWN_MS } from '../../config';
 import { ProposalPanel } from '../rideFlow/ProposalPanel';
 import { ActiveRidePanel, type RideFlowSettings, type RideMapState } from '../rideFlow/ActiveRidePanel';
 import { replaceWithSettlement } from '../navigation/transitions';
+import { buttonLabels, buttons, cards, colors } from '../theme';
 import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { isProposalHandled, markProposalHandled } from '../proposalDedup';
 import { consumePendingProposalNavigation } from '../push/handlers';
@@ -298,16 +299,15 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   statusChip: {
+    ...cards.floating,
     position: 'absolute',
     top: 12,
     alignSelf: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
-    borderRadius: 16,
     paddingVertical: 6,
     paddingHorizontal: 14,
   },
   connectionState: {
-    color: '#374151',
+    color: colors.inkSoft,
     fontWeight: '600',
   },
   floatingToggle: {
@@ -321,24 +321,14 @@ const styles = StyleSheet.create({
     bottom: 28,
   },
   cashButton: {
-    minHeight: 48,
-    minWidth: 104,
-    paddingHorizontal: 16,
-    borderRadius: 24,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 2,
-    shadowColor: '#000000',
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
+    ...buttons.base,
+    ...buttons.md,
+    ...buttons.secondary,
+    ...buttons.floating,
+    minWidth: 112,
   },
   cashLinkLabel: {
-    color: '#374151',
-    fontWeight: '600',
-    fontSize: 15,
+    ...buttonLabels.base,
+    ...buttonLabels.secondary,
   },
 });

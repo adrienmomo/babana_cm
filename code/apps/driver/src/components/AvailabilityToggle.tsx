@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { buttonLabels, buttons, cards, colors } from '../theme';
 import { ApiError, translateApiError } from '@babana/api-client';
 import type { http } from '@babana/contracts';
 import { apiClient } from '../auth';
@@ -126,83 +127,69 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  // Compact et doux : 48 dp de haut (cible tactile minimale, D20 -- le chauffeur porte des gants),
-  // surface claire plutôt qu'un aplat plein, état porté par une pastille ET un libellé.
+  // Compact et doux : pilule de 48 dp (cible tactile minimale, D20 -- le chauffeur porte des
+  // gants), même forme que tous les boutons de l'app ; état porté par une pastille ET un libellé.
   toggle: {
+    ...buttons.base,
+    ...buttons.md,
+    ...buttons.floating,
     minWidth: 128,
-    minHeight: 48,
-    borderRadius: 24,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
     paddingHorizontal: 16,
-    borderWidth: 1,
-    elevation: 2,
-    shadowColor: '#000000',
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
   },
-  toggleOnline: {
-    backgroundColor: '#ECFDF3',
-    borderColor: '#A7E3C0',
-  },
-  toggleOffline: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E7EB',
-  },
+  toggleOnline: buttons.brandSoft,
+  toggleOffline: buttons.secondary,
   dot: {
     width: 10,
     height: 10,
     borderRadius: 5,
   },
   dotOnline: {
-    backgroundColor: '#16A34A',
+    backgroundColor: colors.brand,
   },
   dotOffline: {
-    backgroundColor: '#9CA3AF',
+    backgroundColor: colors.subtle,
   },
-  toggleDisabled: {
-    opacity: 0.5,
-  },
-  togglePressed: {
-    opacity: 0.85,
-  },
+  toggleDisabled: buttons.disabled,
+  togglePressed: buttons.pressed,
   toggleLabel: {
-    color: '#374151',
-    fontSize: 15,
-    fontWeight: '600',
+    ...buttonLabels.base,
+    color: colors.inkSoft,
   },
   toggleLabelOnline: {
-    color: '#166534',
+    color: colors.brandText,
   },
+  // Messages sous la bascule : une carte douce, jamais du texte nu posé sur la carte.
   explanation: {
-    color: '#374151',
+    ...cards.floating,
+    color: colors.warningText,
+    backgroundColor: colors.warningSoft,
     textAlign: 'center',
     maxWidth: 260,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    overflow: 'hidden',
   },
   refusal: {
+    ...cards.floating,
+    backgroundColor: colors.dangerSoft,
     alignItems: 'center',
     gap: 8,
     maxWidth: 280,
+    padding: 12,
   },
   refusalText: {
-    color: '#B91C1C',
+    color: colors.dangerText,
     textAlign: 'center',
   },
   remittanceButton: {
-    minHeight: 56,
+    ...buttons.base,
+    ...buttons.md,
+    ...buttons.primary,
+    ...buttons.floating,
     minWidth: 200,
-    borderRadius: 8,
-    backgroundColor: '#0A7D3D',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 20,
   },
   remittanceButtonLabel: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 16,
+    ...buttonLabels.base,
+    ...buttonLabels.primary,
   },
 });

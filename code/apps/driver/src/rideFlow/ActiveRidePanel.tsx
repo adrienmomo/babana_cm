@@ -12,6 +12,7 @@ import { onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } fr
 import { formatDistance } from '../format';
 import { isWithinRadius } from './proximity';
 import type { ActiveRideParams } from '../navigation/types';
+import { buttonLabels, buttons, cards, colors } from '../theme';
 
 /**
  * Course en cours, côté chauffeur (L6-13, D12) -- un panneau posé sur la carte de Home, qui ne la
@@ -351,12 +352,18 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
             {tripSummary}
           </Text>
         ) : null}
-        <Text style={styles.pointText} numberOfLines={1} testID="active-ride-origin">
-          Client : {originLabel ?? '…'}
-        </Text>
-        <Text style={styles.pointText} numberOfLines={1} testID="active-ride-destination">
-          Arrivée : {destinationLabel ?? '…'}
-        </Text>
+        {/* Une adresse inconnue (géocodage indisponible) ne laisse pas de ligne vide « … » :
+            la carte montre déjà les points. */}
+        {originLabel ? (
+          <Text style={styles.pointText} numberOfLines={1} testID="active-ride-origin">
+            Client : {originLabel}
+          </Text>
+        ) : null}
+        {destinationLabel ? (
+          <Text style={styles.pointText} numberOfLines={1} testID="active-ride-destination">
+            Arrivée : {destinationLabel}
+          </Text>
+        ) : null}
         {errorMessage ? (
           <Text style={styles.error} testID="active-ride-error">
             {errorMessage}
@@ -381,9 +388,9 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
             accessibilityRole="button"
             accessibilityLabel="Je suis sur place"
             onPress={handleArrived}
-            style={({ pressed }) => [styles.primaryButton, pressed ? styles.pressed : null]}
+            style={({ pressed }) => [buttons.base, buttons.lg, buttons.primary, buttons.floating, pressed ? buttons.pressed : null]}
           >
-            <Text style={styles.primaryLabel}>Sur place</Text>
+            <Text style={[buttonLabels.lg, buttonLabels.primary]}>Sur place</Text>
           </Pressable>
         ) : null}
 
@@ -394,9 +401,9 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
             accessibilityLabel="Commencer la course"
             disabled={busy !== null}
             onPress={handleStart}
-            style={({ pressed }) => [styles.primaryButton, pressed ? styles.pressed : null]}
+            style={({ pressed }) => [buttons.base, buttons.lg, buttons.primary, buttons.floating, pressed ? buttons.pressed : null]}
           >
-            <Text style={styles.primaryLabel}>{busy === 'starting' ? 'Démarrage…' : 'Commencer la course'}</Text>
+            <Text style={[buttonLabels.lg, buttonLabels.primary]}>{busy === 'starting' ? 'Démarrage…' : 'Commencer la course'}</Text>
           </Pressable>
         ) : null}
 
@@ -423,9 +430,9 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
                 disabled={busy !== null}
                 delayLongPress={HOLD_TO_FINISH_MS}
                 onLongPress={handleFinish}
-                style={({ pressed }) => [styles.finishButton, pressed ? styles.finishButtonHeld : null]}
+                style={({ pressed }) => [buttons.base, buttons.lg, buttons.primary, buttons.floating, styles.finishButton, pressed ? styles.finishButtonHeld : null]}
               >
-                <Text style={styles.finishLabel}>{busy === 'finishing' ? 'Fin de course…' : 'Terminer la course'}</Text>
+                <Text style={[buttonLabels.lg, buttonLabels.primary]}>{busy === 'finishing' ? 'Fin de course…' : 'Terminer la course'}</Text>
               </Pressable>
             </View>
           )
@@ -434,14 +441,6 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
     </View>
   );
 }
-
-const shadow = {
-  elevation: 3,
-  shadowColor: '#000000',
-  shadowOpacity: 0.14,
-  shadowRadius: 8,
-  shadowOffset: { width: 0, height: 2 },
-} as const;
 
 const styles = StyleSheet.create({
   overlay: {
@@ -452,39 +451,38 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   card: {
+    ...cards.floating,
     position: 'absolute',
     top: 12,
     left: 16,
     right: 16,
     gap: 3,
-    padding: 14,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.96)',
-    ...shadow,
+    padding: 16,
   },
   phaseTitle: {
     fontSize: 18,
     fontWeight: '700',
+    color: colors.ink,
   },
   summary: {
-    color: '#1D4ED8',
+    color: colors.route,
     fontWeight: '600',
   },
   pointText: {
-    color: '#374151',
+    color: colors.inkSoft,
   },
   error: {
-    color: '#DC2626',
+    color: colors.dangerText,
   },
   emergencyCorner: {
     position: 'absolute',
     left: 16,
-    bottom: 112,
+    bottom: 104,
   },
   sideActions: {
     position: 'absolute',
     right: 16,
-    bottom: 112,
+    bottom: 104,
     gap: 8,
     alignItems: 'flex-end',
   },
@@ -494,75 +492,47 @@ const styles = StyleSheet.create({
     right: 16,
     bottom: 28,
   },
-  primaryButton: {
-    minHeight: 60,
-    borderRadius: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0A7D3D',
-    ...shadow,
-  },
-  primaryLabel: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
-  },
   finishZone: {
-    gap: 4,
+    gap: 6,
     alignItems: 'center',
   },
   finishHint: {
-    color: '#374151',
+    ...cards.floating,
+    color: colors.inkSoft,
     fontSize: 13,
-    backgroundColor: 'rgba(255, 255, 255, 0.85)',
-    borderRadius: 10,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 2,
     overflow: 'hidden',
   },
   finishButton: {
-    minHeight: 60,
     alignSelf: 'stretch',
-    borderRadius: 30,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#DC2626',
-    backgroundColor: '#FFFFFF',
-    ...shadow,
   },
+  // Maintien en cours : le vert fonce -- un retour visible que le geste est bien pris en compte.
   finishButtonHeld: {
-    backgroundColor: '#FEE2E2',
-  },
-  finishLabel: {
-    color: '#DC2626',
-    fontSize: 18,
-    fontWeight: '700',
+    backgroundColor: colors.brandPressed,
+    borderColor: colors.brandPressed,
   },
   finishQueued: {
+    ...cards.floating,
     gap: 8,
     alignItems: 'center',
-    backgroundColor: '#FEF3C7',
-    borderRadius: 16,
+    backgroundColor: colors.warningSoft,
     padding: 14,
-    ...shadow,
   },
   finishQueuedText: {
-    color: '#92400E',
+    color: colors.warningText,
     textAlign: 'center',
   },
   finishQueuedRetry: {
-    color: '#92400E',
+    color: colors.warningText,
     fontWeight: '700',
     textDecorationLine: 'underline',
   },
-  pressed: {
-    opacity: 0.85,
-  },
   endedBanner: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: colors.warningSoft,
   },
   endedText: {
-    color: '#92400E',
+    color: colors.warningText,
     fontSize: 16,
     textAlign: 'center',
   },

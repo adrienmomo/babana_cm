@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { colors } from '../../theme';
 import { Button } from '@babana/ui';
 
 /**
@@ -68,8 +69,8 @@ export function RejectedScreen({ status, reason, onResubmit }: RejectedScreenPro
 const styles = StyleSheet.create({
   container: { flex: 1, gap: 16, padding: 24, justifyContent: 'center' },
   title: { fontSize: 22, fontWeight: '700' },
-  reasonBox: { gap: 6, padding: 16, borderRadius: 8, borderWidth: 1, borderColor: '#FCA5A5', backgroundColor: '#FEF2F2' },
-  reasonLabel: { fontSize: 12, fontWeight: '700', color: '#B91C1C', textTransform: 'uppercase' },
-  reason: { color: '#7F1D1D', fontSize: 16 },
-  help: { color: '#4B5563' },
+  reasonBox: { gap: 6, padding: 16, borderRadius: 8, borderWidth: 1, borderColor: colors.dangerBorder, backgroundColor: colors.dangerSoft },
+  reasonLabel: { fontSize: 12, fontWeight: '700', color: colors.dangerText, textTransform: 'uppercase' },
+  reason: { color: colors.dangerText, fontSize: 16 },
+  help: { color: colors.inkSoft },
 });

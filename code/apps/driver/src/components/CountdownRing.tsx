@@ -1,5 +1,6 @@
 import React from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { colors } from '../theme';
 
 /**
  * Compte à rebours visuel (L6-12) -- purement indicatif, comme le rappelle l'écran appelant : le
@@ -31,24 +32,26 @@ export function CountdownRing({ remainingSeconds }: CountdownRingProps) {
 
 const styles = StyleSheet.create({
   ring: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    borderWidth: 6,
-    borderColor: '#0A7D3D',
+    width: 84,
+    height: 84,
+    borderRadius: 42,
+    borderWidth: 5,
+    borderColor: colors.brand,
+    backgroundColor: colors.brandSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
   ringUrgent: {
-    borderColor: '#DC2626',
+    borderColor: colors.danger,
+    backgroundColor: colors.dangerSoft,
   },
   value: {
-    fontSize: 32,
+    fontSize: 28,
     fontWeight: '700',
-    color: '#111827',
+    color: colors.ink,
   },
   unit: {
     fontSize: 12,
-    color: '#6B7280',
+    color: colors.muted,
   },
 });

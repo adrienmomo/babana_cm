@@ -35,20 +35,24 @@ export function Button({ label, onPress, disabled = false, variant = 'primary', 
 }
 
 const styles = StyleSheet.create({
+  // Pilule douce, même forme et même palette que les boutons de l'app Chauffeur
+  // (apps/driver/src/theme.ts) : 48 dp minimum (D20), bordure fine, vert adouci.
   base: {
+    minHeight: 48,
     paddingVertical: 12,
     paddingHorizontal: 20,
-    borderRadius: 8,
+    borderRadius: 999,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
   primary: {
-    backgroundColor: '#0A7D3D',
+    backgroundColor: '#1A9E5C',
+    borderColor: '#1A9E5C',
   },
   secondary: {
-    backgroundColor: 'transparent',
-    borderWidth: 1,
-    borderColor: '#0A7D3D',
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E5E7EB',
   },
   disabled: {
     opacity: 0.5,
@@ -58,9 +62,10 @@ const styles = StyleSheet.create({
   },
   label: {
     color: '#FFFFFF',
+    fontSize: 16,
     fontWeight: '600',
   },
   labelSecondary: {
-    color: '#0A7D3D',
+    color: '#1F2937',
   },
 });

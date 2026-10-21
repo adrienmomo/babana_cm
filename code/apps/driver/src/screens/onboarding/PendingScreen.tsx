@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
+import { colors } from '../../theme';
 import { Button } from '@babana/ui';
 import { DOCUMENT_LABELS, type DocumentSlot, type RequiredDocumentType } from './state';
 
@@ -86,9 +87,9 @@ function statusLabel(slot: DocumentSlot): string {
 const styles = StyleSheet.create({
   container: { flex: 1, gap: 16, padding: 24 },
   title: { fontSize: 22, fontWeight: '700' },
-  intro: { color: '#4B5563' },
-  row: { gap: 6, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB' },
+  intro: { color: colors.inkSoft },
+  row: { gap: 6, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.border },
   rowTitle: { fontSize: 16, fontWeight: '600' },
-  status: { color: '#374151' },
-  reason: { color: '#B91C1C' },
+  status: { color: colors.inkSoft },
+  reason: { color: colors.dangerText },
 });

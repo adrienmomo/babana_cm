@@ -134,8 +134,8 @@ const styles = StyleSheet.create({
   label: { textAlign: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   prefix: { fontSize: 18, fontWeight: '600' },
-  input: { borderWidth: 1, borderColor: '#9CA3AF', borderRadius: 8, padding: 12, fontSize: 18 },
+  input: { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 14, minHeight: 52, paddingHorizontal: 16, fontSize: 18 },
   grow: { flex: 1 },
   code: { textAlign: 'center', letterSpacing: 8, fontSize: 24 },
-  error: { color: '#B91C1C', textAlign: 'center' },
+  error: { color: '#C2363B', textAlign: 'center' },
 });

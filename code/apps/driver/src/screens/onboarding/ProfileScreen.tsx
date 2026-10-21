@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
+import { colors } from '../../theme';
 import { Button } from '@babana/ui';
 
 /**
@@ -56,7 +57,7 @@ export function ProfileScreen({ user, onContinue }: ProfileScreenProps) {
 const styles = StyleSheet.create({
   container: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24 },
   title: { fontSize: 22, fontWeight: '700' },
-  intro: { textAlign: 'center', color: '#4B5563' },
+  intro: { textAlign: 'center', color: colors.inkSoft },
   avatar: { width: 72, height: 72, borderRadius: 36 },
   name: { fontSize: 18, fontWeight: '600' },
 });

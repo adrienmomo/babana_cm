@@ -522,3 +522,18 @@ describe('ProposalPanel (L6-12)', () => {
     expect(texts(root)).toContain(formatMoney(1200));
   });
 });
+
+describe('adresses de départ et d’arrivée', () => {
+  it('sans adresse connue, aucune ligne vide « … » ne s’affiche', async () => {
+    const { root } = await renderProposal();
+    expect(root.root.findAllByProps({ testID: 'proposal-origin' })).toHaveLength(0);
+    expect(root.root.findAllByProps({ testID: 'proposal-destination' })).toHaveLength(0);
+  });
+
+  it('affichées dès que le géocodage les connaît', async () => {
+    mockReverseGeocode.mockImplementation(async (p) => (p === PARAMS.origin ? 'Rue Joffre, Akwa' : 'Bonatene'));
+    const { root } = await renderProposal();
+    expect(texts(root)).toContain('Rue Joffre, Akwa');
+    expect(texts(root)).toContain('Bonatene');
+  });
+});

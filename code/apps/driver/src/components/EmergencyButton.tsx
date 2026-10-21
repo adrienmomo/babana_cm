@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { buttonLabels, buttons, colors } from '../theme';
 import { ApiError, translateApiError, flushPendingIncidentTriggers, type PendingIncidentTrigger } from '@babana/api-client';
 import { apiClient } from '../auth';
 import { pendingIncidentQueue } from '../incidentQueue';
@@ -128,7 +129,16 @@ export function EmergencyButton({ rideId, getPosition }: EmergencyButtonProps) {
           (status === 'sent' || status === 'queued') ? styles.buttonSent : null,
         ]}
       >
-        <Text style={styles.buttonLabel} testID="emergency-button-label">{label}</Text>
+        <Text
+          style={[
+            styles.buttonLabel,
+            status === 'holding' ? styles.buttonLabelHolding : null,
+            status === 'sent' || status === 'queued' ? styles.buttonLabelSent : null,
+          ]}
+          testID="emergency-button-label"
+        >
+          {label}
+        </Text>
       </Pressable>
       {errorMessage ? (
         <Text style={styles.error} testID="emergency-error">
@@ -139,33 +149,40 @@ export function EmergencyButton({ rideId, getPosition }: EmergencyButtonProps) {
   );
 }
 
+// Teinte douce au repos (toujours lisible, jamais criarde) ; rouge plein pendant le maintien --
+// le geste se voit -- puis neutre une fois l'alerte partie.
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
     gap: 4,
   },
   button: {
-    minWidth: 96,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 24,
-    backgroundColor: '#DC2626',
-    alignItems: 'center',
-    justifyContent: 'center',
+    ...buttons.base,
+    ...buttons.md,
+    ...buttons.dangerSoft,
+    ...buttons.floating,
+    minWidth: 112,
   },
   buttonHolding: {
-    backgroundColor: '#991B1B',
+    backgroundColor: colors.danger,
+    borderColor: colors.danger,
   },
   buttonSent: {
-    backgroundColor: '#6B7280',
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
   },
   buttonLabel: {
+    ...buttonLabels.base,
+    color: colors.dangerText,
+  },
+  buttonLabelHolding: {
     color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 12,
+  },
+  buttonLabelSent: {
+    color: colors.muted,
   },
   error: {
-    color: '#DC2626',
+    color: colors.dangerText,
     fontSize: 11,
     maxWidth: 160,
     textAlign: 'center',

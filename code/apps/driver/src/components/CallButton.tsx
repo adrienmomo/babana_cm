@@ -1,5 +1,6 @@
 import React from 'react';
-import { Linking, Pressable, StyleSheet, Text } from 'react-native';
+import { Linking, Pressable, Text } from 'react-native';
+import { buttonLabels, buttons } from '../theme';
 
 /**
  * Bouton d'appel du client (D42, L6-13) : « coordonnées du client accessibles pour l'appeler
@@ -27,29 +28,9 @@ export function CallButton({ clientPhoneNumber }: CallButtonProps) {
           // Aucun composeur disponible -- rien de plus à faire ici (même filet que côté Client).
         });
       }}
-      style={({ pressed }) => [styles.button, pressed ? styles.pressed : null]}
+      style={({ pressed }) => [buttons.base, buttons.md, buttons.secondary, buttons.floating, pressed ? buttons.pressed : null]}
     >
-      <Text style={styles.label}>Appeler le client</Text>
+      <Text style={[buttonLabels.base, buttonLabels.brand]}>Appeler le client</Text>
     </Pressable>
   );
 }
-
-const styles = StyleSheet.create({
-  button: {
-    minHeight: 56,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    backgroundColor: '#0A7D3D',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  pressed: {
-    opacity: 0.85,
-  },
-  label: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-    fontSize: 14,
-  },
-});

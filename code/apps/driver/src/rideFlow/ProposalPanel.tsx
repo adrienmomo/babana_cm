@@ -10,6 +10,7 @@ import { alertIncomingProposal, dismissProposalAlert } from '../proposalAlert';
 import { onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { markProposalHandled, forgetProposal } from '../proposalDedup';
 import type { ActiveRideParams, ProposalParams } from '../navigation/types';
+import { buttonLabels, buttons, cards, colors } from '../theme';
 
 /**
  * Réception de proposition (L6-12) : un panneau posé sur la carte de Home (`rideFlow/`) -- la
@@ -360,14 +361,21 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
             <Text style={styles.amount} testID="proposal-amount">
               {formatMoney(details.amount)}
             </Text>
-            <View style={styles.pointsSummary}>
-              <Text style={styles.pointText} numberOfLines={1} testID="proposal-origin">
-                Départ : {originLabel ?? '…'}
-              </Text>
-              <Text style={styles.pointText} numberOfLines={1} testID="proposal-destination">
-                Arrivée : {destinationLabel ?? '…'}
-              </Text>
-            </View>
+            {/* Adresse inconnue (géocodage indisponible) : pas de ligne vide « … ». */}
+            {originLabel || destinationLabel ? (
+              <View style={styles.pointsSummary}>
+                {originLabel ? (
+                  <Text style={styles.pointText} numberOfLines={1} testID="proposal-origin">
+                    Départ : {originLabel}
+                  </Text>
+                ) : null}
+                {destinationLabel ? (
+                  <Text style={styles.pointText} numberOfLines={1} testID="proposal-destination">
+                    Arrivée : {destinationLabel}
+                  </Text>
+                ) : null}
+              </View>
+            ) : null}
             <Text style={styles.distance} testID="proposal-distance">
               Course : {formatDistance(details.distanceMeters)}
             </Text>
@@ -420,9 +428,9 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
             accessibilityLabel="Refuser la proposition"
             disabled={decision !== 'idle'}
             onPress={handleReject}
-            style={({ pressed }) => [styles.actionButton, styles.rejectButton, styles.leftCorner, pressed ? styles.pressed : null]}
+            style={({ pressed }) => [buttons.base, buttons.lg, buttons.secondary, buttons.floating, styles.cornerButton, styles.leftCorner, pressed ? buttons.pressed : null]}
           >
-            <Text style={styles.rejectLabel}>Refuser</Text>
+            <Text style={[buttonLabels.lg, buttonLabels.secondary]}>Refuser</Text>
           </Pressable>
           <Pressable
             testID="proposal-accept"
@@ -430,23 +438,15 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
             accessibilityLabel="Accepter la proposition"
             disabled={decision !== 'idle'}
             onPress={handleAccept}
-            style={({ pressed }) => [styles.actionButton, styles.acceptButton, styles.rightCorner, pressed ? styles.pressed : null]}
+            style={({ pressed }) => [buttons.base, buttons.lg, buttons.primary, buttons.floating, styles.cornerButton, styles.rightCorner, pressed ? buttons.pressed : null]}
           >
-            <Text style={styles.acceptLabel}>Accepter</Text>
+            <Text style={[buttonLabels.lg, buttonLabels.primary]}>Accepter</Text>
           </Pressable>
         </>
       ) : null}
     </View>
   );
 }
-
-const shadow = {
-  elevation: 3,
-  shadowColor: '#000000',
-  shadowOpacity: 0.14,
-  shadowRadius: 8,
-  shadowOffset: { width: 0, height: 2 },
-} as const;
 
 const styles = StyleSheet.create({
   overlay: {
@@ -457,6 +457,7 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   card: {
+    ...cards.floating,
     position: 'absolute',
     top: 12,
     left: 16,
@@ -464,48 +465,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     padding: 16,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.96)',
-    ...shadow,
   },
   title: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
-    color: '#6B7280',
+    color: colors.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   pointsSummary: {
     gap: 2,
     alignItems: 'center',
   },
   pointText: {
-    color: '#374151',
+    color: colors.inkSoft,
     maxWidth: 320,
   },
   amount: {
-    fontSize: 28,
-    fontWeight: '700',
+    fontSize: 30,
+    fontWeight: '800',
+    color: colors.ink,
   },
   distance: {
-    color: '#6B7280',
+    color: colors.muted,
   },
   approachDistance: {
-    color: '#0A7D3D',
+    color: colors.brandText,
     fontWeight: '600',
   },
   revalidating: {
-    color: '#6B7280',
+    color: colors.muted,
   },
   // D20 -- cibles tactiles larges, le chauffeur est sur sa moto, parfois avec des gants (L6-12).
-  actionButton: {
+  cornerButton: {
     position: 'absolute',
     bottom: 28,
-    minWidth: 140,
-    minHeight: 56,
-    borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 22,
-    ...shadow,
+    minWidth: 148,
   },
   leftCorner: {
     left: 16,
@@ -513,43 +508,22 @@ const styles = StyleSheet.create({
   rightCorner: {
     right: 16,
   },
-  acceptButton: {
-    backgroundColor: '#0A7D3D',
-  },
-  rejectButton: {
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#FCA5A5',
-  },
-  pressed: {
-    opacity: 0.85,
-  },
-  acceptLabel: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  rejectLabel: {
-    color: '#B91C1C',
-    fontSize: 17,
-    fontWeight: '700',
-  },
   pending: {
-    color: '#6B7280',
+    color: colors.muted,
   },
   resolutionBanner: {
     marginTop: 4,
-    backgroundColor: '#FEF3C7',
-    borderRadius: 10,
+    backgroundColor: colors.warningSoft,
+    borderRadius: 12,
     padding: 12,
     maxWidth: 320,
   },
   resolutionText: {
-    color: '#92400E',
+    color: colors.warningText,
     textAlign: 'center',
   },
   offlineBlockedText: {
-    color: '#92400E',
+    color: colors.warningText,
     textAlign: 'center',
   },
 });

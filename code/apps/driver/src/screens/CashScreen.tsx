@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { colors } from '../theme';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '@babana/ui';
 import type { http } from '@babana/contracts';
@@ -183,13 +184,13 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   label: {
-    color: '#6B7280',
+    color: colors.muted,
     fontSize: 13,
   },
   amount: {
     fontSize: 28,
     fontWeight: '800',
-    color: '#111827',
+    color: colors.ink,
   },
   marginBlock: {
     gap: 4,
@@ -197,20 +198,20 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   marginSafe: {
-    backgroundColor: '#ECFDF5',
+    backgroundColor: colors.brandSoft,
   },
   marginWarningLevel: {
-    backgroundColor: '#FFFBEB',
+    backgroundColor: colors.warningSoft,
   },
   marginDanger: {
-    backgroundColor: '#FEF2F2',
+    backgroundColor: colors.dangerSoft,
   },
   marginHint: {
-    color: '#6B7280',
+    color: colors.muted,
     fontSize: 12,
   },
   marginWarning: {
-    color: '#B91C1C',
+    color: colors.dangerText,
     fontWeight: '600',
     marginTop: 4,
   },
@@ -222,7 +223,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   historyEmpty: {
-    color: '#6B7280',
+    color: colors.muted,
   },
   historyRow: {
     flexDirection: 'row',
@@ -231,23 +232,23 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: colors.border,
   },
   historyDate: {
-    color: '#374151',
+    color: colors.inkSoft,
   },
   historyAmount: {
     fontWeight: '700',
-    color: '#111827',
+    color: colors.ink,
   },
   historyStatus: {
-    color: '#374151',
+    color: colors.inkSoft,
   },
   historySupervisor: {
-    color: '#6B7280',
+    color: colors.muted,
   },
   error: {
-    color: '#B91C1C',
+    color: colors.dangerText,
   },
 });
 

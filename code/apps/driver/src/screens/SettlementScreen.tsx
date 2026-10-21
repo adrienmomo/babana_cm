@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { buttonLabels, buttons, colors, radius } from '../theme';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ApiError, translateApiError } from '@babana/api-client';
 import type { http } from '@babana/contracts';
@@ -189,14 +190,14 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   amountLabel: {
-    color: '#6B7280',
+    color: colors.muted,
   },
   amount: {
     fontSize: 34,
     fontWeight: '800',
   },
   amountHint: {
-    color: '#6B7280',
+    color: colors.muted,
     fontSize: 12,
     textAlign: 'center',
   },
@@ -205,50 +206,43 @@ const styles = StyleSheet.create({
   },
   resultLine: {
     fontSize: 16,
-    color: '#111827',
+    color: colors.ink,
   },
   capBanner: {
     gap: 10,
-    backgroundColor: '#FEF3C7',
-    borderRadius: 8,
+    backgroundColor: colors.warningSoft,
+    borderRadius: radius.field,
     padding: 14,
   },
   capText: {
-    color: '#92400E',
+    color: colors.warningText,
   },
   pending: {
     gap: 12,
   },
   pendingText: {
-    color: '#92400E',
+    color: colors.warningText,
   },
   error: {
-    color: '#DC2626',
+    color: colors.dangerText,
   },
   primaryButton: {
-    minHeight: 64,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0A7D3D',
+    ...buttons.base,
+    ...buttons.lg,
+    ...buttons.primary,
   },
   primaryLabel: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
+    ...buttonLabels.lg,
+    ...buttonLabels.primary,
   },
   secondaryButton: {
-    minHeight: 52,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#92400E',
+    ...buttons.base,
+    ...buttons.md,
+    ...buttons.secondary,
   },
   secondaryLabel: {
-    color: '#92400E',
-    fontSize: 16,
-    fontWeight: '700',
+    ...buttonLabels.base,
+    ...buttonLabels.secondary,
   },
   pressed: {
     opacity: 0.85,

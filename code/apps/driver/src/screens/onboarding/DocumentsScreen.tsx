@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { colors } from '../../theme';
 import { Button } from '@babana/ui';
 import { ApiError, translateApiError, type DriverDocumentUploader } from '@babana/api-client';
 import {
@@ -252,13 +253,13 @@ function statusLabel(slot: DocumentSlot): string {
 const styles = StyleSheet.create({
   container: { flex: 1, gap: 16, padding: 24 },
   title: { fontSize: 22, fontWeight: '700' },
-  intro: { color: '#4B5563' },
-  row: { gap: 8, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#E5E7EB' },
-  rowHighlighted: { borderColor: '#0A7D3D', borderWidth: 2 },
+  intro: { color: colors.inkSoft },
+  row: { gap: 8, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.border },
+  rowHighlighted: { borderColor: colors.brand, borderWidth: 2 },
   rowTitle: { fontSize: 16, fontWeight: '600' },
-  status: { color: '#374151' },
-  reason: { color: '#B91C1C' },
-  input: { borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 6, padding: 8 },
-  error: { color: '#B91C1C' },
+  status: { color: colors.inkSoft },
+  reason: { color: colors.dangerText },
+  input: { borderWidth: 1, borderColor: colors.border, borderRadius: 6, padding: 8 },
+  error: { color: colors.dangerText },
   actions: { flexDirection: 'row', gap: 8 },
 });

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { buttonLabels, buttons, colors, radius } from '../theme';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ApiError, translateApiError } from '@babana/api-client';
 import { Button } from '@babana/ui';
@@ -139,16 +140,16 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   intro: {
-    color: '#4B5563',
+    color: colors.inkSoft,
   },
   label: {
-    color: '#6B7280',
+    color: colors.muted,
     fontSize: 13,
   },
   input: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: radius.field,
     minHeight: 56,
     paddingHorizontal: 16,
     fontSize: 20,
@@ -159,25 +160,22 @@ const styles = StyleSheet.create({
   resultLine: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#111827',
+    color: colors.ink,
   },
   resultHint: {
-    color: '#6B7280',
+    color: colors.muted,
   },
   error: {
-    color: '#DC2626',
+    color: colors.dangerText,
   },
   primaryButton: {
-    minHeight: 64,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#0A7D3D',
+    ...buttons.base,
+    ...buttons.lg,
+    ...buttons.primary,
   },
   primaryLabel: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
+    ...buttonLabels.lg,
+    ...buttonLabels.primary,
   },
   disabled: {
     opacity: 0.5,

@@ -490,3 +490,18 @@ describe('itinéraire -- calculé par le chauffeur, affiché à l’identique ch
     expect(mockSend).toHaveBeenCalledWith('route.share', expect.objectContaining({ rideId: RIDE_ID, phase: 'approach' }));
   });
 });
+
+describe('adresses du client et de l’arrivée', () => {
+  it('affichées dès que le géocodage les connaît', async () => {
+    mockReverseGeocode.mockImplementation(async (p: unknown) => (p === ORIGIN ? 'Rue Joffre, Akwa' : 'Bonatene'));
+    const { root } = await renderActiveRide();
+    expect(texts(root)).toContain('Rue Joffre, Akwa');
+    expect(texts(root)).toContain('Bonatene');
+  });
+
+  it('sans adresse connue, aucune ligne vide « … » ne s’affiche', async () => {
+    const { root } = await renderActiveRide();
+    expect(has(root, 'active-ride-origin')).toBe(false);
+    expect(has(root, 'active-ride-destination')).toBe(false);
+  });
+});
