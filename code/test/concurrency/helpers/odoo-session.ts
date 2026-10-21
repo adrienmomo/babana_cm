@@ -42,6 +42,16 @@ function env(name: string, fallback?: string): string {
   return value;
 }
 
+/**
+ * Un code OTP à coup sûr FAUX. Le code envoyé est tiré au hasard, sauf en développement où
+ * `OTP_DEV_FIXED_CODE` (infra/env/.env, fournisseur SMS « console » seulement) l'impose -- un
+ * test qui supposerait « 000000 est faux » échouerait alors sur la pile de développement.
+ */
+export function otpCodeNeverIssued(): string {
+  const fixed = env('OTP_DEV_FIXED_CODE', '');
+  return fixed === '000000' ? '111111' : '000000';
+}
+
 // Ports publiés directement par infra/compose.yaml -- pas par Caddy (TLS auto-signé pour
 // api.localhost, inutile pour un test qui parle au conteneur odoo directement). Même chemin
 // d'accès que celui documenté par `make up` pour Odoo lui-même (http://localhost:8069).

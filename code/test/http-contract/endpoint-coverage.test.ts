@@ -30,6 +30,7 @@ import {
   mintGoogleToken,
   approveDriver,
   callInternalEndpoint,
+  otpCodeNeverIssued,
 } from '../concurrency/helpers/odoo-session';
 import { bringDriverOnline, makeDriverVisibleToClient } from './helpers/realtime-ws';
 
@@ -153,9 +154,10 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     const { verificationId } = (await anonymousClient().request('authOtpRequest', {
       body: { phoneNumber: randomCameroonNumber(), role: 'client' },
     })) as http.OtpRequestResponse;
-    // Le code envoyé est tiré au hasard : 000000 est faux avec une probabilité de 1 - 1e-6.
+    // Un code qui n'est jamais celui envoyé -- ni le code tiré au hasard (probabilité 1e-6), ni le
+    // code fixe de développement s'il est posé (otpCodeNeverIssued).
     await assert.rejects(
-      anonymousClient().request('authOtpVerify', { body: { verificationId, code: '000000' } }),
+      anonymousClient().request('authOtpVerify', { body: { verificationId, code: otpCodeNeverIssued() } }),
       (error: unknown) => error instanceof ApiError && error.code === 'OTP_INVALID'
     );
   },

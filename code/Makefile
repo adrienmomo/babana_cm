@@ -55,6 +55,13 @@ BABANA_MAP_TILE_URL ?= https://tile.openstreetmap.org/{z}/{x}/{y}.png
 # Itinéraires de l'app Chauffeur (format OSRM). Serveur de démonstration public : développement
 # seulement, usage léger -- la production pose le service de routage retenu.
 BABANA_ROUTING_URL ?= https://router.project-osrm.org
+# Réglages facultatifs du déroulé de course de l'app Chauffeur (apps/driver/config.ts) : vides par
+# défaut, l'app applique alors ses valeurs par défaut documentées (150 m, 15 s, 80 m, 2 min).
+BABANA_ARRIVAL_RADIUS_METERS ?=
+BABANA_ROUTE_RETRY_COOLDOWN_MS ?=
+BABANA_ROUTE_DEVIATION_METERS ?=
+BABANA_ROUTE_REFRESH_MS ?=
+DRIVER_RIDE_FLOW_ENV = BABANA_ARRIVAL_RADIUS_METERS="$(BABANA_ARRIVAL_RADIUS_METERS)" BABANA_ROUTE_RETRY_COOLDOWN_MS="$(BABANA_ROUTE_RETRY_COOLDOWN_MS)" BABANA_ROUTE_DEVIATION_METERS="$(BABANA_ROUTE_DEVIATION_METERS)" BABANA_ROUTE_REFRESH_MS="$(BABANA_ROUTE_REFRESH_MS)"
 BABANA_REALTIME_WS_URL ?= wss://api.localhost/rt/ws
 
 client:          ## Démarre l'app Client (bundler React Native)
@@ -67,10 +74,10 @@ client-web:      ## Construit le bundle web du Client dans apps/client/dist-web 
 	BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run build:web -w @babana/client
 
 driver:          ## Démarre l'app Chauffeur
-	BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_ROUTING_URL="$(BABANA_ROUTING_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/driver  -- --port 8083 --reset-cache
+	$(DRIVER_RIDE_FLOW_ENV) BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_ROUTING_URL="$(BABANA_ROUTING_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/driver  -- --port 8083 --reset-cache
 
 driver-app:          ## Démarre l'app Chauffeur (bundler React Native et emulateur)
-	BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_ROUTING_URL="$(BABANA_ROUTING_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run android -w @babana/driver -- --port 8083
+	$(DRIVER_RIDE_FLOW_ENV) BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_ROUTING_URL="$(BABANA_ROUTING_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run android -w @babana/driver -- --port 8083
 
 test:            ## Tests de tous les paquets et services, plus la suite Odoo
 	# La suite Odoo (module babana, jamais installé par `make up` seul) vient AVANT `npm test` :
