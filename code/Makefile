@@ -91,6 +91,7 @@ test:            ## Tests de tous les paquets et services, plus la suite Odoo
 	# production (infra/production/deploy.sh n'appelle jamais cette cible).
 	printf '%s\n' \
 		'env["ir.config_parameter"].sudo().set_param("babana.driver_candidacy_rate_limit_max", "1000")' \
+		'env["ir.config_parameter"].sudo().set_param("babana.otp_requests_per_ip_hour", "100000")' \
 		'env.cr.commit()' \
 		| $(COMPOSE) exec -T odoo sh -c 'odoo shell -d babana --no-http --db_host="$$HOST" --db_user="$$USER" --db_password="$$PASSWORD"'
 	npm test

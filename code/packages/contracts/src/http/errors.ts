@@ -31,6 +31,8 @@ export const ErrorCode = z.enum([
   'PHONE_NOT_VERIFIED',
   'OTP_INVALID',
   'OTP_EXPIRED',
+  // La passerelle SMS n'a pas pu envoyer le code (compte refusé, crédit épuisé, panne).
+  'SMS_UNAVAILABLE',
 
   // Estimation
   'QUOTE_EXPIRED',
@@ -91,6 +93,7 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
   PHONE_NOT_VERIFIED: 403,
   OTP_INVALID: 400,
   OTP_EXPIRED: 410,
+  SMS_UNAVAILABLE: 503,
 
   QUOTE_EXPIRED: 410,
   QUOTE_NOT_FOUND: 404,
@@ -138,7 +141,8 @@ export const ERROR_DESCRIPTION: Record<ErrorCode, string> = {
   PHONE_ALREADY_VERIFIED: "Un numéro est déjà rattaché et vérifié pour ce compte ; un seul OTP dans la vie du compte (01-architecture.md §5).",
   PHONE_NOT_VERIFIED: "Cette action nécessite un numéro de téléphone vérifié.",
   OTP_INVALID: "Le code OTP fourni ne correspond pas à celui envoyé.",
-  OTP_EXPIRED: "Le code OTP a expiré ; relancer /phone/verify/start.",
+  OTP_EXPIRED: "Le code OTP a expiré, été annulé (trop d'essais, nouvelle demande) ou est inconnu ; relancer /auth/otp/request.",
+  SMS_UNAVAILABLE: "La passerelle SMS n'a pas pu envoyer le code ; réessayer plus tard.",
 
   QUOTE_EXPIRED: "L'estimation a dépassé sa date d'expiration ; en redemander une.",
   QUOTE_NOT_FOUND: "Aucune estimation active pour cet identifiant.",

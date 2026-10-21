@@ -96,6 +96,8 @@ services:
       TB_SMS_API_URL: ${TB_SMS_API_URL:-}
       TB_SMS_API_KEY: ${TB_SMS_API_KEY:-}
       TB_SMS_TIMEOUT: ${TB_SMS_TIMEOUT:-}
+      # Développement seulement : code OTP imposé, honoré uniquement avec SMS_PROVIDER=console.
+      OTP_DEV_FIXED_CODE: ${OTP_DEV_FIXED_CODE:-}
     volumes:
       - ../services/odoo/addons:/mnt/extra-addons
       - ../services/odoo/config/odoo.conf:/etc/odoo/odoo.conf:ro

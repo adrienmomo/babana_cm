@@ -57,8 +57,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: '#111827',
   },
+  // fontSize 1, pas 0 : Android (RN 0.86) lève « FontSize should be a positive value » sur une
+  // taille nulle, et plante l'app dès que la connexion réussit. La hauteur nulle masque déjà.
   hidden: {
     height: 0,
-    fontSize: 0,
+    fontSize: 1,
   },
 });

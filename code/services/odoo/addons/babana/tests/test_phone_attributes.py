@@ -40,16 +40,14 @@ class TestPhoneAttributes(TransactionCase):
         driver.invalidate_recordset()
         self.assertTrue(driver.phone_verified)
 
-    def test_verification_row_holds_hash_not_code_and_cascades(self):
-        partner = self._partner("A")
+    def test_verification_row_defaults(self):
         row = self.env["babana.phone.verification"].create(
             {
-                "partner_id": partner.id,
                 "phone": "+237670000004",
-                "code_hash": "pbkdf2:deadbeef",
+                "role": "client",
+                "code_hash": "0" * 64,
                 "expires_at": "2099-01-01 00:00:00",
             }
         )
-        self.assertEqual(row.attempts, 0)
-        partner.unlink()
-        self.assertFalse(row.exists())
+        self.assertEqual((row.attempts, row.state), (0, "pending"))
+        self.assertTrue(row.public_id)

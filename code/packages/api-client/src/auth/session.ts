@@ -71,6 +71,22 @@ export class AuthClient {
     return this.state;
   }
 
+  /** Demande l'envoi d'un code par SMS (`POST /auth/otp/request`). Renvoie l'identifiant de la
+   * demande, à représenter avec le code. */
+  async requestOtp(phoneNumber: string, role: 'client' | 'driver'): Promise<http.OtpRequestResponse> {
+    return (await this.config.httpClient.request('authOtpRequest', {
+      body: { phoneNumber, role } satisfies http.OtpRequestRequest,
+    })) as http.OtpRequestResponse;
+  }
+
+  /** Échange le code reçu par SMS contre une session (`POST /auth/otp/verify`) et l'adopte. */
+  async verifyOtp(verificationId: string, code: string): Promise<AuthState> {
+    const session = (await this.config.httpClient.request('authOtpVerify', {
+      body: { verificationId, code } satisfies http.OtpVerifyRequest,
+    })) as http.OtpVerifyResponse;
+    return this.applySession(session);
+  }
+
   /** Adopte une session émise par le serveur : stockage sécurisé, puis état en mémoire. */
   async establishSession(session: http.AuthSession): Promise<AuthState> {
     return this.applySession(session);

@@ -32,6 +32,7 @@ SMS_PROVIDER_ENV = "SMS_PROVIDER"
 TB_SMS_API_URL_ENV = "TB_SMS_API_URL"
 TB_SMS_API_KEY_ENV = "TB_SMS_API_KEY"
 TB_SMS_TIMEOUT_ENV = "TB_SMS_TIMEOUT"
+OTP_DEV_FIXED_CODE_ENV = "OTP_DEV_FIXED_CODE"
 
 # Valeurs « de contrat » de l'API Tidjani & Brothers (pas des réglages métier) : plafond de
 # destinataires par requête, débit maximal par clé, délais de reprise sur 429/503.
@@ -340,3 +341,22 @@ def reset_sms_provider_cache() -> None:
 
 def provider_is_simulated() -> bool:
     return _provider_name() == "console"
+
+
+def dev_fixed_code() -> str | None:
+    """Code OTP imposé pour le développement (`OTP_DEV_FIXED_CODE`, ex. 000000), ou None.
+
+    Honoré UNIQUEMENT avec le simulateur (`SMS_PROVIDER=console`) : avec une vraie passerelle il
+    est ignoré, quoi qu'il contienne -- une variable oubliée en production ne peut donc jamais
+    ouvrir un compte avec un code connu. Le simulateur n'est jamais actif en production
+    (`provider_is_simulated`, deploy.sh)."""
+    value = os.environ.get(OTP_DEV_FIXED_CODE_ENV, "")
+    if not value:
+        return None
+    if not provider_is_simulated():
+        _logger.warning("%s ignoré : SMS_PROVIDER n'est pas 'console'", OTP_DEV_FIXED_CODE_ENV)
+        return None
+    if not re.fullmatch(r"\d{6}", value):
+        _logger.warning("%s ignoré : six chiffres attendus", OTP_DEV_FIXED_CODE_ENV)
+        return None
+    return value

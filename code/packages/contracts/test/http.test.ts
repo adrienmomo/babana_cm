@@ -65,10 +65,10 @@ describe('critère 4 — catalogue d\'erreurs exhaustif', () => {
   });
 });
 
-describe('authentification — seul /auth/google est public (spécification, littéralement)', () => {
-  test('un seul endpoint a requiresAuth = false', () => {
+describe('authentification — seuls les endpoints de connexion sont publics', () => {
+  test('seuls Google (transitoire) et OTP ont requiresAuth = false', () => {
     const publicEndpoints = Object.entries(HTTP_ENDPOINTS).filter(([, e]) => !e.requiresAuth);
-    assert.deepEqual(publicEndpoints.map(([name]) => name), ['authGoogle']);
+    assert.deepEqual(publicEndpoints.map(([name]) => name), ['authGoogle', 'authOtpRequest', 'authOtpVerify']);
   });
 });
 

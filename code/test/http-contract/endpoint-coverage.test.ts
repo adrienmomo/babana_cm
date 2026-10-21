@@ -23,7 +23,7 @@ import { http } from '@babana/contracts';
 // pensés pour le bundler Metro (React Native) -- Flow, pas TypeScript pur -- qu'esbuild (tsx)
 // ne sait pas transformer hors de ce contexte. Ce fichier n'a besoin que du client HTTP
 // générique ; aucun "exports" dans packages/api-client/package.json ne restreint ce sous-chemin.
-import { createHttpClient } from '@babana/api-client/dist/http';
+import { ApiError, createHttpClient } from '@babana/api-client/dist/http';
 import {
   ODOO_API_ROOT,
   ODOO_HTTP_ROOT,
@@ -57,6 +57,12 @@ function anonymousClient(): HttpClient {
 
 function clientFor(accessToken: string): HttpClient {
   return createHttpClient({ baseUrl: ODOO_HTTP_ROOT, fetchImpl: fetch, getAccessToken: () => accessToken });
+}
+
+/** Numéro camerounais aléatoire : la limite de demandes par numéro ne doit pas lier deux
+ * exécutions de la suite. */
+function randomCameroonNumber(): string {
+  return `+2376${String(Math.floor(Math.random() * 1e8)).padStart(8, '0')}`;
 }
 
 /** Sign-in réel à travers le vrai `@babana/api-client` (contrairement à
@@ -124,8 +130,6 @@ async function setupAssignedRide(label: string): Promise<ProposedRide> {
 // répondre 404 aujourd'hui, sans quoi ce fichier n'a pas été mis à jour avec le code).
 const NOT_YET_IMPLEMENTED: Partial<Record<EndpointName, string>> = {
   rateRide: 'babana.rating absent (L4-09, hors périmètre à ce jour -- controllers/ride.py en tête de fichier le documente déjà).',
-  phoneVerifyStart: "aucun controllers/phone.py -- endpoint jamais câblé côté Odoo (L1-xx, hors périmètre à ce jour).",
-  phoneVerifyConfirm: 'idem phoneVerifyStart.',
 };
 
 const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
@@ -133,6 +137,27 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     const session = await freshSession('client', 'auth-google');
     assert.equal(session.user.role, 'client');
     assert.equal(session.user.phoneVerified, false);
+  },
+
+  // Le code SMS n'est lisible que dans les journaux (simulateur `console`) : le parcours réussi
+  // est couvert par la suite Odoo (tests/test_otp_login.py, qui lit le code en processus). Ici,
+  // le contrat de fil des deux routes publiques : demande acceptée, puis mauvais code refusé.
+  authOtpRequest: async () => {
+    const response = (await anonymousClient().request('authOtpRequest', {
+      body: { phoneNumber: randomCameroonNumber(), role: 'client' },
+    })) as http.OtpRequestResponse;
+    http.OtpRequestResponseSchema.parse(response);
+  },
+
+  authOtpVerify: async () => {
+    const { verificationId } = (await anonymousClient().request('authOtpRequest', {
+      body: { phoneNumber: randomCameroonNumber(), role: 'client' },
+    })) as http.OtpRequestResponse;
+    // Le code envoyé est tiré au hasard : 000000 est faux avec une probabilité de 1 - 1e-6.
+    await assert.rejects(
+      anonymousClient().request('authOtpVerify', { body: { verificationId, code: '000000' } }),
+      (error: unknown) => error instanceof ApiError && error.code === 'OTP_INVALID'
+    );
   },
 
   authRefresh: async () => {

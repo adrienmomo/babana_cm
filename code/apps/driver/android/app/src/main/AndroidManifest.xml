@@ -10,6 +10,16 @@
          spécification l'interdit (trouvé au premier vrai build APK de ce module). -->
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- Position du chauffeur (L6-05, tracker.ts) : sans elles, Android refuse la demande
+         d'autorisation sans dialogue, l'app ne lit jamais le GPS, le chauffeur n'apparait chez
+         aucun client et ne recoit aucune proposition. L'arriere-plan est demande separement,
+         apres le premier plan (permissions.ts). -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Alerte de proposition et notification de suivi (Android 13 et plus). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <application
       android:name=".MainApplication"
       android:label="@string/app_name"

@@ -1,41 +1,41 @@
-import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import type { AuthState } from '@babana/api-client';
+import React, { useRef } from 'react';
+import { PhoneSignIn } from '@babana/ui';
+import { ApiError, translateApiError, type AuthState } from '@babana/api-client';
+import { authClient } from '../auth';
 
 /**
- * Écran de connexion -- emplacement de la connexion par numéro de téléphone et code SMS (OTP),
- * qui remplace Google Sign-In. Volontairement vide d'action tant que les endpoints OTP n'existent
- * pas : aucune connexion n'est possible depuis l'app dans cet état, et c'est attendu.
- *
- * `onSignedIn` reste dans le contrat de l'écran : le routage qui suit la connexion (client) est
- * décidé par l'appelant à partir de `session.user`, pas par cet écran.
+ * Connexion par numéro de téléphone et code SMS (OTP). Toute la logique -- envoi du code, échange
+ * contre le jeton applicatif, stockage sécurisé -- vit dans `@babana/api-client` et `../auth.ts` ;
+ * l'interface est `PhoneSignIn` (`@babana/ui`), partagée avec l'autre app. Cet écran relie les
+ * deux et ne décide de rien (invariant 3). Seul le rôle ('client') diffère d'une app à l'autre.
  */
 export interface SignInScreenProps {
+  /** Le routage qui suit est décidé par l'appelant à partir de `session.user` -- pas par cet
+   * écran. */
   onSignedIn: (session: AuthState) => void;
 }
 
-export function SignInScreen(_props: SignInScreenProps) {
-  return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Babana</Text>
-      <Text style={styles.notice}>La connexion par numéro de téléphone arrive bientôt.</Text>
-    </View>
-  );
+const GENERIC_ERROR = 'La connexion a échoué. Réessayez.';
+
+export function describeSignInError(cause: unknown): string {
+  return cause instanceof ApiError ? translateApiError(cause) : GENERIC_ERROR;
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 16,
-    padding: 24,
-  },
-  title: {
-    fontSize: 24,
-    fontWeight: '700',
-  },
-  notice: {
-    textAlign: 'center',
-  },
-});
+export function SignInScreen({ onSignedIn }: SignInScreenProps) {
+  const verificationId = useRef<string | null>(null);
+
+  return (
+    <PhoneSignIn
+      title="Babana"
+      describeError={describeSignInError}
+      requestCode={async (phoneNumber) => {
+        const response = await authClient.requestOtp(phoneNumber, 'client');
+        verificationId.current = response.verificationId;
+      }}
+      verifyCode={async (code) => {
+        if (!verificationId.current) throw new Error('aucune demande de code en cours');
+        onSignedIn(await authClient.verifyOtp(verificationId.current, code));
+      }}
+    />
+  );
+}

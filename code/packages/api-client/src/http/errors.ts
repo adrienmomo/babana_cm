@@ -46,6 +46,7 @@ export const USER_MESSAGES = {
   PHONE_NOT_VERIFIED: "Vous devez d'abord vérifier votre numéro de téléphone.",
   OTP_INVALID: 'Le code saisi est incorrect.',
   OTP_EXPIRED: 'Ce code a expiré. Demandez-en un nouveau.',
+  SMS_UNAVAILABLE: "Impossible d'envoyer le SMS pour le moment. Réessayez dans un instant.",
 
   QUOTE_EXPIRED: 'Cette estimation a expiré. Demandez-en une nouvelle.',
   QUOTE_NOT_FOUND: "Cette estimation n'est plus disponible.",

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 let mockState: 'offline' | 'connecting' | 'connected' = 'connected';
@@ -33,6 +33,16 @@ describe('ConnectionBanner (L6-16, critère 1)', () => {
       root = create(<ConnectionBanner />);
     });
     expect(label(root)).toMatch(/Connecté/);
+  });
+
+  test("connecté : le libellé caché n'a jamais une taille de police nulle (Android la refuse et plante l'app)", async () => {
+    mockState = 'connected';
+    let root!: ReactTestRenderer;
+    await act(async () => {
+      root = create(<ConnectionBanner />);
+    });
+    const style = StyleSheet.flatten(root.root.findByProps({ testID: 'connection-banner-label' }).props.style);
+    expect(style.fontSize).toBeGreaterThan(0);
   });
 
   test('dégradé (connecting) : bandeau visible, mentionne les actions en attente', async () => {

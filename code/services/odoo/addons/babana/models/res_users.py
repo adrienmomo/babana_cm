@@ -68,6 +68,54 @@ class ResUsers(models.Model):
             # bloqué, seule la prévention compte (L1-01, critère 10).
             self.env["babana.driver"]._check_candidacy_rate_limit(ip_address)
 
+        return self._babana_create_account(
+            login=f"google:{sub}",
+            name=name,
+            email=email,
+            role=role,
+            ip_address=ip_address,
+            user_vals={"google_sub": sub},
+            client_partner_vals={"babana_google_sub": sub},
+        )
+
+    @api.model
+    def _babana_find_or_create_from_phone(self, *, phone, role, ip_address=None):
+        """Retrouve le compte dont `phone` est le numéro vérifié, ou en crée un. Appelé
+        uniquement après une confirmation OTP réussie : le numéro est donc déjà vérifié, et il est
+        posé sur le partenaire dès la création (clients comme chauffeurs -- `res.users` crée
+        toujours son partenaire). Un compte existant garde son rôle d'origine."""
+        partner = self.env["res.partner"].sudo().search([("babana_phone", "=", phone)], limit=1)
+        if partner:
+            user = partner.user_ids[:1]
+            if user:
+                return user
+        if role == "driver":
+            self.env["babana.driver"]._check_candidacy_rate_limit(ip_address)
+        user = self._babana_create_account(
+            login=f"phone:{phone}",
+            name=phone,
+            email=False,
+            role=role,
+            ip_address=ip_address,
+        )
+        user.partner_id.sudo().write(
+            {
+                "babana_phone": phone,
+                "babana_phone_verified": True,
+                "babana_phone_verified_at": fields.Datetime.now(),
+            }
+        )
+        return user
+
+    @api.model
+    def _babana_create_account(
+        self, *, login, name, email, role, ip_address, user_vals=None, client_partner_vals=None
+    ):
+        """Création d'un compte babana, commune à tous les modes d'identification : seuls le
+        `login` et les champs d'identité (`user_vals` sur le compte, `client_partner_vals` sur le
+        partenaire d'un client) changent d'un mode à l'autre."""
+        user_vals = user_vals or {}
+        client_partner_vals = client_partner_vals or {}
         portal_group = self.env.ref("base.group_portal")
         # self.env.company résout via self.env.user.company_id -- vide sous auth='none', qui
         # lie la requête à uid=None (ir_http._auth_method_none). base.main_company est résolu
@@ -75,9 +123,9 @@ class ResUsers(models.Model):
         company = self.env.ref("base.main_company")
         vals = {
             "name": name or email or "Utilisateur babana",
-            "login": f"google:{sub}",
+            "login": login,
             "email": email,
-            "google_sub": sub,
+            **user_vals,
             "tz": self.env["ir.config_parameter"]
             .sudo()
             .get_param(DEFAULT_ACCOUNT_TZ_PARAM, DEFAULT_ACCOUNT_TZ_FALLBACK),
@@ -96,7 +144,7 @@ class ResUsers(models.Model):
             # client soit retrouvable depuis la facturation (account.move, L4-06) sans passer
             # par le compte de connexion.
             user.partner_id.sudo().write(
-                {"babana_is_customer": True, "babana_google_sub": sub}
+                {"babana_is_customer": True, **client_partner_vals}
             )
         elif role == "driver":
             # L1-03R2 (correction du 13 août -- amoa/questions/REPONSES-2026-08-13.md) : un

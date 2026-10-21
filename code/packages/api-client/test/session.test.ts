@@ -179,3 +179,38 @@ describe('withTransparentRefresh (critères 2 et 3)', () => {
     expect(refreshSpy).not.toHaveBeenCalled();
   });
 });
+
+describe('AuthClient.requestOtp / verifyOtp (connexion par SMS)', () => {
+  it('requestOtp appelle authOtpRequest avec le numéro et le rôle', async () => {
+    const request = jest.fn().mockResolvedValue({ verificationId: 'v-1', expiresIn: 300 });
+    const client = new AuthClient({ httpClient: { request }, storage: fakeStorage() });
+
+    const response = await client.requestOtp('+237691234567', 'driver');
+
+    expect(request).toHaveBeenCalledWith('authOtpRequest', { body: { phoneNumber: '+237691234567', role: 'driver' } });
+    expect(response.verificationId).toBe('v-1');
+  });
+
+  it('verifyOtp échange le code et persiste la session', async () => {
+    const request = jest.fn().mockResolvedValue(SESSION_RESPONSE);
+    const storage = fakeStorage();
+    const client = new AuthClient({ httpClient: { request }, storage });
+
+    const state = await client.verifyOtp('v-1', '482913');
+
+    expect(request).toHaveBeenCalledWith('authOtpVerify', { body: { verificationId: 'v-1', code: '482913' } });
+    expect(state.accessToken).toBe('access-1');
+    expect(client.getAccessToken()).toBe('access-1');
+    expect(storage.peek()?.refreshToken).toBe('refresh-1');
+  });
+
+  it("verifyOtp n'écrit rien si le serveur refuse le code", async () => {
+    const request = jest.fn().mockRejectedValue(new ApiError('OTP_INVALID', 'x', 400));
+    const storage = fakeStorage();
+    const client = new AuthClient({ httpClient: { request }, storage });
+
+    await expect(client.verifyOtp('v-1', '000000')).rejects.toBeInstanceOf(ApiError);
+    expect(storage.peek()).toBeNull();
+    expect(client.getAccessToken()).toBeNull();
+  });
+});

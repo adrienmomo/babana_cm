@@ -33,7 +33,7 @@ import * as share from './share';
  * exhaustif, ces codes en font partie au même titre que les codes spécifiques).
  *
  * - VALIDATION_ERROR et INTERNAL_ERROR : possibles partout.
- * - UNAUTHORIZED : possible partout sauf sur l'unique endpoint public, /auth/google.
+ * - UNAUTHORIZED : possible partout sauf sur les endpoints publics (/auth/google, /auth/otp/request, /auth/otp/verify).
  */
 export const IMPLICIT_ERRORS = ['VALIDATION_ERROR', 'INTERNAL_ERROR'] as const satisfies readonly ErrorCode[];
 export const IMPLICIT_AUTHENTICATED_ERRORS = ['UNAUTHORIZED'] as const satisfies readonly ErrorCode[];
@@ -96,25 +96,25 @@ export const HTTP_ENDPOINTS = {
     requestExample: null,
     responseExample: auth.meResponseExample,
   },
-  phoneVerifyStart: {
+  authOtpRequest: {
     method: 'POST',
-    path: '/api/v1/phone/verify/start',
-    requiresAuth: true,
-    requestSchema: phone.PhoneVerifyStartRequestSchema,
-    responseSchema: phone.PhoneVerifyStartResponseSchema,
-    errors: phone.PhoneVerifyStartErrors,
-    requestExample: phone.phoneVerifyStartRequestExample,
-    responseExample: phone.phoneVerifyStartResponseExample,
+    path: '/api/v1/auth/otp/request',
+    requiresAuth: false,
+    requestSchema: phone.OtpRequestRequestSchema,
+    responseSchema: phone.OtpRequestResponseSchema,
+    errors: phone.OtpRequestErrors,
+    requestExample: phone.otpRequestRequestExample,
+    responseExample: phone.otpRequestResponseExample,
   },
-  phoneVerifyConfirm: {
+  authOtpVerify: {
     method: 'POST',
-    path: '/api/v1/phone/verify/confirm',
-    requiresAuth: true,
-    requestSchema: phone.PhoneVerifyConfirmRequestSchema,
-    responseSchema: phone.PhoneVerifyConfirmResponseSchema,
-    errors: phone.PhoneVerifyConfirmErrors,
-    requestExample: phone.phoneVerifyConfirmRequestExample,
-    responseExample: phone.phoneVerifyConfirmResponseExample,
+    path: '/api/v1/auth/otp/verify',
+    requiresAuth: false,
+    requestSchema: phone.OtpVerifyRequestSchema,
+    responseSchema: phone.OtpVerifyResponseSchema,
+    errors: phone.OtpVerifyErrors,
+    requestExample: phone.otpVerifyRequestExample,
+    responseExample: phone.otpVerifyResponseExample,
   },
   quote: {
     method: 'POST',

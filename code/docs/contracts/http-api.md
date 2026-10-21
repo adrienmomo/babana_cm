@@ -15,8 +15,8 @@ Schémas JSON pour les contrôleurs Odoo (Python) : générés par `npm run buil
 **Préfixe** : `/api/v1`, figé (voir « Versionnement » ci-dessous).
 
 **Authentification** : en-tête `Authorization: Bearer <accessToken>` sur tous les endpoints
-**sauf** `POST /auth/google`, `POST /auth/refresh` et `POST /auth/logout` — ces trois routes
-s'authentifient par le jeton transmis dans le corps de la requête (`idToken` ou `refreshToken`
+**sauf** `POST /auth/google`, `POST /auth/otp/request`, `POST /auth/otp/verify`, `POST /auth/refresh` et `POST /auth/logout` — ces routes
+s'authentifient par ce que porte le corps de la requête (`idToken`, code OTP ou `refreshToken`
 selon le cas), pas par l'en-tête. Un `accessToken` déjà expiré est précisément ce qui amène un
 client à appeler `/auth/refresh` ; l'exiger valide sur cette route la rendrait inutilisable au
 moment où elle sert (écart relevé en implémentant L1-02, `amoa/questions/L1-02.md`).
@@ -111,22 +111,31 @@ contrôleurs `/api/v1` explicites, celle-ci comprise.
 
 ---
 
-## Numéro de téléphone — `phone.ts`
+## Connexion par téléphone (OTP) — `phone.ts`
 
-Un seul OTP dans la vie du compte, au rattachement (01-architecture.md §5) — pas à chaque
-connexion.
+Remplace Google Sign-In comme porte d'entrée des apps. Le numéro vérifié est l'identité du
+compte ; chaque connexion passe par un code reçu par SMS. Les deux routes sont publiques (aucun
+en-tête `Authorization`). `POST /auth/google` reste servi par Odoo le temps de la transition,
+mais plus aucune app ne l'appelle.
 
-### `POST /phone/verify/start`
+### `POST /auth/otp/request`
 
-- Requête : `{ phoneNumber: string }` (E.164, Cameroun : `+237[6-9]XXXXXXXX`)
-- Réponse : `{ verificationId, expiresIn }`
-- Erreurs : `PHONE_ALREADY_VERIFIED`, `RATE_LIMITED`
+- Requête : `{ phoneNumber, role }` — `phoneNumber` E.164 camerounais (`+237[6-9]XXXXXXXX`),
+  `role` `client` ou `driver` (n'a d'effet qu'à la création du compte)
+- Réponse : `{ verificationId, expiresIn }` — identique que le numéro ait déjà un compte ou non
+- Erreurs : `RATE_LIMITED` (par numéro et par adresse, par heure), `SMS_UNAVAILABLE`
 
-### `POST /phone/verify/confirm`
+### `POST /auth/otp/verify`
 
 - Requête : `{ verificationId, code }` (code à 6 chiffres)
-- Réponse : `{ phoneVerified: true }`
-- Erreurs : `OTP_INVALID`, `OTP_EXPIRED`, `PHONE_ALREADY_VERIFIED`
+- Réponse : une session, comme `/auth/google` (`AuthSession`) ; le compte est créé au premier
+  passage, numéro marqué vérifié
+- Erreurs : `OTP_INVALID` (mauvais code, on peut réessayer), `OTP_EXPIRED` (expiré, annulé après
+  trop d'essais, remplacé par une nouvelle demande, ou inconnu — redemander un code),
+  `RATE_LIMITED` (candidatures chauffeur)
+
+Le code n'est jamais renvoyé par l'API ni stocké en clair. Limites et durées : paramètres
+`babana.otp_*` (`ir.config_parameter`).
 
 ---
 
@@ -382,6 +391,7 @@ Généré depuis `errors.ts` dans `dist/json-schema/errors.json`. Reproduit ici 
 | `PHONE_NOT_VERIFIED` | 403 | Action nécessitant un numéro vérifié |
 | `OTP_INVALID` | 400 | Code OTP incorrect |
 | `OTP_EXPIRED` | 410 | Code OTP expiré |
+| `SMS_UNAVAILABLE` | 503 | Envoi du SMS impossible |
 | `QUOTE_EXPIRED` | 410 | Estimation expirée |
 | `QUOTE_NOT_FOUND` | 404 | Estimation inconnue |
 | `PROMO_CODE_INVALID` | 400 | Code promo invalide |

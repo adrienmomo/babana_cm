@@ -271,6 +271,20 @@ def ensure_zones():
 # 3. Client + superviseur
 # --------------------------------------------------------------------------------------------
 
+def verify_phone(partner, phone):
+    """Numéro vérifié du compte de démonstration : c'est lui qui permet de se connecter par OTP
+    (le numéro EST l'identité). Les deux champs s'écrivent ensemble (contrainte de cohérence)."""
+    from odoo import fields as odoo_fields
+
+    partner.sudo().write(
+        {
+            "babana_phone": phone,
+            "babana_phone_verified": True,
+            "babana_phone_verified_at": odoo_fields.Datetime.now(),
+        }
+    )
+
+
 def ensure_client():
     user = env["res.users"].sudo().search([("google_sub", "=", CLIENT_SUB)], limit=1)
     if not user:
@@ -284,6 +298,7 @@ def ensure_client():
             "babana_emergency_contact": CLIENT_EMERGENCY,
         }
     )
+    verify_phone(user.partner_id, CLIENT_PHONE)
     return user
 
 
@@ -326,9 +341,9 @@ def ensure_fleet():
                 sub=sub, email="%s@drivers.example.cm" % sub, name=name, role="driver"
             )
         driver = user._babana_driver()
-        driver.sudo().write({"phone_verified": True})
         if user.partner_id:
             user.partner_id.sudo().write({"phone": phone})
+            verify_phone(user.partner_id, phone)
 
         if driver.state != "approved":
             # a. documents vérifiés (permis daté, pièce d'identité), avec un fichier réel
