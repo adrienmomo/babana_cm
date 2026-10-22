@@ -50,7 +50,7 @@ ou un document que l'appelant n'a **aucun** droit de voir renvoie `RIDE_NOT_FOUN
 `DOCUMENT_NOT_FOUND` (404), pas `RIDE_NOT_OWNED` / `DOCUMENT_NOT_OWNED` (403) : on ne confirme
 pas son existence. Les codes `*_NOT_OWNED` (403) subsistent pour le cas où l'appelant **voit**
 la ressource sans avoir le droit d'agir dessus — typiquement le chauffeur affecté qui appelle
-`select-driver` ou `share` sur sa course, ou le client qui appelle `start` / `complete` /
+`dispatch` ou `share` sur sa course, ou le client qui appelle `start` / `complete` /
 `settle` (`DRIVER_NOT_IN_PROPOSAL`).
 
 ### Versionnement
@@ -168,7 +168,7 @@ doute, le code (`packages/contracts/src/http/`) a raison, pas cette colonne.
 | Endpoint | Transition | Erreurs spécifiques | Implémenté |
 |---|---|---|---|
 | `POST /rides` | `draft → requested` | `QUOTE_EXPIRED`, `QUOTE_NOT_FOUND`, `VALIDATION_ERROR` (indication > 140 caractères) | Oui |
-| `POST /rides/{id}/select-driver` | `requested → proposed` ou `rejected → proposed` | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_INVALID_TRANSITION`, `DRIVER_ALREADY_TAKEN`, `DRIVER_NOT_APPROVED` | Oui |
+| `POST /rides/{id}/dispatch` | `requested → proposed` ou `rejected → proposed` (« Réessayer ») | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_INVALID_TRANSITION`, `NO_DRIVER_AVAILABLE`, `VALIDATION_ERROR` (corps non vide) | Oui |
 | `POST /rides/{id}/start` | `assigned → in_progress` | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui |
 | `POST /rides/{id}/arrived` | aucune (`assigned`, écrit `arrived_at` une fois) | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui |
 | `POST /rides/{id}/complete` | `in_progress → completed` | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui |
@@ -185,14 +185,17 @@ disponible, aucune distance ni tracé enregistrés, écart de distance de L4-04 
 | `POST /rides/{id}/cancel` | `{requested,proposed,assigned,rejected} → cancelled` | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_INVALID_TRANSITION`, `NO_SHOW_TOO_EARLY` (motif `client_no_show` avant la fin du délai de grâce) | Oui |
 | `POST /rides/{id}/rate` | (aucune — ride déjà `settled`) | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RATING_NOT_ALLOWED`, `RATING_ALREADY_SUBMITTED` | Non — attend L4-09 |
 
-Exemple — `POST /rides/{id}/select-driver` :
+`POST /rides/{id}/dispatch` : **le client ne choisit pas son chauffeur.** La course part au
+chauffeur disponible le plus proche du point de prise en charge (à vol d'oiseau, dans le rayon
+`babana.dispatch_radius_meters`), choisi et réservé atomiquement par le service temps réel. Corps
+vide -- un corps qui désignerait un chauffeur est refusé (`VALIDATION_ERROR`). Après un refus ou
+une expiration, le serveur sollicite de lui-même le suivant le plus proche, sans jamais
+resolliciter un chauffeur du même tour, jusqu'à `babana.dispatch_max_attempts` chauffeurs ;
+ensuite, ou s'il n'y a plus personne, la course reste `rejected` et le client reçoit
+`ride.unmatched` (« Réessayer » rappelle `dispatch` : un nouveau tour). Les deux réglages sont
+dans Paramètres > Babana.
 
-Requête :
-```json
-{ "driverId": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b" }
-```
-
-Réponse (`201`) :
+Exemple — `POST /rides/{id}/dispatch`, corps `{}` ; réponse (`200`) :
 ```json
 {
   "id": "11111111-2222-4333-8444-555555555555",
@@ -414,8 +417,6 @@ Généré depuis `errors.ts` dans `dist/json-schema/errors.json`. Reproduit ici 
 | `DOCUMENT_NOT_OWNED` | 403 | Document n'appartenant ni à l'appelant ni consultable par lui |
 | `DOCUMENT_TYPE_MISMATCH` | 400 | Type MIME réel du fichier différent du type déclaré |
 
-`NO_DRIVER_AVAILABLE` figure au catalogue par exigence de la spécification C-01 mais n'est émis
-par aucun endpoint de ce lot : le client compose lui-même sa sélection à partir de
-`nearby.drivers` (D10, C-02, `realtime-events.md`), qui diffuse une liste vide plutôt qu'une
-erreur s'il n'y a personne à proximité. Il resterait utilisable si un endpoint de matching
-automatique était réintroduit (hors périmètre v1, §6 de `03-decoupage-taches.md`).
+`NO_DRIVER_AVAILABLE` est renvoyé par `POST /rides/{id}/dispatch` quand aucun chauffeur
+disponible n'est à portée du point de prise en charge -- la course reste dans son état, le client
+peut réessayer ou annuler.

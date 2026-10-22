@@ -382,7 +382,7 @@ class TestRealtimeCommitHook(HttpCase):
     #
     # Lecture PURE, appelée par _complete_ride AVANT la transition in_progress -> completed --
     # pas un point d'accroche au commit (elle ne modifie aucune clé Redis, donc D25/D32 ne
-    # s'y appliquent pas), même exception assumée que reserve_and_propose.
+    # s'y appliquent pas), même exception assumée que reserve_nearest_and_propose.
 
     def test_fetch_ride_measurement_returns_the_parsed_measurement_when_one_is_available(self):
         with patch.object(
@@ -501,11 +501,11 @@ class TestRealtimeCommitHookLint(HttpCase):
     principe que services/realtime/test/pool-single-writer.test.ts (D26)."""
 
     ADDON_ROOT = Path(__file__).resolve().parent.parent
-    SCAN_DIRS = (ADDON_ROOT / "controllers", ADDON_ROOT / "models")
+    SCAN_DIRS = (ADDON_ROOT / "controllers", ADDON_ROOT / "models", ADDON_ROOT / "services")
 
     # Fonctions dont l'appel DOIT porter `env` en premier argument -- elles écrivent Redis APRÈS
-    # une transition déjà appliquée, et n'ont donc de sens qu'au commit (D32). `reserve_and_propose`
-    # et `release_reservation` (dans son unique appelant, l'except de _select_driver) en sont
+    # une transition déjà appliquée, et n'ont donc de sens qu'au commit (D32). `reserve_nearest_and_propose`
+    # et `release_reservation` (dans son unique appelant, services/dispatch.py) en sont
     # délibérément absents : le premier PRÉCÈDE la transition (son résultat l'autorise), le second
     # compense une transaction qui va de toute façon être annulée -- ni l'un ni l'autre n'a de
     # commit à attendre (voir realtime_client.py, en-tête du module, et les docstrings des deux
@@ -520,6 +520,7 @@ class TestRealtimeCommitHookLint(HttpCase):
         "notify_ride_cancelled",
         "notify_driver_unavailable",
         "notify_driver_available",
+        "notify_ride_unmatched",
     )
 
     def test_every_gated_call_passes_env_as_its_first_argument(self):

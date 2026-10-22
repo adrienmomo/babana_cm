@@ -24,6 +24,21 @@
 --   refonte qui changerait ce mécanisme serait fausse par construction, spécification critère 3).
 --   Renvoie 1 si réservé, 0 si le chauffeur n'était pas disponible.
 --
+-- 'reserve-nearest' -- KEYS[1] pool des chauffeurs disponibles (AVAILABLE_DRIVERS_KEY).
+--   ARGV[2] longitude, ARGV[3] latitude du point de prise en charge, ARGV[4] rayon en mètres,
+--   ARGV[5] durée de vie de la réservation, ARGV[6] préfixe des clés d'état (RIDE_STATE_KEY_PREFIX),
+--   ARGV[7] préfixe des clés de position (POSITION_KEY_PREFIX), ARGV[8..] chauffeurs à écarter
+--   (déjà sollicités pour cette course).
+--   Le serveur choisit le chauffeur (le client ne choisit plus, D10 retiré) : le CHOIX et la
+--   RÉSERVATION se font dans ce même script -- jamais un GEOSEARCH en TypeScript suivi d'une
+--   réservation, qui laisserait deux courses lire le même « plus proche » (invariant 4). Parcourt le
+--   vivier par distance croissante (à vol d'oiseau) et réserve le premier candidat ni écarté ni sans
+--   position fraîche, avec la même écriture que 'reserve' (ZREM du vivier, état 'reserved',
+--   expiration). L'appartenance au vivier vaut éligibilité (en ligne, habilité, sous le plafond,
+--   libre) : c'est le script d'éligibilité qui la tient. Clés d'état et de position dérivées des
+--   préfixes, comme 'release' ci-dessous -- les candidats ne sont connus qu'ici.
+--   Renvoie le driverId réservé, ou false si personne.
+--
 -- 'resolve' -- KEYS[1] état, KEYS[2] clé de rideId de la proposition active (proposalRideIdKey),
 --   KEYS[3] index inverse rideId -> driverId (rideOwnerKey), utilisé seulement si acceptation.
 --   ARGV[2] rideId attendu ('' pour ne pas vérifier -- l'expiration système ne vise pas une
@@ -65,6 +80,24 @@ if action == 'reserve' then
   redis.call('HSET', KEYS[1], 'state', 'reserved')
   redis.call('EXPIRE', KEYS[1], ARGV[3])
   return 1
+end
+
+if action == 'reserve-nearest' then
+  local excluded = {}
+  for index = 8, #ARGV do
+    excluded[ARGV[index]] = true
+  end
+  local candidates = redis.call('GEOSEARCH', KEYS[1], 'FROMLONLAT', ARGV[2], ARGV[3], 'BYRADIUS', ARGV[4], 'm', 'ASC')
+  for _, driverId in ipairs(candidates) do
+    if not excluded[driverId] and redis.call('EXISTS', ARGV[7] .. driverId) == 1 then
+      local stateKey = ARGV[6] .. driverId
+      redis.call('ZREM', KEYS[1], driverId)
+      redis.call('HSET', stateKey, 'state', 'reserved')
+      redis.call('EXPIRE', stateKey, ARGV[5])
+      return driverId
+    end
+  end
+  return false
 end
 
 if action == 'resolve' then

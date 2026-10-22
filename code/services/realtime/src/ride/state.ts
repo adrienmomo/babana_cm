@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import type Redis from 'ioredis';
 import { AVAILABLE_DRIVERS_KEY } from '../redis/geo-index';
+import { POSITION_KEY_PREFIX } from '../redis/positions';
 import { proposalRideIdKey } from '../proposal/keys';
 
 /**
@@ -74,6 +75,39 @@ export async function reserve(redis: Redis, driverId: string, ttlSeconds: number
     ttlSeconds
   );
   return result === 1;
+}
+
+export interface NearestReservationRequest {
+  origin: { latitude: number; longitude: number };
+  radiusMeters: number;
+  ttlSeconds: number;
+  /** Chauffeurs déjà sollicités pour cette course (refus ou expiration) -- jamais reproposés. */
+  excludeDriverIds?: readonly string[];
+}
+
+/**
+ * Le serveur choisit : réserve le chauffeur disponible le plus proche (à vol d'oiseau), hors
+ * `excludeDriverIds`, et le renvoie -- `null` si personne dans le rayon. Choix et écriture dans le
+ * MÊME script (`state.lua`, action `reserve-nearest`) : deux courses simultanées n'obtiennent
+ * jamais le même chauffeur, et une course n'est jamais laissée sans chauffeur parce qu'une autre
+ * lui a pris le premier candidat entre une lecture et une écriture
+ * (test/concurrency/reservation-nearest.test.ts).
+ */
+export async function reserveNearest(redis: Redis, request: NearestReservationRequest): Promise<string | null> {
+  const result = await redis.eval(
+    STATE_SCRIPT,
+    1,
+    AVAILABLE_DRIVERS_KEY,
+    'reserve-nearest',
+    request.origin.longitude,
+    request.origin.latitude,
+    request.radiusMeters,
+    request.ttlSeconds,
+    RIDE_STATE_KEY_PREFIX,
+    POSITION_KEY_PREFIX,
+    ...(request.excludeDriverIds ?? [])
+  );
+  return typeof result === 'string' ? result : null;
 }
 
 /**

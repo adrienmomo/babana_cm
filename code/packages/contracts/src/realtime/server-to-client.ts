@@ -167,8 +167,8 @@ export type RideTrackAckMessage = z.infer<typeof RideTrackAckMessageSchema>;
 /**
  * Destinataire : client. Le chauffeur sélectionné a été réservé (transition -> proposed).
  *
- * Redondant pour l'appareil qui a fait la demande : `POST /rides/{id}/select-driver`
- * (`SelectDriverResponse.state`, `controllers/ride.py`) le lui apprend déjà de façon synchrone,
+ * Redondant pour l'appareil qui a fait la demande : `POST /rides/{id}/dispatch`
+ * (`DispatchRideResponse.state`, `controllers/ride.py`) le lui apprend déjà de façon synchrone,
  * dans la réponse HTTP elle-même. Ce message garde son rôle pour **un second appareil du même
  * client** -- un téléphone se partage en famille à Douala, et la personne qui commande n'est pas
  * toujours celle qui voyage (amoa/questions/REPONSES-2026-08-28.md §1). Gardé au contrat
@@ -232,6 +232,19 @@ export const RideRejectedPayloadSchema = z.object({
 });
 export const RideRejectedMessageSchema = envelopeSchema('ride.rejected', RideRejectedPayloadSchema);
 export type RideRejectedMessage = z.infer<typeof RideRejectedMessageSchema>;
+
+/**
+ * Destinataire : client. Plus aucun chauffeur à solliciter pour cette course : la recherche
+ * automatique (le plus proche, puis le suivant après chaque refus ou expiration) a épuisé le vivier
+ * ou le nombre de tentatives (babana.dispatch_max_attempts). La course reste `rejected` ; le client
+ * choisit entre « Réessayer » (`POST /rides/{id}/dispatch`, nouveau tour) et « Annuler ». Émis au
+ * COMMIT d'Odoo (D32), jamais avant.
+ */
+export const RideUnmatchedPayloadSchema = z.object({
+  rideId: RideIdSchema,
+});
+export const RideUnmatchedMessageSchema = envelopeSchema('ride.unmatched', RideUnmatchedPayloadSchema);
+export type RideUnmatchedMessage = z.infer<typeof RideUnmatchedMessageSchema>;
 
 /**
  * Destinataire : client. Suivi de position pendant une course affectée ou en cours (L3-09).
@@ -366,6 +379,7 @@ export const ServerToClientMessageSchema = z.discriminatedUnion('type', [
   RideProposedMessageSchema,
   RideAssignedMessageSchema,
   RideRejectedMessageSchema,
+  RideUnmatchedMessageSchema,
   DriverPositionMessageSchema,
   RideRouteMessageSchema,
   DriverArrivedMessageSchema,

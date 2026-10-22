@@ -25,6 +25,22 @@
                             </div>
                         </setting>
                     </block>
+                    <block title="Recherche d'un chauffeur" name="babana_dispatch_settings">
+                        <setting id="babana_dispatch_radius" string="Rayon de recherche"
+                                 help="La course part au chauffeur disponible le plus proche dans ce rayon (à vol d'oiseau).">
+                            <div class="d-flex align-items-center gap-2">
+                                <field name="babana_dispatch_radius_meters" style="width: 6rem"/>
+                                <span>mètres</span>
+                            </div>
+                        </setting>
+                        <setting id="babana_dispatch_max_attempts" string="Chauffeurs sollicités par demande"
+                                 help="Après autant de refus ou d'absences de réponse, le client est prévenu qu'aucun chauffeur n'est disponible et peut réessayer.">
+                            <div class="d-flex align-items-center gap-2">
+                                <field name="babana_dispatch_max_attempts" style="width: 6rem"/>
+                                <span>chauffeurs</span>
+                            </div>
+                        </setting>
+                    </block>
                     <block title="Connexion" name="babana_auth_settings">
                         <setting id="babana_otp_ttl" string="Validité d'un code SMS"
                                  help="Durée pendant laquelle le code de connexion reçu par SMS est accepté.">

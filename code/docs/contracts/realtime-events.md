@@ -73,6 +73,11 @@ les exclut de `nearby.drivers` et, si plus aucun candidat ne reste dans le rayon
 le rayon par paliers (`nearby/expand.ts`) jusqu'à un plafond configurable avant de renvoyer une
 liste vide — que L6-08 traduit en `NO_DRIVER_AVAILABLE`.
 
+Depuis que la course part au chauffeur le plus proche choisi par le serveur (`POST /rides/{id}/dispatch`),
+`nearby.drivers` ne sert plus qu'à l'affichage : l'app Client en montre des points anonymes et leur
+nombre, sans prénom ni liste à choisir, et n'envoie plus que `excludeDriverIds: []`. Le serveur
+écarte lui-même les chauffeurs déjà sollicités pour une course (`services/dispatch.py`).
+
 `precedingSamples` (L6-05, `apps/driver/src/location/`) porte des `PositionSample` complets
 (mêmes champs que le point le plus récent, plus `capturedAt` individuel — un lot couvre plusieurs
 instants, contrairement à `emittedAt` de l'enveloppe qui est l'heure d'ENVOI du lot). Forme
@@ -95,7 +100,8 @@ s'il était arrivé seul.
 | `ride.track.ack` | Client | `{ broadcastIntervalMs }` | Accusé de réception de `ride.track` — cadence réelle de `driver.position` (D50) |
 | `ride.proposed` | Client | `{ rideId, driverId, proposalExpiresAt }` | Le chauffeur choisi a été réservé (redondant pour l'appareil qui a fait la demande, gardé pour un second appareil du même client — `amoa/questions/REPONSES-2026-08-28.md` §1) |
 | `ride.assigned` | Client | `{ rideId, driverId, firstName, photoUrl, motorcycleClass, licensePlate, phoneNumber }` | Le chauffeur a accepté |
-| `ride.rejected` | Client | `{ rideId, driverId, reason }` | Le chauffeur a refusé ou le délai a expiré |
+| `ride.rejected` | Client | `{ rideId, driverId, reason }` | Le chauffeur a refusé ou le délai a expiré -- le serveur sollicite déjà le suivant le plus proche, le client n'a rien à choisir |
+| `ride.unmatched` | Client | `{ rideId }` | Plus aucun chauffeur à solliciter (vivier épuisé ou `babana.dispatch_max_attempts` atteint) : la course reste `rejected`, le client choisit « Réessayer » (`POST /rides/{id}/dispatch`) ou « Annuler ». Au commit d'Odoo (D32) |
 | `driver.position` | Client | `{ rideId, position, etaSeconds }` | Suivi pendant une course affectée ou en cours |
 | `ride.route` | Client | `{ rideId, phase, points, distanceMeters, durationSeconds }` | Le tracé calculé par le chauffeur (`route.share`), rediffusé à l'identique — `approach` vers le client, `transit` vers la destination. Rejoué à `ride.track` |
 | `driver.arrived` | Client et chauffeur | `{ rideId, arrivedAt, noShowGraceSeconds }` | Le chauffeur a déclaré « Sur place » (`POST /rides/{id}/arrived`, écrit dans Odoo, poussé au commit). Les deux apps comptent l'attente depuis `arrivedAt` ; « client absent » permis après `noShowGraceSeconds`. Rejoué à `ride.track` |

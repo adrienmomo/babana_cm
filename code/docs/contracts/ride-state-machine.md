@@ -83,10 +83,10 @@ consolidation de fin de course (L4-04), depuis Redis.
 
 | Colonne | Contenu |
 |---|---|
-| Déclencheur | Le client sélectionne un chauffeur parmi les 5 proposés (`POST /rides/{id}/select-driver`) |
-| Acteur | Client |
-| Préconditions | `ride.state == requested` ; chauffeur choisi présent dans la dernière liste des 5 chauffeurs proposés à ce client ; chauffeur disponible et réservable |
-| Effets | Réservation atomique du chauffeur en Redis (retrait du pool des disponibles, script unique — L3-06) et création de la proposition avec délai d'expiration, en Redis. Réservation réussie seulement : **écriture Odoo — événement « proposition à un chauffeur »** : `state = proposed`, chauffeur sélectionné, horodatage. `DRIVER_ALREADY_TAKEN` si la réservation échoue, sans écriture Odoo ni transition |
+| Déclencheur | Le client commande (`POST /rides/{id}/dispatch`) : la course part au chauffeur disponible le plus proche, choisi par le serveur |
+| Acteur | Client (la commande) ; le chauffeur est choisi par le service temps réel |
+| Préconditions | `ride.state == requested` ; au moins un chauffeur disponible dans le rayon `babana.dispatch_radius_meters` |
+| Effets | Choix et réservation atomiques du plus proche en Redis (un seul script : parcours du vivier par distance, retrait du pool, réservation — `ride/state.lua`, `reserve-nearest`) et création de la proposition avec délai d'expiration, en Redis. Réservation réussie seulement : **écriture Odoo — événement « proposition à un chauffeur »** : `state = proposed`, chauffeur, horodatage, début du tour de recherche. `NO_DRIVER_AVAILABLE` si personne, sans écriture Odoo ni transition |
 | Irréversible | Non |
 
 ### 3. `proposed → assigned`
@@ -113,10 +113,10 @@ consolidation de fin de course (L4-04), depuis Redis.
 
 | Colonne | Contenu |
 |---|---|
-| Déclencheur | Le client sélectionne un autre chauffeur, sur la **même course** (D11) |
-| Acteur | Client |
-| Préconditions | `ride.state == rejected` ; nouveau chauffeur disponible et réservable |
-| Effets | Réservation atomique du nouveau chauffeur en Redis (L3-06). Réservation réussie seulement : **écriture Odoo — événement « proposition à un chauffeur »**, comme la transition 2 |
+| Déclencheur | Automatique, dans la même transaction que le refus ou l'expiration (transition 4) : le suivant le plus proche est sollicité, sur la **même course** ; ou le client « Réessayer » après `ride.unmatched` (nouveau tour) |
+| Acteur | Système (après un refus) ou client (« Réessayer ») |
+| Préconditions | `ride.state == rejected` ; un chauffeur disponible à portée, hors ceux déjà sollicités dans le tour ; moins de `babana.dispatch_max_attempts` refus dans le tour (automatique seulement) |
+| Effets | Réservation atomique du suivant le plus proche en Redis, comme la transition 2. Réservation réussie seulement : **écriture Odoo — événement « proposition à un chauffeur »**. Sinon la course reste `rejected` et le client reçoit `ride.unmatched` (au commit). Écritures bornées : au plus une proposition par refus, jamais plus que le maximum par tour |
 | Irréversible | Non |
 
 ### 6. `assigned → in_progress`

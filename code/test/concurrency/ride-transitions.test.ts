@@ -32,10 +32,12 @@ import {
   signIn,
 } from './helpers/odoo-session';
 import { acceptProposalOverWs, makeDriverSelectable, waitForDriverVisible } from './helpers/realtime';
+import { spotSequence, type LatLng } from './helpers/spots';
 
-// Même point que odoo-session.ts::createRideRequest -- le chauffeur doit être positionné là où
-// nearby.subscribe le cherchera (précondition C-03, L3-17).
-const RIDE_ORIGIN = { latitude: 4.05, longitude: 9.7 };
+// Un point de prise en charge par scénario, le chauffeur du scénario posé exactement dessus : la
+// course part au chauffeur disponible le plus proche, dans le rayon réduit des tests
+// (support/dispatch-radius.ts) -- c'est alors toujours lui.
+const nextSpot = spotSequence({ latitude: 4.05, longitude: 9.7 });
 
 // Toutes les requêtes de ce fichier partagent la même adresse IP source (la machine qui
 // exécute le test) -- la limitation de débit sur la création de candidature chauffeur (L1-01,
@@ -55,6 +57,7 @@ function uniqueSub(label: string): string {
 }
 
 interface Actors {
+  spot: LatLng;
   clientSession: Session;
   driverSession: Session;
   driverPublicId: string;
@@ -72,41 +75,37 @@ async function setUpActors(label: string): Promise<Actors> {
   const clientSession = await signIn(uniqueSub(`${label}-client`), 'client');
   const driverSession = await signIn(uniqueSub(`${label}-driver`), 'driver');
   const { driverPublicId } = await approveDriver(driverSession, label);
-  // L3-17 : select-driver réserve réellement contre le service temps réel (D26) -- le chauffeur
-  // doit être réellement en ligne, positionné, et montré à CE client (précondition C-03, critère
-  // 8) avant de pouvoir être sélectionné. Connexions laissées ouvertes pour toute la durée du
-  // test (voir makeDriverSelectable) : ce fichier réutilise le même chauffeur sur de nombreuses
-  // itérations dont la durée cumulée peut dépasser la période de grâce de déconnexion (chauffeur)
-  // ou le TTL de la dernière liste envoyée (client) -- un vrai client et un vrai chauffeur
-  // resteraient connectés plutôt que de se déconnecter entre deux actions.
+  // La commande réserve réellement le plus proche contre le service temps réel (D26) -- le
+  // chauffeur doit être réellement en ligne et positionné au point du scénario. Connexions
+  // laissées ouvertes pour toute la durée du test (voir makeDriverSelectable) : ce fichier
+  // réutilise le même chauffeur sur de nombreuses itérations dont la durée cumulée peut dépasser la
+  // période de grâce de déconnexion -- un vrai chauffeur resterait connecté. L'abonnement client
+  // ne sert qu'à observer quand le chauffeur est de nouveau disponible.
+  const spot = nextSpot();
   const { driverSocket, clientSockets } = await makeDriverSelectable(
     driverSession.accessToken,
     driverPublicId,
-    RIDE_ORIGIN,
+    spot,
     [clientSession.accessToken]
   );
   openSockets.push(driverSocket, ...clientSockets);
-  return { clientSession, driverSession, driverPublicId, clientSocket: clientSockets[0]!, driverSocket };
+  return { spot, clientSession, driverSession, driverPublicId, clientSocket: clientSockets[0]!, driverSocket };
 }
 
 async function proposedRide(actors: Actors, debugLabel = ''): Promise<string> {
-  // Précondition C-03 (critère 8) réévaluée avant chaque sélection : la diffusion périodique en
-  // arrière-plan (NEARBY_BROADCAST_INTERVAL_SECONDS) peut avoir vidé la dernière liste envoyée
-  // pendant qu'un ACCEPT précédent engageait momentanément ce même chauffeur (D26) -- un vrai
-  // client attendrait de le revoir disponible avant de le resélectionner, ce test doit en faire
-  // autant plutôt que de dépendre d'un minuteur d'arrière-plan mal synchronisé avec ses propres
-  // itérations.
-  await waitForDriverVisible(actors.clientSocket, actors.driverPublicId, RIDE_ORIGIN);
+  // Le chauffeur doit être de nouveau disponible avant chaque commande : un ACCEPT précédent l'a
+  // engagé (D26) jusqu'à l'annulation qui clôt l'itération -- attendre de le revoir dans
+  // nearby.drivers plutôt que de dépendre d'un minuteur d'arrière-plan.
+  await waitForDriverVisible(actors.clientSocket, actors.driverPublicId, actors.spot);
 
-  const { ridePublicId } = await createRideRequest(actors.clientSession);
-  const select = await callRideEndpoint(`/rides/${ridePublicId}/select-driver`, actors.clientSession, {
-    driverId: actors.driverPublicId,
-  });
+  const { ridePublicId } = await createRideRequest(actors.clientSession, actors.spot);
+  const dispatch = await callRideEndpoint(`/rides/${ridePublicId}/dispatch`, actors.clientSession, {});
   assert.equal(
-    select.status,
+    dispatch.status,
     200,
-    `select-driver a échoué en préparation (${debugLabel}) : ${JSON.stringify(select.body)}`
+    `dispatch a échoué en préparation (${debugLabel}) : ${JSON.stringify(dispatch.body)}`
   );
+  assert.equal(dispatch.body.assignedDriverId, actors.driverPublicId, `chauffeur inattendu (${debugLabel})`);
   return ridePublicId;
 }
 

@@ -199,6 +199,13 @@ class BabanaRide(models.Model):
 
     # --- Refus ---------------------------------------------------------------------------------
     rejection_ids = fields.One2many("babana.ride.rejection", "ride_id", string="Refus")
+    # Tour de recherche en cours (le serveur choisit le chauffeur, services/dispatch.py) : nombre
+    # de refus déjà enregistrés quand le client a commandé -- ou réessayé -- pour la dernière fois.
+    # Les refus suivants forment le tour en cours : chauffeurs à ne plus solliciter, et compte
+    # borné par babana.dispatch_max_attempts. Écrit par action_propose seulement.
+    dispatch_round_rejection_offset = fields.Integer(
+        string="Refus avant le tour en cours", default=0, readonly=True, copy=False
+    )
     # L9-03 : incidents liés, affichés en lecture seule dans la fiche de suivi des courses.
     incident_ids = fields.One2many(
         "babana.incident", "ride_id", string="Incidents et litiges", readonly=True
@@ -265,9 +272,8 @@ class BabanaRide(models.Model):
         n'est pas l'identifiant exposé aux apps mobiles. `client_id` est un res.partner ; l'app
         s'authentifie comme un res.users (UserIdSchema, C-01) -- une seule requête pour faire le
         pont, ajoutée pour L3-19 (notify_ride_started/notify_ride_completed, realtime_client.py),
-        qui ont besoin de la même identité que reserve_and_propose (controllers/ride.py) déjà
-        connaît via `user.babana_public_id` côté appelant client, mais que action_start/
-        action_complete (chauffeur appelant) n'ont pas sous la main."""
+        et réutilisée depuis par la recherche du chauffeur (services/dispatch.py), y compris
+        quand elle est relancée par un refus, sans client appelant sous la main."""
         self.ensure_one()
         user = self.env["res.users"].sudo().search([("partner_id", "=", self.client_id.id)], limit=1)
         return user.babana_public_id or None

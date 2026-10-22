@@ -5,16 +5,22 @@
 # (controllers/ride.py ne teste jamais un champ métier, seulement l'identité de l'appelant) et en
 # revue, pas par un test ici.
 #
-# Depuis L3-17, select-driver réserve réellement contre le service temps réel (D26) : un
-# chauffeur approuvé par simple RPC (_make_approved_driver) n'est plus sélectionnable tel quel --
-# il doit être réellement passé en ligne, avoir émis une position, et avoir été montré au client
-# via nearby.drivers (précondition C-03, critère 8). _realtime_ws.py fait les trois par le
-# chemin réel (WebSocket), jamais par une écriture Redis directe.
+# La course part au chauffeur disponible le plus proche (POST /rides/{id}/dispatch) : le service
+# temps réel le choisit réellement dans son vivier (D26). Un chauffeur approuvé par simple RPC
+# (_make_approved_driver) n'y est pas tant qu'il n'est pas réellement passé en ligne et n'a pas
+# émis de position -- _realtime_ws.py le fait par le chemin réel (WebSocket), jamais par une
+# écriture Redis directe.
+#
+# Chaque test a son propre point de prise en charge (_next_spot), à plus d'un kilomètre des
+# autres, avec un rayon de recherche de quelques centaines de mètres : « le plus proche » est
+# alors toujours le chauffeur du test, jamais un chauffeur resté en ligne d'un test précédent.
 from __future__ import annotations
 
+import itertools
 import json
 from datetime import timedelta
 import os
+import random
 import uuid
 from unittest.mock import patch
 
@@ -22,7 +28,7 @@ import requests
 
 from odoo.tests.common import HttpCase, tagged
 
-from ._realtime_ws import bring_driver_online, make_driver_visible_to_client
+from ._realtime_ws import bring_driver_online
 from ..services import realtime_client
 
 
@@ -50,11 +56,35 @@ def _mint_google_token(**overrides) -> str:
     return response.json()["id_token"]
 
 
+# Rayon de recherche pendant ces tests (babana.dispatch_radius_meters) et points de prise en charge
+# espacés d'environ 1,1 km : un chauffeur d'un autre test n'est jamais à portée. Base de longitude
+# tirée par exécution : des chauffeurs d'une exécution précédente, encore positionnés, ne tombent
+# pas sur les mêmes points.
+_TEST_DISPATCH_RADIUS_METERS = 300
+_SPOT_COUNTER = itertools.count()
+_SPOT_LONGITUDE_BASE = 9.62 + random.random() * 0.03
+
+
+def _next_spot() -> dict:
+    index = next(_SPOT_COUNTER)
+    return {
+        "latitude": round(3.96 + (index % 15) * 0.01, 6),
+        "longitude": round(_SPOT_LONGITUDE_BASE + (index // 15) * 0.01, 6),
+    }
+
+
 @tagged("post_install", "-at_install")
 class TestRideController(HttpCase):
+    def setUp(self):
+        super().setUp()
+        self._spot = _next_spot()
+        self.env["ir.config_parameter"].sudo().set_param(
+            "babana.dispatch_radius_meters", str(_TEST_DISPATCH_RADIUS_METERS)
+        )
+
     @classmethod
     def _request_handler(cls, s, r, **kw):
-        # Sens Odoo -> temps réel (L3-17) : select-driver et complete appellent réellement le
+        # Sens Odoo -> temps réel (L3-17) : dispatch et complete appellent réellement le
         # service temps réel pendant ces tests (contre la pile réelle, `make up`), pas un double
         # -- au même titre que mock-google-identity et mock-maps, déjà autorisés ici.
         if (
@@ -102,25 +132,14 @@ class TestRideController(HttpCase):
         driver.action_approve(new_employee_name=f"Chauffeur {sub}")
         return access_token, driver
 
-    # Position par défaut de ces fixtures -- même point que _make_ride ci-dessous, pour que le
-    # chauffeur tombe dans le rayon interrogé par défaut par make_driver_visible_to_client.
-    _DEFAULT_POSITION = {"latitude": 4.05, "longitude": 9.70}
-
-    def _make_selectable_driver(self, sub, *client_tokens):
-        """Chauffeur approuvé, réellement en ligne et positionné (L3-01/L3-02/L3-04), et montré
-        via nearby.drivers à chacun des clients fournis (précondition C-03, critère 8) -- sans ce
-        dernier point, select-driver renverrait DRIVER_NOT_IN_LAST_LIST (traduit en
-        DRIVER_ALREADY_TAKEN, amoa/questions/L3-17.md §3) pour un chauffeur pourtant disponible."""
+    def _make_dispatchable_driver(self, sub, meters_north=0):
+        """Chauffeur approuvé, réellement en ligne et positionné (L3-01/L3-02/L3-04) au point de
+        prise en charge du test (à `meters_north` mètres au nord) : c'est lui que la recherche du
+        plus proche trouvera."""
         driver_token, driver = self._make_approved_driver(sub)
         bring_driver_online(
-            driver_token, self._DEFAULT_POSITION["latitude"], self._DEFAULT_POSITION["longitude"]
+            driver_token, self._spot["latitude"] + meters_north / 111_000, self._spot["longitude"]
         )
-        # Aucun profil à seeder (L3-16, D30) : un chauffeur en ligne et positionné apparaît dans
-        # nearby.drivers même sans profil en cache -- le service temps réel le lira réellement
-        # depuis Odoo (controllers/internal_profiles.py) au premier passage, champs à `null` si
-        # jamais lu à temps, mais jamais omis.
-        for client_token in client_tokens:
-            make_driver_visible_to_client(client_token, driver.public_id, self._DEFAULT_POSITION)
         return driver_token, driver
 
     def _post(self, path, token, body=None, idempotency_key=None):
@@ -133,7 +152,7 @@ class TestRideController(HttpCase):
         # D31 (amoa/questions/REPONSES-2026-08-18.md §3) : plus de route publique /accept -- le
         # seul chemin d'écriture réel est proposal.accept (temps réel) -> canal interne
         # (controllers/internal.py::driver_accepted). Ce fichier teste la couche REST du cycle de
-        # vie (select-driver, start, complete, cancel) ; l'acceptation elle-même, câblée par
+        # vie (dispatch, start, complete, cancel) ; l'acceptation elle-même, câblée par
         # L3-17, n'a pas besoin d'un aller-retour WebSocket ici pour amener une course à
         # 'assigned' -- ce test-ci n'exerce pas le mécanisme d'acceptation, seulement ce qui vient
         # après (voir test_internal_controller.py pour l'acceptation elle-même, et L4-11 pour sa
@@ -152,8 +171,8 @@ class TestRideController(HttpCase):
         return self.env["babana.ride"].action_request(
             {
                 "client_id": client_partner.id,
-                "pickup_latitude": 4.05,
-                "pickup_longitude": 9.70,
+                "pickup_latitude": self._spot["latitude"],
+                "pickup_longitude": self._spot["longitude"],
                 "dropoff_latitude": 4.06,
                 "dropoff_longitude": 9.77,
             }
@@ -161,14 +180,13 @@ class TestRideController(HttpCase):
 
     # --- L4-03R : POST /rides (createRide) et POST /rides/{id}/complete -----------------------
 
-    _QUOTE_ORIGIN = {"latitude": 4.0483, "longitude": 9.6934}
     _QUOTE_DESTINATION = {"latitude": 4.0270, "longitude": 9.7040}
 
     def _make_quote(self, client_token):
         response = self._post(
             "/api/v1/quote",
             client_token,
-            {"origin": self._QUOTE_ORIGIN, "destination": self._QUOTE_DESTINATION},
+            {"origin": self._spot, "destination": self._QUOTE_DESTINATION},
         )
         self.assertEqual(response.status_code, 200)
         return response.json()["quoteId"]
@@ -180,14 +198,10 @@ class TestRideController(HttpCase):
         client_user = self.env["res.users"].sudo().search(
             [("babana_public_id", "=", client_public_id)]
         )
-        driver_token, driver = self._make_selectable_driver("sub-ride-driver", client_token)
+        driver_token, driver = self._make_dispatchable_driver("sub-ride-driver")
         ride = self._make_ride(client_user.partner_id)
 
-        select_response = self._post(
-            f"/api/v1/rides/{ride.public_id}/select-driver",
-            client_token,
-            {"driverId": driver.public_id},
-        )
+        select_response = self._post(f"/api/v1/rides/{ride.public_id}/dispatch", client_token)
         self.assertEqual(select_response.status_code, 200)
         select_body = select_response.json()
         self.assertEqual(select_body["state"], "proposed")
@@ -207,10 +221,10 @@ class TestRideController(HttpCase):
     def _assigned_ride_over_http(self, sub):
         client_token, client_public_id = self._sign_in(f"{sub}-client", "client")
         client_user = self.env["res.users"].sudo().search([("babana_public_id", "=", client_public_id)])
-        driver_token, driver = self._make_selectable_driver(f"{sub}-driver", client_token)
+        driver_token, driver = self._make_dispatchable_driver(f"{sub}-driver")
         ride = self._make_ride(client_user.partner_id)
         self.assertEqual(
-            self._post(f"/api/v1/rides/{ride.public_id}/select-driver", client_token, {"driverId": driver.public_id}).status_code,
+            self._post(f"/api/v1/rides/{ride.public_id}/dispatch", client_token).status_code,
             200,
         )
         self.assertEqual(self._accept_via_internal_channel(ride.public_id, driver.public_id).status_code, 200)
@@ -262,23 +276,74 @@ class TestRideController(HttpCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(ride.state, "assigned")
 
-    # --- Critère 1 : requête non conforme rejetée avant tout traitement -----------------------
+    # --- POST /rides/{id}/dispatch : le serveur choisit le chauffeur le plus proche -----------
 
-    def test_select_driver_without_driver_id_is_a_validation_error(self):
-        client_token, client_public_id = self._sign_in("sub-ride-badbody", "client")
-        client_user = self.env["res.users"].sudo().search(
-            [("babana_public_id", "=", client_public_id)]
-        )
+    def test_dispatch_proposes_the_ride_to_the_closest_online_driver(self):
+        client_token, client_public_id = self._sign_in("sub-dispatch-client", "client")
+        client_user = self.env["res.users"].sudo().search([("babana_public_id", "=", client_public_id)])
+        _far_token, farther = self._make_dispatchable_driver("sub-dispatch-far", meters_north=250)
+        _near_token, closest = self._make_dispatchable_driver("sub-dispatch-near", meters_north=40)
         ride = self._make_ride(client_user.partner_id)
 
-        response = self._post(f"/api/v1/rides/{ride.public_id}/select-driver", client_token, {})
+        response = self._post(f"/api/v1/rides/{ride.public_id}/dispatch", client_token)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["state"], "proposed")
+        self.assertEqual(body["assignedDriverId"], closest.public_id)
+        self.assertNotEqual(body["assignedDriverId"], farther.public_id)
+        self.assertTrue(body["proposalExpiresAt"])
+
+    def test_dispatch_with_nobody_nearby_is_no_driver_available(self):
+        client_token, client_public_id = self._sign_in("sub-dispatch-alone", "client")
+        client_user = self.env["res.users"].sudo().search([("babana_public_id", "=", client_public_id)])
+        ride = self._make_ride(client_user.partner_id)
+
+        response = self._post(f"/api/v1/rides/{ride.public_id}/dispatch", client_token)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["error"]["code"], "NO_DRIVER_AVAILABLE")
+        self.assertEqual(ride.state, "requested")
+
+    def test_dispatch_refuses_a_driver_chosen_by_the_client(self):
+        client_token, client_public_id = self._sign_in("sub-dispatch-choice", "client")
+        client_user = self.env["res.users"].sudo().search([("babana_public_id", "=", client_public_id)])
+        ride = self._make_ride(client_user.partner_id)
+
+        response = self._post(
+            f"/api/v1/rides/{ride.public_id}/dispatch", client_token, {"driverId": str(uuid.uuid4())}
+        )
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["error"]["code"], "VALIDATION_ERROR")
+        self.assertEqual(ride.state, "requested")
+
+    def test_a_refusal_moves_the_ride_on_to_the_next_closest_driver(self):
+        self.env["ir.config_parameter"].sudo().set_param("babana.dispatch_max_attempts", "3")
+        client_token, client_public_id = self._sign_in("sub-dispatch-next-client", "client")
+        client_user = self.env["res.users"].sudo().search([("babana_public_id", "=", client_public_id)])
+        _first_token, first = self._make_dispatchable_driver("sub-dispatch-first", meters_north=30)
+        _second_token, second = self._make_dispatchable_driver("sub-dispatch-second", meters_north=200)
+        ride = self._make_ride(client_user.partner_id)
+        self.assertEqual(self._post(f"/api/v1/rides/{ride.public_id}/dispatch", client_token).status_code, 200)
+        self.assertEqual(ride.driver_id, first)
+
+        headers = {"Content-Type": "application/json", "X-Realtime-Secret": os.environ["REALTIME_SHARED_SECRET"]}
+        rejected = self.url_open(
+            f"/api/internal/rides/{ride.public_id}/driver-rejected",
+            data=json.dumps({"driverId": first.public_id, "reason": "trop loin", "expired": False}).encode(),
+            headers=headers,
+        )
+
+        self.assertEqual(rejected.status_code, 200, rejected.text)
+        ride.invalidate_recordset()
+        self.assertEqual(ride.state, "proposed")
+        self.assertEqual(ride.driver_id, second)
+        self.assertEqual(ride.rejection_ids.driver_id, first)
 
     # --- Critère 2 : un client ne peut pas agir sur la course d'un autre ----------------------
 
-    def test_client_cannot_select_driver_on_another_clients_ride(self):
+    def test_client_cannot_dispatch_another_clients_ride(self):
         # D54 : la course d'un autre client n'est même pas visible au nom de l'appelant --
         # RIDE_NOT_FOUND (404), pas RIDE_NOT_OWNED (403) : on ne confirme pas qu'elle existe.
         _owner_token, owner_public_id = self._sign_in("sub-ride-owner", "client")
@@ -286,14 +351,10 @@ class TestRideController(HttpCase):
             [("babana_public_id", "=", owner_public_id)]
         )
         stranger_token, _ = self._sign_in("sub-ride-stranger", "client")
-        driver_token, driver = self._make_approved_driver("sub-ride-driver-2")
+        self._make_dispatchable_driver("sub-ride-driver-2")
         ride = self._make_ride(owner_user.partner_id)
 
-        response = self._post(
-            f"/api/v1/rides/{ride.public_id}/select-driver",
-            stranger_token,
-            {"driverId": driver.public_id},
-        )
+        response = self._post(f"/api/v1/rides/{ride.public_id}/dispatch", stranger_token)
 
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["error"]["code"], "RIDE_NOT_FOUND")
@@ -310,14 +371,11 @@ class TestRideController(HttpCase):
         client_user = self.env["res.users"].sudo().search(
             [("babana_public_id", "=", client_public_id)]
         )
-        _assigned_token, assigned_driver = self._make_selectable_driver("sub-ride-assigned", client_token)
+        _assigned_token, assigned_driver = self._make_dispatchable_driver("sub-ride-assigned")
         _stranger_token, stranger_driver = self._make_approved_driver("sub-ride-stranger-driver")
         ride = self._make_ride(client_user.partner_id)
-        self._post(
-            f"/api/v1/rides/{ride.public_id}/select-driver",
-            client_token,
-            {"driverId": assigned_driver.public_id},
-        )
+        self._post(f"/api/v1/rides/{ride.public_id}/dispatch", client_token)
+        self.assertEqual(ride.driver_id, assigned_driver)
 
         response = self._accept_via_internal_channel(ride.public_id, stranger_driver.public_id)
 
@@ -325,39 +383,28 @@ class TestRideController(HttpCase):
         self.assertEqual(response.json()["error"]["code"], "RIDE_INVALID_TRANSITION")
         self.assertEqual(ride.state, "proposed", "aucune affectation ne doit avoir eu lieu")
 
-    # --- Critère 5 (chemin rapide, pas la garantie L3-06 -- amoa/questions/L4-03.md) ----------
+    # --- Un chauffeur déjà proposé à une course n'est jamais proposé à une seconde (invariant 4) --
 
-    def test_selecting_an_already_proposed_driver_is_rejected_without_a_transition(self):
+    def test_a_driver_already_proposed_is_never_proposed_to_a_second_ride(self):
         first_client_token, first_client_public_id = self._sign_in("sub-ride-client-5a", "client")
         first_client_user = self.env["res.users"].sudo().search(
             [("babana_public_id", "=", first_client_public_id)]
         )
-        second_client_token, second_client_public_id = self._sign_in(
-            "sub-ride-client-5b", "client"
-        )
+        second_client_token, second_client_public_id = self._sign_in("sub-ride-client-5b", "client")
         second_client_user = self.env["res.users"].sudo().search(
             [("babana_public_id", "=", second_client_public_id)]
         )
-        driver_token, driver = self._make_selectable_driver(
-            "sub-ride-taken", first_client_token, second_client_token
-        )
+        _driver_token, driver = self._make_dispatchable_driver("sub-ride-taken")
         first_ride = self._make_ride(first_client_user.partner_id)
         second_ride = self._make_ride(second_client_user.partner_id)
 
-        first = self._post(
-            f"/api/v1/rides/{first_ride.public_id}/select-driver",
-            first_client_token,
-            {"driverId": driver.public_id},
-        )
+        first = self._post(f"/api/v1/rides/{first_ride.public_id}/dispatch", first_client_token)
         self.assertEqual(first.status_code, 200)
+        self.assertEqual(first_ride.driver_id, driver)
 
-        second = self._post(
-            f"/api/v1/rides/{second_ride.public_id}/select-driver",
-            second_client_token,
-            {"driverId": driver.public_id},
-        )
-        self.assertEqual(second.status_code, 409)
-        self.assertEqual(second.json()["error"]["code"], "DRIVER_ALREADY_TAKEN")
+        second = self._post(f"/api/v1/rides/{second_ride.public_id}/dispatch", second_client_token)
+        self.assertEqual(second.status_code, 404)
+        self.assertEqual(second.json()["error"]["code"], "NO_DRIVER_AVAILABLE")
         self.assertEqual(second_ride.state, "requested", "aucune transition n'a eu lieu")
 
     # --- Critère 6 : un appel rejoué avec le même identifiant d'idempotence ne double pas ------
@@ -367,25 +414,15 @@ class TestRideController(HttpCase):
         client_user = self.env["res.users"].sudo().search(
             [("babana_public_id", "=", client_public_id)]
         )
-        driver_token, driver = self._make_selectable_driver("sub-ride-idem-driver", client_token)
+        driver_token, driver = self._make_dispatchable_driver("sub-ride-idem-driver")
         ride = self._make_ride(client_user.partner_id)
-        key = "idem-key-select-driver-1"
+        key = "idem-key-dispatch-1"
 
-        first = self._post(
-            f"/api/v1/rides/{ride.public_id}/select-driver",
-            client_token,
-            {"driverId": driver.public_id},
-            idempotency_key=key,
-        )
+        first = self._post(f"/api/v1/rides/{ride.public_id}/dispatch", client_token, idempotency_key=key)
         self.assertEqual(first.status_code, 200)
         first_body = first.json()
 
-        replay = self._post(
-            f"/api/v1/rides/{ride.public_id}/select-driver",
-            client_token,
-            {"driverId": driver.public_id},
-            idempotency_key=key,
-        )
+        replay = self._post(f"/api/v1/rides/{ride.public_id}/dispatch", client_token, idempotency_key=key)
         self.assertEqual(replay.status_code, 200)
         self.assertEqual(replay.json(), first_body)
         # Une vraie ré-application aurait échoué (la course n'est plus 'requested') -- la
@@ -399,23 +436,15 @@ class TestRideController(HttpCase):
             [("babana_public_id", "=", client_public_id)]
         )
         ride = self._make_ride(client_user.partner_id)
-        key = "idem-key-unknown-driver"
+        key = "idem-key-no-driver-yet"
 
-        first = self._post(
-            f"/api/v1/rides/{ride.public_id}/select-driver",
-            client_token,
-            {"driverId": str(uuid.uuid4())},
-            idempotency_key=key,
-        )
-        self.assertEqual(first.status_code, 400)
+        # Personne à proximité : une issue métier, pas une réponse à rejouer -- le client qui
+        # réessaie avec la même clé doit trouver le chauffeur arrivé entre-temps.
+        first = self._post(f"/api/v1/rides/{ride.public_id}/dispatch", client_token, idempotency_key=key)
+        self.assertEqual(first.status_code, 404)
 
-        driver_token, driver = self._make_selectable_driver("sub-ride-idem-2-driver", client_token)
-        retry = self._post(
-            f"/api/v1/rides/{ride.public_id}/select-driver",
-            client_token,
-            {"driverId": driver.public_id},
-            idempotency_key=key,
-        )
+        self._make_dispatchable_driver("sub-ride-idem-2-driver")
+        retry = self._post(f"/api/v1/rides/{ride.public_id}/dispatch", client_token, idempotency_key=key)
         self.assertEqual(retry.status_code, 200, "un échec métier ne doit pas être mis en cache")
 
     # --- cancel : client, chauffeur, superviseur --------------------------------------------
@@ -581,16 +610,14 @@ class TestRideController(HttpCase):
 
     def test_full_happy_path_up_to_completed(self):
         client_token, client_public_id = self._sign_in("sub-complete-client", "client")
-        driver_token, driver = self._make_selectable_driver("sub-complete-driver", client_token)
+        driver_token, driver = self._make_dispatchable_driver("sub-complete-driver")
         quote_id = self._make_quote(client_token)
         quote = self.env["babana.quote"].sudo().search([("public_id", "=", quote_id)])
 
         create_response = self._post("/api/v1/rides", client_token, {"quoteId": quote_id})
         ride_id = create_response.json()["id"]
 
-        self._post(
-            f"/api/v1/rides/{ride_id}/select-driver", client_token, {"driverId": driver.public_id}
-        )
+        self._post(f"/api/v1/rides/{ride_id}/dispatch", client_token)
         self._accept_via_internal_channel(ride_id, driver.public_id)
         self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
 
@@ -616,15 +643,13 @@ class TestRideController(HttpCase):
 
     def test_complete_by_unassigned_driver_is_rejected(self):
         client_token, _ = self._sign_in("sub-complete-client-2", "client")
-        driver_token, driver = self._make_selectable_driver("sub-complete-driver-2", client_token)
+        driver_token, driver = self._make_dispatchable_driver("sub-complete-driver-2")
         stranger_token, _stranger_driver = self._make_approved_driver("sub-complete-stranger")
         quote_id = self._make_quote(client_token)
         ride_id = self._post(
             "/api/v1/rides", client_token, {"quoteId": quote_id}
         ).json()["id"]
-        self._post(
-            f"/api/v1/rides/{ride_id}/select-driver", client_token, {"driverId": driver.public_id}
-        )
+        self._post(f"/api/v1/rides/{ride_id}/dispatch", client_token)
         self._accept_via_internal_channel(ride_id, driver.public_id)
         self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
 
@@ -642,12 +667,10 @@ class TestRideController(HttpCase):
         # l'enregistre. Ici on simule l'accumulation par un patch de fetch_ride_measurement ;
         # la vraie accumulation contre Redis est prouvée côté service (accumulator.test.ts).
         client_token, _ = self._sign_in("sub-complete-measured", "client")
-        driver_token, driver = self._make_selectable_driver("sub-complete-measured-drv", client_token)
+        driver_token, driver = self._make_dispatchable_driver("sub-complete-measured-drv")
         quote_id = self._make_quote(client_token)
         ride_id = self._post("/api/v1/rides", client_token, {"quoteId": quote_id}).json()["id"]
-        self._post(
-            f"/api/v1/rides/{ride_id}/select-driver", client_token, {"driverId": driver.public_id}
-        )
+        self._post(f"/api/v1/rides/{ride_id}/dispatch", client_token)
         self._accept_via_internal_channel(ride_id, driver.public_id)
         self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
 
@@ -672,14 +695,12 @@ class TestRideController(HttpCase):
         # `{distanceMeters, durationSeconds, polyline}` d'une vieille app -- est simplement ignoré,
         # jamais honoré : le relevé de trajet vient du service temps réel (L3-10), pas de l'app.
         client_token, _ = self._sign_in("sub-complete-client-3", "client")
-        driver_token, driver = self._make_selectable_driver("sub-complete-driver-3", client_token)
+        driver_token, driver = self._make_dispatchable_driver("sub-complete-driver-3")
         quote_id = self._make_quote(client_token)
         ride_id = self._post(
             "/api/v1/rides", client_token, {"quoteId": quote_id}
         ).json()["id"]
-        self._post(
-            f"/api/v1/rides/{ride_id}/select-driver", client_token, {"driverId": driver.public_id}
-        )
+        self._post(f"/api/v1/rides/{ride_id}/dispatch", client_token)
         self._accept_via_internal_channel(ride_id, driver.public_id)
         self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
 
@@ -701,13 +722,11 @@ class TestRideController(HttpCase):
 
     def _ride_ready_to_settle(self, label):
         client_token, _ = self._sign_in(f"sub-settle-client-{label}", "client")
-        driver_token, driver = self._make_selectable_driver(f"sub-settle-driver-{label}", client_token)
+        driver_token, driver = self._make_dispatchable_driver(f"sub-settle-driver-{label}")
         quote_id = self._make_quote(client_token)
         quote = self.env["babana.quote"].sudo().search([("public_id", "=", quote_id)])
         ride_id = self._post("/api/v1/rides", client_token, {"quoteId": quote_id}).json()["id"]
-        self._post(
-            f"/api/v1/rides/{ride_id}/select-driver", client_token, {"driverId": driver.public_id}
-        )
+        self._post(f"/api/v1/rides/{ride_id}/dispatch", client_token)
         self._accept_via_internal_channel(ride_id, driver.public_id)
         self._post(f"/api/v1/rides/{ride_id}/start", driver_token)
         self._post(f"/api/v1/rides/{ride_id}/complete", driver_token, {})

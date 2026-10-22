@@ -18,7 +18,10 @@ export async function withIdempotency<T>(
   redis: Redis,
   idempotencyKey: string,
   ttlSeconds: number,
-  compute: () => Promise<T>
+  compute: () => Promise<T>,
+  /** Ne met en cache que les résultats qui ont eu un effet à protéger d'un rejeu -- par défaut
+   * tous. Un « personne » n'a rien réservé : le recalculer au rejeu est sans danger. */
+  cacheIf: (result: T) => boolean = () => true
 ): Promise<T> {
   const key = idempotencyRedisKey(idempotencyKey);
   const cached = await redis.get(key);
@@ -27,6 +30,7 @@ export async function withIdempotency<T>(
   }
 
   const result = await compute();
+  if (!cacheIf(result)) return result;
 
   // NX : si un appel concurrent a déjà écrit un résultat pour cette même clé entre notre lecture
   // et cette écriture, on ne l'écrase jamais -- l'appelant reçoit quand même le résultat réel de

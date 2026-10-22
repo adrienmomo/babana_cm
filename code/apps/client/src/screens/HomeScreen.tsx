@@ -1,19 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MapView, reverseGeocode, type LatLng, type MapMarker } from '@babana/maps';
 import { Button } from '@babana/ui';
 import type { http, realtime } from '@babana/contracts';
 import { StreamLivenessWatchdog } from '@babana/api-client';
 import { PlacePicker } from '../components/PlacePicker';
-import { DriverMarker } from '../components/DriverMarker';
 import { getCurrentPosition, type LocationFailureReason } from '../location';
 import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import type { ClientParamList, RidePoint } from '../navigation/types';
 
 /**
- * Écran d'accueil (L6-06) : la carte, les 5 chauffeurs proches, la désignation du départ et de
- * l'arrivée. Premier écran métier réel de l'app -- il sert de patron aux quatorze suivants
+ * Écran d'accueil (L6-06) : la carte, les chauffeurs proches, la désignation du départ et de
+ * l'arrivée. Les chauffeurs sont des points anonymes sur la carte, avec leur nombre : le client ne
+ * choisit pas son chauffeur -- la course part au plus proche disponible, choisi par le serveur
+ * (D10 retiré). Il voit seulement qu'il y a du monde autour avant de commander. Premier écran métier réel de l'app -- il sert de patron aux quatorze suivants
  * (L6-07 à L6-17), voir le rapport de nuit pour ce qui y reste fragile.
  */
 
@@ -241,13 +242,7 @@ export function HomeScreen({ navigation }: Props) {
 
   function handleNext() {
     if (!departure || !arrival) return;
-    navigation.navigate('Quote', {
-      origin: departure,
-      destination: arrival,
-      nearbyDrivers,
-      excludedDriverIds: [],
-      rejectionStreak: 0,
-    });
+    navigation.navigate('Quote', { origin: departure, destination: arrival });
   }
 
   function retrySubscription() {
@@ -264,11 +259,11 @@ export function HomeScreen({ navigation }: Props) {
   const markers: MapMarker[] = [
     ...(departure ? [{ id: 'pickup', kind: 'pickup' as const, position: departure.position, label: 'Départ' }] : []),
     ...(arrival ? [{ id: 'dropoff', kind: 'dropoff' as const, position: arrival.position, label: 'Arrivée' }] : []),
+    // Anonymes : ni prénom ni libellé -- un point par chauffeur disponible.
     ...nearbyDrivers.map((driver) => ({
       id: driver.driverId,
       kind: 'driver' as const,
       position: driver.position,
-      label: driver.firstName ?? undefined,
     })),
   ];
 
@@ -336,14 +331,11 @@ export function HomeScreen({ navigation }: Props) {
             <Button testID="retry-nearby" label="Réessayer" variant="secondary" onPress={retrySubscription} />
           </View>
         ) : (
-          <FlatList
-            horizontal
-            data={nearbyDrivers}
-            keyExtractor={(driver) => driver.driverId}
-            renderItem={({ item }) => <DriverMarker driver={item} />}
-            contentContainerStyle={styles.driversList}
-            showsHorizontalScrollIndicator={false}
-          />
+          <Text style={styles.driversCount} testID="nearby-count">
+            {nearbyDrivers.length === 1
+              ? '1 chauffeur disponible à proximité'
+              : `${nearbyDrivers.length} chauffeurs disponibles à proximité`}
+          </Text>
         )}
       </View>
 
@@ -451,10 +443,13 @@ const styles = StyleSheet.create({
     right: 8,
   },
   driversSection: {
-    minHeight: 96,
+    minHeight: 40,
+    justifyContent: 'center',
   },
-  driversList: {
-    gap: 8,
+  driversCount: {
+    textAlign: 'center',
+    color: '#374151',
+    fontWeight: '600',
   },
   noDrivers: {
     alignItems: 'center',

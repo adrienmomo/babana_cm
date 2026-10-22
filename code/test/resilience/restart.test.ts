@@ -49,12 +49,19 @@ import {
   sendPosition,
   takeDriverOffline,
 } from '../concurrency/helpers/realtime';
+import { spotSequence } from '../concurrency/helpers/spots';
 // Fonction RÉELLE de production (services/realtime/src/odoo/outbox.ts), jamais une
 // réimplémentation à la main du format d'entrée -- voir la variante 2 plus bas pour le motif :
 // c'est exactement ce que le processus tué aurait exécuté juste avant de disparaître.
 import { enqueueOutboxEntry } from '../../services/realtime/src/odoo/outbox';
 
-const RIDE_ORIGIN = { latitude: 4.05, longitude: 9.7 };
+// Un point de prise en charge par variante : la course part au chauffeur disponible le plus
+// proche, dans le rayon réduit des tests (support/dispatch-radius.ts) -- le chauffeur de la
+// variante, posé exactement dessus. Base juste à l'est de (4.05, 9.70) : la variante 1 fait rouler
+// le chauffeur autour de (4.0505, 9.7006) -- un départ plus loin ferait rejeter ces positions comme
+// un saut invraisemblable (vitesse implicite, L3-02), et rien ne serait mesuré. Ce fichier tourne
+// seul, après la suite principale : aucun autre fichier n'occupe ces points en même temps.
+const nextSpot = spotSequence({ latitude: 4.05, longitude: 9.701 });
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const REALTIME_HTTP_ROOT = process.env.REALTIME_HTTP_ROOT ?? 'http://localhost:3000';
 
@@ -171,18 +178,18 @@ describe('L3-14 -- redémarrage brutal du service temps réel en pleine course',
       const driverSession = await signIn(`sub-l314-driver-${randomUUID()}`, 'driver');
       const { driverPublicId } = await approveDriver(driverSession, 'l314');
 
+      const spot = nextSpot();
       const { driverSocket: firstDriverSocket, clientSockets } = await makeDriverSelectable(
         driverSession.accessToken,
         driverPublicId,
-        RIDE_ORIGIN,
+        spot,
         [clientSession.accessToken]
       );
 
-      const { ridePublicId } = await createRideRequest(clientSession);
-      const select = await callRideEndpoint(`/rides/${ridePublicId}/select-driver`, clientSession, {
-        driverId: driverPublicId,
-      });
-      assert.equal(select.status, 200, `select-driver a échoué en préparation : ${JSON.stringify(select.body)}`);
+      const { ridePublicId } = await createRideRequest(clientSession, spot);
+      const select = await callRideEndpoint(`/rides/${ridePublicId}/dispatch`, clientSession, {});
+      assert.equal(select.status, 200, `dispatch a échoué en préparation : ${JSON.stringify(select.body)}`);
+      assert.equal(select.body.assignedDriverId, driverPublicId);
 
       await acceptProposalOverWs(firstDriverSocket, ridePublicId);
       assert.equal(await readRideState(ridePublicId), 'assigned');
@@ -286,18 +293,18 @@ describe('L3-14 -- variante : événement en file au moment de la coupure (L3-12
       const driverSession = await signIn(`sub-l314-outbox-driver-${randomUUID()}`, 'driver');
       const { driverPublicId } = await approveDriver(driverSession, 'l314-outbox');
 
+      const spot = nextSpot();
       const { driverSocket, clientSockets } = await makeDriverSelectable(
         driverSession.accessToken,
         driverPublicId,
-        RIDE_ORIGIN,
+        spot,
         [clientSession.accessToken]
       );
 
-      const { ridePublicId } = await createRideRequest(clientSession);
-      const select = await callRideEndpoint(`/rides/${ridePublicId}/select-driver`, clientSession, {
-        driverId: driverPublicId,
-      });
-      assert.equal(select.status, 200, `select-driver a échoué en préparation : ${JSON.stringify(select.body)}`);
+      const { ridePublicId } = await createRideRequest(clientSession, spot);
+      const select = await callRideEndpoint(`/rides/${ridePublicId}/dispatch`, clientSession, {});
+      assert.equal(select.status, 200, `dispatch a échoué en préparation : ${JSON.stringify(select.body)}`);
+      assert.equal(select.body.assignedDriverId, driverPublicId);
       assert.equal(await readRideState(ridePublicId), 'proposed');
 
       // --- La coupure : le processus qui aurait dû tenter l'appel Odoo n'existe plus --------
@@ -356,18 +363,18 @@ describe('L3-14 -- variante : perte de Redis pendant une course déjà affectée
       const driverSession = await signIn(`sub-l314-redis-driver-${randomUUID()}`, 'driver');
       const { driverPublicId } = await approveDriver(driverSession, 'l314-redis');
 
+      const spot = nextSpot();
       const { driverSocket, clientSockets } = await makeDriverSelectable(
         driverSession.accessToken,
         driverPublicId,
-        RIDE_ORIGIN,
+        spot,
         [clientSession.accessToken]
       );
 
-      const { ridePublicId } = await createRideRequest(clientSession);
-      const select = await callRideEndpoint(`/rides/${ridePublicId}/select-driver`, clientSession, {
-        driverId: driverPublicId,
-      });
-      assert.equal(select.status, 200, `select-driver a échoué en préparation : ${JSON.stringify(select.body)}`);
+      const { ridePublicId } = await createRideRequest(clientSession, spot);
+      const select = await callRideEndpoint(`/rides/${ridePublicId}/dispatch`, clientSession, {});
+      assert.equal(select.status, 200, `dispatch a échoué en préparation : ${JSON.stringify(select.body)}`);
+      assert.equal(select.body.assignedDriverId, driverPublicId);
       await acceptProposalOverWs(driverSocket, ridePublicId);
       assert.equal(await readRideState(ridePublicId), 'assigned', 'précondition : course affectée avant de couper Redis');
 

@@ -136,15 +136,15 @@ export const HTTP_ENDPOINTS = {
     requestExample: ride.createRideRequestExample,
     responseExample: ride.createRideResponseExample,
   },
-  selectDriver: {
+  dispatchRide: {
     method: 'POST',
-    path: '/api/v1/rides/{id}/select-driver',
+    path: '/api/v1/rides/{id}/dispatch',
     requiresAuth: true,
-    requestSchema: ride.SelectDriverRequestSchema,
-    responseSchema: ride.SelectDriverResponseSchema,
-    errors: ride.SelectDriverErrors,
-    requestExample: ride.selectDriverRequestExample,
-    responseExample: ride.selectDriverResponseExample,
+    requestSchema: ride.DispatchRideRequestSchema,
+    responseSchema: ride.DispatchRideResponseSchema,
+    errors: ride.DispatchRideErrors,
+    requestExample: ride.dispatchRideRequestExample,
+    responseExample: ride.dispatchRideResponseExample,
   },
   startRide: {
     method: 'POST',

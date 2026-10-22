@@ -89,12 +89,6 @@ const ConfigSchema = z.object({
   NEARBY_RATE_LIMIT_MAX_SUBSCRIPTIONS: z.coerce.number().int().positive().default(10),
   NEARBY_RATE_LIMIT_WINDOW_SECONDS: z.coerce.number().positive().default(60),
 
-  /** Durée pendant laquelle la dernière liste des 5 envoyée à un client reste opposable (L3-17,
-   * précondition C-03 -- "chauffeur présent dans la dernière liste des 5") : doit dépasser
-   * `NEARBY_BROADCAST_INTERVAL_SECONDS` d'une marge confortable, le temps qu'un client tape
-   * "sélectionner" après avoir VU la liste, pas seulement jusqu'à la diffusion suivante. */
-  NEARBY_LAST_SENT_TTL_SECONDS: z.coerce.number().int().positive().default(30),
-
   /** Fenêtre pendant laquelle l'endpoint interne de réservation (L3-17, `/internal/reservations`)
    * rejoue la réponse d'un appel déjà traité plutôt que de le recalculer -- doit dépasser le
    * budget de rejeu d'Odoo sur conflit de sérialisation PostgreSQL (D25,

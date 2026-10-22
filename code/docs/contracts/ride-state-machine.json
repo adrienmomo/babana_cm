@@ -43,7 +43,7 @@
     {
       "from": "requested",
       "to": "proposed",
-      "trigger": "select-driver",
+      "trigger": "dispatch (le serveur propose au chauffeur disponible le plus proche)",
       "actor": "client",
       "odooWrite": true,
       "businessEvent": "proposal",
@@ -70,8 +70,8 @@
     {
       "from": "rejected",
       "to": "proposed",
-      "trigger": "select-driver (nouvelle sélection, même course)",
-      "actor": "client",
+      "trigger": "suivant le plus proche, sollicité par le serveur après le refus | dispatch (« Réessayer », même course)",
+      "actor": "system_or_client",
       "odooWrite": true,
       "businessEvent": "proposal",
       "irreversible": false

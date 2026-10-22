@@ -17,7 +17,7 @@ import type { RequestOptions } from '../http/client';
  * retoucher n'apporterait rien ce soir.
  *
  * **Ce que cette file ne connaît PAS** (même discipline que `realtime/queue.ts`) : `nearby.*`,
- * `ride.track`, `position.update` (WebSocket, jamais REST) ; `selectDriver`, `proposal.accept`,
+ * `ride.track`, `position.update` (WebSocket, jamais REST) ; `dispatchRide`, `proposal.accept`,
  * `proposal.reject` (interdits hors connexion, spécification L6-16) -- ces derniers ne
  * transitent jamais par ce module, l'écran appelant refuse l'action lui-même avant d'y songer
  * (voir `ProposalScreen.tsx`, `QuoteScreen.tsx`).

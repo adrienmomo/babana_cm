@@ -52,3 +52,4 @@ from . import test_smtp_server
 from . import test_audit_log
 from . import test_pickup_note
 from . import test_ride_arrival
+from . import test_dispatch

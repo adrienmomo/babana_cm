@@ -17,7 +17,7 @@ from odoo.http import request
 from odoo.service.model import PG_CONCURRENCY_EXCEPTIONS_TO_RETRY
 
 from . import _common
-from ..services import push
+from ..services import dispatch, push
 from ..models.babana_ride import CLIENT_ACTIVE_STATES, DRIVER_ACTIVE_STATES
 from ..models.babana_ride_state import RideInvalidTransition
 from ..models.babana_ride_share import (
@@ -115,8 +115,10 @@ class InternalController(http.Controller):
         if not driver:
             return _common.error_payload("VALIDATION_ERROR", "driverId inconnu ou manquant"), 400
 
-        ride.sudo().action_reject(
-            by_driver=driver, reason=body.get("reason"), expired=bool(body.get("expired"))
+        # Le refus s'écrit, puis le chauffeur suivant le plus proche est sollicité dans la même
+        # transaction -- ou le client est prévenu qu'il n'y en a plus (services/dispatch.py).
+        dispatch.handle_driver_rejection(
+            env, ride, driver, reason=body.get("reason"), expired=bool(body.get("expired"))
         )
         return {"ok": True}, 200
 

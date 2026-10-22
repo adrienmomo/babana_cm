@@ -1,4 +1,4 @@
-import { asDriverId, asRideId } from '@babana/navigation';
+import { asRideId } from '@babana/navigation';
 import { replaceWithRideFlow } from '../transitions';
 import type { ClientParamList } from '../types';
 
@@ -8,17 +8,10 @@ describe('replaceWithRideFlow (piège du bouton retour Android, spécification L
     const rideId = asRideId('r1');
     const params: ClientParamList['Waiting'] = {
       rideId,
-      driverId: asDriverId('d1'),
-      proposalExpiresAt: '2026-08-18T07:00:30+01:00',
       amount: 1200,
-      selectedAt: Date.now(),
-      selection: {
-        origin: { position: { latitude: 4.05, longitude: 9.7 }, label: 'vers Akwa' },
-        destination: { position: { latitude: 4.06, longitude: 9.71 }, label: 'vers Bonapriso' },
-        nearbyDrivers: [],
-        excludedDriverIds: [],
-        rejectionStreak: 0,
-      },
+      requestedAt: Date.now(),
+      origin: { position: { latitude: 4.05, longitude: 9.7 }, label: 'vers Akwa' },
+      destination: { position: { latitude: 4.06, longitude: 9.71 }, label: 'vers Bonapriso' },
     };
 
     replaceWithRideFlow({ reset }, params);

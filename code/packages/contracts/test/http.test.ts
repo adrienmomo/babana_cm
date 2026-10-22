@@ -123,3 +123,20 @@ describe('indication de prise en charge (pickupNote) -- l’adresse formelle n�
     assert.equal(schema.safeParse({ quoteId, pickupNote: '   ' }).success, false);
   });
 });
+
+describe('dispatchRide -- la course part au chauffeur disponible le plus proche, jamais choisi par le client', () => {
+  const endpoint = HTTP_ENDPOINTS.dispatchRide;
+
+  test('POST /rides/{id}/dispatch, authentifié, sans désignation de chauffeur dans le corps', () => {
+    assert.equal(endpoint.method, 'POST');
+    assert.equal(endpoint.path, '/api/v1/rides/{id}/dispatch');
+    assert.equal(endpoint.requiresAuth, true);
+    // Un corps qui tenterait de désigner un chauffeur est refusé : le choix appartient au serveur.
+    assert.equal(endpoint.requestSchema.safeParse({ driverId: '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b' }).success, false);
+    assert.ok(endpoint.requestSchema.safeParse({}).success);
+  });
+
+  test('« aucun chauffeur disponible » est une issue prévue, pas une panne', () => {
+    assert.ok((endpoint.errors as readonly string[]).includes('NO_DRIVER_AVAILABLE'));
+  });
+});

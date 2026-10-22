@@ -70,35 +70,34 @@ export const createRideResponseExample: CreateRideResponse = {
 };
 
 /**
- * POST /rides/{id}/select-driver
- * Transition requested -> proposed, ou rejected -> proposed (D11, même course).
+ * POST /rides/{id}/dispatch
+ * La course part au chauffeur disponible le plus proche du point de prise en charge -- le serveur
+ * choisit, jamais le client (le choix par le client, D10, est retiré : sélection automatique par
+ * proximité, à vol d'oiseau, depuis le vivier temps réel). Transition requested -> proposed, ou
+ * rejected -> proposed (« Réessayer » après « aucun chauffeur disponible », même course).
+ *
+ * Corps vide, et strict : un corps qui désignerait un chauffeur est refusé. Après un refus ou une
+ * expiration, le serveur repropose de lui-même au suivant (paramètre babana.dispatch_max_attempts) ;
+ * le client n'apprend la fin des tentatives que par `ride.unmatched`.
  */
-export const SelectDriverRequestSchema = z.object({
-  driverId: DriverIdSchema,
-});
-export type SelectDriverRequest = z.infer<typeof SelectDriverRequestSchema>;
+export const DispatchRideRequestSchema = z.object({}).strict();
+export type DispatchRideRequest = z.infer<typeof DispatchRideRequestSchema>;
 
-export const SelectDriverResponseSchema = RideSummarySchema.extend({
+export const DispatchRideResponseSchema = RideSummarySchema.extend({
   proposalExpiresAt: IsoDateTimeSchema,
 });
-export type SelectDriverResponse = z.infer<typeof SelectDriverResponseSchema>;
+export type DispatchRideResponse = z.infer<typeof DispatchRideResponseSchema>;
 
-export const SelectDriverErrors = [
+export const DispatchRideErrors = [
   'RIDE_NOT_FOUND',
   'RIDE_NOT_OWNED',
   'RIDE_INVALID_TRANSITION',
-  'DRIVER_ALREADY_TAKEN',
-  // Ajouté en implémentant L4-03 : action_propose refuse un chauffeur qui n'est plus
-  // 'approved' (suspendu entre l'affichage de nearby.drivers et la sélection, par exemple).
-  // Absent de la première rédaction de ce contrat -- voir le message de commit de L4-03.
-  'DRIVER_NOT_APPROVED',
+  'NO_DRIVER_AVAILABLE',
 ] as const;
 
-export const selectDriverRequestExample: SelectDriverRequest = {
-  driverId: '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b',
-};
+export const dispatchRideRequestExample: DispatchRideRequest = {};
 
-export const selectDriverResponseExample: SelectDriverResponse = {
+export const dispatchRideResponseExample: DispatchRideResponse = {
   ...createRideResponseExample,
   state: 'proposed',
   assignedDriverId: '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b',
@@ -116,8 +115,9 @@ export const selectDriverResponseExample: SelectDriverResponse = {
  * `ride.rejected` (C-02), jamais par une réponse HTTP à cet endpoint.
  */
 const rideAcceptedExample: RideSummary = {
-  ...selectDriverResponseExample,
+  ...createRideResponseExample,
   state: 'assigned',
+  assignedDriverId: '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b',
 };
 
 /**

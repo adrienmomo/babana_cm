@@ -21,7 +21,6 @@ import { isInPool, removeFromPool } from '../src/redis/geo-index';
 import { isReserved } from '../src/reservation/reserve';
 import { isEngaged, setEngaged, clearEngaged } from '../src/driver/engagement';
 import { storePosition } from '../src/redis/positions';
-import { recordLastSent } from '../src/nearby/last-sent';
 import { accumulatePosition, accumulationKey } from '../src/tracking/accumulator';
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
@@ -170,29 +169,12 @@ async function availableDriver(label: string): Promise<string> {
   return driverId;
 }
 
-function reservationBody(overrides: Partial<Record<string, unknown>> = {}) {
-  return {
-    idempotencyKey: randomUUID(),
-    rideId: randomUUID(),
-    driverId: 'placeholder',
-    clientUserId: id('client'),
-    origin: SOMEWHERE,
-    destination: { latitude: 4.06, longitude: 9.72 },
-    amount: 1_200,
-    distanceMeters: 3_400,
-    // D42 (amoa/questions/REPONSES-2026-09-02.md §1) : Odoo le transmet désormais dans le même
-    // appel qu'origin/destination/amount ci-dessus (services/realtime_client.py::reserve_and_propose).
-    clientPhoneNumber: '+237691234567',
-    ...overrides,
-  };
-}
-
 describe('POST /internal/* -- authentification (L3-17)', () => {
   test('un appel sans secret partagé est refusé (401), quelle que soit la route', async () => {
-    const response = await fetch(`http://127.0.0.1:${port}/internal/reservations`, {
+    const response = await fetch(`http://127.0.0.1:${port}/internal/reservations/nearest`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(reservationBody()),
+      body: JSON.stringify(nearestBody(SOMEWHERE)),
     });
     assert.equal(response.status, 401);
   });
@@ -203,77 +185,13 @@ describe('POST /internal/* -- authentification (L3-17)', () => {
   });
 });
 
-describe('POST /internal/reservations (sens Odoo -> temps réel, L3-17)', () => {
-  test('réserve et propose un chauffeur disponible et récemment montré au client', async () => {
-    const driverId = await availableDriver('reserve-ok');
-    const clientUserId = id('reserve-ok-client');
-    await recordLastSent(redis, clientUserId, [driverId], 30);
-
-    const { status, body } = await post('/internal/reservations', reservationBody({ driverId, clientUserId }));
-
-    assert.equal(status, 200);
-    assert.equal(body.outcome, 'PROPOSED');
-    assert.ok(typeof body.expiresAt === 'string');
-    assert.equal(await isInPool(redis, driverId), false);
-    assert.equal(await isReserved(redis, driverId), true);
-  });
-
-  test('critère 8 -- un chauffeur absent de la dernière liste des 5 ne peut pas être sélectionné', async () => {
-    const driverId = await availableDriver('reserve-not-shown');
-    const clientUserId = id('reserve-not-shown-client');
-    // Délibérément aucun recordLastSent pour ce client -- le chauffeur n'a jamais été montré.
-
-    const { status, body } = await post('/internal/reservations', reservationBody({ driverId, clientUserId }));
-
-    assert.equal(status, 200);
-    assert.equal(body.outcome, 'DRIVER_NOT_IN_LAST_LIST');
-    assert.equal(await isInPool(redis, driverId), true, 'aucune réservation ne doit avoir été tentée');
-  });
-
-  test('un chauffeur déjà réservé renvoie DRIVER_ALREADY_TAKEN, sans doublon d\'écriture', async () => {
-    const driverId = await availableDriver('reserve-taken');
-    const clientA = id('reserve-taken-client-a');
-    const clientB = id('reserve-taken-client-b');
-    await recordLastSent(redis, clientA, [driverId], 30);
-    await recordLastSent(redis, clientB, [driverId], 30);
-
-    const first = await post('/internal/reservations', reservationBody({ driverId, clientUserId: clientA }));
-    assert.equal(first.body.outcome, 'PROPOSED');
-
-    const second = await post('/internal/reservations', reservationBody({ driverId, clientUserId: clientB }));
-    assert.equal(second.body.outcome, 'DRIVER_ALREADY_TAKEN');
-  });
-
-  test(
-    "critère 3 -- rejouer le MÊME identifiant d'idempotence renvoie le résultat déjà obtenu, sans réserver une seconde fois",
-    async () => {
-      const driverId = await availableDriver('reserve-idempotent');
-      const clientUserId = id('reserve-idempotent-client');
-      await recordLastSent(redis, clientUserId, [driverId], 30);
-
-      const body = reservationBody({ driverId, clientUserId });
-
-      const first = await post('/internal/reservations', body);
-      assert.equal(first.body.outcome, 'PROPOSED');
-
-      // Même clé d'idempotence, même corps -- simule le rejeu de la requête HTTP entière par
-      // Odoo (D25) : si l'endpoint recalculait, il retenterait reserve.lua sur un chauffeur déjà
-      // retiré du pool par le premier appel, et renverrait DRIVER_ALREADY_TAKEN à une requête qui
-      // avait pourtant déjà réussi -- exactement le piège décrit par la spécification.
-      const replayed = await post('/internal/reservations', body);
-      assert.equal(replayed.status, 200);
-      assert.deepEqual(replayed.body, first.body, 'la réponse rejouée doit être identique à la première, pas recalculée');
-    }
-  );
-});
-
 describe('POST /internal/reservations/release (compensation, critère 4)', () => {
   test('libère une proposition en cours et remet le chauffeur dans le pool', async () => {
-    const driverId = await availableDriver('release');
-    const clientUserId = id('release-client');
-    await recordLastSent(redis, clientUserId, [driverId], 30);
-    const reserved = await post('/internal/reservations', reservationBody({ driverId, clientUserId }));
+    const pickup = nearestSpot();
+    const driverId = await availableDriverAt(id('release'), pickup);
+    const reserved = await post('/internal/reservations/nearest', nearestBody(pickup));
     assert.equal(reserved.body.outcome, 'PROPOSED');
+    assert.equal(reserved.body.driverId, driverId);
 
     const { status, body } = await post('/internal/reservations/release', { driverId });
     assert.equal(status, 200);
@@ -642,5 +560,161 @@ describe('POST /internal/rides/cancelled (sens Odoo -> temps réel, L4-12)', () 
       clientWs.close();
       driverWs.close();
     }
+  });
+});
+
+// --- Sélection automatique : Odoo demande « le plus proche », le service choisit et propose. ---
+
+// Un point par test, à ~2 km du suivant et loin du point commun (SOMEWHERE) -- même raison que
+// test/reservation-nearest.test.ts.
+let nearestSpotIndex = 0;
+function nearestSpot(): { latitude: number; longitude: number } {
+  nearestSpotIndex += 1;
+  return { latitude: 3.94 + nearestSpotIndex * 0.02, longitude: 9.82 };
+}
+
+async function availableDriverAt(driverId: string, at: { latitude: number; longitude: number }): Promise<string> {
+  usedDriverIds.add(driverId);
+  await setOnline(redis, driverId);
+  await storePosition(
+    redis,
+    driverId,
+    { ...at, accuracyMeters: 10, speedMetersPerSecond: 0, headingDegrees: 0, capturedAtMs: Date.now() },
+    60
+  );
+  await addEligibleToPool(redis, driverId, at.latitude, at.longitude);
+  return driverId;
+}
+
+function nearestBody(origin: { latitude: number; longitude: number }, overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    idempotencyKey: randomUUID(),
+    rideId: randomUUID(),
+    clientUserId: id('nearest-client'),
+    origin,
+    destination: { latitude: 4.06, longitude: 9.72 },
+    amount: 1_200,
+    distanceMeters: 3_400,
+    clientPhoneNumber: '+237691234567',
+    pickupNote: null,
+    radiusMeters: 500,
+    excludeDriverIds: [],
+    ...overrides,
+  };
+}
+
+const metersNorth = (at: { latitude: number; longitude: number }, meters: number) => ({
+  latitude: at.latitude + meters / 111_000,
+  longitude: at.longitude,
+});
+
+describe('POST /internal/reservations/nearest (le serveur choisit le chauffeur le plus proche)', () => {
+  test('propose au plus proche : proposal.new lui parvient, la réponse le nomme', async () => {
+    const pickup = nearestSpot();
+    const closest = await availableDriverAt(randomUUID(), metersNorth(pickup, 40));
+    await availableDriverAt(randomUUID(), metersNorth(pickup, 250));
+    const driverWs = await connectWs(tokenFor('driver', randomUUID(), closest));
+
+    try {
+      const body = nearestBody(pickup, { pickupNote: 'Devant la pharmacie' });
+      const [proposal, { status, body: response }] = await Promise.all([
+        waitForMessage(driverWs, 'proposal.new'),
+        post('/internal/reservations/nearest', body),
+      ]);
+      assert.equal(status, 200);
+      assert.equal(response.outcome, 'PROPOSED');
+      assert.equal(response.driverId, closest);
+      assert.ok(typeof response.expiresAt === 'string');
+      assert.equal((proposal.payload as { rideId: string }).rideId, body.rideId);
+      assert.equal((proposal.payload as { pickupNote: string }).pickupNote, 'Devant la pharmacie');
+      assert.equal(await isReserved(redis, closest), true);
+    } finally {
+      driverWs.close();
+    }
+  });
+
+  test('les chauffeurs déjà sollicités pour la course sont passés', async () => {
+    const pickup = nearestSpot();
+    const refused = await availableDriverAt(id('nearest-refused'), metersNorth(pickup, 30));
+    const next = await availableDriverAt(id('nearest-next'), metersNorth(pickup, 200));
+
+    const { body } = await post('/internal/reservations/nearest', nearestBody(pickup, { excludeDriverIds: [refused] }));
+
+    assert.equal(body.outcome, 'PROPOSED');
+    assert.equal(body.driverId, next);
+    assert.equal(await isInPool(redis, refused), true);
+  });
+
+  test('personne dans le rayon : NO_DRIVER_AVAILABLE, rien de réservé', async () => {
+    const pickup = nearestSpot();
+    const far = await availableDriverAt(id('nearest-far'), metersNorth(pickup, 900));
+
+    const { status, body } = await post('/internal/reservations/nearest', nearestBody(pickup, { radiusMeters: 500 }));
+
+    assert.equal(status, 200);
+    assert.deepEqual(body, { outcome: 'NO_DRIVER_AVAILABLE' });
+    assert.equal(await isInPool(redis, far), true);
+  });
+
+  test("rejouer la même clé d'idempotence renvoie le même chauffeur, sans en réserver un second (D25)", async () => {
+    const pickup = nearestSpot();
+    await availableDriverAt(id('nearest-replay-a'), metersNorth(pickup, 30));
+    const second = await availableDriverAt(id('nearest-replay-b'), metersNorth(pickup, 150));
+    const body = nearestBody(pickup);
+
+    const first = await post('/internal/reservations/nearest', body);
+    const replayed = await post('/internal/reservations/nearest', body);
+
+    assert.equal(first.body.outcome, 'PROPOSED');
+    assert.deepEqual(replayed.body, first.body);
+    assert.equal(await isInPool(redis, second), true, 'le rejeu ne doit pas réserver le suivant');
+  });
+
+  test("« personne » n'est pas mis en cache : la même clé retrouve un chauffeur arrivé entre-temps", async () => {
+    // Rien n'a été réservé au premier appel : le recalcul est sans danger, et répondre « personne »
+    // pendant toute la durée du cache à un client qui réessaie serait faux.
+    const pickup = nearestSpot();
+    const body = nearestBody(pickup);
+
+    const first = await post('/internal/reservations/nearest', body);
+    assert.equal(first.body.outcome, 'NO_DRIVER_AVAILABLE');
+
+    const arrived = await availableDriverAt(id('nearest-arrived'), metersNorth(pickup, 50));
+    const second = await post('/internal/reservations/nearest', body);
+    assert.equal(second.body.outcome, 'PROPOSED');
+    assert.equal(second.body.driverId, arrived);
+  });
+
+  test('un corps sans rayon est refusé (400) : le rayon est un réglage métier, transmis par Odoo', async () => {
+    const { radiusMeters: _omitted, ...withoutRadius } = nearestBody(nearestSpot());
+    const { status } = await post('/internal/reservations/nearest', withoutRadius);
+    assert.equal(status, 400);
+  });
+});
+
+describe('POST /internal/rides/unmatched (aucun chauffeur après les tentatives automatiques)', () => {
+  test('ride.unmatched part au client de la course, jamais à un tiers', async () => {
+    const rideId = randomUUID();
+    const clientUserId = randomUUID();
+    const clientWs = await connectWs(tokenFor('client', clientUserId));
+    const strangerWs = await connectWs(tokenFor('client', randomUUID()));
+
+    try {
+      const [message, { status }] = await Promise.all([
+        waitForMessage(clientWs, 'ride.unmatched'),
+        post('/internal/rides/unmatched', { rideId, clientUserId }),
+      ]);
+      assert.equal(status, 200);
+      assert.deepEqual(message.payload, { rideId });
+      await assertNoMessage(strangerWs, 'ride.unmatched');
+    } finally {
+      clientWs.close();
+      strangerWs.close();
+    }
+  });
+
+  test('un corps incomplet est refusé (400)', async () => {
+    const { status } = await post('/internal/rides/unmatched', { rideId: randomUUID() });
+    assert.equal(status, 400);
   });
 });

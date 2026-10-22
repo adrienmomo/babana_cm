@@ -5,7 +5,6 @@ import { realtime } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ConnectionContext } from '../ws/auth';
 import { findNearbyWithExpansion } from './expand';
-import { recordLastSent } from './last-sent';
 
 // D14, non négociable par le client (critère 2) -- déjà la borne du schéma `NearbyDriversPayloadSchema`
 // (packages/contracts/src/realtime/server-to-client.ts, `.max(5)`) ; répété ici comme constante
@@ -96,9 +95,6 @@ export class NearbyManager {
       // jamais -- voir nearby/expand.ts pour le raisonnement complet (C2b).
       const result = await findNearbyWithExpansion(this.config, this.redis, origin, radiusMeters, excludeDriverIds, NEARBY_RESULT_LIMIT);
       const drivers = 'drivers' in result ? result.drivers : [];
-      // Précondition C-03 (L3-17) : mémorise cette liste comme "la dernière montrée à ce client",
-      // pour que /internal/reservations puisse refuser un chauffeur jamais affiché.
-      await recordLastSent(this.redis, context.userId, drivers.map((d) => d.driverId), this.config.NEARBY_LAST_SENT_TTL_SECONDS);
       // Une liste vide après épuisement de l'élargissement EST le NO_DRIVER_AVAILABLE de la
       // spécification (catalogue C-01) : L6-08 traite déjà ce cas côté app, aucun message
       // distinct n'est nécessaire (voir nearby/expand.ts).

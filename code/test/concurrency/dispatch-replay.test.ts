@@ -1,199 +1,130 @@
-// Preuve du critère 3 de L3-17 : « une requête select-driver rejouée par Odoo ne produit qu'une
-// réservation ». Le rejeu doit être RÉELLEMENT provoqué -- un vrai conflit de sérialisation
-// PostgreSQL (D25), pas un double appel de ce fichier qui simulerait la chose.
+// Preuve que la commande d'une course, rejouée par Odoo, ne laisse jamais un chauffeur réservé
+// pour rien (critère 3 de L3-17, transposé à la sélection automatique : le serveur choisit le
+// chauffeur le plus proche, le client ne le désigne plus). Le rejeu doit être RÉELLEMENT provoqué
+// -- un vrai conflit de sérialisation PostgreSQL (D25), pas un double appel de ce fichier qui
+// simulerait la chose.
 //
-// **Pourquoi ce n'est PAS deux appels concurrents identiques (même chauffeur, même clé
-// d'idempotence)** : une première version de ce test envoyait N requêtes select-driver
-// réellement simultanées avec la même clé, en espérant que la mise en cache d'idempotence
-// absorbe les doublons. Elle ne le fait PAS de façon fiable : N requêtes HTTP client
-// authentiquement concurrentes deviennent N tentatives Odoo authentiquement concurrentes, chacune
-// lisant `withIdempotency` AVANT qu'aucune n'ait eu le temps d'y écrire -- un défaut réel de
-// conception, vérifié en pratique. Ce n'est tout simplement pas ce que fait Odoo : le rejeu de
-// D25 est SÉQUENTIEL, une seule requête HTTP externe, retentée par le MÊME fil d'exécution après
-// l'échec de la première tentative -- jamais deux fils concurrents.
+// **Comment il est provoqué** : deux commandes concurrentes de la MÊME course, avec des clés
+// d'idempotence différentes (deux requêtes HTTP distinctes, comme deux appareils du même client).
+// Chacune demande au service temps réel le plus proche disponible -- l'une obtient A, l'autre B
+// (A étant déjà réservé). Les deux verrouillent ensuite la même ligne `babana_ride` dans
+// `action_propose::_lock_for_update()` : la perdante subit un SerializationFailure et Odoo rejoue
+// SA requête entière, avec SA clé. Le service temps réel lui rejoue alors le chauffeur que sa
+// première tentative avait réservé (jamais un troisième), et la transition, refusée cette fois
+// (la course est déjà proposée), le fait relâcher.
 //
-// **La bonne façon de le provoquer réellement** : deux requêtes select-driver concurrentes visant
-// la MÊME COURSE avec des CHAUFFEURS DIFFÉRENTS (donc des clés d'idempotence différentes, sans
-// aliasing entre elles). Les deux verrouillent la même ligne `babana_ride` dans
-// `action_propose::_lock_for_update()` (même mécanisme que L4-11, scénario 2 -- deux transitions
-// concurrentes sur la même course). Le perdant subit un SerializationFailure et Odoo rejoue SA
-// requête entière depuis le début -- SA propre clé d'idempotence, jamais celle du gagnant. C'est
-// ce rejeu qui doit démontrer critère 3 : le second appel à /internal/reservations pour cette
-// clé doit rejouer la première réponse, jamais retenter la réservation.
+// Ce qui doit en sortir, à chaque itération : un succès et un RIDE_INVALID_TRANSITION ; le
+// chauffeur de la perdante de nouveau disponible (une nouvelle course le trouve) ; celui de la
+// gagnante toujours réservé (une seconde nouvelle course ne trouve plus personne).
 //
-// **Deux connexions temps réel persistantes pour tout le fichier** (clientSocket, checkSocket),
-// jamais une par itération : chaque `nearby.subscribe` compte dans la limitation de débit (L3-05,
-// critère 6, 10 par fenêtre de 60 s par défaut) -- un abonnement par itération épuisait ce quota
-// bien avant d'avoir prouvé quoi que ce soit sur plusieurs dizaines d'itérations, constaté en
-// pratique. Un vrai client ne se réabonne pas à chaque action ; ce test ne le fait plus non plus.
+// Défaut que ce test a trouvé en l'écrivant : une première version de la commande vérifiait
+// l'état de la course AVANT d'appeler le service temps réel. Au rejeu, ce contrôle voyait
+// `proposed` et s'arrêtait -- le chauffeur réservé par la première tentative ne l'était jamais
+// relâché, et il avait déjà reçu la proposition (services/odoo/addons/babana/services/dispatch.py).
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
-import { after, before } from 'node:test';
+import { before } from 'node:test';
 import test from 'node:test';
-import type WebSocket from 'ws';
 
-import {
-  approveDriver,
-  callRideEndpoint,
-  createRideRequest,
-  readRideState,
-  signIn,
-  Session,
-} from './helpers/odoo-session';
-import {
-  bringDriverOnline,
-  openClientSubscription,
-  seedDriverProfile,
-  takeDriverOffline,
-  waitForDriverVisible,
-} from './helpers/realtime';
+import { approveDriver, callRideEndpoint, createRideRequest, readRideState, signIn, Session } from './helpers/odoo-session';
+import { bringDriverOnline, seedDriverProfile, takeDriverOffline } from './helpers/realtime';
+import { spotSequence } from './helpers/spots';
 
-// Point DISTINCT de celui de concurrency/ride-transitions.test.ts, http-contract/endpoint-
-// coverage.test.ts et e2e/full-ride.test.ts (D72/D73, amoa/01-architecture.md §9 quindecies) : ces
-// quatre fichiers tournent CONCURREMMENT (node --test lance un processus par fichier -- mesuré,
-// pas supposé) et amenaient chacun un ou plusieurs chauffeurs réellement en ligne au même point
-// exact -- jusqu'à 7 en même temps, mesuré. Le géo-index n'en garde alors que les 5 premiers par
-// ordre de score, et pour des points RIGOUREUSEMENT identiques ce score est à égalité parfaite :
-// Redis départage alors par ordre lexicographique de l'identifiant (mesuré, reproductible),
-// jamais par ordre d'arrivée -- un chauffeur dont l'identifiant trie après les quatre autres
-// n'apparaît alors JAMAIS dans nearby.drivers, quelle que soit la durée d'attente. Aucune
-// écriture Odoo ni aucun calcul de tarif ne dépend de la position absolue (mock de routage
-// dérivé de la seule distance, une unique zone par défaut couvrant tout le rectangle
-// opérationnel) -- écarter ce point du point commun des trois autres fichiers n'a donc aucun
-// effet sur ce que ce fichier vérifie. Distance à `ride-transitions.test.ts` (resté à
-// 4.05/9.70) : environ 12,6 km, largement au-delà de NEARBY_MAX_RADIUS_METERS (5 km) -- ce
-// fichier a son propre chauffeur, jamais mêlé à celui d'un autre.
-const RIDE_ORIGIN = { latitude: 4.13, longitude: 9.62 };
+// Base propre à ce fichier (les autres fichiers tournent en parallèle, chacun loin des autres) ;
+// un point par itération, son seul couple de chauffeurs posé dessus.
+const nextSpot = spotSequence({ latitude: 4.13, longitude: 9.62 });
 const ITERATIONS = Number(process.env.L3_17_REPLAY_ITERATIONS ?? 8);
+// Le second chauffeur, à une quinzaine de mètres du point : dans le rayon des tests.
+const METERS_PER_DEGREE = 111_000;
 
 let clientSession: Session;
-let clientSocket: WebSocket;
 let checkClient: Session;
-let checkSocket: WebSocket;
 
 before(async () => {
-  clientSession = await signIn(`sub-l317-replay-client-${randomUUID()}`, 'client');
-  clientSocket = await openClientSubscription(clientSession.accessToken, RIDE_ORIGIN);
-  checkClient = await signIn(`sub-l317-replay-check-${randomUUID()}`, 'client');
-  checkSocket = await openClientSubscription(checkClient.accessToken, RIDE_ORIGIN);
-});
-
-after(() => {
-  clientSocket.close();
-  checkSocket.close();
+  clientSession = await signIn(`sub-dispatch-replay-client-${randomUUID()}`, 'client');
+  checkClient = await signIn(`sub-dispatch-replay-check-${randomUUID()}`, 'client');
 });
 
 test(
-  "select-driver rejoué par un vrai conflit de sérialisation PostgreSQL ne produit qu'une réservation (L3-17, critère 3)",
+  "une commande rejouée par un vrai conflit de sérialisation PostgreSQL ne laisse aucun chauffeur réservé pour rien (L3-17, critère 3)",
   { timeout: 180_000 },
   async () => {
     for (let iteration = 0; iteration < ITERATIONS; iteration += 1) {
-      const driverASession = await signIn(`sub-l317-replay-a-${iteration}-${randomUUID()}`, 'driver');
-      const driverBSession = await signIn(`sub-l317-replay-b-${iteration}-${randomUUID()}`, 'driver');
+      const spot = nextSpot();
+      const driverASession = await signIn(`sub-dispatch-replay-a-${iteration}-${randomUUID()}`, 'driver');
+      const driverBSession = await signIn(`sub-dispatch-replay-b-${iteration}-${randomUUID()}`, 'driver');
       const { driverPublicId: driverAId } = await approveDriver(driverASession, `a${iteration}`);
       const { driverPublicId: driverBId } = await approveDriver(driverBSession, `b${iteration}`);
 
-      const driverASocket = await bringDriverOnline(driverASession.accessToken, RIDE_ORIGIN);
-      const driverBSocket = await bringDriverOnline(driverBSession.accessToken, RIDE_ORIGIN);
-      // D70 (amoa/01-architecture.md §9 duodecies) : `try` étendu pour englober
-      // `waitForDriverVisible` ci-dessous, pas seulement ce qui la suit. Avant ce correctif, un
-      // rejet de `waitForDriverVisible` (exactement le symptôme catalogué par D70 -- "chauffeur
-      // jamais apparu dans nearby.drivers après 20000ms") sautait le `finally` qui ferme
-      // `driverASocket`/`driverBSocket` : les deux connexions WebSocket, ouvertes quelques lignes
-      // plus haut, restaient alors référencées par personne mais toujours actives -- un handle
-      // `net.Socket` réf'd ne laisse jamais un processus Node sortir de lui-même. Reproduit en
-      // direct le 4 septembre 2026 : le worker `node --test` de ce fichier restait vivant, 0 % CPU,
-      // aucune progression, la connexion chauffeur toujours ESTABLISHED des minutes après l'échec
-      // -- le "silence" observé trois nuits de suite sur ce même message d'erreur.
+      const driverASocket = await bringDriverOnline(driverASession.accessToken, spot);
+      const driverBSocket = await bringDriverOnline(driverBSession.accessToken, {
+        latitude: spot.latitude + 15 / METERS_PER_DEGREE,
+        longitude: spot.longitude,
+      });
+      // `try` englobe tout ce qui suit l'ouverture des connexions (D70) : un échec ne doit jamais
+      // laisser deux WebSocket ouverts qui empêcheraient le processus de test de se terminer.
       try {
         await seedDriverProfile(driverAId, `Chauffeur A${iteration}`);
         await seedDriverProfile(driverBId, `Chauffeur B${iteration}`);
-        // Un seul abonnement persistant (before ci-dessus), jamais un par itération -- la
-        // diffusion périodique déjà en cours suffit à faire apparaître les deux nouveaux chauffeurs.
-        await waitForDriverVisible(clientSocket, [driverAId, driverBId], RIDE_ORIGIN);
 
-        const { ridePublicId } = await createRideRequest(clientSession);
+        const { ridePublicId } = await createRideRequest(clientSession, spot);
 
         // eslint-disable-next-line no-await-in-loop -- chaque itération doit être résolue avant
         // la suivante, la concurrence testée est DANS l'itération (les deux appels ci-dessous).
-        const [responseA, responseB] = await Promise.all([
-          callRideEndpoint(`/rides/${ridePublicId}/select-driver`, clientSession, { driverId: driverAId }),
-          callRideEndpoint(`/rides/${ridePublicId}/select-driver`, clientSession, { driverId: driverBId }),
+        const [first, second] = await Promise.all([
+          callRideEndpoint(`/rides/${ridePublicId}/dispatch`, clientSession, {}, randomUUID()),
+          callRideEndpoint(`/rides/${ridePublicId}/dispatch`, clientSession, {}, randomUUID()),
         ]);
 
-        const successes = [responseA, responseB].filter((r) => r.status === 200);
-        const failures = [responseA, responseB].filter((r) => r.status !== 200);
-
+        const successes = [first, second].filter((r) => r.status === 200);
+        const failures = [first, second].filter((r) => r.status !== 200);
         assert.equal(
           successes.length,
           1,
-          `itération ${iteration} : exactement un succès attendu sur les deux propositions concurrentes de la même course, obtenu ${successes.length} -- ${JSON.stringify([responseA, responseB])}`
+          `itération ${iteration} : exactement un succès attendu sur deux commandes concurrentes de la même course -- ${JSON.stringify([first, second])}`
         );
-        assert.equal(failures.length, 1);
         assert.equal(
           failures[0]!.body?.error?.code,
           'RIDE_INVALID_TRANSITION',
-          `itération ${iteration} : le perdant doit échouer proprement (course déjà proposée), pas par une réservation en double -- ${JSON.stringify(failures[0]!.body)}`
+          `itération ${iteration} : la perdante doit échouer proprement (course déjà proposée) -- ${JSON.stringify(failures[0]!.body)}`
         );
-
-        const winningDriverId = responseA.status === 200 ? driverAId : driverBId;
-        const losingDriverId = responseA.status === 200 ? driverBId : driverAId;
-
         // eslint-disable-next-line no-await-in-loop
         assert.equal(await readRideState(ridePublicId), 'proposed');
 
-        // Le gagnant reste réservé (retiré du pool, D26) : il ne réapparaîtra jamais dans
-        // nearby.drivers tant que sa course n'est pas résolue -- seul le perdant, relâché, a
-        // vocation à y revenir. La vérification "DRIVER_ALREADY_TAKEN" sur le gagnant plus bas
-        // ne dépend donc pas de sa visibilité.
-        // eslint-disable-next-line no-await-in-loop
-        await waitForDriverVisible(checkSocket, losingDriverId, RIDE_ORIGIN);
+        const winningDriverId = successes[0]!.body.assignedDriverId as string;
+        assert.ok([driverAId, driverBId].includes(winningDriverId));
+        const losingDriverId = winningDriverId === driverAId ? driverBId : driverAId;
 
-        // Le perdant a été réservé une fois (par sa PREMIÈRE tentative, avant le conflit) puis
-        // relâché -- jamais laissé bloqué, jamais réservé une seconde fois par un rejeu qui
-        // recalculerait au lieu de rejouer. Preuve : une toute nouvelle course peut encore le
-        // sélectionner immédiatement.
+        // Le chauffeur de la perdante a été relâché : une nouvelle course au même point le trouve.
         // eslint-disable-next-line no-await-in-loop
-        const freshRideForLoser = await createRideRequest(checkClient);
+        const freshForLoser = await createRideRequest(checkClient, spot);
         // eslint-disable-next-line no-await-in-loop
-        const loserRetry = await callRideEndpoint(
-          `/rides/${freshRideForLoser.ridePublicId}/select-driver`,
-          checkClient,
-          { driverId: losingDriverId }
-        );
+        const loserFound = await callRideEndpoint(`/rides/${freshForLoser.ridePublicId}/dispatch`, checkClient, {});
         assert.equal(
-          loserRetry.status,
+          loserFound.status,
           200,
-          `itération ${iteration} : le chauffeur perdant doit être de nouveau sélectionnable, pas bloqué par une réservation orpheline -- ${JSON.stringify(loserRetry.body)}`
+          `itération ${iteration} : le chauffeur de la commande perdante doit être de nouveau disponible -- ${JSON.stringify(loserFound.body)}`
         );
-        // eslint-disable-next-line no-await-in-loop
-        await callRideEndpoint(`/rides/${freshRideForLoser.ridePublicId}/cancel`, checkClient, {
-          reason: 'nettoyage (test L3-17)',
-        });
+        assert.equal(loserFound.body.assignedDriverId, losingDriverId);
 
-        // Le gagnant, lui, reste réservé pour SA course -- une autre course ne peut pas le
-        // prendre : preuve qu'il n'a pas été relâché par erreur pendant le traitement du rejeu.
+        // Celui de la gagnante, lui, est resté réservé pour SA course : plus personne à portée.
         // eslint-disable-next-line no-await-in-loop
-        const freshRideForWinner = await createRideRequest(checkClient);
+        await callRideEndpoint(`/rides/${freshForLoser.ridePublicId}/cancel`, checkClient, { reason: 'nettoyage (test)' });
         // eslint-disable-next-line no-await-in-loop
-        const winnerStolen = await callRideEndpoint(
-          `/rides/${freshRideForWinner.ridePublicId}/select-driver`,
-          checkClient,
-          { driverId: winningDriverId }
-        );
-        assert.equal(winnerStolen.status, 409);
-        assert.equal(winnerStolen.body?.error?.code, 'DRIVER_ALREADY_TAKEN');
+        const freshForWinner = await createRideRequest(checkClient, spot);
         // eslint-disable-next-line no-await-in-loop
-        await callRideEndpoint(`/rides/${freshRideForWinner.ridePublicId}/cancel`, checkClient, {
-          reason: 'nettoyage (test L3-17)',
-        });
-
-        // Referme la course principale : clientSession est réutilisé à l'itération suivante,
-        // une seule course active à la fois par client (index unique partiel, L4-01).
+        const winnerStolen = await callRideEndpoint(`/rides/${freshForWinner.ridePublicId}/dispatch`, checkClient, {});
+        if (winnerStolen.status === 200) {
+          assert.notEqual(
+            winnerStolen.body.assignedDriverId,
+            winningDriverId,
+            `itération ${iteration} : le chauffeur de la commande gagnante a été proposé à une autre course`
+          );
+        }
         // eslint-disable-next-line no-await-in-loop
-        await callRideEndpoint(`/rides/${ridePublicId}/cancel`, clientSession, {
-          reason: 'nettoyage entre itérations (test L3-17)',
-        });
+        await callRideEndpoint(`/rides/${freshForWinner.ridePublicId}/cancel`, checkClient, { reason: 'nettoyage (test)' });
+        // eslint-disable-next-line no-await-in-loop
+        await callRideEndpoint(`/rides/${ridePublicId}/cancel`, clientSession, { reason: 'nettoyage entre itérations (test)' });
       } finally {
         // eslint-disable-next-line no-await-in-loop
         await Promise.all([takeDriverOffline(driverASocket), takeDriverOffline(driverBSocket)]);

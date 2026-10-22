@@ -32,7 +32,8 @@ import {
   callInternalEndpoint,
   otpCodeNeverIssued,
 } from '../concurrency/helpers/odoo-session';
-import { bringDriverOnline, makeDriverVisibleToClient } from './helpers/realtime-ws';
+import { bringDriverOnline } from './helpers/realtime-ws';
+import { spotSequence } from '../concurrency/helpers/spots';
 
 type EndpointName = keyof typeof http.HTTP_ENDPOINTS;
 type HttpClient = ReturnType<typeof createHttpClient>;
@@ -47,6 +48,10 @@ type HttpClient = ReturnType<typeof createHttpClient>;
 // opérationnel (babana_zone_default.xml) -- la position absolue ne change ni le tarif ni le trajet.
 const ORIGIN = { latitude: 3.97, longitude: 9.83 };
 const DESTINATION = { latitude: 3.98, longitude: 9.84 };
+// Un point de prise en charge par course proposée : la course part au chauffeur disponible le
+// plus proche, dans le rayon réduit des tests (support/dispatch-radius.ts) -- le chauffeur de
+// l'exercice, posé exactement dessus, et jamais celui d'un exercice précédent resté en ligne.
+const nextSpot = spotSequence(ORIGIN);
 
 // baseUrl est la racine du domaine, PAS ODOO_API_ROOT (qui inclut déjà /api/v1) : chaque chemin
 // de HTTP_ENDPOINTS est déjà préfixé de /api/v1 (voir packages/contracts/src/http/index.ts) --
@@ -87,26 +92,24 @@ interface ProposedRide {
   clientSession: http.GoogleAuthResponse;
   driverSession: http.GoogleAuthResponse;
   driverPublicId: string;
-  ride: http.SelectDriverResponse;
+  ride: http.DispatchRideResponse;
 }
 
-/** Course réellement proposée (requested -> proposed) : chauffeur réellement en ligne,
- * positionné et montré au client (précondition C-03, L3-17) -- sans ce dernier point,
- * select-driver renverrait DRIVER_ALREADY_TAKEN pour un chauffeur pourtant disponible
- * (amoa/questions/L3-17.md §3). */
+/** Course réellement proposée (requested -> proposed) au chauffeur disponible le plus proche --
+ * le chauffeur de l'exercice, réellement en ligne et positionné au point de prise en charge. */
 async function setupProposedRide(label: string): Promise<ProposedRide> {
+  const spot = nextSpot();
   const clientSession = await freshSession('client', `${label}-client`);
   const { session: driverSession, driverPublicId } = await approvedDriverSession(`${label}-driver`);
-  await bringDriverOnline(driverSession.accessToken, ORIGIN);
-  await makeDriverVisibleToClient(clientSession.accessToken, driverPublicId, ORIGIN);
+  await bringDriverOnline(driverSession.accessToken, spot);
 
   const client = clientFor(clientSession.accessToken);
-  const quote = (await client.request('quote', { body: { origin: ORIGIN, destination: DESTINATION } })) as http.QuoteResponse;
+  const quote = (await client.request('quote', { body: { origin: spot, destination: DESTINATION } })) as http.QuoteResponse;
   const created = (await client.request('createRide', { body: { quoteId: quote.quoteId } })) as http.CreateRideResponse;
-  const proposed = (await client.request('selectDriver', {
+  const proposed = (await client.request('dispatchRide', {
     pathParams: { id: created.id },
-    body: { driverId: driverPublicId },
-  })) as http.SelectDriverResponse;
+    body: {},
+  })) as http.DispatchRideResponse;
 
   return { client, clientSession, driverSession, driverPublicId, ride: proposed };
 }
@@ -202,9 +205,10 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     assert.equal(ride.state, 'requested');
   },
 
-  selectDriver: async () => {
-    const rig = await setupProposedRide('select-driver');
+  dispatchRide: async () => {
+    const rig = await setupProposedRide('dispatch-ride');
     assert.equal(rig.ride.state, 'proposed');
+    // Le serveur a choisi le plus proche : le seul chauffeur à portée de ce point.
     assert.equal(rig.ride.assignedDriverId, rig.driverPublicId);
   },
 

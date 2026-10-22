@@ -5,14 +5,13 @@ import { http as httpContract } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ProposalLifecycle, ProposalDetails } from '../proposal/lifecycle';
 import type { ConnectionRegistry } from '../ws/auth';
-import { wasRecentlySent } from '../nearby/last-sent';
 import { withIdempotency } from '../reservation/idempotency';
 import { clearEngaged } from '../driver/engagement';
 import { endRideSessionForDriver } from '../tracking/session';
 import { reintegrateIfEligible } from '../redis/pool-eligibility';
 import { blockForCash, unblockForCash } from '../driver/cash-guard';
 import { holdDriver, releaseHold } from '../driver/admin-hold';
-import { broadcastRideStarted, broadcastRideCompleted, broadcastRideCancelled } from '../tracking/broadcast';
+import { broadcastRideStarted, broadcastRideCompleted, broadcastRideCancelled, broadcastRideUnmatched } from '../tracking/broadcast';
 import { startAccumulation, getAccumulation, endAccumulation } from '../tracking/accumulator';
 import { recordDriverArrived } from '../tracking/route';
 
@@ -24,9 +23,13 @@ import { recordDriverArrived } from '../tracking/route';
  * du routage -- défense en profondeur, pas un unique point de défaillance.
  *
  * Trois routes :
- * - `POST /internal/reservations` : réserve et propose (select-driver, avant la transition Odoo).
- *   Idempotent (critère 3, le piège central de la tâche -- voir reservation/idempotency.ts) et
- *   vérifie la précondition C-03 (chauffeur présent dans la dernière liste des 5, critère 8).
+ * - `POST /internal/reservations/nearest` : le serveur choisit le chauffeur (le client ne le
+ *   désigne plus, D10 retiré) -- réserve le disponible le plus proche (hors chauffeurs déjà
+ *   sollicités pour la course) et lui propose la course, en un geste atomique, avant la transition
+ *   Odoo. Idempotent (D25, le piège du rejeu -- voir reservation/idempotency.ts).
+ *   `NO_DRIVER_AVAILABLE` si personne.
+ * - `POST /internal/rides/unmatched` : plus aucun chauffeur à solliciter (au COMMIT d'Odoo, D32)
+ *   -- pousse `ride.unmatched` au client.
  * - `POST /internal/reservations/release` : compensation quand la réservation a réussi mais que la
  *   transition Odoo qui devait suivre échoue (critère 4).
  * - `POST /internal/engagement/clear` : fin de course, efface le marqueur d'engagement (critère 6).
@@ -71,10 +74,12 @@ export interface InternalRouterDeps {
   registry: ConnectionRegistry;
 }
 
-const ReservationRequestSchema = z.object({
+// Le serveur choisit le chauffeur : le détail de la course, le rayon de recherche (réglage métier
+// d'Odoo, babana.dispatch_radius_meters -- jamais une valeur de ce service) et les chauffeurs déjà
+// sollicités pour cette course. Aucun `driverId` : personne ne le désigne plus.
+const NearestReservationRequestSchema = z.object({
   idempotencyKey: z.string().min(1),
   rideId: z.string().min(1),
-  driverId: z.string().min(1),
   clientUserId: z.string().min(1),
   origin: z.object({ latitude: z.number(), longitude: z.number() }),
   destination: z.object({ latitude: z.number(), longitude: z.number() }),
@@ -89,12 +94,18 @@ const ReservationRequestSchema = z.object({
   // Indication du client (`CreateRideRequest.pickupNote`) -- facultative pour rester compatible
   // avec un Odoo qui ne l'envoie pas encore.
   pickupNote: z.string().max(140).nullable().default(null),
+  radiusMeters: z.number().positive(),
+  excludeDriverIds: z.array(z.string().min(1)).default([]),
 });
 
-export type ReservationOutcome =
-  | { outcome: 'PROPOSED'; expiresAt: string }
-  | { outcome: 'DRIVER_ALREADY_TAKEN' }
-  | { outcome: 'DRIVER_NOT_IN_LAST_LIST' };
+export type NearestReservationOutcome =
+  | { outcome: 'PROPOSED'; driverId: string; expiresAt: string }
+  | { outcome: 'NO_DRIVER_AVAILABLE' };
+
+const RideUnmatchedRequestSchema = z.object({
+  rideId: z.string().min(1),
+  clientUserId: z.string().min(1),
+});
 
 const ReleaseRequestSchema = z.object({ driverId: z.string().min(1) });
 const ClearEngagementRequestSchema = z.object({ driverId: z.string().min(1) });
@@ -162,26 +173,21 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.end(JSON.stringify(body));
 }
 
-async function handleReservation(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
-  const parsed = ReservationRequestSchema.safeParse(rawBody);
+async function handleNearestReservation(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
+  const parsed = NearestReservationRequestSchema.safeParse(rawBody);
   if (!parsed.success) {
     sendJson(res, 400, { error: 'VALIDATION_ERROR', details: parsed.error.issues });
     return;
   }
   const body = parsed.data;
 
-  const outcome = await withIdempotency<ReservationOutcome>(
+  // Même piège du rejeu qu'au-dessus (D25) : Odoo rejoue la requête entière sur conflit de
+  // sérialisation -- la clé rejoue le chauffeur déjà choisi au lieu d'en réserver un second.
+  const outcome = await withIdempotency<NearestReservationOutcome>(
     deps.redis,
     body.idempotencyKey,
     deps.config.RESERVATION_IDEMPOTENCY_TTL_SECONDS,
     async () => {
-      // Précondition C-03 (critère 8), vérifiée AVANT toute réservation -- un chauffeur jamais
-      // montré à ce client ne doit même pas être tenté, pour ne rien avoir à défaire ensuite.
-      const eligible = await wasRecentlySent(deps.redis, body.clientUserId, body.driverId);
-      if (!eligible) {
-        return { outcome: 'DRIVER_NOT_IN_LAST_LIST' };
-      }
-
       const details: ProposalDetails = {
         rideId: body.rideId,
         clientUserId: body.clientUserId,
@@ -192,15 +198,28 @@ async function handleReservation(deps: InternalRouterDeps, rawBody: unknown, res
         clientPhoneNumber: body.clientPhoneNumber,
         pickupNote: body.pickupNote,
       };
-      const proposeOutcome = await deps.proposals.propose(body.driverId, details);
-      if (!proposeOutcome.proposed) {
-        return { outcome: 'DRIVER_ALREADY_TAKEN' };
-      }
-      return { outcome: 'PROPOSED', expiresAt: proposeOutcome.expiresAt };
-    }
+      const proposed = await deps.proposals.proposeNearest(details, {
+        radiusMeters: body.radiusMeters,
+        excludeDriverIds: body.excludeDriverIds,
+      });
+      return proposed.proposed
+        ? { outcome: 'PROPOSED', driverId: proposed.driverId, expiresAt: proposed.expiresAt }
+        : { outcome: 'NO_DRIVER_AVAILABLE' };
+    },
+    (result) => result.outcome === 'PROPOSED'
   );
 
   sendJson(res, 200, outcome);
+}
+
+async function handleRideUnmatched(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
+  const parsed = RideUnmatchedRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    sendJson(res, 400, { error: 'VALIDATION_ERROR', details: parsed.error.issues });
+    return;
+  }
+  broadcastRideUnmatched(deps.registry, parsed.data);
+  sendJson(res, 200, { notified: true });
 }
 
 async function handleRelease(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
@@ -353,8 +372,11 @@ export function createInternalHandler(deps: InternalRouterDeps) {
     }
 
     switch (pathname) {
-      case '/internal/reservations':
-        await handleReservation(deps, body, res);
+      case '/internal/reservations/nearest':
+        await handleNearestReservation(deps, body, res);
+        return;
+      case '/internal/rides/unmatched':
+        await handleRideUnmatched(deps, body, res);
         return;
       case '/internal/reservations/release':
         await handleRelease(deps, body, res);

@@ -26,18 +26,26 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { http } from '@babana/contracts';
-import { execute, readRideState } from '../concurrency/helpers/odoo-session';
+import type WebSocket from 'ws';
+import { approveDriver, execute, readRideState, signIn } from '../concurrency/helpers/odoo-session';
 import { acceptProposalOverWs, bringDriverOnline, resync, sendPosition, waitForDriverVisible } from '../concurrency/helpers/realtime';
+import { spotSequence, type LatLng } from '../concurrency/helpers/spots';
 import {
   closeAllSockets,
   ensureSupervisor,
   rejectProposalOverWs,
   setUpRideActors,
   trackRideAndAwaitPosition,
+  uniqueSub,
   type HttpClient,
   type RideActors,
 } from './helpers/actors';
 import { DESTINATION, EN_ROUTE_POSITION, ORIGIN } from './fixtures/geo';
+
+// Un point de prise en charge par scénario : la course part au chauffeur disponible le plus
+// proche, dans le rayon réduit des tests (support/dispatch-radius.ts) -- le chauffeur du scénario,
+// posé exactement dessus, jamais celui d'un scénario précédent resté en ligne.
+const nextSpot = spotSequence(ORIGIN);
 
 // Même raison que test/concurrency/ride-transitions.test.ts, before() : chaque scénario ci-dessous
 // authentifie au moins un nouveau chauffeur (signIn(..., 'driver') crée une candidature), et ce
@@ -51,30 +59,56 @@ after(() => {
   closeAllSockets();
 });
 
-async function quoteAndCreateRide(client: HttpClient): Promise<http.CreateRideResponse> {
-  const quote = (await client.request('quote', { body: { origin: ORIGIN, destination: DESTINATION } })) as http.QuoteResponse;
+async function quoteAndCreateRide(client: HttpClient, origin: LatLng): Promise<http.CreateRideResponse> {
+  const quote = (await client.request('quote', { body: { origin, destination: DESTINATION } })) as http.QuoteResponse;
   return (await client.request('createRide', { body: { quoteId: quote.quoteId } })) as http.CreateRideResponse;
 }
 
-async function selectDriver(actors: RideActors, rideId: string): Promise<http.SelectDriverResponse> {
-  return (await actors.client.request('selectDriver', {
+/** Le client commande : le serveur propose la course au chauffeur disponible le plus proche. */
+async function dispatchRide(actors: RideActors, rideId: string): Promise<http.DispatchRideResponse> {
+  return (await actors.client.request('dispatchRide', {
     pathParams: { id: rideId },
-    body: { driverId: actors.driverPublicId },
-  })) as http.SelectDriverResponse;
+    body: {},
+  })) as http.DispatchRideResponse;
+}
+
+/** Attend un message d'un type donné sur une connexion déjà ouverte -- jamais « la trame
+ * suivante » (C-02). */
+function waitForMessage(socket: WebSocket, type: string, timeoutMs = 10_000): Promise<{ payload: Record<string, unknown> }> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      socket.off('message', onMessage);
+      reject(new Error(`« ${type} » jamais reçu après ${timeoutMs}ms`));
+    }, timeoutMs);
+    function onMessage(data: WebSocket.RawData) {
+      try {
+        const message = JSON.parse(data.toString()) as { type?: string; payload: Record<string, unknown> };
+        if (message.type !== type) return;
+        clearTimeout(timer);
+        socket.off('message', onMessage);
+        resolve(message);
+      } catch {
+        // trame illisible : ignorée, comme le ferait un vrai client
+      }
+    }
+    socket.on('message', onMessage);
+  });
 }
 
 // --- Scénario nominal (L10-01, étapes 1 à 9) ----------------------------------------------------
 
 test('scénario nominal -- boucle complète, encaissement espèces', { timeout: 120_000 }, async () => {
   // 1-2. Chauffeur créé, approuvé, moto affectée (approveDriver), en ligne (bringDriverOnline).
-  const actors = await setUpRideActors('nominal');
+  const spot = nextSpot();
+  const actors = await setUpRideActors('nominal', spot);
 
   // 3. Le client demande une estimation, crée la course.
-  const ride = await quoteAndCreateRide(actors.client);
+  const ride = await quoteAndCreateRide(actors.client, spot);
 
-  // 4. Le client sélectionne le chauffeur.
-  const proposed = await selectDriver(actors, ride.id);
-  assert.equal(proposed.state, 'proposed', `select-driver : ${JSON.stringify(proposed)}`);
+  // 4. Le client commande : la course part au chauffeur disponible le plus proche.
+  const proposed = await dispatchRide(actors, ride.id);
+  assert.equal(proposed.state, 'proposed', `dispatch : ${JSON.stringify(proposed)}`);
+  assert.equal(proposed.assignedDriverId, actors.driverPublicId, 'le plus proche : le chauffeur posé au point de prise en charge');
   assert.equal(await readRideState(ride.id), 'proposed');
 
   // 5. Le chauffeur accepte -- par le VRAI chemin temps réel (proposal.accept), jamais le canal
@@ -122,35 +156,87 @@ test('scénario nominal -- boucle complète, encaissement espèces', { timeout: 
   );
 });
 
-// --- Variante : refus puis nouvelle sélection puis acceptation -----------------------------------
+// --- Variante : refus, le suivant le plus proche est sollicité automatiquement ---------------------
 
-test('variante -- refus puis nouvelle sélection puis acceptation', { timeout: 120_000 }, async () => {
-  const actors = await setUpRideActors('refus');
-  const ride = await quoteAndCreateRide(actors.client);
+test('variante -- refus puis proposition automatique au suivant, qui accepte', { timeout: 120_000 }, async () => {
+  const spot = nextSpot();
+  const actors = await setUpRideActors('refus-suivant', spot);
+  // Un second chauffeur, à une quinzaine de mètres : dans le rayon, mais plus loin que le premier.
+  const secondSession = await signIn(uniqueSub('refus-suivant-second'), 'driver');
+  const { driverPublicId: secondDriverId } = await approveDriver(secondSession, 'refus-suivant-second');
+  const secondSocket = await bringDriverOnline(secondSession.accessToken, {
+    latitude: spot.latitude + 15 / 111_000,
+    longitude: spot.longitude,
+  });
 
-  const firstProposal = await selectDriver(actors, ride.id);
-  assert.equal(firstProposal.state, 'proposed');
+  try {
+    const ride = await quoteAndCreateRide(actors.client, spot);
+    const firstProposal = await dispatchRide(actors, ride.id);
+    assert.equal(firstProposal.assignedDriverId, actors.driverPublicId, 'le plus proche est sollicité en premier');
 
+    await rejectProposalOverWs(actors.driverSocket, ride.id, 'itinéraire trop long (scénario L10-01)');
+    // Le client ne rechoisit rien : le serveur propose de lui-même au suivant le plus proche.
+    await waitForRideState(ride.id, 'proposed');
+    const [rideRecord] = await execute<{ driver_id: [number, string] | false }[]>('babana.ride', 'search_read', [
+      [['public_id', '=', ride.id]],
+      ['driver_id'],
+    ]);
+    const [secondDriverRecord] = await execute<{ id: number }[]>('babana.driver', 'search_read', [
+      [['public_id', '=', secondDriverId]],
+      ['id'],
+    ]);
+    assert.ok(rideRecord!.driver_id, 'la course doit être proposée à un chauffeur');
+    assert.equal((rideRecord!.driver_id as [number, string])[0], secondDriverRecord!.id, 'proposée au second chauffeur');
+
+    await acceptProposalOverWs(secondSocket, ride.id);
+    assert.equal(await readRideState(ride.id), 'assigned', 'acceptation par le second chauffeur');
+  } finally {
+    secondSocket.close();
+  }
+});
+
+// --- Variante : refus, plus personne à proximité, « Réessayer » ----------------------------------
+
+test('variante -- refus sans autre chauffeur, client prévenu, « Réessayer » puis acceptation', { timeout: 120_000 }, async () => {
+  const spot = nextSpot();
+  const actors = await setUpRideActors('refus-seul', spot);
+  const ride = await quoteAndCreateRide(actors.client, spot);
+  await dispatchRide(actors, ride.id);
+
+  const unmatched = waitForMessage(actors.clientSocket, 'ride.unmatched');
   await rejectProposalOverWs(actors.driverSocket, ride.id, 'itinéraire trop long (scénario L10-01)');
-  assert.equal(await readRideState(ride.id), 'rejected', 'un refus explicite doit reposer la course à «rejected»');
+  assert.equal((await unmatched).payload.rideId, ride.id, 'le client apprend qu’il n’y a plus personne');
+  assert.equal(await readRideState(ride.id), 'rejected');
 
-  // Une nouvelle sélection est le seul chemin de reprise (action_propose accepte 'requested' ET
-  // 'rejected', babana_ride_state.py) -- même chauffeur ici, il redevient sélectionnable dès que
-  // sa réservation précédente est relâchée (releaseDriver, ProposalLifecycle.reject()).
-  await waitForDriverVisible(actors.clientSocket, actors.driverPublicId, ORIGIN);
-  const secondProposal = await selectDriver(actors, ride.id);
-  assert.equal(secondProposal.state, 'proposed', `deuxième sélection : ${JSON.stringify(secondProposal)}`);
+  // « Réessayer » : un nouveau tour, qui ne tient pas compte des refus du précédent -- le même
+  // chauffeur, seul à portée et redevenu disponible, est de nouveau sollicité.
+  await waitForDriverVisible(actors.clientSocket, actors.driverPublicId, spot);
+  const retried = await dispatchRide(actors, ride.id);
+  assert.equal(retried.state, 'proposed', `nouveau tour : ${JSON.stringify(retried)}`);
 
   await acceptProposalOverWs(actors.driverSocket, ride.id);
-  assert.equal(await readRideState(ride.id), 'assigned', 'acceptation après une seconde sélection');
+  assert.equal(await readRideState(ride.id), 'assigned', 'acceptation après « Réessayer »');
 });
+
+/** L'état d'une course, attendu jusqu'à `maxWaitMs` : le refus passe par la file persistante du
+ * service temps réel vers Odoo (L3-12), quelques centaines de millisecondes. */
+async function waitForRideState(rideId: string, expected: string, maxWaitMs = 10_000): Promise<void> {
+  const deadline = Date.now() + maxWaitMs;
+  let state = await readRideState(rideId);
+  while (state !== expected && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    state = await readRideState(rideId);
+  }
+  assert.equal(state, expected);
+}
 
 // --- Variante : annulation par le client après affectation ---------------------------------------
 
 test('variante -- annulation par le client après affectation', { timeout: 120_000 }, async () => {
-  const actors = await setUpRideActors('annulation');
-  const ride = await quoteAndCreateRide(actors.client);
-  await selectDriver(actors, ride.id);
+  const spot = nextSpot();
+  const actors = await setUpRideActors('annulation', spot);
+  const ride = await quoteAndCreateRide(actors.client, spot);
+  await dispatchRide(actors, ride.id);
 
   await acceptProposalOverWs(actors.driverSocket, ride.id);
   assert.equal(await readRideState(ride.id), 'assigned');
@@ -162,10 +248,10 @@ test('variante -- annulation par le client après affectation', { timeout: 120_0
   assert.equal(cancelled.state, 'cancelled');
   assert.equal(await readRideState(ride.id), 'cancelled');
 
-  // Le chauffeur redevient sélectionnable : sa réservation (D26) est relâchée par l'annulation,
-  // même mécanisme que pour un refus -- la diffusion nearby.drivers périodique déjà en cours sur
+  // Le chauffeur redevient disponible : sa réservation (D26) est relâchée par l'annulation, même
+  // mécanisme que pour un refus -- la diffusion nearby.drivers périodique déjà en cours sur
   // clientSocket (toujours abonné) doit le remontrer sans nouvel abonnement.
-  await waitForDriverVisible(actors.clientSocket, actors.driverPublicId, ORIGIN);
+  await waitForDriverVisible(actors.clientSocket, actors.driverPublicId, spot);
 });
 
 // --- Variante : franchissement du plafond d'encaisse, blocage, puis remise de caisse -------------
@@ -174,15 +260,16 @@ test(
   "variante -- franchissement du plafond d'encaisse, blocage, puis remise de caisse",
   { timeout: 120_000 },
   async () => {
-    const actors = await setUpRideActors('plafond');
+    const spot = nextSpot();
+    const actors = await setUpRideActors('plafond', spot);
 
     // Même repli que CASH_LIMIT_PARAM côté modèle (babana_driver.py) -- get_param le retourne
     // déjà si la clé n'a jamais été posée, pas besoin de le deviner ici.
     const originalLimit = await execute<string>('ir.config_parameter', 'get_param', ['babana.cash_limit', '50000.0']);
 
     try {
-      const ride = await quoteAndCreateRide(actors.client);
-      await selectDriver(actors, ride.id);
+      const ride = await quoteAndCreateRide(actors.client, spot);
+      await dispatchRide(actors, ride.id);
       await acceptProposalOverWs(actors.driverSocket, ride.id);
       await actors.driverClient.request('startRide', { pathParams: { id: ride.id } });
       const completed = (await actors.driverClient.request('completeRide', {
@@ -211,7 +298,7 @@ test(
       // nearby.drivers -- attend l'ABSENCE plutôt que la présence (waitForDriverVisible rejette
       // après son délai si le chauffeur n'apparaît jamais, ce qui est le résultat attendu ici).
       await assert.rejects(
-        waitForDriverVisible(actors.clientSocket, actors.driverPublicId, ORIGIN, { maxWaitMs: 12_000 }),
+        waitForDriverVisible(actors.clientSocket, actors.driverPublicId, spot, { maxWaitMs: 12_000 }),
         /jamais apparu/,
         'un chauffeur au plafond ne doit plus apparaître dans nearby.drivers',
       );
@@ -247,8 +334,8 @@ test(
       // (pool-eligibility.lua). Un vrai chauffeur continue d'émettre ; ce test en provoque une
       // tout de suite plutôt que d'attendre le prochain rafraîchissement périodique (20 s,
       // bringDriverOnline) et de risquer de le manquer de peu.
-      sendPosition(actors.driverSocket, ORIGIN);
-      await waitForDriverVisible(actors.clientSocket, actors.driverPublicId, ORIGIN);
+      sendPosition(actors.driverSocket, spot);
+      await waitForDriverVisible(actors.clientSocket, actors.driverPublicId, spot);
     } finally {
       // Ne pas laisser un plafond de test affecter les autres scénarios de ce fichier (exécutés
       // dans le même processus, sur la même base) ni une exécution ultérieure de test/http-contract.
@@ -265,9 +352,10 @@ test(
 // la course reste retrouvable sans qu'aucune notification n'ait jamais dû être livrée.
 
 test('variante -- notifications entièrement désactivées : la boucle reste réalisable', { timeout: 120_000 }, async () => {
-  const actors = await setUpRideActors('no-push');
-  const ride = await quoteAndCreateRide(actors.client);
-  await selectDriver(actors, ride.id);
+  const spot = nextSpot();
+  const actors = await setUpRideActors('no-push', spot);
+  const ride = await quoteAndCreateRide(actors.client, spot);
+  await dispatchRide(actors, ride.id);
 
   await acceptProposalOverWs(actors.driverSocket, ride.id);
   assert.equal(await readRideState(ride.id), 'assigned');
@@ -277,7 +365,7 @@ test('variante -- notifications entièrement désactivées : la boucle reste ré
   // session.resync (L3-11), qui doit retrouver la course en cours depuis Odoo, pas depuis un état
   // en mémoire perdu à la fermeture de la connexion précédente.
   actors.driverSocket.close();
-  const freshDriverSocket = await bringDriverOnline(actors.driverSession.accessToken, ORIGIN);
+  const freshDriverSocket = await bringDriverOnline(actors.driverSession.accessToken, spot);
   const synced = await resync(freshDriverSocket, null);
   assert.equal(synced.rideStateKnown, true, 'session.resync doit retrouver la course sans notification');
   assert.equal(synced.activeRideId, ride.id);

@@ -4,6 +4,12 @@ from odoo.exceptions import ValidationError
 from .babana_ride_state import NO_SHOW_GRACE_DEFAULT, NO_SHOW_GRACE_PARAM
 from .babana_phone_verification import OTP_TTL_SECONDS_FALLBACK, OTP_TTL_SECONDS_PARAM
 from .babana_quote import QUOTE_VALIDITY_DEFAULT, QUOTE_VALIDITY_PARAM
+from ..services.dispatch import (
+    DISPATCH_MAX_ATTEMPTS_DEFAULT,
+    DISPATCH_MAX_ATTEMPTS_PARAM,
+    DISPATCH_RADIUS_DEFAULT,
+    DISPATCH_RADIUS_PARAM,
+)
 
 
 class ResConfigSettings(models.TransientModel):
@@ -37,9 +43,30 @@ class ResConfigSettings(models.TransientModel):
         help="Durée pendant laquelle le code de connexion reçu par SMS est accepté.",
     )
 
-    @api.constrains("babana_no_show_grace_seconds", "babana_quote_validity_seconds", "babana_otp_ttl_seconds")
+    babana_dispatch_radius_meters = fields.Integer(
+        string="Rayon de recherche d'un chauffeur (mètres)",
+        config_parameter=DISPATCH_RADIUS_PARAM,
+        default=DISPATCH_RADIUS_DEFAULT,
+        help="La course part au chauffeur disponible le plus proche dans ce rayon, à vol d'oiseau.",
+    )
+    babana_dispatch_max_attempts = fields.Integer(
+        string="Chauffeurs sollicités par demande",
+        config_parameter=DISPATCH_MAX_ATTEMPTS_PARAM,
+        default=DISPATCH_MAX_ATTEMPTS_DEFAULT,
+        help="Après autant de refus ou d'absences de réponse, le client est prévenu qu'aucun chauffeur n'est disponible.",
+    )
+
+    _BABANA_POSITIVE_FIELDS = (
+        "babana_no_show_grace_seconds",
+        "babana_quote_validity_seconds",
+        "babana_otp_ttl_seconds",
+        "babana_dispatch_radius_meters",
+        "babana_dispatch_max_attempts",
+    )
+
+    @api.constrains(*_BABANA_POSITIVE_FIELDS)
     def _check_babana_delays_positive(self):
         for settings in self:
-            for name in ("babana_no_show_grace_seconds", "babana_quote_validity_seconds", "babana_otp_ttl_seconds"):
+            for name in self._BABANA_POSITIVE_FIELDS:
                 if settings[name] <= 0:
-                    raise ValidationError(_("Un délai doit être strictement positif : %s.", settings._fields[name].string))
+                    raise ValidationError(_("Une valeur doit être strictement positive : %s.", settings._fields[name].string))

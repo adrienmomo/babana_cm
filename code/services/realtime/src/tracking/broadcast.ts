@@ -281,3 +281,17 @@ function buildRideCompletedMessage(params: {
     },
   };
 }
+
+/** Plus aucun chauffeur à solliciter pour cette course (au COMMIT d'Odoo, D32) : au client seul. */
+export function broadcastRideUnmatched(registry: ConnectionRegistry, params: { rideId: string; clientUserId: string }): void {
+  const message: realtime.RideUnmatchedMessage = {
+    type: 'ride.unmatched',
+    id: randomUUID(),
+    emittedAt: new Date().toISOString(),
+    payload: { rideId: params.rideId },
+  };
+  const payload = JSON.stringify(message);
+  for (const socket of registry.getByUserId(params.clientUserId)) {
+    if (socket.readyState === socket.OPEN) socket.send(payload);
+  }
+}

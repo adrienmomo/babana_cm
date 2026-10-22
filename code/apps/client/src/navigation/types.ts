@@ -24,44 +24,25 @@ export interface RidePoint {
 }
 
 /**
- * Paramètres transportés d'écran en écran tout au long d'une course qui n'a pas encore été
- * affectée (L6-07, L6-08) : origine et destination désignées sur HomeScreen, le cliché des
- * chauffeurs proches (L3-05), et l'état de la boucle de refus -- ceux déjà écartés et le rang du
- * refus courant. `Quote` les reçoit tous en entrée, `Waiting` et `DriverRejected` les font
- * simplement voyager jusqu'au prochain passage par `Quote` (voir D11, L6-08 : un refus ramène à
- * la sélection, jamais à une attribution automatique).
+ * Ce que le client a demandé : départ et arrivée désignés sur HomeScreen. Le client ne choisit
+ * pas son chauffeur -- la course part au plus proche disponible, choisi par le serveur (D10
+ * retiré) -- il n'y a donc plus de liste de chauffeurs ni d'exclusions à faire voyager.
  */
-export interface RideSelectionContext {
+export interface RideRequest {
   origin: RidePoint;
   destination: RidePoint;
-  nearbyDrivers: readonly http.NearbyDriver[];
-  excludedDriverIds: readonly string[];
-  rejectionStreak: number;
-  /** Absent au premier passage (aucune course encore créée). Présent dès qu'un chauffeur a été
-   * sélectionné une première fois : `POST /rides/{id}/select-driver` accepte la transition
-   * `rejected -> proposed` (C-01) précisément pour ce cas -- reproposer la même course à un
-   * autre chauffeur, jamais en créer une seconde pour la même demande. */
-  rideId?: RideId;
 }
 
 export type ClientParamList = {
   Home: undefined;
-  Quote: RideSelectionContext;
-  Waiting: {
+  Quote: RideRequest;
+  /** La course existe (POST /rides) ; la recherche du chauffeur se lance et se relance ici. */
+  Waiting: RideRequest & {
     rideId: RideId;
-    driverId: DriverId;
-    proposalExpiresAt: string;
     amount: number;
-    /** Horodatage de la sélection (Date.now()) -- L6-08 critère 5 : instrumenter chaque abandon
+    /** Horodatage de la commande (Date.now()) -- L6-08 critère 5 : instrumenter chaque abandon
      * avec son délai suppose de savoir depuis quand le client attend. */
-    selectedAt: number;
-    selection: RideSelectionContext;
-  };
-  DriverRejected: {
-    rideId: RideId;
-    driverId: DriverId;
-    reason: 'driver_rejected' | 'driver_timeout';
-    selection: RideSelectionContext;
+    requestedAt: number;
   };
   Tracking: {
     rideId: RideId;

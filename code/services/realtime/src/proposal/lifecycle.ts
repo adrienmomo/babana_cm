@@ -4,7 +4,7 @@ import type { WebSocket } from 'ws';
 import { realtime } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ConnectionRegistry } from '../ws/auth';
-import { reserveDriver, releaseDriver } from '../reservation/reserve';
+import { reserveDriver, reserveNearestDriver, releaseDriver } from '../reservation/reserve';
 import { resolve as resolveRideState, getState as getRideState } from '../ride/state';
 import { proposalRideIdKey, proposalRecordKey } from './keys';
 import { ProposalTimeoutTimers } from './timeout';
@@ -51,6 +51,14 @@ export interface ProposalDetails {
 }
 
 export type ProposeOutcome = { proposed: true; expiresAt: string } | { proposed: false };
+
+export type ProposeNearestOutcome = { proposed: true; driverId: string; expiresAt: string } | { proposed: false };
+
+export interface NearestSearch {
+  radiusMeters: number;
+  /** Chauffeurs déjà sollicités pour cette course -- jamais reproposés. */
+  excludeDriverIds: readonly string[];
+}
 
 /**
  * Ce qui est réellement écrit dans `proposalRecordKey` : le détail de la proposition, plus trois
@@ -114,7 +122,29 @@ export class ProposalLifecycle {
     if (!reservation.reserved) {
       return { proposed: false };
     }
+    return this.announce(driverId, details);
+  }
 
+  /**
+   * Le serveur choisit (le client ne désigne plus de chauffeur) : réserve le chauffeur disponible
+   * le plus proche du point de prise en charge, hors `excludeDriverIds`, puis lui adresse la
+   * proposition exactement comme `propose`. Choix et réservation sont un seul geste atomique
+   * (`reservation/reserve.ts::reserveNearestDriver`).
+   */
+  async proposeNearest(details: ProposalDetails, search: NearestSearch): Promise<ProposeNearestOutcome> {
+    const driverId = await reserveNearestDriver(this.redis, {
+      origin: details.origin,
+      radiusMeters: search.radiusMeters,
+      ttlSeconds: this.config.RESERVATION_TTL_SECONDS,
+      excludeDriverIds: search.excludeDriverIds,
+    });
+    if (!driverId) return { proposed: false };
+    const { expiresAt } = await this.announce(driverId, details);
+    return { proposed: true, driverId, expiresAt };
+  }
+
+  /** Après réservation : enregistre la proposition, l'émet au chauffeur, arme son délai. */
+  private async announce(driverId: string, details: ProposalDetails): Promise<{ proposed: true; expiresAt: string }> {
     const emittedAt = new Date().toISOString();
     const expiresAt = new Date(Date.now() + this.config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS * 1000).toISOString();
 

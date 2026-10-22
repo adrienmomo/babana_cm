@@ -66,20 +66,20 @@ describe('createHttpClient -- réessais (L6-03, critère 2)', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(3); // tentative initiale + 2 réessais
   });
 
-  it("ne réessaie jamais une erreur métier -- un DRIVER_ALREADY_TAKEN rejoué ne réussira jamais (critère 2)", async () => {
-    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(409, apiErrorBody('DRIVER_ALREADY_TAKEN')));
+  it("ne réessaie jamais une erreur métier -- un NO_DRIVER_AVAILABLE rejoué tout de suite ne réussira pas mieux (critère 2)", async () => {
+    const fetchImpl = jest.fn().mockResolvedValue(jsonResponse(404, apiErrorBody('NO_DRIVER_AVAILABLE')));
     const wait = jest.fn();
     const client = createHttpClient({ baseUrl: 'https://api.test', fetchImpl, wait });
 
     const error = await client
-      .request('selectDriver', {
+      .request('dispatchRide', {
         pathParams: { id: 'r1' },
-        body: { driverId: '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b' },
+        body: {},
       })
       .catch((e) => e);
 
     expect(error).toBeInstanceOf(ApiError);
-    expect((error as ApiError).code).toBe('DRIVER_ALREADY_TAKEN');
+    expect((error as ApiError).code).toBe('NO_DRIVER_AVAILABLE');
     expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(wait).not.toHaveBeenCalled();
   });

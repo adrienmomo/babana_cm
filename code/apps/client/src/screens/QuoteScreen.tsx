@@ -2,38 +2,26 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '@babana/ui';
-import { asDriverId, asRideId } from '@babana/navigation';
+import { asRideId } from '@babana/navigation';
 import { ApiError, USER_MESSAGES, translateApiError, type ConnectionState } from '@babana/api-client';
 import { http } from '@babana/contracts';
-import type { realtime } from '@babana/contracts';
 import { apiClient } from '../auth';
-import { DriverCard } from '../components/DriverCard';
 import { FARE_LINES } from '../components/fareBreakdown';
 import { formatDistance, formatEta, formatMoney } from '../format';
-import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
+import { onRealtimeConnectionStateChange, realtimeClient } from '../realtime';
 import { replaceWithRideFlow } from '../navigation/transitions';
 import type { ClientParamList } from '../navigation/types';
 
 /**
- * Écran d'estimation et de choix du chauffeur (L6-07, D10, D14). Montant, détail décomposé,
- * distance et durée corrigée d'abord ; les 5 chauffeurs ensuite -- le client touche une carte
- * pour choisir, il n'y a pas de second geste de confirmation (même principe que L6-08 : chaque
- * étape ajoutée est un abandon de plus).
+ * Écran d'estimation et de commande (L6-07). Montant, détail décomposé, distance et durée
+ * corrigée, un repère facultatif, puis « Commander » -- un seul geste. Le client ne choisit pas son
+ * chauffeur : la course part au plus proche disponible, choisi par le serveur (D10 retiré). La
+ * recherche elle-même démarre sur l'écran d'attente, qui sait aussi la relancer (« Réessayer »).
  *
  * **Aucun calcul de tarif ici** (critère 5) : `quote` est affiché tel que reçu, jamais recomposé.
  */
 
 type Props = NativeStackScreenProps<ClientParamList, 'Quote'>;
-
-// Même choix d'implémentation que HomeScreen (`NEARBY_SUBSCRIBE_RADIUS_METERS`, non spécifié par
-// le contrat, plafonné de toute façon côté serveur -- L3-05, critère 1) : cet écran ouvre son
-// propre abonnement plutôt que de dépendre de celui de HomeScreen, qui peut être coupé ou
-// remplacé sans qu'aucun des deux écrans ne le sache.
-const NEARBY_SUBSCRIBE_RADIUS_METERS = 5000;
-
-function isNearbyDriversMessage(message: realtime.ServerToClientMessage): message is realtime.NearbyDriversMessage {
-  return message.type === 'nearby.drivers';
-}
 
 const VEHICLE_CLASSES: readonly http.VehicleClass[] = ['standard', 'premium'];
 const VEHICLE_CLASS_LABELS: Record<http.VehicleClass, string> = {
@@ -46,19 +34,7 @@ function remainingSeconds(expiresAt: string): number {
 }
 
 export function QuoteScreen({ route, navigation }: Props) {
-  const selection = route.params;
-  const { origin, destination, nearbyDrivers: initialNearbyDrivers, excludedDriverIds, rejectionStreak } = selection;
-  // Le cliché transmis par HomeScreen sert d'affichage immédiat (évite un écran vide le temps
-  // que le premier message arrive) ; la liste continue ensuite de vivre pendant que le client
-  // compare (doute L6-06/L6-07 du 24 août, amoa/questions/REPONSES-2026-08-24.md §4) -- un
-  // chauffeur qui n'est plus disponible doit disparaître ici, pas seulement produire
-  // `DRIVER_ALREADY_TAKEN` une fois touché. L'abonnement ci-dessous (même mécanisme que
-  // HomeScreen, L3-05) tient cette liste à jour tant que cet écran reste monté.
-  const [nearbyDrivers, setNearbyDrivers] = useState<readonly http.NearbyDriver[]>(initialNearbyDrivers);
-  // Chauffeurs déjà refusés sur cette course (L6-08, critère 2) -- jamais réaffichés. Filtré ici
-  // plutôt que dans l'état lui-même : `nearbyDrivers` reste le reflet direct du flux serveur, la
-  // règle d'exclusion est une seule fois écrite, à l'endroit qui l'applique.
-  const availableDrivers = nearbyDrivers.filter((driver) => !excludedDriverIds.includes(driver.driverId));
+  const { origin, destination } = route.params;
   const [vehicleClass, setVehicleClass] = useState<http.VehicleClass>('standard');
   const [quote, setQuote] = useState<http.QuoteResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,11 +43,11 @@ export function QuoteScreen({ route, navigation }: Props) {
   // Repère libre pour le chauffeur (« devant la pharmacie ») : l'adresse formelle n'existe presque
   // pas à Douala. Facultatif, envoyé avec la commande seulement s'il n'est pas vide.
   const [pickupNote, setPickupNote] = useState('');
-  const [selecting, setSelecting] = useState(false);
-  const [selectError, setSelectError] = useState<string | null>(null);
-  // Suivi uniquement pour affiner le message d'échec de `handleSelectDriver` (L6-16, "actions
-  // interdites hors connexion" : la sélection n'est jamais mise en file, elle échoue vite --
-  // mais un chauffeur hors connexion mérite de le savoir plutôt qu'un « réessayez » générique).
+  const [ordering, setOrdering] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  // Suivi uniquement pour affiner le message d'échec de la commande (L6-16, "actions interdites
+  // hors connexion" : une commande n'est jamais mise en file, elle échoue vite -- mais un client
+  // hors connexion mérite de le savoir plutôt qu'un « réessayez » générique).
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => realtimeClient.getState());
   // Écarte la réponse d'une requête d'estimation déjà remplacée (changement de gamme, ou
   // réactualisation après expiration) -- même principe que HomeScreen pour nearby.subscribe.
@@ -105,43 +81,7 @@ export function QuoteScreen({ route, navigation }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [vehicleClass]);
 
-  // --- Chauffeurs proches, mis à jour en direct tant que cet écran reste ouvert (même mécanisme
-  // que HomeScreen, L3-05) -- c'est ce qui remplace le cliché figé de la première implémentation
-  // (doute du 24 août). Indexé sur le point de départ, qui ne change pas sur cet écran, seulement
-  // pour rester au même patron que HomeScreen.
-  useEffect(() => {
-    ensureRealtimeConnected();
-    // excludedDriverIds (L3-08, 24 août) : les chauffeurs déjà refusés sur cette course -- le
-    // serveur les exclut et élargit le rayon si besoin (nearby/expand.ts) plutôt que de renvoyer
-    // une liste qui les recontiendrait. Pas une décision prise ici : cet écran rappelle
-    // seulement un fait déjà appris par un `ride.rejected` précédent (L6-08).
-    const subscribe = () =>
-      realtimeClient.send('nearby.subscribe', {
-        position: origin.position,
-        radiusMeters: NEARBY_SUBSCRIBE_RADIUS_METERS,
-        excludeDriverIds: [...excludedDriverIds],
-      });
-    subscribe();
-
-    const unsubscribeMessages = onRealtimeMessage((message) => {
-      if (isNearbyDriversMessage(message)) {
-        setNearbyDrivers(message.payload.drivers);
-      }
-    });
-    // Coupure puis reconnexion (le cas courant) : réémettre l'abonnement, sans quoi la liste se
-    // fige silencieusement après la moindre coupure réseau pendant que le client compare.
-    const unsubscribeConnectionState = onRealtimeConnectionStateChange((state) => {
-      setConnectionState(state);
-      if (state === 'connected') subscribe();
-    });
-
-    return () => {
-      unsubscribeMessages();
-      unsubscribeConnectionState();
-      realtimeClient.send('nearby.unsubscribe', {});
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [origin.position.latitude, origin.position.longitude]);
+  useEffect(() => onRealtimeConnectionStateChange(setConnectionState), []);
 
   // Compte à rebours de validité (spécification) -- un tick par seconde suffit pour une fenêtre
   // de l'ordre de quelques minutes.
@@ -162,50 +102,38 @@ export function QuoteScreen({ route, navigation }: Props) {
     return () => clearInterval(timer);
   }, [quote]);
 
-  async function handleSelectDriver(driverId: string) {
-    if (!quote || expired || selecting) return;
-    setSelecting(true);
-    setSelectError(null);
+  async function handleOrder() {
+    if (!quote || expired || ordering) return;
+    setOrdering(true);
+    setOrderError(null);
     try {
-      // Une course existe déjà dès le deuxième passage (un refus précédent) : le contrat (C-01)
-      // accepte `rejected -> proposed` sur la MÊME course précisément pour ce cas -- créer une
-      // seconde course pour la même demande serait une écriture superflue (invariant 1, en
-      // esprit) et laisserait la première `rejected` orpheline en base.
-      let rideId = selection.rideId;
-      if (!rideId) {
-        const note = pickupNote.trim();
-        const ride = (await apiClient.request('createRide', {
-          body: note ? { quoteId: quote.quoteId, pickupNote: note } : { quoteId: quote.quoteId },
-        })) as http.CreateRideResponse;
-        rideId = asRideId(ride.id);
-      }
-      const proposal = (await apiClient.request('selectDriver', {
-        pathParams: { id: rideId },
-        body: { driverId },
-      })) as http.SelectDriverResponse;
+      const note = pickupNote.trim();
+      const ride = (await apiClient.request('createRide', {
+        body: note ? { quoteId: quote.quoteId, pickupNote: note } : { quoteId: quote.quoteId },
+      })) as http.CreateRideResponse;
       // Le piège du bouton retour Android (L6-00, `navigation/transitions.ts`) : la pile
       // Home/Quote est remplacée, pas empilée sous Waiting -- un retour depuis l'attente ne doit
-      // jamais ramener à une estimation d'une course qui existe désormais côté serveur.
+      // jamais ramener à l'estimation d'une course qui existe désormais côté serveur. La recherche
+      // du chauffeur démarre là-bas : c'est aussi là qu'elle se relance après « aucun chauffeur ».
       replaceWithRideFlow(navigation, {
-        rideId: asRideId(proposal.id),
-        driverId: asDriverId(driverId),
-        proposalExpiresAt: proposal.proposalExpiresAt,
-        amount: proposal.amount,
-        selectedAt: Date.now(),
-        selection: { ...selection, rideId: asRideId(proposal.id) },
+        rideId: asRideId(ride.id),
+        amount: ride.amount,
+        origin,
+        destination,
+        requestedAt: Date.now(),
       });
     } catch (cause) {
       if (cause instanceof ApiError) {
-        setSelectError(translateApiError(cause));
+        setOrderError(translateApiError(cause));
       } else if (connectionState !== 'connected') {
-        // La sélection d'un chauffeur est interdite hors connexion (L6-16, spécification) :
-        // l'état serveur qui décide qui obtient la course aurait changé au moment où une
-        // tentative tardive l'atteindrait -- jamais mise en file, jamais rejouée seule.
-        setSelectError('Hors connexion : la sélection nécessite une connexion. Réessayez une fois reconnecté.');
+        // Commander est interdit hors connexion (L6-16, spécification) : jamais mis en file,
+        // jamais rejoué seul -- la course partirait à un chauffeur au moment où le client ne
+        // l'attend plus.
+        setOrderError('Hors connexion : la commande nécessite une connexion. Réessayez une fois reconnecté.');
       } else {
-        setSelectError('La sélection a échoué. Réessayez.');
+        setOrderError('La commande a échoué. Réessayez.');
       }
-      setSelecting(false);
+      setOrdering(false);
     }
   }
 
@@ -288,34 +216,15 @@ export function QuoteScreen({ route, navigation }: Props) {
         </View>
       ) : null}
 
-      {selectError ? <Text style={styles.errorText}>{selectError}</Text> : null}
+      {orderError ? <Text style={styles.errorText}>{orderError}</Text> : null}
 
-      {availableDrivers.length === 0 ? (
-        // Critère 4 (L6-08) : le contrat prévoit NO_DRIVER_AVAILABLE pour un élargissement de
-        // rayon (L3-08) qui n'existe pas encore côté serveur ce soir -- écart consigné dans
-        // amoa/questions/L6-08.md. Cet état, lui, est réel : les cinq chauffeurs connus ont tous
-        // été écartés. Même message que le catalogue C-01 pour rester cohérent avec le jour où
-        // L3-08 existera, même bouton -- retour à l'accueil pour une liste vraiment fraîche,
-        // jamais une fausse promesse de recherche en cours.
-        <View style={styles.errorBox} testID="no-driver-available">
-          <Text style={styles.errorText}>{USER_MESSAGES.NO_DRIVER_AVAILABLE}</Text>
-          <Button testID="back-to-home" label="Retour à l'accueil" variant="secondary" onPress={() => navigation.navigate('Home')} />
-        </View>
-      ) : (
-        <View style={styles.driversList}>
-          {availableDrivers.map((driver) => (
-            <DriverCard key={driver.driverId} driver={driver} onSelect={handleSelectDriver} disabled={!quote || expired || selecting} />
-          ))}
-        </View>
-      )}
-
-      {rejectionStreak > 0 && availableDrivers.length > 0 ? (
-        <Text style={styles.rejectionHint} testID="rejection-hint">
-          {rejectionStreak >= 3
-            ? 'Toujours personne de disponible parmi les chauffeurs proches -- essayez-en un autre, ou retournez à l’accueil pour élargir la recherche.'
-            : 'Choisissez un autre chauffeur.'}
-        </Text>
-      ) : null}
+      <Button
+        testID="order-button"
+        label={ordering ? 'Commande…' : 'Commander'}
+        onPress={handleOrder}
+        disabled={!quote || loading || expired || ordering}
+      />
+      <Text style={styles.dispatchHint}>La course part au chauffeur disponible le plus proche.</Text>
     </ScrollView>
   );
 }
@@ -393,11 +302,9 @@ const styles = StyleSheet.create({
   errorText: {
     color: '#B91C1C',
   },
-  driversList: {
-    gap: 8,
-  },
-  rejectionHint: {
+  dispatchHint: {
     fontSize: 12,
     color: '#6B7280',
+    textAlign: 'center',
   },
 });

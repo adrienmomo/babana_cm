@@ -7,7 +7,7 @@ from ..services import realtime_client
 
 @tagged("post_install", "-at_install")
 class TestPickupNoteReachesTheDriver(TransactionCase):
-    """L'indication du client voyage avec la réservation (`reserve_and_propose`), au même titre que
+    """L'indication du client voyage avec la réservation (`reserve_nearest_and_propose`), au même titre que
     l'origine ou le numéro du client : le service temps réel la rend au chauffeur dans
     `proposal.new` sans rappeler Odoo."""
 
@@ -25,10 +25,11 @@ class TestPickupNoteReachesTheDriver(TransactionCase):
         )
 
     def _sent_payload(self, ride):
-        driver = self.env["babana.driver"].search([], limit=1) or self.env["babana.driver"].new({"public_id": "drv"})
         client_user = self.env.user
-        with patch.object(realtime_client, "_post", return_value={"outcome": "PROPOSED"}) as post:
-            realtime_client.reserve_and_propose(ride=ride, driver=driver, client_user=client_user, idempotency_key="k")
+        with patch.object(realtime_client, "_post", return_value={"outcome": "NO_DRIVER_AVAILABLE"}) as post:
+            realtime_client.reserve_nearest_and_propose(
+                ride=ride, client_user=client_user, radius_meters=500, exclude_driver_public_ids=[], idempotency_key="k"
+            )
         return post.call_args.args[1]
 
     def test_the_note_is_sent_with_the_reservation(self):

@@ -156,7 +156,7 @@ export const ERROR_DESCRIPTION: Record<ErrorCode, string> = {
   RIDE_INVALID_TRANSITION: "La transition demandée n'est pas permise depuis l'état courant de la course (voir docs/contracts/ride-state-machine.md).",
   NO_SHOW_TOO_EARLY: "« Client absent » n'est permis qu'une fois le délai de grâce écoulé depuis « Sur place » (paramètre babana.no_show_grace_seconds).",
   RIDE_NOT_OWNED: "Cette course n'appartient pas à l'appelant.",
-  NO_DRIVER_AVAILABLE: "Aucun chauffeur disponible dans le rayon de recherche.",
+  NO_DRIVER_AVAILABLE: "Aucun chauffeur disponible dans le rayon de recherche (babana.dispatch_radius_meters), ou tous ceux du tour en cours ont déjà été sollicités.",
   DRIVER_ALREADY_TAKEN: "Le chauffeur vient d'être réservé par un autre client (réservation atomique, L3-06).",
   DRIVER_NOT_IN_PROPOSAL: "Le chauffeur qui répond n'est pas celui de la proposition active de cette course.",
   PROPOSAL_EXPIRED: "Le délai d'acceptation de la proposition est dépassé.",

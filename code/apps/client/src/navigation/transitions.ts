@@ -8,7 +8,7 @@ import type { ClientParamList } from './types';
  * Home/Quote est remplacée, pas empilée sous Waiting. Appelé par L6-08 dès que
  * `POST /rides` (L4-03) a répondu.
  *
- * À l'intérieur de la phase course (Waiting -> DriverRejected -> Tracking -> RideSummary), la
+ * À l'intérieur de la phase course (Waiting -> Tracking -> RideSummary), la
  * même technique s'applique où le retour vers un état déjà dépassé n'aurait pas de sens (par
  * exemple Tracking -> RideSummary, une fois la course terminée) -- laissé à L6-08/L6-09, qui
  * connaissent le déroulé réel de ces écrans.

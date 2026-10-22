@@ -6,14 +6,16 @@ import type { http } from '@babana/contracts';
 import type { LocationResult } from '../../location.types';
 
 let capturedOnRegionChange: ((point: LatLng) => void) | null = null;
+let capturedMarkers: { id: string; kind: string; label?: string }[] = [];
 const mockReverseGeocode = jest.fn<Promise<string | null>, [LatLng]>();
 const mockSearchPlace = jest.fn<Promise<PlaceResult[]>, [string]>();
 
 jest.mock('@babana/maps', () => {
   const { View } = jest.requireActual('react-native');
   return {
-    MapView: (props: { onRegionChange?: (point: LatLng) => void }) => {
+    MapView: (props: { onRegionChange?: (point: LatLng) => void; markers?: { id: string; kind: string; label?: string }[] }) => {
       capturedOnRegionChange = props.onRegionChange ?? null;
+      capturedMarkers = props.markers ?? [];
       return <View testID="mock-map" />;
     },
     reverseGeocode: (point: LatLng) => mockReverseGeocode(point),
@@ -160,9 +162,6 @@ describe('HomeScreen (L6-06)', () => {
     expect(navigation.navigate).toHaveBeenCalledWith('Quote', {
       origin: { position: DOUALA, label: 'vers Akwa, Douala' },
       destination: { position: ELSEWHERE, label: 'vers Bonapriso, Douala' },
-      nearbyDrivers: [],
-      excludedDriverIds: [],
-      rejectionStreak: 0,
     });
   });
 
@@ -201,13 +200,27 @@ describe('HomeScreen (L6-06)', () => {
     await act(async () => {
       emitNearbyDrivers([driver({ driverId: 'a', firstName: 'Paul' })]);
     });
-    expect(texts(root)).toContain('Paul');
+    expect(texts(root)).toContain('1 chauffeur disponible à proximité');
 
     await act(async () => {
-      emitNearbyDrivers([driver({ driverId: 'b', firstName: 'Aminata' })]);
+      emitNearbyDrivers([driver({ driverId: 'b', firstName: 'Aminata' }), driver({ driverId: 'c', firstName: 'Paul' })]);
     });
-    expect(texts(root)).toContain('Aminata');
+    expect(texts(root)).toContain('2 chauffeurs disponibles à proximité');
+  });
+
+  it("les chauffeurs proches sont anonymes : des points sur la carte, ni nom ni carte à choisir", async () => {
+    const root = await renderHome();
+
+    await act(async () => {
+      emitNearbyDrivers([driver({ driverId: 'a', firstName: 'Paul' }), driver({ driverId: 'b', firstName: 'Aminata' })]);
+    });
+
     expect(texts(root)).not.toContain('Paul');
+    expect(texts(root)).not.toContain('Aminata');
+    const driverMarkers = capturedMarkers.filter((marker) => marker.kind === 'driver');
+    expect(driverMarkers).toHaveLength(2);
+    expect(driverMarkers.every((marker) => marker.label === undefined)).toBe(true);
+    expect(root.root.findAll((node) => typeof node.props.testID === 'string' && node.props.testID.startsWith('driver-card'))).toHaveLength(0);
   });
 
   // L3-20 (30 août) -- cause racine du silence de diffusion : la connexion reste `connected`
@@ -223,7 +236,7 @@ describe('HomeScreen (L6-06)', () => {
       emitSubscribeAck({ accepted: true, broadcastIntervalMs: 5000 });
       emitNearbyDrivers([driver({ driverId: 'a', firstName: 'Paul' })]);
     });
-    expect(texts(root)).toContain('Paul');
+    expect(texts(root)).toContain('1 chauffeur disponible à proximité');
     mockSend.mockClear();
 
     // Aucun nearby.drivers pendant 3 x la cadence annoncée (5 s) : exactement le silence du
@@ -235,7 +248,7 @@ describe('HomeScreen (L6-06)', () => {
     expect(texts(root)).toMatch(/non mise à jour depuis/);
     // Le dernier chauffeur connu reste affiché -- un silence n'est jamais montré comme "aucun
     // chauffeur disponible" (spécification : jamais un marqueur figé, jamais un silence).
-    expect(texts(root)).toContain('Paul');
+    expect(texts(root)).toContain('1 chauffeur disponible à proximité');
     // Réabonnement automatique, sur la connexion existante -- pas une reconnexion.
     expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', expect.objectContaining({ position: DOUALA }));
   });
@@ -393,6 +406,6 @@ describe('HomeScreen (L6-06)', () => {
     });
 
     expect(root.root.findAllByProps({ testID: 'subscribe-refused' })).toHaveLength(0);
-    expect(texts(root)).toContain('Paul');
+    expect(texts(root)).toContain('1 chauffeur disponible à proximité');
   });
 });

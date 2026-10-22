@@ -33,6 +33,7 @@ import {
   RideRouteMessageSchema,
   DriverArrivedMessageSchema,
   ChatMessageMessageSchema,
+  RideUnmatchedMessageSchema,
   ServerToClientMessageSchema,
 } from '../src/realtime/server-to-client';
 import { NEARBY_POSITION_PRECISION_DECIMALS, roundToNearbyPrecision } from '../src/http/common';
@@ -657,5 +658,18 @@ describe('proposal.new porte l’indication du client (pickupNote)', () => {
   test('présente : transmise telle quelle', () => {
     const parsed = ProposalNewMessageSchema.parse({ ...base, payload: { ...base.payload, pickupNote: 'Devant la pharmacie' } });
     assert.equal(parsed.payload.pickupNote, 'Devant la pharmacie');
+  });
+});
+
+describe('ride.unmatched -- aucun chauffeur après les tentatives automatiques', () => {
+  test('porte la course seulement, et fait partie des messages serveur', () => {
+    const message = {
+      type: 'ride.unmatched',
+      id: randomUUID(),
+      emittedAt: new Date().toISOString(),
+      payload: { rideId: randomUUID() },
+    };
+    assert.doesNotThrow(() => RideUnmatchedMessageSchema.parse(message));
+    assert.doesNotThrow(() => ServerToClientMessageSchema.parse(message));
   });
 });

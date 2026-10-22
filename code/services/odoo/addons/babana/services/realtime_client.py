@@ -1,5 +1,5 @@
-# Sens Odoo -> temps réel (L3-17) : select-driver réserve et propose AVANT toute transition Odoo
-# (D10 §C2a, L3-06) ; la fin de course efface le marqueur d'engagement (D26, L3-07). Authentifié
+# Sens Odoo -> temps réel (L3-17) : la commande réserve le chauffeur le plus proche et lui propose
+# la course AVANT toute transition Odoo (`reserve_nearest_and_propose`, services/dispatch.py) ; la fin de course efface le marqueur d'engagement (D26, L3-07). Authentifié
 # par REALTIME_SHARED_SECRET -- même secret, même mécanisme que le canal interne prévu par L3-15
 # (jamais construit, hors périmètre), pas un second à inventer.
 #
@@ -7,7 +7,7 @@
 # Odoo (clear_engagement, notify_cancellation_async, notify_cash_limit_reached,
 # notify_driver_unavailable/notify_driver_available -- J33) part au commit de la transaction
 # appelante, jamais pendant -- voir leurs docstrings. Deux fonctions font exception :
-# `reserve_and_propose` PRÉCÈDE délibérément la transition, puisque c'est son résultat qui
+# `reserve_nearest_and_propose` PRÉCÈDE délibérément la transition, puisque c'est son résultat qui
 # l'autorise (et c'est pour cela que son idempotence D25 a été construite) ; `fetch_ride_measurement`
 # (L3-10) est une **lecture pure** appelée avant `in_progress -> completed` -- elle ne modifie
 # aucune clé Redis, donc une transaction rejouée ou annulée (D25) n'a rien laissé derrière elle, et
@@ -31,8 +31,8 @@ REALTIME_TIMEOUT_SECONDS = 5
 
 class RealtimeUnavailable(Exception):
     """Le service temps réel est injoignable, ou répond de façon inattendue (L3-17). Ne se
-    traduit JAMAIS en une transition Odoo appliquée -- controllers/ride.py n'appelle
-    action_propose qu'après un succès explicite de reserve_and_propose (critère 4 : l'échec de
+    traduit JAMAIS en une transition Odoo appliquée -- services/dispatch.py n'appelle
+    action_propose qu'après un succès explicite de reserve_nearest_and_propose (critère 4 : l'échec de
     l'appel au service temps réel ne laisse aucune transition Odoo appliquée)."""
 
 
@@ -58,44 +58,31 @@ def _post(path: str, payload: dict) -> dict:
         raise RealtimeUnavailable(f"appel au service temps réel {path} en échec") from exc
 
 
-def reserve_and_propose(*, ride, driver, client_user, idempotency_key: str | None) -> dict:
-    """Réserve le chauffeur et pose la proposition (L3-06, L3-07) -- avant toute transition Odoo
-    (`controllers/ride.py::_select_driver`).
+def reserve_nearest_and_propose(
+    *, ride, client_user, radius_meters: int, exclude_driver_public_ids: list[str], idempotency_key: str
+) -> dict:
+    """Le serveur choisit le chauffeur (le client ne désigne plus personne) : le service temps réel
+    réserve le chauffeur disponible le plus proche du point de prise en charge, hors
+    `exclude_driver_public_ids`, et lui adresse la proposition -- un seul geste atomique
+    (`ride/state.lua`, action `reserve-nearest`). PRÉCÈDE la transition
+    `action_propose` (son résultat la désigne), et repose sur la même idempotence (D25).
 
-    **Le piège du rejeu (D25), tranché ici** : Odoo rejoue la requête HTTP entière sur conflit de
-    sérialisation PostgreSQL, donc cet appel s'exécute deux fois pour une seule action cliente si
-    `action_propose` échoue APRÈS que cet appel a déjà réussi. `idempotency_key` est ce qui
-    protège : celle du client si l'app mobile en a fourni une (L4-03, `Idempotency-Key`), sinon
-    une clé composite course + chauffeur -- les deux stables d'une exécution à l'autre du MÊME
-    rejeu Odoo, puisque ni l'une ni l'autre ne dépend d'un état de base de données que le rejeu
-    remettrait à zéro. Le service temps réel (`reservation/idempotency.ts`) rejoue la réponse de
-    la première exécution pour cette clé plutôt que de retenter la réservation.
-
-    Renvoie `{"outcome": "PROPOSED", "expiresAt": ...}`, `{"outcome": "DRIVER_ALREADY_TAKEN"}` ou
-    `{"outcome": "DRIVER_NOT_IN_LAST_LIST"}` (précondition C-03, critère 8) -- jamais une
-    exception pour un résultat métier, seulement pour une vraie panne de transport
-    (RealtimeUnavailable)."""
-    key = idempotency_key or f"{ride.public_id}:{driver.public_id}"
+    Renvoie `{"outcome": "PROPOSED", "driverId": ..., "expiresAt": ...}` ou
+    `{"outcome": "NO_DRIVER_AVAILABLE"}` ; lève RealtimeUnavailable sur une vraie panne."""
     return _post(
-        "/internal/reservations",
+        "/internal/reservations/nearest",
         {
-            "idempotencyKey": key,
+            "idempotencyKey": idempotency_key,
             "rideId": ride.public_id,
-            "driverId": driver.public_id,
             "clientUserId": client_user.babana_public_id,
             "origin": {"latitude": ride.pickup_latitude, "longitude": ride.pickup_longitude},
             "destination": {"latitude": ride.dropoff_latitude, "longitude": ride.dropoff_longitude},
             "amount": ride.estimated_amount,
             "distanceMeters": round((ride.reference_distance_km or 0.0) * 1000),
-            # D42 (2 septembre, amoa/questions/REPONSES-2026-09-02.md §1) : transmis ici, au même
-            # titre qu'origin/destination/amount ci-dessus -- Odoo le connaît déjà, un aller-retour
-            # supplémentaire du service temps réel vers Odoo à l'acceptation n'apporterait rien
-            # (proposal/lifecycle.ts::accept le lit directement depuis le dépôt Redis posé par
-            # propose(), voir sa docstring). `None` si le client n'a pas de numéro renseigné --
-            # L1-09 (vérification) est hors de ce lot, ce champ n'est donc pas garanti aujourd'hui.
             "clientPhoneNumber": client_user.partner_id.phone or None,
-            # Repère du client (« devant la pharmacie »), affiché au chauffeur dès la proposition.
             "pickupNote": ride.pickup_note or None,
+            "radiusMeters": radius_meters,
+            "excludeDriverIds": list(exclude_driver_public_ids),
         },
     )
 
@@ -106,7 +93,7 @@ def fetch_ride_measurement(*, driver_public_id: str) -> dict | None:
 
     C'est ce que L4-04 dit depuis toujours : « le service temps réel fournit distance parcourue,
     durée écoulée et tracé ». La lecture précède la transition parce que ses valeurs l'alimentent
-    (`action_complete(..., measurement=...)`), exactement comme `reserve_and_propose` précède
+    (`action_complete(..., measurement=...)`), exactement comme `reserve_nearest_and_propose` précède
     `action_propose`. Une lecture, jamais une écriture Redis : sans risque D25/D32.
 
     Renvoie `{"distance_meters": int, "duration_seconds": int, "polyline": str}` si une
@@ -144,7 +131,7 @@ def release_reservation(*, driver_public_id: str) -> None:
     curseur de la transaction appelante ne serait pas sûr à utiliser.
 
     Best-effort, volontairement : la vraie erreur métier a déjà été déterminée par l'appelant
-    (`_select_driver`) au moment où celui-ci appelle cette fonction -- une seconde panne du
+    (`services/dispatch.py`) au moment où celui-ci appelle cette fonction -- une seconde panne du
     service temps réel ici ne doit jamais la masquer ni en ajouter une nouvelle. Le filet de
     dernier recours reste l'expiration naturelle de la réservation côté Redis (L3-06, critère 5)."""
     try:
@@ -540,5 +527,26 @@ def notify_driver_arrived(
             driver_public_id=driver_public_id,
             arrived_at=arrived_iso,
             no_show_grace_seconds=no_show_grace_seconds,
+        )
+    )
+
+
+def _notify_ride_unmatched_now(*, ride_public_id: str, client_user_public_id: str) -> None:
+    try:
+        _post("/internal/rides/unmatched", {"rideId": ride_public_id, "clientUserId": client_user_public_id})
+    except RealtimeUnavailable:
+        _logger.warning(
+            "échec de la notification ride.unmatched pour la course %s -- le client le verra à sa "
+            "prochaine resynchronisation (course à l'état rejected).",
+            ride_public_id,
+        )
+
+
+def notify_ride_unmatched(env, *, ride_public_id: str, client_user_public_id: str) -> None:
+    """Plus aucun chauffeur à solliciter (services/dispatch.py) : pousse `ride.unmatched` au client,
+    qui choisit entre « Réessayer » et « Annuler ». Best-effort, au COMMIT (D32)."""
+    env.cr.postcommit.add(
+        lambda: _notify_ride_unmatched_now(
+            ride_public_id=ride_public_id, client_user_public_id=client_user_public_id
         )
     )

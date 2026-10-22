@@ -33,6 +33,18 @@ export async function releaseDriver(redis: Redis, driverId: string): Promise<voi
   await reintegrateIfEligible(redis, driverId);
 }
 
+/**
+ * Sélection automatique (le client ne choisit plus son chauffeur) : réserve le chauffeur disponible
+ * le plus proche du point de prise en charge, hors chauffeurs déjà sollicités pour la course.
+ * Voir `ride/state.ts::reserveNearest`.
+ */
+export async function reserveNearestDriver(
+  redis: Redis,
+  request: rideState.NearestReservationRequest
+): Promise<string | null> {
+  return rideState.reserveNearest(redis, request);
+}
+
 export async function isReserved(redis: Redis, driverId: string): Promise<boolean> {
   return rideState.isReserved(redis, driverId);
 }

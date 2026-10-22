@@ -22,7 +22,7 @@ from odoo.service.model import PG_CONCURRENCY_EXCEPTIONS_TO_RETRY
 from . import _common
 from ..models.babana_ride import PICKUP_NOTE_MAX_LENGTH
 from ..models.babana_ride_state import NO_SHOW_REASON, RideInvalidTransition, RideNoShowTooEarly
-from ..services import realtime_client
+from ..services import dispatch, realtime_client
 
 _logger = logging.getLogger(__name__)
 
@@ -174,81 +174,32 @@ class RideController(http.Controller):
         )
         return _summary(ride), 201
 
-    # --- POST /rides/{id}/select-driver -------------------------------------------------------
+    # --- POST /rides/{id}/dispatch -- le serveur choisit le chauffeur le plus proche ----------
 
-    @http.route("/api/v1/rides/<string:ride_id>/select-driver", **_ROUTE)
-    def select_driver(self, ride_id, **_kwargs):
-        return self._dispatch("selectDriver", lambda: self._select_driver(ride_id))
+    @http.route("/api/v1/rides/<string:ride_id>/dispatch", **_ROUTE)
+    def dispatch_ride(self, ride_id, **_kwargs):
+        return self._dispatch("dispatchRide", lambda: self._dispatch_ride(ride_id))
 
-    def _select_driver(self, ride_id):
+    def _dispatch_ride(self, ride_id):
         env, user = _common.authenticated_user()
         ride = self._find_ride(env, user, ride_id)
         if not ride:
             return _common.error_payload("RIDE_NOT_FOUND", "course inconnue"), 404
-        # Visibilité tranchée par la règle ci-dessus ; on repasse en `sudo` avant le contrôle
-        # explicite, qui n'est plus là que pour dire POURQUOI (403) à un appelant qui, lui,
-        # voit la course : un chauffeur affecté (branche « driver_id.user_id = moi ») qui
-        # appellerait cet endpoint client. Un autre client est déjà sorti en RIDE_NOT_FOUND.
         ride = ride.sudo()
         if ride.client_id != user.partner_id:
             return _common.error_payload("RIDE_NOT_OWNED", "cette course n'appartient pas à l'appelant"), 403
+        # Le corps est vide par contrat (DispatchRideRequestSchema, strict) : désigner un chauffeur
+        # n'est plus possible -- le refuser plutôt que l'ignorer, pour qu'une app restée à l'ancien
+        # parcours le découvre au lieu de croire avoir choisi.
+        if _common.parse_json_body():
+            return _common.error_payload("VALIDATION_ERROR", "aucun champ attendu : le chauffeur est choisi par le serveur"), 400
 
-        body = _common.parse_json_body()
-        driver_id = (body or {}).get("driverId")
-        # `sudo` ASSUMÉ ici (D54, cas nommé) : le client n'a aucun accès ORM à `babana.driver`
-        # (L8-01, tableau corrigé). Ce chauffeur a été choisi dans la liste servie par le
-        # service temps réel ; c'est `reserve_and_propose` qui vérifie qu'il figurait bien dans
-        # la dernière liste montrée à CE client (outcome DRIVER_NOT_IN_LAST_LIST sinon).
-        driver = (
-            env["babana.driver"].sudo().search([("public_id", "=", driver_id)], limit=1)
-            if driver_id
-            else env["babana.driver"]
+        driver = dispatch.propose_to_closest_driver(
+            env, ride, by_partner=user.partner_id, idempotency_key=_common.idempotency_key()
         )
         if not driver:
-            return _common.error_payload("VALIDATION_ERROR", "driverId inconnu ou manquant"), 400
+            return _common.error_payload("NO_DRIVER_AVAILABLE", "aucun chauffeur disponible à proximité"), 404
 
-        # Sens Odoo -> temps réel (L3-06, L3-17) : réserve et propose AVANT toute transition Odoo.
-        # Le piège du rejeu (D25) est encaissé côté temps réel (reservation/idempotency.ts), par
-        # la clé d'idempotence du client si l'app en a fourni une, sinon une clé composite
-        # course+chauffeur -- toutes deux stables à travers un rejeu de CETTE requête par Odoo.
-        reservation = realtime_client.reserve_and_propose(
-            ride=ride, driver=driver, client_user=user, idempotency_key=_common.idempotency_key()
-        )
-        outcome = reservation.get("outcome")
-        if outcome == "DRIVER_ALREADY_TAKEN":
-            return _common.error_payload(
-                "DRIVER_ALREADY_TAKEN", "ce chauffeur vient d'être réservé par une autre course"
-            ), 409
-        if outcome == "DRIVER_NOT_IN_LAST_LIST":
-            # Précondition C-03 (critère 8) : un identifiant jamais montré à ce client -- même
-            # réaction côté client que DRIVER_ALREADY_TAKEN (revenir à la sélection), aucun code
-            # dédié dans le catalogue C-01 aujourd'hui (amoa/questions/L3-17.md §3).
-            return _common.error_payload(
-                "DRIVER_ALREADY_TAKEN", "ce chauffeur n'est pas dans la liste proposée à ce client"
-            ), 409
-        if outcome != "PROPOSED":
-            return _common.error_payload("INTERNAL_ERROR", "réponse inattendue du service temps réel"), 500
-
-        # Critère 4 : si la transition Odoo échoue DÉFINITIVEMENT à partir d'ici, la réservation
-        # doit être relâchée -- sans quoi le chauffeur reste bloqué hors du pool sans course
-        # correspondante.
-        try:
-            ride.sudo().action_propose(by_partner=user.partner_id, driver=driver)
-        except PG_CONCURRENCY_EXCEPTIONS_TO_RETRY:
-            # D25 : PAS un échec définitif -- Odoo va rejouer la requête entière avec un curseur
-            # neuf. La réservation temps réel doit SURVIVRE à ce rejeu (c'est précisément ce que
-            # l'idempotence de reserve_and_propose protège, clé stable à travers le rejeu) :
-            # la relâcher ici la ferait disparaître avant que la tentative rejouée n'ait eu la
-            # moindre chance de la réutiliser -- exactement l'inverse de ce que le piège central
-            # de cette tâche demande d'éviter.
-            raise
-        except Exception:
-            realtime_client.release_reservation(driver_public_id=driver.public_id)
-            raise
-
-        # Fenêtre informative seulement (L3, hors de ce lot, portera l'expiration réelle du
-        # côté du service temps réel -- voir amoa/questions/L4-03.md). Paramétrable (invariant
-        # 5), jamais codée en dur.
         window_seconds = int(
             env["ir.config_parameter"].sudo().get_param("babana.proposal_window_seconds", 30)
         )
@@ -309,7 +260,7 @@ class RideController(http.Controller):
         # `measurement` = le relevé de trajet accumulé par le service temps réel pendant la course
         # (L3-10), lu ICI, avant la transition -- une lecture, jamais une écriture Redis, donc
         # sans risque D25/D32 (une transaction rejouée ou annulée n'aura rien modifié côté temps
-        # réel), même exception assumée que `reserve_and_propose`. `None` si le service est
+        # réel), même exception assumée que `reserve_nearest_and_propose` (services/dispatch.py). `None` si le service est
         # injoignable ou si aucune accumulation n'était active : la course se termine alors sans
         # distance ni tracé (trip_measured faux), et l'écart de distance de L4-04 n'est pas armé
         # (D30, D43).

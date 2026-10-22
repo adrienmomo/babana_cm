@@ -205,9 +205,15 @@ class BabanaRideState(models.Model):
 
     # --- 2/5. requested|rejected -> proposed ------------------------------------------------
 
-    def action_propose(self, *, by_partner, driver):
-        """Le client sélectionne un chauffeur (requested -> proposed, ou rejected -> proposed
-        après un refus -- même action, C-03 ne distingue pas les deux par un nom différent)."""
+    def action_propose(self, *, by_partner, driver, new_round=False):
+        """La course est proposée à un chauffeur (requested -> proposed, ou rejected -> proposed
+        -- même action, C-03 ne distingue pas les deux par un nom différent). Le chauffeur est
+        choisi par le serveur, le plus proche (services/dispatch.py) ; `by_partner` reste le client
+        de la course, au nom de qui la proposition est faite.
+
+        `new_round` : la proposition ouvre un tour de recherche (commande ou « Réessayer » du
+        client), par opposition au suivant proposé automatiquement après un refus -- le tour
+        compte les refus à partir d'ici (`dispatch_round_rejection_offset`)."""
         self.ensure_one()
         self._lock_for_update()
 
@@ -247,13 +253,14 @@ class BabanaRideState(models.Model):
         # ci-dessus -- le contrôleur (controllers/ride.py:_map_user_error) la connaît déjà.
         try:
             with self.env.cr.savepoint():
-                self._babana_write_transition(
-                    {
-                        "state": "proposed",
-                        "driver_id": driver.id,
-                        "proposed_at": fields.Datetime.now(),
-                    }
-                )
+                vals = {
+                    "state": "proposed",
+                    "driver_id": driver.id,
+                    "proposed_at": fields.Datetime.now(),
+                }
+                if new_round:
+                    vals["dispatch_round_rejection_offset"] = len(self.rejection_ids)
+                self._babana_write_transition(vals)
         except psycopg2.errors.UniqueViolation as exc:
             if "babana_ride_one_active_per_driver" not in str(exc):
                 raise
@@ -287,7 +294,11 @@ class BabanaRideState(models.Model):
 
         if self.state != "proposed":
             raise RideInvalidTransition(f"Impossible de refuser depuis l'état '{self.state}'.")
-        if not expired and by_driver != self.driver_id:
+        # Une expiration n'a pas d'auteur humain, mais dès qu'elle nomme un chauffeur, ce doit être
+        # celui de la proposition active : depuis que le suivant est sollicité automatiquement, un
+        # rapport d'expiration redélivré (file persistante, L3-12) trouverait la course déjà
+        # proposée à un autre -- et la lui retirerait.
+        if (not expired or by_driver) and by_driver != self.driver_id:
             raise RideInvalidTransition(
                 "Ce chauffeur n'est pas celui de la proposition active de cette course."
             )

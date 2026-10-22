@@ -120,7 +120,7 @@
       "status": "pending",
       "emitter": "AUCUN -- aucune occurrence de type: 'ride.proposed' dans services/realtime/src.",
       "consumer": "AUCUN.",
-      "reason": "Gardé au contrat, contrairement à ride.start/ride.complete/cash.limit.warning (arbitrage du 28 août, amoa/questions/REPONSES-2026-08-28.md §1) : redondant pour l'appareil qui a fait la demande (déjà appris de façon synchrone par SelectDriverResponse.state, POST /rides/{id}/select-driver), mais pas pour un second appareil du même client -- un téléphone se partage en famille à Douala. Émetteur/consommateur restent à construire : candidat naturel L6-16 (mode dégradé réseau, apps/client) ou une tâche dédiée à la synchronisation multi-appareil, non commencée."
+      "reason": "Gardé au contrat, contrairement à ride.start/ride.complete/cash.limit.warning (arbitrage du 28 août, amoa/questions/REPONSES-2026-08-28.md §1) : redondant pour l'appareil qui a fait la demande (déjà appris de façon synchrone par DispatchRideResponse.state, POST /rides/{id}/dispatch), mais pas pour un second appareil du même client -- un téléphone se partage en famille à Douala. Émetteur/consommateur restent à construire : candidat naturel L6-16 (mode dégradé réseau, apps/client) ou une tâche dédiée à la synchronisation multi-appareil, non commencée."
     },
     {
       "name": "ride.assigned",
@@ -133,8 +133,15 @@
       "name": "ride.rejected",
       "direction": "server-to-client",
       "status": "wired",
-      "emitter": "services/realtime/src/proposal/lifecycle.ts::reject|expire, services/realtime/test/proposal.test.ts.",
-      "consumer": "apps/client/src/screens/WaitingScreen.tsx."
+      "emitter": "services/realtime/src/proposal/lifecycle.ts::reject|expire, services/realtime/test/proposal.test.ts. Depuis la sélection automatique, n'ouvre plus un retour au choix : le serveur sollicite le suivant le plus proche (services/odoo/addons/babana/services/dispatch.py).",
+      "consumer": "apps/client/src/screens/WaitingScreen.tsx (« Ce chauffeur n'est pas disponible. Recherche d'un autre chauffeur… »)."
+    },
+    {
+      "name": "ride.unmatched",
+      "direction": "server-to-client",
+      "status": "wired",
+      "emitter": "services/odoo/addons/babana/services/dispatch.py::handle_driver_rejection -> realtime_client.notify_ride_unmatched (au COMMIT, D32) -> services/realtime/src/http/internal.ts (POST /internal/rides/unmatched) -> tracking/broadcast.ts::broadcastRideUnmatched. Testé par tests/test_dispatch.py et services/realtime/test/internal.test.ts.",
+      "consumer": "apps/client/src/screens/WaitingScreen.tsx (« Aucun chauffeur n'est disponible », Réessayer / Annuler) ; apps/client/src/screens/__tests__/WaitingScreen.test.tsx."
     },
     {
       "name": "driver.position",

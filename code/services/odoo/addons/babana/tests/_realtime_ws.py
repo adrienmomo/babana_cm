@@ -5,11 +5,10 @@
 # et le cadrage de trame minimal (texte, non fragmenté, payload court) dont ces fixtures ont
 # besoin -- rien de plus : pas de ping/pong, pas de fragmentation, pas de fermeture propre.
 #
-# Depuis L3-17, `select-driver` réserve réellement via le service temps réel (D26) : un chauffeur
-# qui n'est jamais passé en ligne, ou un client qui n'a jamais vu ce chauffeur dans sa liste des 5
-# (précondition C-03, critère 8), ne peut plus être sélectionné par une simple création RPC de
-# `babana.driver` -- il faut le faire *réellement* passer en ligne et émettre une position, comme
-# l'application le ferait.
+# La course part au chauffeur le plus proche que le service temps réel trouve dans son vivier
+# (D26) : un chauffeur qui n'est jamais passé en ligne n'y est pas, et une simple création RPC de
+# `babana.driver` ne l'y met pas -- il faut le faire *réellement* passer en ligne et émettre une
+# position, comme l'application le ferait.
 from __future__ import annotations
 
 import base64
@@ -70,34 +69,6 @@ def _send_message(sock: socket.socket, message_type: str, payload: dict) -> None
     sock.sendall(header + mask + masked)
 
 
-def _read_message(sock: socket.socket, timeout: float = 5.0) -> dict | None:
-    """Lit UNE trame texte non fragmentée, jamais masquée côté serveur (RFC 6455) -- suffisant
-    pour les messages courts (`nearby.drivers`) que ces fixtures ont besoin de lire. `None` si
-    rien n'arrive avant `timeout`."""
-    sock.settimeout(timeout)
-    try:
-        header = sock.recv(2)
-    except (socket.timeout, TimeoutError):
-        return None
-    if len(header) < 2:
-        return None
-    length = header[1] & 0x7F
-    if length == 126:
-        length = struct.unpack("!H", sock.recv(2))[0]
-    elif length == 127:
-        length = struct.unpack("!Q", sock.recv(8))[0]
-    payload = b""
-    while len(payload) < length:
-        chunk = sock.recv(length - len(payload))
-        if not chunk:
-            break
-        payload += chunk
-    try:
-        return json.loads(payload.decode())
-    except (json.JSONDecodeError, UnicodeDecodeError):
-        return None
-
-
 def bring_driver_online(driver_token: str, latitude: float, longitude: float) -> None:
     """Fait réellement passer un chauffeur en ligne et émettre une position, par le chemin réel
     (WebSocket, L3-01/L3-02/L3-04) -- pas une écriture Redis directe, qui contournerait tout ce
@@ -124,57 +95,3 @@ def bring_driver_online(driver_token: str, latitude: float, longitude: float) ->
         time.sleep(1.0)
     finally:
         sock.close()
-
-
-def make_driver_visible_to_client(
-    client_token: str,
-    driver_public_id: str,
-    position: dict,
-    *,
-    radius_meters: float = 5_000,
-    attempts: int = 8,
-    retry_delay: float = 2.0,
-) -> None:
-    """S'abonne à `nearby.drivers` en tant que client et attend que le chauffeur visé apparaisse
-    dans la liste reçue -- c'est cette réception qui pose la précondition C-03 côté serveur
-    (`nearby/last-sent.ts`), pas un raccourci de test qui la contournerait.
-
-    Ré-abonnement actif plutôt qu'une seule attente passive : un nouvel abonnement du même client
-    déclenche toujours une diffusion IMMÉDIATE (`nearby/handler.ts::subscribe`, critère 5 de
-    L3-05 -- un second abonnement remplace le premier), donc une nouvelle vérification à chaque
-    tentative plutôt que de dépendre du minuteur de diffusion périodique en arrière-plan, dont le
-    délai peut suffire à faire échouer une seule attente passive sous charge (`npm test` complet,
-    beaucoup de connexions WebSocket concurrentes). Bornée à `attempts` : la limitation de débit
-    de L3-05 (critère 6, C2b) autorise au plus `NEARBY_RATE_LIMIT_MAX_SUBSCRIPTIONS` abonnements
-    par fenêtre glissante -- 8 tentatives espacées de 2 s restent largement en dessous du défaut
-    (10 par 60 s)."""
-    for attempt in range(attempts):
-        sock = _connect(client_token)
-        try:
-            _send_message(
-                sock,
-                "nearby.subscribe",
-                {"position": position, "radiusMeters": radius_meters},
-            )
-            # `nearby.subscribe.ack` (23 août, doute L6-06 §3) précède désormais toujours
-            # `nearby.drivers` -- lire jusqu'à ce message précis dans la fenêtre de cette
-            # tentative, pas seulement le premier reçu, sans quoi l'accusé de réception serait
-            # pris pour une absence de chauffeur.
-            deadline = time.monotonic() + retry_delay
-            while time.monotonic() < deadline:
-                message = _read_message(sock, timeout=max(0.05, deadline - time.monotonic()))
-                if message is None:
-                    break
-                if message.get("type") == "nearby.drivers":
-                    drivers = message.get("payload", {}).get("drivers", [])
-                    if any(d.get("driverId") == driver_public_id for d in drivers):
-                        return
-                    break
-        finally:
-            sock.close()
-        if attempt < attempts - 1:
-            time.sleep(retry_delay)
-    raise AssertionError(
-        f"chauffeur {driver_public_id} jamais apparu dans nearby.drivers après {attempts} "
-        "tentatives -- vérifier qu'il est bien en ligne, positionné, et dans le rayon interrogé"
-    )

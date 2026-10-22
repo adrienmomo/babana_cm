@@ -258,7 +258,10 @@ export async function approveDriver(session: Session, label: string): Promise<{ 
   return { driverId, driverPublicId };
 }
 
-export async function createRideRequest(session: Session): Promise<{ ridePublicId: string }> {
+export async function createRideRequest(
+  session: Session,
+  pickup: { latitude: number; longitude: number } = { latitude: 4.05, longitude: 9.7 }
+): Promise<{ ridePublicId: string }> {
   const userIds = await execute<number[]>('res.users', 'search', [[['babana_public_id', '=', session.publicUserId]]]);
   const [userId] = userIds;
   const [userRecord] = await execute<{ partner_id: [number, string] }[]>('res.users', 'read', [
@@ -275,8 +278,10 @@ export async function createRideRequest(session: Session): Promise<{ ridePublicI
     [],
     {
       client_id: partnerId,
-      pickup_latitude: 4.05,
-      pickup_longitude: 9.7,
+      // Le point de prise en charge décide du chauffeur (le plus proche, choisi par le serveur) :
+      // chaque scénario passe le sien (helpers/spots.ts).
+      pickup_latitude: pickup.latitude,
+      pickup_longitude: pickup.longitude,
       dropoff_latitude: 4.06,
       dropoff_longitude: 9.77,
       // Montant plausible (L4-11, scénario 3, encaissement) : une course créée directement par

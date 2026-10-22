@@ -1,7 +1,7 @@
-// Client WebSocket minimal contre le vrai service temps réel (C-01, critère 6). Précondition
-// C-03 (L3-17) : select-driver refuse un chauffeur qui n'est jamais réellement passé en ligne,
-// ou qu'un client n'a jamais vu dans sa propre liste nearby.drivers -- même mécanisme, même
-// raison que services/odoo/addons/babana/tests/_realtime_ws.py côté Python, transposé ici en
+// Client WebSocket minimal contre le vrai service temps réel (C-01, critère 6). La commande d'une
+// course part au chauffeur disponible le plus proche : un chauffeur qui n'est jamais réellement
+// passé en ligne n'est pas dans le vivier -- même raison que
+// services/odoo/addons/babana/tests/_realtime_ws.py côté Python, transposé ici en
 // TypeScript avec le WebSocket natif de Node (déjà utilisé par test/auth/token-handshake.test.ts,
 // aucune dépendance ajoutée -- CLAUDE.md, "pas de dépendance nouvelle sans nécessité").
 import { randomUUID } from 'node:crypto';
@@ -59,50 +59,4 @@ export async function bringDriverOnline(driverToken: string, position: Position)
   } finally {
     socket.close();
   }
-}
-
-/** S'abonne à nearby.drivers en tant que client jusqu'à voir apparaître le chauffeur visé --
- * c'est cette réception qui pose la précondition C-03 côté serveur, pas un raccourci de test qui
- * la contournerait. Un lecteur ne suppose jamais que la trame suivante est celle qu'il attend
- * (C-02, règle du 24 août) : on filtre par type, jamais un `once('message')` nu -- l'accusé de
- * réception de nearby.subscribe (23 août) précède toujours nearby.drivers. */
-export async function makeDriverVisibleToClient(
-  clientToken: string,
-  driverPublicId: string,
-  position: Position,
-  options: { radiusMeters?: number; attempts?: number; retryDelayMs?: number } = {}
-): Promise<void> {
-  const radiusMeters = options.radiusMeters ?? 5_000;
-  const attempts = options.attempts ?? 8;
-  const retryDelayMs = options.retryDelayMs ?? 2_000;
-
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    const socket = await connect(clientToken);
-    let seen = false;
-    try {
-      send(socket, 'nearby.subscribe', { position, radiusMeters });
-      seen = await new Promise<boolean>((resolve) => {
-        const deadline = setTimeout(() => resolve(false), retryDelayMs);
-        socket.addEventListener('message', (event) => {
-          let message: { type?: string; payload?: { drivers?: Array<{ driverId?: string }> } };
-          try {
-            message = JSON.parse(String((event as MessageEvent).data));
-          } catch {
-            return;
-          }
-          if (message.type !== 'nearby.drivers') return;
-          clearTimeout(deadline);
-          resolve((message.payload?.drivers ?? []).some((d) => d.driverId === driverPublicId));
-        });
-      });
-    } finally {
-      socket.close();
-    }
-    if (seen) return;
-    if (attempt < attempts - 1) await sleep(retryDelayMs);
-  }
-  throw new Error(
-    `chauffeur ${driverPublicId} jamais apparu dans nearby.drivers après ${attempts} tentatives -- ` +
-      'vérifier qu\'il est bien en ligne, positionné, et dans le rayon interrogé'
-  );
 }

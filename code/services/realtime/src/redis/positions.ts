@@ -20,7 +20,7 @@ export interface StoredPosition {
   capturedAtMs: number;
 }
 
-const POSITION_KEY_PREFIX = 'babana:driver:position:';
+export const POSITION_KEY_PREFIX = 'babana:driver:position:';
 
 export function positionKey(driverId: string): string {
   return `${POSITION_KEY_PREFIX}${driverId}`;

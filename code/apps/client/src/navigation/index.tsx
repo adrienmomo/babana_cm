@@ -12,7 +12,6 @@ import { SignInScreen } from '../screens/SignInScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { QuoteScreen } from '../screens/QuoteScreen';
 import { WaitingScreen } from '../screens/WaitingScreen';
-import { DriverRejectedScreen } from '../screens/DriverRejectedScreen';
 import { TrackingScreen } from '../screens/TrackingScreen';
 import { RideSummaryScreen } from '../screens/RideSummaryScreen';
 import type { AuthParamList, ClientParamList } from './types';
@@ -118,7 +117,6 @@ function ClientNavigator() {
       <ClientStack.Screen name="Home" component={HomeScreen} />
       <ClientStack.Screen name="Quote" component={QuoteScreen} />
       <ClientStack.Screen name="Waiting" component={WaitingScreen} />
-      <ClientStack.Screen name="DriverRejected" component={DriverRejectedScreen} />
       <ClientStack.Screen name="Tracking" component={TrackingScreen} />
       <ClientStack.Screen name="RideSummary" component={RideSummaryScreen} />
       <ClientStack.Screen name="History">
