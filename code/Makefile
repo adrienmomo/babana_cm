@@ -49,7 +49,7 @@ BABANA_MAPS_SEARCH_URL ?= http://localhost:4001/search
 # -- c'est donc ici, comme pour BABANA_MAPS_SEARCH_URL, que le développement pose la valeur
 # locale, vers l'origine dédiée aux apps natives (infra/caddy/Caddyfile, api.$BABANA_DOMAIN).
 BABANA_API_URL ?= https://api.localhost
-# Tuiles OpenStreetMap de l'app Chauffeur (développement seulement : le serveur public de la
+# Tuiles OpenStreetMap des apps natives Chauffeur et Client (développement seulement : le serveur public de la
 # fondation interdit l'usage intensif -- la production pose un fournisseur de tuiles).
 BABANA_MAP_TILE_URL ?= https://tile.openstreetmap.org/{z}/{x}/{y}.png
 # Itinéraires de l'app Chauffeur (format OSRM). Serveur de démonstration public : développement
@@ -65,10 +65,10 @@ DRIVER_RIDE_FLOW_ENV = BABANA_ARRIVAL_RADIUS_METERS="$(BABANA_ARRIVAL_RADIUS_MET
 BABANA_REALTIME_WS_URL ?= wss://api.localhost/rt/ws
 
 client:          ## Démarre l'app Client (bundler React Native)
-	BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/client  -- --port 8081 --reset-cache
+	BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/client  -- --port 8081 --reset-cache
 
 client-app:          ## Démarre l'app Client (bundler React Native et emulateur)
-	BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run android -w @babana/client -- --port 8081
+	BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run android -w @babana/client -- --port 8081
 
 client-web:      ## Construit le bundle web du Client dans apps/client/dist-web (servi par Caddy, D46)
 	BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run build:web -w @babana/client

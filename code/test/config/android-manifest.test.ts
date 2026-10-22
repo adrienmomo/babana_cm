@@ -38,3 +38,14 @@ test("la carte native a sa clé Google Maps dans le manifeste, injectée depuis 
   const gradle = readFileSync(join(root, 'apps/driver/android/app/build.gradle'), 'utf8');
   assert.match(gradle, /googleMapsApiKey:\s*System\.getenv\('GOOGLE_MAPS_API_KEY'\)/);
 });
+
+// L'app Client sur émulateur (22 octobre) : sans cette entrée, la carte Google native plante au
+// premier affichage (« API key not found ») au lieu de rester grise -- l'app ne s'ouvre pas.
+test("l'app Client a aussi sa clé Google Maps dans le manifeste, injectée depuis l'environnement", () => {
+  const clientManifest = readFileSync(join(root, 'apps/client/android/app/src/main/AndroidManifest.xml'), 'utf8');
+  const meta = clientManifest.match(/<meta-data android:name="com\.google\.android\.geo\.API_KEY" android:value="([^"]*)"/);
+  assert.ok(meta, 'meta-data com.google.android.geo.API_KEY absente du manifeste Client : MapView plante');
+  assert.equal(meta![1], '${googleMapsApiKey}', 'la clé doit venir du placeholder gradle, pas être écrite ici');
+  const gradle = readFileSync(join(root, 'apps/client/android/app/build.gradle'), 'utf8');
+  assert.match(gradle, /googleMapsApiKey:\s*System\.getenv\('GOOGLE_MAPS_API_KEY'\)/);
+});

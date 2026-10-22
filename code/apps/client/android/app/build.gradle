@@ -106,7 +106,8 @@ android {
         // ici. Dérivé de BABANA_API_URL (invariant 5) : autorisé seulement en http:// (dev
         // local), jamais par défaut.
         manifestPlaceholders = [
-            usesCleartextTraffic: (System.getenv('BABANA_API_URL') ?: '').startsWith('http://') ? 'true' : 'false'
+            usesCleartextTraffic: (System.getenv('BABANA_API_URL') ?: '').startsWith('http://') ? 'true' : 'false',
+            googleMapsApiKey: System.getenv('GOOGLE_MAPS_API_KEY') ?: ''
         ]
     }
     signingConfigs {

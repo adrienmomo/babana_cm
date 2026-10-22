@@ -55,3 +55,11 @@ export const GOOGLE_MAPS_API_KEY = process.env.BABANA_GOOGLE_MAPS_API_KEY || '';
  * `infra/compose.dev.yaml`, pas besoin de Caddy).
  */
 export const MAPS_SEARCH_URL = process.env.BABANA_MAPS_SEARCH_URL || undefined;
+
+/**
+ * Adresse des tuiles de la carte OpenStreetMap native (`https://.../{z}/{x}/{y}.png`) -- même
+ * réglage que l'app Chauffeur (`apps/driver/config.ts`). Absente, la carte native est celle de
+ * Google (clé de build requise). Sans effet sur l'export web, qui garde sa carte Google
+ * (`activeProvider.web.ts`). `make client` / `make client-app` posent la valeur de développement.
+ */
+export const MAP_TILE_URL = process.env.BABANA_MAP_TILE_URL || undefined;

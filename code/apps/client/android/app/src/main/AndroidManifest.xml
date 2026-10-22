@@ -17,6 +17,11 @@
       android:theme="@style/AppTheme"
       android:usesCleartextTraffic="${usesCleartextTraffic}"
       android:supportsRtl="true">
+      <!-- Clé du SDK natif de carte, injectée au build depuis GOOGLE_MAPS_API_KEY (build.gradle,
+           manifestPlaceholders) : jamais écrite ici. Absente, la carte Google plante au premier
+           affichage ; vide, elle reste grise. Avec BABANA_MAP_TILE_URL, la carte est celle
+           d'OpenStreetMap et cette clé ne sert pas. -->
+      <meta-data android:name="com.google.android.geo.API_KEY" android:value="${googleMapsApiKey}" />
       <activity
         android:name=".MainActivity"
         android:label="@string/app_name"
