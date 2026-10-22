@@ -17,8 +17,12 @@ jest.mock('../../realtime', () => ({
 // GPS récursifs dès `setOnline(true)` -- voir tracker.test.ts pour les tests qui exercent
 // réellement LocationTracker, avec des dépendances injectées.
 const mockSetOnline = jest.fn();
+let mockTrackerState = 'offline';
 jest.mock('../../location', () => ({
-  locationTracker: { setOnline: (...args: unknown[]) => mockSetOnline(...args) },
+  locationTracker: {
+    setOnline: (...args: unknown[]) => mockSetOnline(...args),
+    getState: () => mockTrackerState,
+  },
 }));
 
 import { AvailabilityToggle } from '../AvailabilityToggle';
@@ -49,6 +53,7 @@ async function press(root: ReactTestRenderer) {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockTrackerState = 'offline';
 });
 
 describe('AvailabilityToggle (L6-11, D7)', () => {
@@ -174,4 +179,16 @@ describe('AvailabilityToggle (L6-11, D7)', () => {
     expect(status().props.children).toContain('En ligne');
     expect(root.root.findByProps({ testID: 'availability-toggle' }).props.variant).toBe('soft');
   });
+
+  it("remonté alors que le chauffeur est déjà en ligne (retour de l'encaissement), l'interrupteur dit « En ligne »", async () => {
+    // Constaté sur émulateur (22 octobre) : après « Terminé » sur l'écran d'encaissement, l'accueil
+    // est remonté et l'interrupteur repartait de « Hors ligne », alors que le chauffeur était
+    // toujours en ligne côté serveur et recevait des propositions.
+    mockTrackerState = 'online_idle';
+    const root = await renderToggle();
+    const status = root.root.findAll((n) => typeof n.type === 'string' && n.props.testID === 'availability-status')[0]!;
+    expect(status.props.children).toContain('En ligne');
+    expect(root.root.findByProps({ testID: 'availability-toggle' }).props.variant).toBe('soft');
+  });
+
 });
