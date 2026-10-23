@@ -357,7 +357,17 @@ export class LocationTracker {
         }
       }
 
-      this.maybeFlush();
+      // Part aussitôt, sans attendre un lot : le premier relevé après le passage en ligne (le
+      // chauffeur doit être visible dès qu'il est en ligne, pas au bout d'un lot), et tout relevé
+      // immobile (rien à agréger quand on ne bouge pas -- et le serveur oublie une position non
+      // rafraîchie au bout de POSITION_TTL_SECONDS : la cadence immobile doit rester en deçà, et
+      // c'est chaque relevé qui doit partir, pas un lot de plusieurs cadences). L'agrégation
+      // (critère 3) ne vaut qu'en mouvement et en course, là où plusieurs points font un tracé.
+      if (this.lastPositionSentAtMs === null || this.state === 'online_idle') {
+        this.flush();
+      } else {
+        this.maybeFlush();
+      }
     }
 
     // À la cadence de l'état courant (potentiellement mise à jour ci-dessus) -- jamais 0, ce

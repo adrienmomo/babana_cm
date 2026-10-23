@@ -92,9 +92,12 @@ export const ROUTE_REFRESH_MS = Number(process.env.BABANA_ROUTE_REFRESH_MS) || 1
 
 /** Hors ligne : aucune capture (voir location/adaptive.ts -- pas une valeur ici, un état à part). */
 
-/** En ligne, immobile -- très faible fréquence : la position n'a presque aucune chance d'avoir
- * changé depuis le dernier relevé, la capturer plus souvent ne ferait que vider la batterie. */
-export const LOCATION_CAPTURE_INTERVAL_IDLE_MS = Number(process.env.BABANA_LOCATION_INTERVAL_IDLE_MS) || 90_000;
+/** En ligne, immobile -- chaque relevé part aussitôt (`tracker.ts`). Doit rester nettement sous
+ * la durée de vie d'une position côté service temps réel (`POSITION_TTL_SECONDS`, 60 s) : au-delà,
+ * un chauffeur qui attend sans bouger sort du pool entre deux relevés, et la course part ailleurs.
+ * 20 s (22 octobre) : trois relevés par durée de vie, une perte réseau passagère n'en fait pas
+ * sortir le chauffeur. Valait 90 s -- le chauffeur disparaissait plus d'une minute sur deux. */
+export const LOCATION_CAPTURE_INTERVAL_IDLE_MS = Number(process.env.BABANA_LOCATION_INTERVAL_IDLE_MS) || 20_000;
 /** En ligne, en mouvement -- fréquence modérée : assez pour que la position affichée aux clients
  * (nearby.drivers) reste crédible, sans saturer un forfait de données compté. */
 export const LOCATION_CAPTURE_INTERVAL_MOVING_MS = Number(process.env.BABANA_LOCATION_INTERVAL_MOVING_MS) || 15_000;

@@ -4,6 +4,12 @@ import type { AdaptiveCaptureConfig } from '../adaptive';
 
 const AKWA = { latitude: 4.0483, longitude: 9.6934 };
 
+/** Relevé « en mouvement » (vitesse au-dessus du seuil d'immobilité) -- seul cas où les points
+ * s'agrègent avant envoi. Chacun un peu plus au nord du précédent. */
+function movingFix(i: number) {
+  return { latitude: AKWA.latitude + i * 0.0005, longitude: AKWA.longitude, accuracyMeters: 10, speedMetersPerSecond: 8, headingDegrees: 0 };
+}
+
 const CONFIG: AdaptiveCaptureConfig = {
   idleIntervalMs: 90_000,
   movingIntervalMs: 15_000,
@@ -208,76 +214,102 @@ describe('LocationTracker (L6-05)', () => {
   });
 
   test('critère 1 -- arrêt immédiat au passage hors ligne, le tampon en attente n’est jamais envoyé', async () => {
-    const deps = fakeDeps({ fixQueue: [{ ...AKWA, accuracyMeters: 10, speedMetersPerSecond: null, headingDegrees: null }] });
+    const deps = fakeDeps({ fixQueue: [movingFix(0), movingFix(1)] });
     const tracker = new LocationTracker(deps, CONFIG);
     tracker.start();
     tracker.setOnline(true);
 
-    await jest.advanceTimersByTimeAsync(0); // un point capté, en tampon (LOCATION_BATCH_SIZE > 1)
-    expect(deps.getPositionCalls).toBe(1);
-    expect(deps.sent.length).toBe(0); // rien envoyé -- le tampon n'a pas atteint son seuil de vidage
+    await jest.advanceTimersByTimeAsync(0); // premier relevé : il part tout de suite (passage en ligne)
+    expect(deps.sent.length).toBe(1);
+    expect(tracker.getState()).toBe('online_moving');
+
+    await jest.advanceTimersByTimeAsync(CONFIG.movingIntervalMs); // second relevé, en mouvement : en tampon
+    expect(deps.getPositionCalls).toBe(2);
+    expect(deps.sent.length).toBe(1); // rien de plus -- le tampon n'a pas atteint son seuil de vidage
 
     tracker.setOnline(false);
     expect(tracker.getState()).toBe('offline');
     expect(deps.notificationShown).toBe(false);
-    expect(deps.sent.length).toBe(0); // toujours rien -- le point en tampon a été jeté, pas envoyé
+    expect(deps.sent.length).toBe(1); // toujours rien -- le point en tampon a été jeté, pas envoyé
 
     await jest.advanceTimersByTimeAsync(1_000_000);
-    expect(deps.getPositionCalls).toBe(1); // aucun relevé supplémentaire
+    expect(deps.getPositionCalls).toBe(2); // aucun relevé supplémentaire
   });
 
-  test('critère 3 -- les positions sont agrégées avant envoi : plusieurs relevés partent en un seul message (déclenchement par taille)', async () => {
-    const fixes = Array.from({ length: 3 }, (_, i) => ({
-      latitude: AKWA.latitude + i * 0.0001,
-      longitude: AKWA.longitude,
-      accuracyMeters: 10,
-      speedMetersPerSecond: null,
-      headingDegrees: null,
-    }));
-    const deps = fakeDeps({ fixQueue: [...fixes] });
+  test('passage en ligne -- le premier relevé part aussitôt, sans attendre un lot : le chauffeur est visible tout de suite', async () => {
+    const deps = fakeDeps();
+    const tracker = new LocationTracker(deps, CONFIG); // batchSize 5, batchMaxWaitMs 45 s
+    tracker.start();
+    tracker.setOnline(true);
+
+    await jest.advanceTimersByTimeAsync(0);
+    expect(deps.sent).toHaveLength(1);
+    expect(deps.sent[0]!.latitude).toBe(AKWA.latitude);
+  });
+
+  test('en ligne, immobile -- chaque relevé part dès sa capture (le serveur oublie une position non rafraîchie)', async () => {
+    const deps = fakeDeps();
+    const tracker = new LocationTracker(deps, { ...CONFIG, idleIntervalMs: 20_000 });
+    tracker.start();
+    tracker.setOnline(true);
+
+    await jest.advanceTimersByTimeAsync(0);
+    await jest.advanceTimersByTimeAsync(20_000);
+    await jest.advanceTimersByTimeAsync(20_000);
+    expect(tracker.getState()).toBe('online_idle');
+    expect(deps.getPositionCalls).toBe(3);
+    expect(deps.sent).toHaveLength(3);
+    expect(deps.sent.every((payload) => payload.precedingSamples.length === 0)).toBe(true);
+  });
+
+  test('critère 3 -- en mouvement, les positions sont agrégées avant envoi : plusieurs relevés partent en un seul message (déclenchement par taille)', async () => {
+    const deps = fakeDeps({ fixQueue: Array.from({ length: 4 }, (_, i) => movingFix(i)) });
     // batchMaxWaitMs très large : isole le déclenchement par taille, l'autre test couvre le délai.
     const smallBatchConfig: AdaptiveCaptureConfig = { ...CONFIG, batchSize: 3, batchMaxWaitMs: 10_000_000 };
     const tracker = new LocationTracker(deps, smallBatchConfig);
     tracker.start();
     tracker.setOnline(true);
 
-    // Les deux premiers relevés ne suffisent pas à atteindre batchSize=3 -- rien n'est encore
-    // parti : la preuve qu'ils sont bien accumulés plutôt qu'envoyés un par un dès la capture.
-    await jest.advanceTimersByTimeAsync(0);
-    await jest.advanceTimersByTimeAsync(CONFIG.idleIntervalMs);
-    expect(deps.getPositionCalls).toBe(2);
-    expect(deps.sent.length).toBe(0);
+    await jest.advanceTimersByTimeAsync(0); // le premier relevé part seul (passage en ligne)
+    expect(deps.sent.length).toBe(1);
 
-    // Le troisième relevé atteint batchSize -- un seul message part, portant les trois points.
-    await jest.advanceTimersByTimeAsync(CONFIG.idleIntervalMs);
+    // Les deux suivants ne suffisent pas à atteindre batchSize=3 -- rien de plus n'est parti : la
+    // preuve qu'ils sont bien accumulés plutôt qu'envoyés un par un dès la capture.
+    await jest.advanceTimersByTimeAsync(CONFIG.movingIntervalMs);
+    await jest.advanceTimersByTimeAsync(CONFIG.movingIntervalMs);
     expect(deps.getPositionCalls).toBe(3);
     expect(deps.sent.length).toBe(1);
-    expect(deps.sent[0]!.precedingSamples.length).toBe(2); // 2 précédents + le point le plus récent porté par les champs de tête
+
+    // Le quatrième atteint batchSize -- un seul message part, portant les trois points.
+    await jest.advanceTimersByTimeAsync(CONFIG.movingIntervalMs);
+    expect(deps.getPositionCalls).toBe(4);
+    expect(deps.sent.length).toBe(2);
+    expect(deps.sent[1]!.precedingSamples.length).toBe(2); // 2 précédents + le point le plus récent porté par les champs de tête
   });
 
   test('critère 3 -- l’agrégation se déclenche aussi par délai maximal, sans attendre que le tampon soit plein', async () => {
-    const deps = fakeDeps();
+    const deps = fakeDeps({ fixQueue: Array.from({ length: 4 }, (_, i) => movingFix(i)) });
     // batchSize élevé (jamais atteint par la taille dans ce test) ; cadence de capture (5 s)
     // plus rapide que le délai maximal du lot (8 s), pour observer plusieurs captures avant que
     // le délai ne force le vidage.
-    const config: AdaptiveCaptureConfig = { ...CONFIG, idleIntervalMs: 5_000, batchSize: 10, batchMaxWaitMs: 8_000 };
+    const config: AdaptiveCaptureConfig = { ...CONFIG, movingIntervalMs: 5_000, batchSize: 10, batchMaxWaitMs: 8_000 };
     const tracker = new LocationTracker(deps, config);
     tracker.start();
     tracker.setOnline(true);
 
-    await jest.advanceTimersByTimeAsync(0); // t=0 : premier point, tampon démarré
-    expect(deps.sent.length).toBe(0);
-
-    await jest.advanceTimersByTimeAsync(5_000); // t=5 000 : second point, encore sous le délai max (8 s)
-    expect(deps.getPositionCalls).toBe(2);
-    expect(deps.sent.length).toBe(0);
-
-    // t=10 000 : ce troisième relevé, capté après que le délai maximal (8 s) depuis le PREMIER
-    // point est dépassé, doit déclencher le vidage du tampon (3 points) plutôt que d'attendre
-    // qu'il atteigne batchSize=10.
-    await jest.advanceTimersByTimeAsync(5_000);
+    await jest.advanceTimersByTimeAsync(0); // t=0 : premier relevé, parti seul (passage en ligne)
     expect(deps.sent.length).toBe(1);
-    expect(deps.sent[0]!.precedingSamples.length).toBe(2);
+
+    await jest.advanceTimersByTimeAsync(5_000); // t=5 000 : en tampon, le lot démarre
+    await jest.advanceTimersByTimeAsync(5_000); // t=10 000 : 5 s depuis le premier point du lot, sous 8 s
+    expect(deps.getPositionCalls).toBe(3);
+    expect(deps.sent.length).toBe(1);
+
+    // t=15 000 : ce relevé, capté 10 s après le PREMIER point du lot (au-delà des 8 s), doit
+    // déclencher le vidage (3 points) plutôt que d'attendre batchSize=10.
+    await jest.advanceTimersByTimeAsync(5_000);
+    expect(deps.sent.length).toBe(2);
+    expect(deps.sent[1]!.precedingSamples.length).toBe(2);
   });
 
   test('critère 5 -- permission refusée : aucune capture, mais aucune exception, et le prochain relevé reste programmé', async () => {
