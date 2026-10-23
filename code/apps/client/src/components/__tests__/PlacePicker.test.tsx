@@ -19,7 +19,42 @@ beforeEach(() => {
   mockSearchPlace.mockResolvedValue([]);
 });
 
+async function typeQuery(query: string): Promise<ReactTestRenderer> {
+  let root!: ReactTestRenderer;
+  await act(async () => {
+    root = create(<PlacePicker placeholder="Rechercher" onSelect={jest.fn()} wait={immediateWait} />);
+  });
+  await act(async () => {
+    root.root.findByType(TextInput).props.onChangeText(query);
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  });
+  return root;
+}
+
+function shownTexts(root: ReactTestRenderer): string {
+  return root.root.findAllByType(Text).map((n) => JSON.stringify(n.props.children)).join(' ');
+}
+
 describe('PlacePicker (L6-06, second moyen de désignation)', () => {
+  // Constaté le 22 octobre sur émulateur : Google refusait la recherche (API non activée) et
+  // l'écran restait muet, exactement comme pour un lieu inconnu -- rien ne disait à l'utilisateur
+  // de désigner le point sur la carte à la place.
+  it('une recherche en échec le dit, et renvoie vers la carte -- jamais un silence', async () => {
+    mockSearchPlace.mockRejectedValue(new Error('PERMISSION_DENIED'));
+    const root = await typeQuery('Akwa');
+
+    expect(root.root.findAllByProps({ testID: 'place-search-error' }).length).toBeGreaterThan(0);
+    expect(shownTexts(root)).toContain('Recherche indisponible');
+  });
+
+  it('aucun résultat le dit aussi, distinctement d’une panne', async () => {
+    mockSearchPlace.mockResolvedValue([]);
+    const root = await typeQuery('Zzzz');
+
+    expect(shownTexts(root)).toContain('Aucun lieu trouvé');
+    expect(root.root.findAllByProps({ testID: 'place-search-error' })).toHaveLength(0);
+  });
+
   it("n'appelle pas la recherche en dessous du seuil minimal de caractères", async () => {
     const onSelect = jest.fn();
     let root!: ReactTestRenderer;

@@ -29,6 +29,9 @@ export function PlacePicker({ placeholder, onSelect, wait = defaultWait }: Place
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
+  // Ce que la dernière recherche terminée a donné, pour le dire : rien trouvé n'est pas une panne
+  // (constaté le 22 octobre, Google refusait la recherche et l'écran restait muet).
+  const [outcome, setOutcome] = useState<'none' | 'empty' | 'failed'>('none');
   // Identifie la recherche la plus récente : une réponse en retard d'une requête abandonnée ne
   // doit jamais écraser le résultat d'une requête plus récente (l'utilisateur tape vite, le
   // réseau mobile est lent et inégal -- CLAUDE.md, "le réseau mobile est intermittent").
@@ -39,6 +42,7 @@ export function PlacePicker({ placeholder, onSelect, wait = defaultWait }: Place
     if (trimmed.length < MIN_QUERY_LENGTH) {
       setResults([]);
       setSearching(false);
+      setOutcome('none');
       return;
     }
 
@@ -54,9 +58,15 @@ export function PlacePicker({ placeholder, onSelect, wait = defaultWait }: Place
       if (cancelled || requestId.current !== thisRequest) return;
       try {
         const found = await searchPlace(trimmed);
-        if (!cancelled && requestId.current === thisRequest) setResults(found);
+        if (!cancelled && requestId.current === thisRequest) {
+          setResults(found);
+          setOutcome(found.length === 0 ? 'empty' : 'none');
+        }
       } catch {
-        if (!cancelled && requestId.current === thisRequest) setResults([]);
+        if (!cancelled && requestId.current === thisRequest) {
+          setResults([]);
+          setOutcome('failed');
+        }
       } finally {
         if (!cancelled && requestId.current === thisRequest) setSearching(false);
       }
@@ -70,6 +80,7 @@ export function PlacePicker({ placeholder, onSelect, wait = defaultWait }: Place
   function handleSelect(result: PlaceResult) {
     setQuery('');
     setResults([]);
+    setOutcome('none');
     onSelect({ position: result.position, label: result.label });
   }
 
@@ -95,6 +106,16 @@ export function PlacePicker({ placeholder, onSelect, wait = defaultWait }: Place
             </Pressable>
           )}
         />
+      ) : null}
+      {!searching && outcome === 'failed' ? (
+        <Text testID="place-search-error" style={styles.notice}>
+          Recherche indisponible pour l’instant. Désignez le point sur la carte.
+        </Text>
+      ) : null}
+      {!searching && outcome === 'empty' ? (
+        <Text testID="place-search-empty" style={styles.notice}>
+          Aucun lieu trouvé. Essayez un repère proche, ou désignez le point sur la carte.
+        </Text>
       ) : null}
     </View>
   );
@@ -125,6 +146,11 @@ const styles = StyleSheet.create({
     borderTopWidth: 0,
     borderBottomLeftRadius: 8,
     borderBottomRightRadius: 8,
+  },
+  notice: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    color: '#6B7280',
   },
   resultRow: {
     paddingHorizontal: 12,
