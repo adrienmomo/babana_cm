@@ -98,7 +98,7 @@
       "direction": "server-to-client",
       "status": "wired",
       "emitter": "services/realtime/src/nearby/handler.ts, services/realtime/test/nearby.test.ts.",
-      "consumer": "apps/client/src/screens/HomeScreen.tsx, QuoteScreen.tsx."
+      "consumer": "apps/client/src/screens/HomeScreen.tsx (points anonymes : position et distance seulement, depuis le 22 octobre)."
     },
     {
       "name": "nearby.subscribe.ack",

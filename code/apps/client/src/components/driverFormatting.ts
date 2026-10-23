@@ -1,4 +1,4 @@
-import type { http } from '@babana/contracts';
+import type { realtime } from '@babana/contracts';
 
 /**
  * Mise en forme du chauffeur affecté (TrackingScreen). Le client ne voit plus de liste de
@@ -7,7 +7,7 @@ import type { http } from '@babana/contracts';
 
 export const GENERIC_AVATAR = 'https://storage.babana.cm/static/driver-avatar-generic.png';
 
-export function classLabel(motorcycleClass: http.NearbyDriver['motorcycleClass']): string | null {
+export function classLabel(motorcycleClass: realtime.RideAssignedMessage['payload']['motorcycleClass']): string | null {
   if (motorcycleClass === null) return null;
   return motorcycleClass === 'premium' ? 'Confort' : 'Standard';
 }

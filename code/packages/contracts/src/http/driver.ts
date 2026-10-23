@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { LatLngSchema, DriverIdSchema } from './common';
+import { LatLngSchema } from './common';
 
 /**
  * Endpoints chauffeur hors caisse (la caisse vit dans settlement.ts, thématiquement liée à
@@ -8,30 +8,20 @@ import { LatLngSchema, DriverIdSchema } from './common';
  */
 
 /**
- * Chauffeur proche, tel qu'exposé au client (D14). Garde-fous C2b : position arrondie, jamais
- * l'objet chauffeur complet. Servi exclusivement par `nearby.drivers` (C-02, flux WebSocket,
- * `packages/contracts/src/realtime/server-to-client.ts::NearbyDriversPayloadSchema`) --
- * `GET /drivers/nearby` a existé au premier jet de C-01 puis a été retiré du contrat (jamais
- * implémenté, remplacé par le flux avant même d'être câblé ; voir `amoa/questions/C-01R.md` §1)
- * sans que cette forme partagée ne change : seul l'endpoint HTTP a disparu.
+ * Chauffeur proche, tel qu'exposé au client. Servi exclusivement par `nearby.drivers` (C-02, flux
+ * WebSocket, `packages/contracts/src/realtime/server-to-client.ts::NearbyDriversPayloadSchema`).
  *
- * .strict() : rejeter le surplus, pas seulement valider les champs présents. Aucun nom complet,
- * téléphone ou immatriculation.
+ * **Un point anonyme, rien d'autre** (22 octobre) : le serveur choisit le chauffeur le plus proche,
+ * le client ne choisit plus -- il n'a donc plus aucune raison de connaître un chauffeur avant que
+ * la course lui soit affectée (`ride.assigned`, puis l'historique). Ni identifiant, ni prénom, ni
+ * photo, ni note, ni gamme de moto : seulement une position arrondie (garde-fou C2b) et la
+ * distance. L'ancienne forme (D14, choix par le client) portait prénom, photo, note et gamme.
  *
- * firstName/photoUrl/rating/motorcycleClass nullables (D30) : un défaut de cache du profil
- * chauffeur (L3-16) ne doit jamais retirer un chauffeur de la flotte -- seule une position
- * manquante l'écarte (sans position, pas de distance, une liste "des plus proches" n'a plus de
- * sens). `null` avoue l'absence de la donnée ; l'app affiche un avatar générique plutôt que
- * d'inventer un prénom ou une note.
+ * .strict() : rejeter le surplus, pas seulement valider les champs présents.
  */
 export const NearbyDriverSchema = z
   .object({
-    driverId: DriverIdSchema,
-    firstName: z.string().nullable(),
-    photoUrl: z.string().url().nullable(),
-    rating: z.number().min(0).max(5).nullable(),
-    motorcycleClass: z.enum(['standard', 'premium']).nullable(),
-    /** Position arrondie — précision fixée dans docs/contracts/realtime-events.md (C-02), même règle que nearby.drivers. */
+    /** Position arrondie — précision fixée dans docs/contracts/realtime-events.md (C-02). */
     position: LatLngSchema,
     distanceMeters: z.number().int().nonnegative(),
   })

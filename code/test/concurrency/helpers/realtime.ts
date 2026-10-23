@@ -7,6 +7,7 @@
 import { randomUUID } from 'node:crypto';
 import WebSocket from 'ws';
 import Redis from 'ioredis';
+import { http } from '@babana/contracts';
 
 const REALTIME_WS_URL = (process.env.REALTIME_WS_URL ?? 'ws://localhost:3000') + '/rt/ws';
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
@@ -98,11 +99,9 @@ export async function takeDriverOffline(ws: WebSocket): Promise<void> {
 
 /**
  * Ouvre un abonnement `nearby.subscribe` et le laisse actif -- la diffusion périodique du serveur
- * (`NEARBY_BROADCAST_INTERVAL_SECONDS`, 5 s par défaut) rafraîchit alors en continu la dernière
- * liste envoyée à ce client (`nearby/last-sent.ts`, TTL `NEARBY_LAST_SENT_TTL_SECONDS`, 30 s par
- * défaut) -- indispensable pour un scénario qui sélectionne le même chauffeur à de nombreuses
- * reprises sur une durée qui peut dépasser ce TTL (voir ride-transitions.test.ts, scénario 1).
- * L'appelant ferme la connexion renvoyée en fin de test.
+ * (`NEARBY_BROADCAST_INTERVAL_SECONDS`, 5 s par défaut) permet ensuite d'observer, sans
+ * réabonnement, qu'un chauffeur est (de nouveau) disponible (`waitForDriverVisible`). L'appelant
+ * ferme la connexion renvoyée en fin de test.
  */
 export async function openClientSubscription(
   clientToken: string,
@@ -124,9 +123,8 @@ const DEFAULT_VISIBILITY_WAIT_MS = 20_000;
 
 /**
  * Attend que TOUS les chauffeurs visés apparaissent dans `nearby.drivers` sur une connexion
- * client déjà abonnée (`openClientSubscription`) -- c'est cette réception qui pose la
- * précondition C-03 côté serveur (`nearby/last-sent.ts`, L3-17, critère 8), pas un raccourci de
- * test.
+ * client déjà abonnée (`openClientSubscription`) -- la preuve, vue du client, que le chauffeur est
+ * dans le pool et peut recevoir la prochaine commande.
  *
  * **Purement passif** : écoute les diffusions périodiques déjà en cours (L3-05,
  * `NEARBY_BROADCAST_INTERVAL_SECONDS`), n'envoie plus jamais son propre `nearby.subscribe`. Une
@@ -138,23 +136,34 @@ const DEFAULT_VISIBILITY_WAIT_MS = 20_000;
  * (select-driver-replay.test.ts). La diffusion périodique déjà active suffit, sans jamais
  * remettre le compteur de débit à contribution.
  */
+//
+// **Reconnu à sa position, plus à son identifiant** (22 octobre) : `nearby.drivers` n'envoie plus
+// qu'une position arrondie et une distance -- aucune donnée du chauffeur avant l'affectation.
+// Chaque scénario pose ses chauffeurs sur son propre point (`spots.ts`), exactement à `position` :
+// N chauffeurs visés sont visibles quand N points anonymes apparaissent à cette position arrondie.
 export async function waitForDriverVisible(
   socket: WebSocket,
   driverPublicIds: string | string[],
-  _position: LatLng,
+  position: LatLng,
   options: { maxWaitMs?: number } = {}
 ): Promise<void> {
   const maxWaitMs = options.maxWaitMs ?? DEFAULT_VISIBILITY_WAIT_MS;
-  const remaining = new Set(Array.isArray(driverPublicIds) ? driverPublicIds : [driverPublicIds]);
+  const expected = Array.isArray(driverPublicIds) ? driverPublicIds : [driverPublicIds];
+  const target = {
+    latitude: http.roundToNearbyPrecision(position.latitude),
+    longitude: http.roundToNearbyPrecision(position.longitude),
+  };
 
   await new Promise<void>((resolve, reject) => {
     const onMessage = (data: WebSocket.RawData) => {
       try {
         const message = JSON.parse(data.toString());
         if (message.type !== 'nearby.drivers') return;
-        const drivers = message.payload?.drivers ?? [];
-        for (const d of drivers as { driverId: string }[]) remaining.delete(d.driverId);
-        if (remaining.size === 0) {
+        const drivers = (message.payload?.drivers ?? []) as { position: LatLng }[];
+        const atTarget = drivers.filter(
+          (d) => d.position.latitude === target.latitude && d.position.longitude === target.longitude
+        ).length;
+        if (atTarget >= expected.length) {
           clearTimeout(timer);
           socket.off('message', onMessage);
           resolve();
@@ -167,7 +176,7 @@ export async function waitForDriverVisible(
       socket.off('message', onMessage);
       reject(
         new Error(
-          `chauffeur(s) [${[...remaining].join(', ')}] jamais apparu(s) dans nearby.drivers après ${maxWaitMs}ms`
+          `chauffeur(s) [${expected.join(', ')}] jamais apparu(s) dans nearby.drivers (${target.latitude}, ${target.longitude}) après ${maxWaitMs}ms`
         )
       );
     }, maxWaitMs);

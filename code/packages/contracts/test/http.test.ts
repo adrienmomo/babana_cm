@@ -73,18 +73,24 @@ describe('authentification — seuls les endpoints de connexion sont publics', (
 });
 
 describe('C2b — nearby.drivers ne dépasse jamais le minimum de données personnelles', () => {
-  test('rejette un champ en trop (nom complet par exemple)', () => {
-    const withExtra = {
-      driverId: '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b',
-      firstName: 'Paul',
-      photoUrl: null,
-      rating: 4.8,
-      motorcycleClass: 'standard',
-      position: { latitude: 4.05, longitude: 9.76 },
-      distanceMeters: 300,
-      fullName: 'Paul Mbarga',
-    };
-    assert.throws(() => NearbyDriverSchema.parse(withExtra));
+  test('un chauffeur proche n’est qu’une position arrondie et une distance', () => {
+    assert.doesNotThrow(() => NearbyDriverSchema.parse({ position: { latitude: 4.05, longitude: 9.76 }, distanceMeters: 300 }));
+  });
+
+  test('rejette toute donnée du chauffeur (identifiant, prénom, photo, note, gamme)', () => {
+    for (const extra of [
+      { driverId: '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b' },
+      { firstName: 'Paul' },
+      { photoUrl: null },
+      { rating: 4.8 },
+      { motorcycleClass: 'standard' },
+      { fullName: 'Paul Mbarga' },
+    ]) {
+      assert.throws(
+        () => NearbyDriverSchema.parse({ position: { latitude: 4.05, longitude: 9.76 }, distanceMeters: 300, ...extra }),
+        JSON.stringify(extra)
+      );
+    }
   });
 
   // Le plafond à 5 chauffeurs est couvert côté message WebSocket

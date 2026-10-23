@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import type { WebSocket } from 'ws';
+import { http } from '@babana/contracts';
 import { NearbyManager } from '../src/nearby/handler';
 import { projectNearbyDrivers } from '../src/nearby/projection';
 import { removeFromPool } from '../src/redis/geo-index';
@@ -43,10 +44,14 @@ const PROFILE: DriverProfile = {
   phoneNumber: '+237655000111',
 };
 
-const NEARBY_DRIVER_WHITELIST = ['driverId', 'firstName', 'photoUrl', 'rating', 'motorcycleClass', 'position', 'distanceMeters'].sort();
+// Ce qu'un client reçoit d'un chauffeur proche (22 octobre) : un point anonyme, rien d'autre.
+const NEARBY_DRIVER_WIRE_FIELDS = ['distanceMeters', 'position'].sort();
 
 let redis: Redis;
 const usedIds = new Set<string>();
+// Position posée par test pour chaque chauffeur : le message `nearby.drivers` ne porte plus aucun
+// identifiant, un chauffeur s'y reconnaît à sa position arrondie (chaque test a les siennes).
+const positionsById = new Map<string, { latitude: number; longitude: number }>();
 
 before(() => {
   redis = new Redis(REDIS_URL);
@@ -79,7 +84,19 @@ async function freshDriver(
   );
   await putInPool(redis,driverId, position.latitude, position.longitude);
   await setDriverProfile(redis, driverId, profile);
+  positionsById.set(driverId, position);
   return driverId;
+}
+
+type WireDriver = { position: { latitude: number; longitude: number }; distanceMeters: number };
+
+/** Vrai si `driver` (tel que reçu par le client) est le chauffeur `driverId` posé par ce test. */
+function isAt(driver: WireDriver, driverId: string): boolean {
+  const position = positionsById.get(driverId)!;
+  return (
+    driver.position.latitude === http.roundToNearbyPrecision(position.latitude) &&
+    driver.position.longitude === http.roundToNearbyPrecision(position.longitude)
+  );
 }
 
 function clientContext(label: string): ConnectionContext {
@@ -88,7 +105,7 @@ function clientContext(label: string): ConnectionContext {
 
 type FakeMessage =
   | { type: 'nearby.subscribe.ack'; payload: { accepted: true; broadcastIntervalMs: number } | { accepted: false; retryAfterMs: number } }
-  | { type: 'nearby.drivers'; payload: { drivers: { driverId: string }[] } };
+  | { type: 'nearby.drivers'; payload: { drivers: WireDriver[] } };
 
 /** Faux WebSocket : NearbyManager ne lit que `readyState`/`OPEN` et écrit via `send`, aucune
  * connexion réseau réelle n'est nécessaire pour ces tests. */
@@ -129,7 +146,7 @@ describe('projectNearbyDrivers (L3-05, L3-16)', () => {
     const rawPosition = { latitude: 4.120123456, longitude: 9.620123456 };
     const driverId = await freshDriver('c3-driver', rawPosition);
 
-    const results = await projectNearbyDrivers(config, redis, origin, 3_000, 5);
+    const results = await projectNearbyDrivers(redis, origin, 3_000, 5);
     const found = results.find((r) => r.driverId === driverId);
     assert.ok(found, 'le chauffeur doit apparaître');
     assert.notEqual(found!.position.latitude, rawPosition.latitude, 'la position brute ne doit jamais être renvoyée telle quelle');
@@ -137,17 +154,24 @@ describe('projectNearbyDrivers (L3-05, L3-16)', () => {
     assert.equal(found!.position.longitude, 9.6201);
   });
 
-  test('critère 4 -- la charge utile ne contient aucun champ hors liste blanche (nom complet, téléphone, immatriculation absents)', async () => {
+  test('critère 4 -- le client ne reçoit qu’une position et une distance : ni identifiant, ni prénom, ni photo, ni note, ni gamme', async () => {
     const origin = { latitude: 4.0, longitude: 9.7 };
     const driverId = await freshDriver('c4-driver', origin);
+    const manager = new NearbyManager(config, redis);
+    const context = clientContext('c4-client');
+    const { socket, messages } = fakeSocket();
 
-    const results = await projectNearbyDrivers(config, redis, origin, 3_000, 5);
-    const found = results.find((r) => r.driverId === driverId);
-    assert.ok(found);
-    assert.deepEqual(Object.keys(found!).sort(), NEARBY_DRIVER_WHITELIST);
-    for (const forbidden of ['lastName', 'fullName', 'phone', 'phoneNumber', 'licensePlate', 'email']) {
-      assert.equal(Object.prototype.hasOwnProperty.call(found, forbidden), false, `${forbidden} ne doit jamais être présent`);
+    await manager.subscribe(context, socket, { position: origin, radiusMeters: 3_000, excludeDriverIds: [] });
+    manager.unsubscribe(context);
+
+    const [driversMessage] = driverListMessages(messages);
+    const found = driversMessage!.payload.drivers.find((d) => isAt(d, driverId));
+    assert.ok(found, 'le chauffeur doit apparaître');
+    for (const driver of driversMessage!.payload.drivers) {
+      assert.deepEqual(Object.keys(driver).sort(), NEARBY_DRIVER_WIRE_FIELDS);
     }
+    assert.equal(JSON.stringify(driversMessage).includes(driverId), false, 'aucun identifiant de chauffeur sur le fil');
+    assert.equal(JSON.stringify(driversMessage).includes(PROFILE.firstName!), false, 'aucun prénom sur le fil');
   });
 
   // D30 (amoa/questions/REPONSES-2026-08-18.md §2) : l'ancienne règle ("omis") a produit un
@@ -169,13 +193,9 @@ describe('projectNearbyDrivers (L3-05, L3-16)', () => {
     // ODOO_INTERNAL_URL pour cette configuration (config() ci-dessous), donc pas de source pour
     // ce chauffeur : le cas exact que D30 couvre.
 
-    const results = await projectNearbyDrivers(config, redis, origin, 3_000, 5);
+    const results = await projectNearbyDrivers(redis, origin, 3_000, 5);
     const found = results.find((r) => r.driverId === driverId);
     assert.ok(found, 'un chauffeur sans profil reste dans la liste, jamais omis');
-    assert.equal(found!.firstName, null);
-    assert.equal(found!.photoUrl, null);
-    assert.equal(found!.rating, null);
-    assert.equal(found!.motorcycleClass, null);
   });
 
   test("exactement 5 résultats renvoyés, les plus proches, même avec des positions expirées en masse (critère 2, en dur -- projection = géo-index + profil)", async () => {
@@ -193,7 +213,7 @@ describe('projectNearbyDrivers (L3-05, L3-16)', () => {
       freshIds.push(await freshDriver(`c2-fresh-${i}`, { latitude: origin.latitude, longitude: origin.longitude + 0.01 + i * 0.0002 }));
     }
 
-    const results = await projectNearbyDrivers(config, redis, origin, 3_000, 5);
+    const results = await projectNearbyDrivers(redis, origin, 3_000, 5);
     assert.equal(results.length, 5, `attendu 5, obtenu ${results.length}`);
     assert.deepEqual(
       results.map((r) => r.driverId),
@@ -225,7 +245,7 @@ describe('NearbyManager (L3-05, D14)', () => {
     assert.ok(ack.type === 'nearby.subscribe.ack' && ack.payload.accepted && ack.payload.broadcastIntervalMs === config.NEARBY_BROADCAST_INTERVAL_SECONDS * 1000);
     const [driversMessage] = driverListMessages(messages);
     assert.equal(
-      driversMessage!.payload.drivers.some((d) => d.driverId === farDriverId),
+      driversMessage!.payload.drivers.some((d) => isAt(d, farDriverId)),
       false,
       'exclu malgré le rayon demandé : au-delà du plafond configuré côté service'
     );
@@ -252,15 +272,15 @@ describe('NearbyManager (L3-05, D14)', () => {
 
     const driverMessages = driverListMessages(messages);
     assert.ok(driverMessages.length >= 2, 'au moins la réponse immédiate de chaque abonnement');
-    assert.ok(driverMessages[0]!.payload.drivers.some((d) => d.driverId === driverNearOrigin));
+    assert.ok(driverMessages[0]!.payload.drivers.some((d) => isAt(d, driverNearOrigin)));
     for (const message of driverMessages.slice(1)) {
       assert.equal(
-        message.payload.drivers.some((d) => d.driverId === driverNearOrigin),
+        message.payload.drivers.some((d) => isAt(d, driverNearOrigin)),
         false,
         'plus aucun message ne doit porter le résultat du premier abonnement, remplacé par le second'
       );
     }
-    assert.ok(driverMessages.at(-1)!.payload.drivers.some((d) => d.driverId === driverNearOther));
+    assert.ok(driverMessages.at(-1)!.payload.drivers.some((d) => isAt(d, driverNearOther)));
   });
 
   test('critère 6 -- la limitation de débit est appliquée', async () => {
@@ -333,7 +353,7 @@ describe('NearbyManager (L3-05, D14)', () => {
 
     const [driversMessage] = driverListMessages(refused.messages);
     assert.ok(
-      driversMessage!.payload.drivers.some((d) => d.driverId === farDriverId),
+      driversMessage!.payload.drivers.some((d) => isAt(d, farDriverId)),
       "le chauffeur élargi doit apparaître -- l'exclusion d'un tiers ne doit pas empêcher l'élargissement"
     );
 
@@ -345,7 +365,7 @@ describe('NearbyManager (L3-05, D14)', () => {
     manager.unsubscribe(context);
     const [discoveryMessage] = driverListMessages(discovery.messages);
     assert.equal(
-      discoveryMessage!.payload.drivers.some((d) => d.driverId === farDriverId),
+      discoveryMessage!.payload.drivers.some((d) => isAt(d, farDriverId)),
       false,
       'une découverte libre ne doit jamais dépasser le plafond configuré'
     );
@@ -399,7 +419,7 @@ describe('NearbyManager (L3-05, D14)', () => {
     const driverMessages = driverListMessages(messages);
     assert.ok(driverMessages.length >= 2, 'au moins une diffusion périodique après les deux réponses immédiates');
     assert.ok(
-      driverMessages.at(-1)!.payload.drivers.some((d) => d.driverId === freshDriverId),
+      driverMessages.at(-1)!.payload.drivers.some((d) => isAt(d, freshDriverId)),
       'la dernière diffusion doit porter le chauffeur de la demande la plus récente, pas celui de la demande périmée'
     );
 

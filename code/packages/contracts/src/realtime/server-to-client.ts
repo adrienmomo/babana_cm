@@ -114,9 +114,9 @@ export type RideCancelledMessage = z.infer<typeof RideCancelledMessageSchema>;
 
 /**
  * Destinataire : client. Réponse à nearby.subscribe, puis mises à jour périodiques.
- * Réutilise NearbyDriverSchema (`http/driver.ts`) : même forme, même garde-fou .strict(), une
- * seule définition pour la règle « aucune donnée personnelle au-delà du prénom, de la photo, de
- * la note et de la gamme de moto » (critère d'acceptation 3). `GET /drivers/nearby` en partageait
+ * Réutilise NearbyDriverSchema (`http/driver.ts`) : même garde-fou .strict(), une seule
+ * définition de la règle « un chauffeur proche n'est qu'un point anonyme » (critère d'acceptation
+ * 3, resserré le 22 octobre : plus aucune donnée du chauffeur avant l'affectation). `GET /drivers/nearby` en partageait
  * la forme avant d'être retiré du contrat, jamais implémenté (`amoa/questions/C-01R.md` §1) --
  * nearby.drivers est désormais le seul chemin de découverte des chauffeurs proches.
  */

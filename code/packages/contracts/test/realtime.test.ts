@@ -258,17 +258,7 @@ describe('exemples valides — serveur vers client', () => {
         id: randomUUID(),
         emittedAt: now,
         payload: {
-          drivers: [
-            {
-              driverId,
-              firstName: 'Paul',
-              photoUrl: null,
-              rating: 4.8,
-              motorcycleClass: 'standard',
-              position: { latitude: 4.0509, longitude: 9.7683 },
-              distanceMeters: 350,
-            },
-          ],
+          drivers: [{ position: { latitude: 4.0509, longitude: 9.7683 }, distanceMeters: 350 }],
         },
       })
     );
@@ -517,40 +507,30 @@ describe('exemples valides — serveur vers client', () => {
 });
 
 describe('critère 3 — nearby.drivers ne dépasse jamais le minimum de données personnelles', () => {
-  test('rejette un champ en trop', () => {
-    assert.throws(() =>
-      NearbyDriversMessageSchema.parse({
-        type: 'nearby.drivers',
-        id: randomUUID(),
-        emittedAt: now,
-        payload: {
-          drivers: [
-            {
-              driverId,
-              firstName: 'Paul',
-              lastName: 'Mbarga',
-              photoUrl: null,
-              rating: 4.8,
-              motorcycleClass: 'standard',
-              position: { latitude: 4.05, longitude: 9.76 },
-              distanceMeters: 300,
-            },
-          ],
-        },
-      })
-    );
-  });
+  // Le client ne voit un chauffeur qu'une fois la course affectée (ride.assigned) : avant, les
+  // chauffeurs proches ne sont que des points anonymes -- ni identifiant, ni prénom, ni photo,
+  // ni note, ni gamme de moto (22 octobre, le serveur choisit le chauffeur).
+  for (const [field, value] of [
+    ['driverId', driverId],
+    ['firstName', 'Paul'],
+    ['photoUrl', 'https://storage.babana.cm/p.jpg'],
+    ['rating', 4.8],
+    ['motorcycleClass', 'standard'],
+  ] as const) {
+    test(`rejette ${field} -- aucune donnée du chauffeur avant l'affectation`, () => {
+      assert.throws(() =>
+        NearbyDriversMessageSchema.parse({
+          type: 'nearby.drivers',
+          id: randomUUID(),
+          emittedAt: now,
+          payload: { drivers: [{ position: { latitude: 4.05, longitude: 9.76 }, distanceMeters: 300, [field]: value }] },
+        })
+      );
+    });
+  }
 
   test('plafonne à 5 chauffeurs (C2b)', () => {
-    const drivers = Array.from({ length: 6 }, (_, i) => ({
-      driverId: `00000000-0000-4000-8000-00000000000${i}`,
-      firstName: 'X',
-      photoUrl: null,
-      rating: 5,
-      motorcycleClass: 'standard',
-      position: { latitude: 4.05, longitude: 9.76 },
-      distanceMeters: 100,
-    }));
+    const drivers = Array.from({ length: 6 }, () => ({ position: { latitude: 4.05, longitude: 9.76 }, distanceMeters: 100 }));
     assert.throws(() =>
       NearbyDriversMessageSchema.parse({ type: 'nearby.drivers', id: randomUUID(), emittedAt: now, payload: { drivers } })
     );

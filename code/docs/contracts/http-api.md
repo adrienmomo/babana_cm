@@ -261,7 +261,8 @@ fait entièrement par `nearby.subscribe` / `nearby.drivers` (C-02, `realtime-eve
 WebSocket qui tient la liste à jour pendant que le client compare, ce qu'un `GET` ne ferait
 jamais. Voir `amoa/questions/C-01R.md` §1. La forme partagée (`NearbyDriver`, garde-fous C2b :
 réponse plafonnée à 5, schéma `.strict()`) reste définie dans `driver.ts` et sert désormais
-uniquement `nearby.drivers`.
+uniquement `nearby.drivers` — depuis le 22 octobre, une position arrondie et une distance,
+rien d'autre sur le chauffeur.
 
 ### `POST /drivers/me/availability`
 

@@ -95,7 +95,7 @@ s'il était arrivé seul.
 | `proposal.expired` | Chauffeur | `{ rideId }` | Délai d'acceptation dépassé |
 | `proposal.accepted` | Chauffeur | `{ rideId, clientPhoneNumber }` | Son `proposal.accept` a été résolu en sa faveur (transition `proposed → assigned`) — symétrique de `ride.assigned` (D49) ; `clientPhoneNumber` : numéro du client, même discipline que `licensePlate` (D42) |
 | `ride.cancelled` | Chauffeur et/ou client, selon `cancelledBy` (L4-12) | `{ rideId, cancelledBy, reason? }` | La course a été annulée |
-| `nearby.drivers` | Client | `{ drivers: NearbyDriver[] }` (max 5) | Réponse à `nearby.subscribe`, puis mises à jour |
+| `nearby.drivers` | Client | `{ drivers: { position, distanceMeters }[] }` (max 5, anonymes) | Réponse à `nearby.subscribe`, puis mises à jour |
 | `nearby.subscribe.ack` | Client | `{ accepted: true, broadcastIntervalMs }` ou `{ accepted: false, retryAfterMs }` | Accusé de réception de `nearby.subscribe` — `broadcastIntervalMs` = cadence réelle de `nearby.drivers` (D50) |
 | `ride.track.ack` | Client | `{ broadcastIntervalMs }` | Accusé de réception de `ride.track` — cadence réelle de `driver.position` (D50) |
 | `ride.proposed` | Client | `{ rideId, driverId, proposalExpiresAt }` | Le chauffeur choisi a été réservé (redondant pour l'appareil qui a fait la demande, gardé pour un second appareil du même client — `amoa/questions/REPONSES-2026-08-28.md` §1) |
@@ -169,9 +169,11 @@ diffusion, pas seulement à l'abonnement : un client jamais affecté, ou dont la
 terminer, ne reçoit rien.
 
 `nearby.drivers` réutilise exactement le schéma `NearbyDriver`
-(`packages/contracts/src/http/driver.ts`) : `.strict()`, mêmes champs, une seule définition pour
-la règle « aucune donnée personnelle au-delà du prénom, de la photo, de la note et de la gamme de
-moto » (critère d'acceptation 3). `GET /drivers/nearby` (C-01) en partageait la forme avant d'être
+(`packages/contracts/src/http/driver.ts`) : `.strict()`, une seule définition de la règle « un
+chauffeur proche n'est qu'un point anonyme » (critère d'acceptation 3). **Depuis le 22 octobre**
+(le serveur choisit le chauffeur, le client ne choisit plus), un chauffeur proche n'est plus
+qu'une position arrondie et une distance : ni identifiant, ni prénom, ni photo, ni note, ni gamme
+de moto. Le client ne connaît son chauffeur qu'à l'affectation (`ride.assigned`). `GET /drivers/nearby` (C-01) en partageait la forme avant d'être
 retiré du contrat, jamais implémenté — `nearby.drivers` est désormais le seul chemin de découverte
 des chauffeurs proches (`amoa/questions/C-01R.md` §1). Position arrondie à 4 décimales (~11 m à
 l'équateur), constante `NEARBY_POSITION_PRECISION_DECIMALS` dans

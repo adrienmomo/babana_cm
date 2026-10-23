@@ -5,6 +5,7 @@ import { realtime } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ConnectionContext } from '../ws/auth';
 import { findNearbyWithExpansion } from './expand';
+import { toNearbyDriver } from './projection';
 
 // D14, non négociable par le client (critère 2) -- déjà la borne du schéma `NearbyDriversPayloadSchema`
 // (packages/contracts/src/realtime/server-to-client.ts, `.max(5)`) ; répété ici comme constante
@@ -94,7 +95,7 @@ export class NearbyManager {
       // refusants exclus. Une découverte libre (excludeDriverIds vide, HomeScreen) n'élargit
       // jamais -- voir nearby/expand.ts pour le raisonnement complet (C2b).
       const result = await findNearbyWithExpansion(this.config, this.redis, origin, radiusMeters, excludeDriverIds, NEARBY_RESULT_LIMIT);
-      const drivers = 'drivers' in result ? result.drivers : [];
+      const drivers = 'drivers' in result ? result.drivers.map(toNearbyDriver) : [];
       // Une liste vide après épuisement de l'élargissement EST le NO_DRIVER_AVAILABLE de la
       // spécification (catalogue C-01) : L6-08 traite déjà ce cas côté app, aucun message
       // distinct n'est nécessaire (voir nearby/expand.ts).

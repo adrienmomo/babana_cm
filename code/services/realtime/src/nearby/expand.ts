@@ -1,7 +1,6 @@
 import type Redis from 'ioredis';
-import { http } from '@babana/contracts';
 import type { Config } from '../config';
-import { projectNearbyDrivers } from './projection';
+import { projectNearbyDrivers, type NearbyCandidate } from './projection';
 
 /**
  * Élargissement du rayon (L3-08). Déclenchement, au sens de la spécification : le rayon demandé
@@ -23,7 +22,7 @@ import { projectNearbyDrivers } from './projection';
  * toujours, il ne reçoit jamais qu'un candidat unique désigné pour lui.
  */
 export type ExpandOutcome =
-  | { drivers: http.NearbyDriver[] }
+  | { drivers: NearbyCandidate[] }
   // Nommé d'après le code d'erreur partagé (C-01/C-02, packages/contracts/src/errors.ts) --
   // NO_DRIVER_AVAILABLE n'est émis par aucun endpoint HTTP, seulement par ce chemin (C-01,
   // catalogue des erreurs). `nearby/handler.ts` traduit ce résultat en `nearby.drivers` avec une
@@ -141,13 +140,13 @@ export async function findNearbyWithExpansion(
   if (excluded.size === 0) {
     // Découverte libre : jamais élargie (voir le commentaire de tête). Ni comptée ni journalisée
     // dans les métriques d'élargissement -- aucune tentative d'élargissement n'a eu lieu.
-    const candidates = await projectNearbyDrivers(config, redis, origin, requestedRadiusMeters, limit);
+    const candidates = await projectNearbyDrivers(redis, origin, requestedRadiusMeters, limit);
     return candidates.length > 0 ? { drivers: candidates } : { noDriverAvailable: true };
   }
   const bucketKey = bucketKeyFor(origin, nowMs);
   let neededExpansion = false;
   for (const radiusMeters of radiusSteps(config, requestedRadiusMeters)) {
-    const candidates = await projectNearbyDrivers(config, redis, origin, radiusMeters, limit + excluded.size);
+    const candidates = await projectNearbyDrivers(redis, origin, radiusMeters, limit + excluded.size);
     const filtered = candidates.filter((driver) => !excluded.has(driver.driverId)).slice(0, limit);
     if (filtered.length > 0) {
       // Le palier de départ a échoué au moins une fois avant celui-ci : c'est un élargissement

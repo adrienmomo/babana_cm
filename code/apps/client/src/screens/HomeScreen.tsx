@@ -259,9 +259,10 @@ export function HomeScreen({ navigation }: Props) {
   const markers: MapMarker[] = [
     ...(departure ? [{ id: 'pickup', kind: 'pickup' as const, position: departure.position, label: 'Départ' }] : []),
     ...(arrival ? [{ id: 'dropoff', kind: 'dropoff' as const, position: arrival.position, label: 'Arrivée' }] : []),
-    // Anonymes : ni prénom ni libellé -- un point par chauffeur disponible.
-    ...nearbyDrivers.map((driver) => ({
-      id: driver.driverId,
+    // Anonymes : le serveur n'envoie qu'une position et une distance (ni identifiant, ni prénom)
+    // -- un point par chauffeur disponible, repéré par son rang.
+    ...nearbyDrivers.map((driver, index) => ({
+      id: `nearby-${index}`,
       kind: 'driver' as const,
       position: driver.position,
     })),

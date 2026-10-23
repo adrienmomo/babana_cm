@@ -57,11 +57,6 @@ const CLIENT_GPS = { latitude: 4.06, longitude: 9.71 };
 
 function driver(overrides: Partial<http.NearbyDriver> = {}): http.NearbyDriver {
   return {
-    driverId: 'driver-1',
-    firstName: 'Paul',
-    photoUrl: null,
-    rating: 4.8,
-    motorcycleClass: 'standard',
     position: { latitude: 4.061, longitude: 9.711 },
     distanceMeters: 350,
     ...overrides,
@@ -198,12 +193,12 @@ describe('HomeScreen (L6-06)', () => {
     expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', expect.objectContaining({ position: DOUALA }));
 
     await act(async () => {
-      emitNearbyDrivers([driver({ driverId: 'a', firstName: 'Paul' })]);
+      emitNearbyDrivers([driver({ position: { latitude: 4.061, longitude: 9.711 } })]);
     });
     expect(texts(root)).toContain('1 chauffeur disponible à proximité');
 
     await act(async () => {
-      emitNearbyDrivers([driver({ driverId: 'b', firstName: 'Aminata' }), driver({ driverId: 'c', firstName: 'Paul' })]);
+      emitNearbyDrivers([driver({ position: { latitude: 4.061, longitude: 9.712 } }), driver({ position: { latitude: 4.061, longitude: 9.713 } })]);
     });
     expect(texts(root)).toContain('2 chauffeurs disponibles à proximité');
   });
@@ -212,14 +207,13 @@ describe('HomeScreen (L6-06)', () => {
     const root = await renderHome();
 
     await act(async () => {
-      emitNearbyDrivers([driver({ driverId: 'a', firstName: 'Paul' }), driver({ driverId: 'b', firstName: 'Aminata' })]);
+      emitNearbyDrivers([driver({ position: { latitude: 4.061, longitude: 9.714 } }), driver({ position: { latitude: 4.061, longitude: 9.715 } })]);
     });
 
-    expect(texts(root)).not.toContain('Paul');
-    expect(texts(root)).not.toContain('Aminata');
     const driverMarkers = capturedMarkers.filter((marker) => marker.kind === 'driver');
     expect(driverMarkers).toHaveLength(2);
     expect(driverMarkers.every((marker) => marker.label === undefined)).toBe(true);
+    expect(new Set(driverMarkers.map((marker) => marker.id)).size).toBe(2); // un identifiant de marqueur distinct par point
     expect(root.root.findAll((node) => typeof node.props.testID === 'string' && node.props.testID.startsWith('driver-card'))).toHaveLength(0);
   });
 
@@ -234,7 +228,7 @@ describe('HomeScreen (L6-06)', () => {
     await act(async () => {
       // D50 : la surveillance de silence ne démarre qu'à l'accusé, qui porte la cadence (5 s ici).
       emitSubscribeAck({ accepted: true, broadcastIntervalMs: 5000 });
-      emitNearbyDrivers([driver({ driverId: 'a', firstName: 'Paul' })]);
+      emitNearbyDrivers([driver({ position: { latitude: 4.061, longitude: 9.716 } })]);
     });
     expect(texts(root)).toContain('1 chauffeur disponible à proximité');
     mockSend.mockClear();
@@ -265,7 +259,7 @@ describe('HomeScreen (L6-06)', () => {
     expect(texts(root)).toMatch(/non mise à jour depuis/);
 
     await act(async () => {
-      emitNearbyDrivers([driver({ driverId: 'a', firstName: 'Paul' })]);
+      emitNearbyDrivers([driver({ position: { latitude: 4.061, longitude: 9.717 } })]);
     });
 
     expect(texts(root)).not.toMatch(/non mise à jour depuis/);
@@ -277,7 +271,7 @@ describe('HomeScreen (L6-06)', () => {
     await act(async () => {
       // Le serveur annonce une cadence de 8 s -> silence anormal seulement au-delà de 24 s.
       emitSubscribeAck({ accepted: true, broadcastIntervalMs: 8000 });
-      emitNearbyDrivers([driver({ driverId: 'a', firstName: 'Paul' })]);
+      emitNearbyDrivers([driver({ position: { latitude: 4.061, longitude: 9.718 } })]);
     });
 
     await act(async () => {
@@ -402,7 +396,7 @@ describe('HomeScreen (L6-06)', () => {
     expect(root.root.findByProps({ testID: 'subscribe-refused' })).toBeTruthy();
 
     await act(async () => {
-      emitNearbyDrivers([driver({ driverId: 'a', firstName: 'Paul' })]);
+      emitNearbyDrivers([driver({ position: { latitude: 4.061, longitude: 9.719 } })]);
     });
 
     expect(root.root.findAllByProps({ testID: 'subscribe-refused' })).toHaveLength(0);
