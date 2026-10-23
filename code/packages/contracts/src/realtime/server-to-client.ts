@@ -357,12 +357,20 @@ export type RideCompletedMessage = z.infer<typeof RideCompletedMessageSchema>;
  * `activeRideId`/`activeRideState` sont alors `null` faute d'information, jamais parce qu'on a
  * confirmé l'absence. L'app ne doit rien conclure de l'état de course tant que ce drapeau est
  * `false` (elle garde son état courant), mais elle peut ouvrir la proposition portée.
+ *
+ * `driverOnline` (22 octobre) : la disponibilité que le service temps réel applique à ce
+ * chauffeur à l'instant de la resynchronisation. Un chauffeur resté déconnecté au-delà de la
+ * période de grâce est mis hors ligne par le serveur (`driver/availability.ts`) ; sans ce champ,
+ * son application rouverte se croyait toujours en ligne, alors qu'il n'était plus dans le pool.
+ * L'application s'aligne sur cette valeur. `null` pour un client (la disponibilité ne le concerne
+ * pas) -- l'absence se dit, elle ne se déduit pas.
  */
 export const SessionSyncedPayloadSchema = z.object({
   activeRideId: RideIdSchema.nullable(),
   activeRideState: RideStateSchema.nullable(),
   activeProposal: ActiveProposalSchema.nullable(),
   rideStateKnown: z.boolean(),
+  driverOnline: z.boolean().nullable(),
   serverTime: IsoDateTimeSchema,
 });
 export const SessionSyncedMessageSchema = envelopeSchema('session.synced', SessionSyncedPayloadSchema);

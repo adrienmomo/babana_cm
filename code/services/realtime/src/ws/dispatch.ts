@@ -145,7 +145,7 @@ export function createMessageDispatcher(
         // Émetteur : client ou chauffeur (C-02) -- pas de garde-fou de rôle ici, les deux ont le
         // droit de resynchroniser leur propre session. `proposals` sert la relecture de
         // proposition active (L7-04), qui ne concerne qu'un chauffeur.
-        await handleSessionResync(config, proposals, context, socket, message.payload);
+        await handleSessionResync(config, redis, proposals, context, socket, message.payload);
         return;
       default:
         return;

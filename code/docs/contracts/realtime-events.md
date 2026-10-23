@@ -108,7 +108,7 @@ s'il était arrivé seul.
 | `chat.message` | L'autre participant | `{ rideId, code, from }` | Message rapide relayé (`chat.send`) — un code prédéfini, jamais du texte libre |
 | `ride.started` | Client | `{ rideId }` | Transition `→ in_progress` |
 | `ride.completed` | Client | `{ rideId, distanceMeters, durationSeconds, measured, amount, breakdown }` | Transition `→ completed` — `distanceMeters` / `durationSeconds` à `null` quand `measured` est faux (course terminée sans accumulation temps réel, L3-10 / `amoa/questions/L6-13.md`) |
-| `session.synced` | Client ou chauffeur | `{ activeRideId, activeRideState, activeProposal, rideStateKnown, serverTime }` | Voir « Politique de reconnexion » |
+| `session.synced` | Client ou chauffeur | `{ activeRideId, activeRideState, activeProposal, rideStateKnown, driverOnline, serverTime }` | Voir « Politique de reconnexion » |
 
 `ride.cancelled` a un seul émetteur (le serveur) mais deux destinataires possibles selon qui est
 concerné par la course — le critère d'acceptation 1 de C-02 porte sur l'émetteur, pas sur le
@@ -209,7 +209,8 @@ messages.
 **Resynchronisation complète, jamais un différentiel.** À la reconnexion, le client (ou le
 chauffeur) envoie `session.resync` avec `lastKnownRideId` — la dernière course qu'il croit
 suivre, ou `null`. Le serveur répond par `session.synced`, un instantané complet de l'état
-courant (`activeRideId`, `activeRideState`, `activeProposal`, `rideStateKnown`, `serverTime`),
+courant (`activeRideId`, `activeRideState`, `activeProposal`, `rideStateKnown`, `driverOnline`,
+`serverTime`),
 jamais une liste de changements depuis la dernière position connue. Un différentiel suppose que
 le client sait exactement ce qu'il a manqué ; après une coupure de durée inconnue, cette
 hypothèse est justement celle qui ne tient pas.
@@ -221,6 +222,13 @@ privait le chauffeur d'une proposition connue localement) : la réponse part ave
 parce que l'absence est confirmée — et `activeProposal` porte la proposition vivante lue en Redis
 si elle existe. L'app garde son état de course courant tant que `rideStateKnown` est `false`
 (L7-04, 6 septembre — `amoa/questions/REPONSES-2026-09-06.md` §4).
+
+**Disponibilité du chauffeur (`driverOnline`, 22 octobre).** Un chauffeur déconnecté au-delà de
+`AVAILABILITY_DISCONNECT_GRACE_SECONDS` est mis hors ligne par le service temps réel. À la
+reconnexion, `session.synced` porte la disponibilité appliquée (lue en Redis, donc connue même
+quand Odoo ne répond pas) et l'app Chauffeur s'y aligne : bascule « Hors ligne », capture GPS
+arrêtée. Une app relancée alors que le serveur la tient encore en ligne reprend la capture.
+`null` pour un client.
 
 **File locale et rejeu à l'identique.** Les actions émises hors connexion (`proposal.accept`,
 `ride.track`, `position.update`, etc.) sont mises en file sur l'appareil et rejouées à la

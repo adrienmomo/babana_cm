@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { buttonLabels, buttons, colors, radius } from '../theme';
 import { SwipeButton } from './SwipeButton';
@@ -48,6 +48,11 @@ export function AvailabilityToggle({ inCourse, onNavigateToRemittance }: Availab
   const [pending, setPending] = useState(false);
   const [refusalError, setRefusalError] = useState<ApiError | null>(null);
   const [networkError, setNetworkError] = useState(false);
+
+  // La disponibilité peut changer sans cette bascule : le serveur met hors ligne un chauffeur
+  // resté déconnecté au-delà de la période de grâce, et le lui dit à la reconnexion
+  // (`session.synced`, appliqué par LocationTracker). L'affichage suit, sans rien redemander.
+  useEffect(() => locationTracker.subscribeOnline(setOnline), []);
 
   const disabled = inCourse || pending;
 

@@ -138,6 +138,7 @@ export class LocationTracker {
   private foregroundGranted = false;
   private unsubscribeMessages: (() => void) | null = null;
   private readonly fixListeners = new Set<(fix: LocalFix) => void>();
+  private readonly onlineListeners = new Set<(online: boolean) => void>();
 
   private readonly metrics: LocationMetricsSnapshot = {
     positionsCaptured: 0,
@@ -163,6 +164,16 @@ export class LocationTracker {
     return () => this.fixListeners.delete(listener);
   }
 
+  /**
+   * Abonnement aux changements de disponibilité appliquée -- par le chauffeur (`setOnline`) ou
+   * par le serveur (`session.synced`). C'est ce qui permet à la bascule d'afficher l'état réel,
+   * même quand ce n'est pas elle qui l'a changé.
+   */
+  subscribeOnline(listener: (online: boolean) => void): () => void {
+    this.onlineListeners.add(listener);
+    return () => this.onlineListeners.delete(listener);
+  }
+
   /** Point d'accroche unique (même discipline que `bootstrap.ts`) -- démarre l'écoute des
    * messages qui font évoluer l'état de course. Idempotent. */
   start(): void {
@@ -180,6 +191,14 @@ export class LocationTracker {
         if (message.payload.rideStateKnown) {
           this.setRideActive(ASSIGNED_RIDE_STATES.has(message.payload.activeRideState));
         }
+        // Disponibilité appliquée par le serveur (22 octobre) : un chauffeur resté déconnecté
+        // au-delà de la période de grâce a été mis hors ligne côté temps réel -- l'application
+        // s'y aligne au lieu de se croire encore en ligne. Et une application relancée alors que
+        // le serveur la tient en ligne reprend la capture. `null` : message de client, rien à
+        // appliquer.
+        if (message.payload.driverOnline !== null) {
+          this.setOnline(message.payload.driverOnline);
+        }
       }
     });
     // Session perdue (déconnexion, jeton de renouvellement révoqué) : un chauffeur qui n'est plus
@@ -189,7 +208,8 @@ export class LocationTracker {
   }
 
   /** Appelé explicitement par `AvailabilityToggle.tsx`, juste après l'autorisation d'Odoo --
-   * jamais avant (même règle que `availability.set` lui-même). */
+   * jamais avant (même règle que `availability.set` lui-même) -- ou par `session.synced`, qui
+   * porte la disponibilité que le serveur applique. */
   setOnline(online: boolean): void {
     if (this.online === online) return;
     this.online = online;
@@ -200,6 +220,7 @@ export class LocationTracker {
       this.movement.reset();
     }
     this.recomputeState();
+    this.onlineListeners.forEach((listener) => listener(online));
   }
 
   private setRideActive(active: boolean): void {

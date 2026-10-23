@@ -1,10 +1,12 @@
 import { randomUUID } from 'node:crypto';
+import type Redis from 'ioredis';
 import type { WebSocket } from 'ws';
 import { realtime } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ConnectionContext } from './auth';
 import type { ProposalLifecycle } from '../proposal/lifecycle';
 import { fetchActiveRide, type ActiveRide } from '../odoo/rides';
+import { isMarkedOnline } from '../driver/availability';
 
 /**
  * Réponse à `session.resync` (L3-11) : un état complet, jamais un différentiel (politique de
@@ -27,9 +29,15 @@ import { fetchActiveRide, type ActiveRide } from '../odoo/rides';
  * (`activeProposal`, lu en Redis, indépendant d'Odoo) et **signale** que l'état de la course est
  * indéterminé (`rideStateKnown: false`) -- dire ce qu'on sait, dire ce qu'on ignore, ne rien
  * inférer d'un silence.
+ *
+ * `driverOnline` (22 octobre) : la disponibilité que ce service applique au chauffeur, lue en
+ * Redis comme la proposition (donc indépendante d'Odoo). Un chauffeur resté déconnecté au-delà de
+ * la période de grâce a été mis hors ligne ici (`driver/availability.ts`) ; c'est cette réponse
+ * qui le lui apprend quand il se reconnecte. `null` pour un client.
  */
 export async function handleSessionResync(
   config: Config,
+  redis: Redis,
   proposals: ProposalLifecycle,
   context: ConnectionContext,
   socket: WebSocket,
@@ -50,15 +58,18 @@ export async function handleSessionResync(
     context.role === 'driver' && context.driverId
       ? await proposals.peekActiveProposal(context.driverId)
       : null;
+  const driverOnline =
+    context.role === 'driver' && context.driverId ? await isMarkedOnline(redis, context.driverId) : null;
 
   if (socket.readyState !== socket.OPEN) return;
-  socket.send(JSON.stringify(buildSessionSyncedMessage(active, activeProposal, rideStateKnown)));
+  socket.send(JSON.stringify(buildSessionSyncedMessage(active, activeProposal, rideStateKnown, driverOnline)));
 }
 
 function buildSessionSyncedMessage(
   active: ActiveRide,
   activeProposal: realtime.ActiveProposal | null,
-  rideStateKnown: boolean
+  rideStateKnown: boolean,
+  driverOnline: boolean | null
 ): realtime.SessionSyncedMessage {
   return {
     type: 'session.synced',
@@ -69,6 +80,7 @@ function buildSessionSyncedMessage(
       activeRideState: active.state,
       activeProposal,
       rideStateKnown,
+      driverOnline,
       serverTime: new Date().toISOString(),
     },
   };

@@ -18,10 +18,15 @@ jest.mock('../../realtime', () => ({
 // réellement LocationTracker, avec des dépendances injectées.
 const mockSetOnline = jest.fn();
 let mockTrackerState = 'offline';
+const mockOnlineListeners = new Set<(online: boolean) => void>();
 jest.mock('../../location', () => ({
   locationTracker: {
     setOnline: (...args: unknown[]) => mockSetOnline(...args),
     getState: () => mockTrackerState,
+    subscribeOnline: (listener: (online: boolean) => void) => {
+      mockOnlineListeners.add(listener);
+      return () => mockOnlineListeners.delete(listener);
+    },
   },
 }));
 
@@ -57,6 +62,28 @@ beforeEach(() => {
 });
 
 describe('AvailabilityToggle (L6-11, D7)', () => {
+  it('suit la disponibilité appliquée par le serveur : mis hors ligne pendant une déconnexion, la bascule revient à « Hors ligne »', async () => {
+    mockTrackerState = 'online_idle';
+    const root = await renderToggle();
+    expect(texts(root)).toContain('En ligne');
+
+    // session.synced driverOnline:false, appliqué par LocationTracker.
+    await act(async () => {
+      mockOnlineListeners.forEach((listener) => listener(false));
+    });
+
+    expect(texts(root)).toContain('Hors ligne');
+    expect(mockRequest).not.toHaveBeenCalled(); // rien à demander à Odoo : le serveur a déjà tranché
+  });
+
+  it('se désabonne au démontage', async () => {
+    const before = mockOnlineListeners.size; // les rendus des autres cas ne sont pas démontés
+    const root = await renderToggle();
+    expect(mockOnlineListeners.size).toBe(before + 1);
+    await act(async () => root.unmount());
+    expect(mockOnlineListeners.size).toBe(before);
+  });
+
   it('bascule en ligne avec succès -- l’état affiché reflète la réponse du serveur, pas une supposition locale', async () => {
     mockRequest.mockResolvedValue({ online: true });
     const root = await renderToggle();

@@ -384,6 +384,7 @@ describe('exemples valides — serveur vers client', () => {
           activeRideState: 'in_progress',
           activeProposal: null,
           rideStateKnown: true,
+          driverOnline: true,
           serverTime: now,
         },
       })
@@ -409,6 +410,7 @@ describe('exemples valides — serveur vers client', () => {
             emittedAt: now,
           },
           rideStateKnown: true,
+          driverOnline: true,
           serverTime: now,
         },
       })
@@ -425,8 +427,28 @@ describe('exemples valides — serveur vers client', () => {
           activeRideState: null,
           activeProposal: null,
           rideStateKnown: false,
+          driverOnline: false,
           serverTime: now,
         },
+      })
+    );
+    // Destinataire client : la disponibilité ne le concerne pas, `null` explicite.
+    assert.doesNotThrow(() =>
+      SessionSyncedMessageSchema.parse({
+        type: 'session.synced',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: { activeRideId: null, activeRideState: null, activeProposal: null, rideStateKnown: true, driverOnline: null, serverTime: now },
+      })
+    );
+    // `driverOnline` est requis : un chauffeur que le serveur a mis hors ligne pendant sa
+    // déconnexion doit l'apprendre à la reconnexion, jamais le déduire d'un champ absent.
+    assert.throws(() =>
+      SessionSyncedMessageSchema.parse({
+        type: 'session.synced',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: { activeRideId: null, activeRideState: null, activeProposal: null, rideStateKnown: true, serverTime: now },
       })
     );
     // `activeProposal` est requis (jamais implicite) : l'absence se dit avec `null`.
@@ -435,7 +457,7 @@ describe('exemples valides — serveur vers client', () => {
         type: 'session.synced',
         id: randomUUID(),
         emittedAt: now,
-        payload: { activeRideId: rideId, activeRideState: 'in_progress', rideStateKnown: true, serverTime: now },
+        payload: { activeRideId: rideId, activeRideState: 'in_progress', rideStateKnown: true, driverOnline: true, serverTime: now },
       })
     );
     // `rideStateKnown` est requis lui aussi : dire explicitement si l'état est connu.
@@ -444,7 +466,7 @@ describe('exemples valides — serveur vers client', () => {
         type: 'session.synced',
         id: randomUUID(),
         emittedAt: now,
-        payload: { activeRideId: rideId, activeRideState: 'in_progress', activeProposal: null, serverTime: now },
+        payload: { activeRideId: rideId, activeRideState: 'in_progress', activeProposal: null, driverOnline: true, serverTime: now },
       })
     );
   });

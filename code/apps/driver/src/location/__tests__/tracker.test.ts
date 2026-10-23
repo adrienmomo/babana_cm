@@ -109,6 +109,7 @@ function sessionSynced(
       activeRideState: null,
       activeProposal: null,
       rideStateKnown: true,
+      driverOnline: null,
       serverTime: new Date().toISOString(),
       ...over,
     },
@@ -260,6 +261,48 @@ describe('LocationTracker (L6-05)', () => {
     expect(deps.getPositionCalls).toBe(3);
     expect(deps.sent).toHaveLength(3);
     expect(deps.sent.every((payload) => payload.precedingSamples.length === 0)).toBe(true);
+  });
+
+  test('session.synced driverOnline:false -- le serveur a mis le chauffeur hors ligne pendant sa déconnexion : la capture s’arrête', async () => {
+    const deps = fakeDeps();
+    const tracker = new LocationTracker(deps, CONFIG);
+    const changes: boolean[] = [];
+    tracker.subscribeOnline((online) => changes.push(online));
+    tracker.start();
+    tracker.setOnline(true);
+    await jest.advanceTimersByTimeAsync(0);
+
+    deps.emit(sessionSynced({ driverOnline: false }));
+
+    expect(tracker.getState()).toBe('offline');
+    expect(deps.notificationShown).toBe(false);
+    expect(changes).toEqual([true, false]);
+    const calls = deps.getPositionCalls;
+    await jest.advanceTimersByTimeAsync(600_000);
+    expect(deps.getPositionCalls).toBe(calls);
+  });
+
+  test('session.synced driverOnline:true -- application relancée alors que le serveur la tient en ligne : la capture reprend', async () => {
+    const deps = fakeDeps();
+    const tracker = new LocationTracker(deps, CONFIG);
+    tracker.start();
+
+    deps.emit(sessionSynced({ driverOnline: true }));
+    await jest.advanceTimersByTimeAsync(0);
+
+    expect(tracker.getState()).toBe('online_idle');
+    expect(deps.sent).toHaveLength(1);
+  });
+
+  test('session.synced driverOnline:null ne change rien (message destiné à un client)', async () => {
+    const deps = fakeDeps();
+    const tracker = new LocationTracker(deps, CONFIG);
+    tracker.start();
+    tracker.setOnline(true);
+
+    deps.emit(sessionSynced({ driverOnline: null }));
+
+    expect(tracker.getState()).toBe('online_idle');
   });
 
   test('critère 3 -- en mouvement, les positions sont agrégées avant envoi : plusieurs relevés partent en un seul message (déclenchement par taille)', async () => {

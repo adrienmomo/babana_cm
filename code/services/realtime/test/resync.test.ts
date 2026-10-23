@@ -6,19 +6,24 @@
 import { test, describe, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { randomUUID } from 'node:crypto';
+import Redis from 'ioredis';
 import type { WebSocket } from 'ws';
 import type { realtime } from '@babana/contracts';
 import { handleSessionResync } from '../src/ws/resync';
 import type { ProposalLifecycle } from '../src/proposal/lifecycle';
 import { parseConfig, type Config } from '../src/config';
 import type { ConnectionContext } from '../src/ws/auth';
+import { setOffline, setOnline } from '../src/driver/availability';
 
 let odooServer: http.Server;
 let odooRequests: unknown[] = [];
 let odooResponse: { rideId: string | null; state: string | null } | 'error' = { rideId: null, state: null };
 let config: Config;
+let redis: Redis;
 
 before(async () => {
+  redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379');
   odooServer = http.createServer((req, res) => {
     if (req.url === '/api/internal/session/active-ride') {
       let raw = '';
@@ -56,6 +61,7 @@ beforeEach(() => {
 
 after(() => {
   odooServer.close();
+  redis.disconnect();
 });
 
 function clientContext(): ConnectionContext {
@@ -111,7 +117,7 @@ describe('handleSessionResync (L3-11)', () => {
     odooResponse = { rideId: 'ride-42', state: 'in_progress' };
     const { socket, messages } = fakeSocket();
 
-    await handleSessionResync(config, fakeProposals().proposals, clientContext(), socket, { lastKnownRideId: null });
+    await handleSessionResync(config, redis, fakeProposals().proposals, clientContext(), socket, { lastKnownRideId: null });
 
     assert.equal(messages.length, 1);
     assert.equal(messages[0]!.type, 'session.synced');
@@ -131,7 +137,7 @@ describe('handleSessionResync (L3-11)', () => {
     odooResponse = { rideId: null, state: null };
     const { socket, messages } = fakeSocket();
 
-    await handleSessionResync(config, fakeProposals().proposals, clientContext(), socket, { lastKnownRideId: null });
+    await handleSessionResync(config, redis, fakeProposals().proposals, clientContext(), socket, { lastKnownRideId: null });
 
     const payload = messages[0]!.payload as { activeRideId: null; activeRideState: null };
     assert.equal(payload.activeRideId, null);
@@ -141,7 +147,7 @@ describe('handleSessionResync (L3-11)', () => {
   test("l'identité vient du contexte de connexion, jamais d'un champ du message (même garde-fou que L3-01)", async () => {
     const { socket } = fakeSocket();
 
-    await handleSessionResync(config, fakeProposals().proposals, driverContext(), socket, { lastKnownRideId: 'ride-99' });
+    await handleSessionResync(config, redis, fakeProposals().proposals, driverContext(), socket, { lastKnownRideId: 'ride-99' });
 
     assert.equal(odooRequests.length, 1);
     assert.deepEqual(odooRequests[0], { userId: 'user-2', role: 'driver', lastKnownRideId: 'ride-99' });
@@ -150,7 +156,7 @@ describe('handleSessionResync (L3-11)', () => {
   test('lastKnownRideId est transmis à Odoo pour cibler la resynchronisation', async () => {
     const { socket } = fakeSocket();
 
-    await handleSessionResync(config, fakeProposals().proposals, clientContext(), socket, { lastKnownRideId: 'ride-7' });
+    await handleSessionResync(config, redis, fakeProposals().proposals, clientContext(), socket, { lastKnownRideId: 'ride-7' });
 
     assert.equal((odooRequests[0] as { lastKnownRideId: string }).lastKnownRideId, 'ride-7');
   });
@@ -160,7 +166,7 @@ describe('handleSessionResync (L3-11)', () => {
     const { socket, messages } = fakeSocket();
     (socket as unknown as { readyState: number }).readyState = 3; // CLOSED
 
-    await handleSessionResync(config, fakeProposals().proposals, clientContext(), socket, { lastKnownRideId: null });
+    await handleSessionResync(config, redis, fakeProposals().proposals, clientContext(), socket, { lastKnownRideId: null });
 
     assert.equal(messages.length, 0);
   });
@@ -170,7 +176,7 @@ describe('handleSessionResync (L3-11)', () => {
     const { socket, messages } = fakeSocket();
 
     await assert.doesNotReject(
-      handleSessionResync(config, fakeProposals().proposals, clientContext(), socket, { lastKnownRideId: null })
+      handleSessionResync(config, redis, fakeProposals().proposals, clientContext(), socket, { lastKnownRideId: null })
     );
 
     assert.equal(messages.length, 1);
@@ -190,7 +196,7 @@ describe('handleSessionResync (L3-11)', () => {
     const proposal = anActiveProposal();
     const { socket, messages } = fakeSocket();
 
-    await handleSessionResync(config, fakeProposals(proposal).proposals, driverContext(), socket, {
+    await handleSessionResync(config, redis, fakeProposals(proposal).proposals, driverContext(), socket, {
       lastKnownRideId: null,
     });
 
@@ -211,7 +217,7 @@ describe('handleSessionResync (L3-11)', () => {
     const proposal = anActiveProposal();
     const { socket, messages } = fakeSocket();
 
-    await handleSessionResync(config, fakeProposals(proposal).proposals, driverContext(), socket, {
+    await handleSessionResync(config, redis, fakeProposals(proposal).proposals, driverContext(), socket, {
       lastKnownRideId: null,
     });
 
@@ -225,7 +231,7 @@ describe('handleSessionResync (L3-11)', () => {
   test("L7-04 : un chauffeur sans proposition reçoit activeProposal null -- l'absence est dite, pas déduite d'un silence", async () => {
     const { socket, messages } = fakeSocket();
 
-    await handleSessionResync(config, fakeProposals(null).proposals, driverContext(), socket, {
+    await handleSessionResync(config, redis, fakeProposals(null).proposals, driverContext(), socket, {
       lastKnownRideId: null,
     });
 
@@ -237,10 +243,64 @@ describe('handleSessionResync (L3-11)', () => {
     const { proposals, calls } = fakeProposals(anActiveProposal());
     const { socket, messages } = fakeSocket();
 
-    await handleSessionResync(config, proposals, clientContext(), socket, { lastKnownRideId: null });
+    await handleSessionResync(config, redis, proposals, clientContext(), socket, { lastKnownRideId: null });
 
     assert.deepEqual(calls, []);
     const payload = messages[0]!.payload as { activeProposal: unknown };
     assert.equal(payload.activeProposal, null);
+  });
+});
+
+describe('session.synced porte la disponibilité appliquée par le serveur (22 octobre)', () => {
+  function driverWithId(driverId: string): ConnectionContext {
+    return Object.freeze({ userId: `user-${driverId}`, role: 'driver', driverId });
+  }
+
+  test('un chauffeur mis hors ligne par le serveur (période de grâce écoulée) l’apprend à la reconnexion', async () => {
+    const driverId = `resync-offline-${randomUUID()}`;
+    await setOnline(redis, driverId);
+    await setOffline(redis, driverId); // ce que fait DisconnectGraceTimers à l'échéance
+    const { socket, messages } = fakeSocket();
+
+    await handleSessionResync(config, redis, fakeProposals().proposals, driverWithId(driverId), socket, { lastKnownRideId: null });
+
+    assert.equal((messages[0]!.payload as { driverOnline: boolean | null }).driverOnline, false);
+  });
+
+  test('un chauffeur toujours en ligne côté serveur (reconnecté pendant la grâce) le reste', async () => {
+    const driverId = `resync-online-${randomUUID()}`;
+    await setOnline(redis, driverId);
+    const { socket, messages } = fakeSocket();
+    try {
+      await handleSessionResync(config, redis, fakeProposals().proposals, driverWithId(driverId), socket, { lastKnownRideId: null });
+    } finally {
+      await setOffline(redis, driverId);
+    }
+
+    assert.equal((messages[0]!.payload as { driverOnline: boolean | null }).driverOnline, true);
+  });
+
+  test('Odoo injoignable : la disponibilité, lue en Redis, part quand même', async () => {
+    odooResponse = 'error';
+    const driverId = `resync-odoo-down-${randomUUID()}`;
+    await setOnline(redis, driverId);
+    const { socket, messages } = fakeSocket();
+    try {
+      await handleSessionResync(config, redis, fakeProposals().proposals, driverWithId(driverId), socket, { lastKnownRideId: null });
+    } finally {
+      await setOffline(redis, driverId);
+    }
+
+    const payload = messages[0]!.payload as { driverOnline: boolean | null; rideStateKnown: boolean };
+    assert.equal(payload.rideStateKnown, false);
+    assert.equal(payload.driverOnline, true);
+  });
+
+  test('un client reçoit null -- la disponibilité ne le concerne pas', async () => {
+    const { socket, messages } = fakeSocket();
+
+    await handleSessionResync(config, redis, fakeProposals().proposals, clientContext(), socket, { lastKnownRideId: null });
+
+    assert.equal((messages[0]!.payload as { driverOnline: boolean | null }).driverOnline, null);
   });
 });
