@@ -15,6 +15,9 @@ if (process.env.NODE_ENV === 'production') {
 const port = process.env.PORT || 4001;
 const fixtures = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'douala.json'), 'utf8'));
 
+/** Route de la recherche de lieu -- celle de Google Places API (New). */
+const SEARCH_TEXT_PATH = '/v1/places:searchText';
+
 /** Panne simulée à la demande (critère d'acceptation 4 de L0-08), pour tester L2-05. */
 let failureSimulated = false;
 
@@ -64,7 +67,19 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (failureSimulated && (url.pathname === '/route' || url.pathname === '/search')) {
+  // Préflight CORS : la recherche part d'un navigateur (export web, D22) en POST JSON avec des
+  // en-têtes propres à Google -- le navigateur demande la permission avant d'envoyer.
+  if (req.method === 'OPTIONS') {
+    res.writeHead(204, {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, X-Goog-Api-Key, X-Goog-FieldMask',
+    });
+    res.end();
+    return;
+  }
+
+  if (failureSimulated && (url.pathname === '/route' || url.pathname === SEARCH_TEXT_PATH)) {
     sendJson(res, 503, { error: 'panne simulée (POST /_control/fail)' });
     return;
   }
@@ -86,12 +101,34 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (req.method === 'GET' && url.pathname === '/search') {
-    const q = normalize(url.searchParams.get('q') || '');
-    const results = q
-      ? fixtures.places.filter((place) => normalize(place.name).includes(q))
-      : fixtures.places;
-    sendJson(res, 200, { results });
+  // Même route et même forme que Google Places API (New), Text Search (`packages/maps`,
+  // providers/google/places.ts) : une seule requête côté app, seule l'adresse change. Sans
+  // résultat, Google renvoie `{}` -- ce mock aussi.
+  if (req.method === 'POST' && url.pathname === SEARCH_TEXT_PATH) {
+    let raw = '';
+    for await (const chunk of req) raw += chunk;
+    let textQuery = '';
+    try {
+      textQuery = String(JSON.parse(raw || '{}').textQuery || '');
+    } catch {
+      sendJson(res, 400, { error: { code: 400, message: 'corps JSON invalide', status: 'INVALID_ARGUMENT' } });
+      return;
+    }
+    const q = normalize(textQuery);
+    const matches = q ? fixtures.places.filter((place) => normalize(place.name).includes(q)) : [];
+    sendJson(
+      res,
+      200,
+      matches.length === 0
+        ? {}
+        : {
+            places: matches.map((place) => ({
+              displayName: { text: place.name, languageCode: 'fr' },
+              formattedAddress: `${place.name}, Douala, Cameroun`,
+              location: { latitude: place.latitude, longitude: place.longitude },
+            })),
+          }
+    );
     return;
   }
 

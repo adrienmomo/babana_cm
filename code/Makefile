@@ -41,8 +41,11 @@ seed-drivers:    ## Tient les chauffeurs semés en ligne, à des positions dispe
 # BABANA_MAPS_SEARCH_URL est lu de process.env au build (transform-inline-environment-variables),
 # pas d'un conteneur -- il n'a donc pas de valeur dans infra/env/.env.example (D43 retournée,
 # amoa/questions/REPONSES-2026-09-06.md §2) et c'est ici, la configuration de développement, qui
-# le pose vers mock-maps (port exposé à l'hôte). Un build de production pose l'adresse Google.
-BABANA_MAPS_SEARCH_URL ?= http://localhost:4001/search
+# le pose vers mock-maps (port exposé à l'hôte). Un build de production pose l'adresse Google
+# (https://places.googleapis.com/v1/places:searchText, Places API (New)) et sa clé,
+# BABANA_GOOGLE_MAPS_API_KEY -- vide en développement, mock-maps n'en consomme aucune.
+BABANA_MAPS_SEARCH_URL ?= http://localhost:4001/v1/places:searchText
+BABANA_GOOGLE_MAPS_API_KEY ?=
 # Même mécanisme, étendu le 14 septembre à l'adresse de l'API et du service temps réel pour les
 # apps natives (D61, amoa/questions/REPONSES-2026-09-14.md §3) : apps/*/config.ts ne retombe plus
 # sur le domaine de production en leur absence (un repli plausible se croit, une absence se voit)
@@ -65,13 +68,13 @@ DRIVER_RIDE_FLOW_ENV = BABANA_ARRIVAL_RADIUS_METERS="$(BABANA_ARRIVAL_RADIUS_MET
 BABANA_REALTIME_WS_URL ?= wss://api.localhost/rt/ws
 
 client:          ## Démarre l'app Client (bundler React Native)
-	BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/client  -- --port 8081 --reset-cache
+	BABANA_GOOGLE_MAPS_API_KEY="$(BABANA_GOOGLE_MAPS_API_KEY)" BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/client  -- --port 8081 --reset-cache
 
 client-app:          ## Démarre l'app Client (bundler React Native et emulateur)
-	BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run android -w @babana/client -- --port 8081
+	BABANA_GOOGLE_MAPS_API_KEY="$(BABANA_GOOGLE_MAPS_API_KEY)" BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run android -w @babana/client -- --port 8081
 
 client-web:      ## Construit le bundle web du Client dans apps/client/dist-web (servi par Caddy, D46)
-	BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run build:web -w @babana/client
+	BABANA_GOOGLE_MAPS_API_KEY="$(BABANA_GOOGLE_MAPS_API_KEY)" BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run build:web -w @babana/client
 
 driver:          ## Démarre l'app Chauffeur
 	$(DRIVER_RIDE_FLOW_ENV) BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_ROUTING_URL="$(BABANA_ROUTING_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/driver  -- --port 8083 --reset-cache

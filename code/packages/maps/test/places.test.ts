@@ -5,9 +5,11 @@
 import { configureGoogleMapsProvider, _resetGoogleMapsApiKeyForTests } from '../src/providers/google/config';
 import { reverseGeocode, searchPlace } from '../src/providers/google/places';
 
-// Adresse Google réelle -- ces tests exercent la forme des réponses du vrai fournisseur, jamais
-// un défaut de configuration : depuis D43, `searchUrl` doit toujours être posé explicitement.
-const GOOGLE_SEARCH_URL = 'https://maps.googleapis.com/maps/api/place/textsearch/json';
+// Adresse Google réelle -- Places API (New), Text Search. L'API historique
+// (`maps/api/place/textsearch/json`) n'est plus ouverte aux nouveaux projets Google Cloud :
+// constaté le 22 octobre, REQUEST_DENIED « legacy API not enabled » sur le projet de babana.
+// Depuis D43, `searchUrl` doit toujours être posé explicitement.
+const GOOGLE_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
 
 function mockFetchOnce(body: unknown, init: { ok?: boolean; status?: number } = {}) {
   global.fetch = jest.fn().mockResolvedValue({
@@ -15,6 +17,11 @@ function mockFetchOnce(body: unknown, init: { ok?: boolean; status?: number } = 
     status: init.status ?? 200,
     json: () => Promise.resolve(body),
   }) as unknown as typeof fetch;
+}
+
+function lastRequest(): { url: string; init: RequestInit & { headers: Record<string, string> } } {
+  const [url, init] = (global.fetch as jest.Mock).mock.calls.at(-1) as [string, RequestInit & { headers: Record<string, string> }];
+  return { url, init };
 }
 
 describe('searchPlace / reverseGeocode (fournisseur Google)', () => {
@@ -33,19 +40,35 @@ describe('searchPlace / reverseGeocode (fournisseur Google)', () => {
   // entière avant d'être trouvée en lisant le trafic réseau plutôt que le code.
   it('exige aussi une adresse configurée, plutôt que de retomber sur Google (D43)', async () => {
     configureGoogleMapsProvider({ apiKey: 'test-key' });
-    mockFetchOnce({ status: 'OK', results: [] });
+    mockFetchOnce({ places: [] });
 
     await expect(searchPlace('Akwa')).rejects.toThrow(/configureMapsProvider/);
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
+  it('interroge Places API (New) : POST JSON, clé et masque de champs en en-têtes, biais sur le Cameroun', async () => {
+    configureGoogleMapsProvider({ apiKey: 'test-key', searchUrl: GOOGLE_SEARCH_URL });
+    mockFetchOnce({ places: [] });
+
+    await searchPlace('Akwa');
+
+    const { url, init } = lastRequest();
+    expect(url).toBe(GOOGLE_SEARCH_URL);
+    expect(init.method).toBe('POST');
+    expect(init.headers['Content-Type']).toBe('application/json');
+    expect(init.headers['X-Goog-Api-Key']).toBe('test-key');
+    // Le masque est obligatoire chez Google, et c'est lui qui fixe le prix de l'appel : seulement
+    // ce que l'écran affiche.
+    expect(init.headers['X-Goog-FieldMask']).toBe('places.displayName,places.formattedAddress,places.location');
+    expect(JSON.parse(init.body as string)).toEqual({ textQuery: 'Akwa', regionCode: 'cm', languageCode: 'fr' });
+  });
+
   it('traduit une réponse Places en résultats propres au paquet', async () => {
     configureGoogleMapsProvider({ apiKey: 'test-key', searchUrl: GOOGLE_SEARCH_URL });
     mockFetchOnce({
-      status: 'OK',
-      results: [
-        { name: 'Akwa', geometry: { location: { lat: 4.05, lng: 9.7 } } },
-        { name: 'Bonanjo', geometry: { location: { lat: 4.04, lng: 9.69 } } },
+      places: [
+        { displayName: { text: 'Akwa', languageCode: 'fr' }, formattedAddress: 'Akwa, Douala, Cameroun', location: { latitude: 4.05, longitude: 9.7 } },
+        { displayName: { text: 'Marché Central' }, location: { latitude: 4.04, longitude: 9.69 } },
       ],
     });
 
@@ -53,22 +76,46 @@ describe('searchPlace / reverseGeocode (fournisseur Google)', () => {
 
     expect(results).toEqual([
       { label: 'Akwa', position: { latitude: 4.05, longitude: 9.7 } },
-      { label: 'Bonanjo', position: { latitude: 4.04, longitude: 9.69 } },
+      { label: 'Marché Central', position: { latitude: 4.04, longitude: 9.69 } },
     ]);
   });
 
-  it('un ZERO_RESULTS produit une liste vide, pas une erreur', async () => {
+  it('aucun résultat : Google renvoie un objet vide, le paquet une liste vide', async () => {
     configureGoogleMapsProvider({ apiKey: 'test-key', searchUrl: GOOGLE_SEARCH_URL });
-    mockFetchOnce({ status: 'ZERO_RESULTS' });
+    mockFetchOnce({});
 
     await expect(searchPlace('lieu inconnu')).resolves.toEqual([]);
   });
 
-  it('un statut Google en erreur lève une exception explicite', async () => {
+  it('une erreur Google lève une exception explicite, avec son statut', async () => {
     configureGoogleMapsProvider({ apiKey: 'test-key', searchUrl: GOOGLE_SEARCH_URL });
-    mockFetchOnce({ status: 'REQUEST_DENIED' });
+    mockFetchOnce(
+      { error: { code: 403, message: 'Places API (New) has not been used in project', status: 'PERMISSION_DENIED' } },
+      { ok: false, status: 403 }
+    );
 
-    await expect(searchPlace('Akwa')).rejects.toThrow(/REQUEST_DENIED/);
+    await expect(searchPlace('Akwa')).rejects.toThrow(/PERMISSION_DENIED/);
+  });
+
+  it('une panne sans corps JSON lève une exception explicite, avec le code HTTP', async () => {
+    configureGoogleMapsProvider({ apiKey: '', searchUrl: 'http://localhost:4001/v1/places:searchText' });
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 503,
+      json: () => Promise.reject(new SyntaxError('Unexpected token')),
+    }) as unknown as typeof fetch;
+
+    await expect(searchPlace('Akwa')).rejects.toThrow(/503/);
+  });
+
+  // D19 : mock-maps sert la même route et la même forme que Google -- une seule requête, seule
+  // l'adresse change ; une clé vide n'envoie pas d'en-tête de clé.
+  it('vers mock-maps (D19) : clé vide acceptée, aucun en-tête de clé envoyé', async () => {
+    configureGoogleMapsProvider({ apiKey: '', searchUrl: 'http://localhost:4001/v1/places:searchText' });
+    mockFetchOnce({ places: [{ displayName: { text: 'Akwa' }, location: { latitude: 4.05, longitude: 9.7 } }] });
+
+    await expect(searchPlace('Akwa')).resolves.toEqual([{ label: 'Akwa', position: { latitude: 4.05, longitude: 9.7 } }]);
+    expect(lastRequest().init.headers['X-Goog-Api-Key']).toBeUndefined();
   });
 
   it('géocode un point vers un libellé', async () => {
@@ -83,50 +130,5 @@ describe('searchPlace / reverseGeocode (fournisseur Google)', () => {
     mockFetchOnce({ status: 'ZERO_RESULTS' });
 
     await expect(reverseGeocode({ latitude: 0, longitude: 0 })).resolves.toBeNull();
-  });
-
-  // D19, amoa/questions/C-01R.md §2 : recherche de lieu routée vers mock-maps en développement.
-  describe('vers mock-maps (D19)', () => {
-    it('une clé vide est acceptée -- mock-maps ne la consomme pas', async () => {
-      configureGoogleMapsProvider({ apiKey: '', searchUrl: 'http://localhost:4001/search' });
-      mockFetchOnce({ results: [{ id: 'akwa', name: 'Akwa', latitude: 4.05, longitude: 9.7 }] });
-
-      await expect(searchPlace('Akwa')).resolves.toEqual([
-        { label: 'Akwa', position: { latitude: 4.05, longitude: 9.7 } },
-      ]);
-    });
-
-    it("traduit la forme plate de mock-maps, sans enveloppe status", async () => {
-      configureGoogleMapsProvider({ apiKey: 'test-key', searchUrl: 'http://localhost:4001/search' });
-      mockFetchOnce({
-        results: [
-          { id: 'akwa', name: 'Akwa', latitude: 4.05, longitude: 9.7 },
-          { id: 'bonanjo', name: 'Bonanjo', latitude: 4.04, longitude: 9.69 },
-        ],
-      });
-
-      await expect(searchPlace('Ak')).resolves.toEqual([
-        { label: 'Akwa', position: { latitude: 4.05, longitude: 9.7 } },
-        { label: 'Bonanjo', position: { latitude: 4.04, longitude: 9.69 } },
-      ]);
-    });
-
-    it("envoie le paramètre `q` de mock-maps vers l'URL configurée", async () => {
-      configureGoogleMapsProvider({ apiKey: '', searchUrl: 'http://localhost:4001/search' });
-      mockFetchOnce({ results: [] });
-
-      await searchPlace('Akwa');
-
-      const calledUrl = new URL((global.fetch as jest.Mock).mock.calls[0][0] as string);
-      expect(calledUrl.origin + calledUrl.pathname).toBe('http://localhost:4001/search');
-      expect(calledUrl.searchParams.get('q')).toBe('Akwa');
-    });
-
-    it('une panne HTTP sans enveloppe status lève une exception explicite', async () => {
-      configureGoogleMapsProvider({ apiKey: '', searchUrl: 'http://localhost:4001/search' });
-      mockFetchOnce({ error: 'panne simulée' }, { ok: false, status: 503 });
-
-      await expect(searchPlace('Akwa')).rejects.toThrow(/503/);
-    });
   });
 });

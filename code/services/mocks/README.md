@@ -79,14 +79,18 @@ sortie, toujours. `polyline` est encodée au format standard Google (précision 
 Distance et durée sont calculées sur un modèle voiture (É8 : ni Google ni Mapbox ne calculent
 d'itinéraire deux-roues au Cameroun) — ce mock reproduit cette contrainte, il ne la corrige pas.
 
-### `GET /search?q=<texte>`
+### `POST /v1/places:searchText`
 
-Recherche insensible à la casse et aux accents dans `fixtures/douala.json` (repères de quartiers
-réels de Douala, coordonnées plausibles). `q` vide renvoie tous les repères.
+Même route et même forme que Google Places API (New), Text Search : corps
+`{ "textQuery": "<texte>" }`, réponse `{ "places": [{ displayName: { text }, formattedAddress,
+location: { latitude, longitude } }] }`, ou `{}` sans résultat. Recherche insensible à la casse et
+aux accents dans `fixtures/douala.json` (repères de quartiers réels de Douala, coordonnées
+plausibles). Remplace `GET /search` (22 octobre) : l'app n'envoie qu'une seule forme de requête,
+seule l'adresse change entre ce mock et Google.
 
 ### `POST /_control/fail`
 
-`{ "enabled": true }` fait échouer `/route` et `/search` avec `503` jusqu'à
+`{ "enabled": true }` fait échouer `/route` et `/v1/places:searchText` avec `503` jusqu'à
 `{ "enabled": false }` — pour tester le comportement de L2-05 face à une indisponibilité de
 l'API de cartographie (critère d'acceptation 4 de L0-08).
 

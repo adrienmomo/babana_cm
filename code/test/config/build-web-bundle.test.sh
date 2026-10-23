@@ -55,7 +55,7 @@ done
 EOF
 chmod +x "$FAKE_NPM"
 
-PROD_MAPS_SEARCH_URL="https://maps.googleapis.com/maps/api/place/textsearch/json"
+PROD_MAPS_SEARCH_URL="https://places.googleapis.com/v1/places:searchText"
 PROD_GOOGLE_MAPS_API_KEY="test-maps-key"
 
 # --- 1. Reproduction du défaut du 13 septembre --------------------------------------------------

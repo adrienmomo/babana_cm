@@ -11,15 +11,16 @@ let apiKey: string | undefined;
 
 /**
  * Adresse de la recherche de lieu (D19, `amoa/questions/C-01R.md` §2). Une seule variable
- * d'environnement fait pointer ce module vers `mock-maps` en développement ou vers l'API Google
- * réelle en production -- ce fichier ne contient aucune branche conditionnelle sur
- * l'environnement, seul `searchUrl` change.
+ * d'environnement fait pointer ce module vers `mock-maps` en développement
+ * (`http://localhost:4001/v1/places:searchText`) ou vers Google
+ * (`https://places.googleapis.com/v1/places:searchText`, Places API (New)) -- ce fichier ne
+ * contient aucune branche conditionnelle sur l'environnement, seul `searchUrl` change.
  *
  * `undefined` ne retombe plus sur l'adresse Google réelle (D43,
  * `amoa/questions/REPONSES-2026-08-28.md` §4) : ce repli faisait exactement ce que le code fait
  * quand tout va bien, avec un destinataire différent -- invisible sans lire le trafic réseau. Une
  * adresse non configurée doit échouer à l'appel, bruyamment (`getSearchUrl` ci-dessous) ; la
- * production configure explicitement `PLACES_TEXT_SEARCH_URL` (places.ts) via `searchUrl`, elle
+ * production configure explicitement l’adresse de Places API (New) via `searchUrl`, elle
  * ne la reçoit jamais par défaut.
  */
 let searchUrl: string | undefined;
