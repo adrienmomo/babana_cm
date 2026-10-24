@@ -222,7 +222,9 @@ describe('HomeScreen (L6-06)', () => {
   // tests exercent StreamLivenessWatchdog depuis l'écran, avec de vrais minuteurs fictifs (pas
   // d'injection `now`/`wait` côté HomeScreen -- jest.useFakeTimers() pilote les vrais setInterval
   // /setTimeout du module).
-  it('L3-20 -- un silence de diffusion prolongé affiche un bandeau et déclenche un réabonnement, sans jamais vider la liste déjà connue', async () => {
+  // 24 octobre : plus aucun bandeau de silence ni bouton « Réessayer » sur l'accueil (demande
+  // produit). Le réabonnement automatique (L3-20) reste : c'est lui qui répare, sans rien afficher.
+  it('L3-20 -- un silence de diffusion prolongé déclenche un réabonnement silencieux, sans jamais vider la liste déjà connue', async () => {
     jest.useFakeTimers();
     const root = await renderHome();
     await act(async () => {
@@ -239,50 +241,33 @@ describe('HomeScreen (L6-06)', () => {
       await jest.advanceTimersByTimeAsync(15_000);
     });
 
-    expect(texts(root)).toMatch(/non mise à jour depuis/);
-    // Le dernier chauffeur connu reste affiché -- un silence n'est jamais montré comme "aucun
-    // chauffeur disponible" (spécification : jamais un marqueur figé, jamais un silence).
+    expect(texts(root)).not.toMatch(/non mise à jour/);
+    expect(root.root.findAllByProps({ testID: 'nearby-stale' })).toHaveLength(0);
+    // Le dernier chauffeur connu reste affiché.
     expect(texts(root)).toContain('1 chauffeur disponible à proximité');
     // Réabonnement automatique, sur la connexion existante -- pas une reconnexion.
     expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', expect.objectContaining({ position: DOUALA }));
   });
 
-  it('L3-20 -- la reprise de la diffusion efface le bandeau de silence', async () => {
-    jest.useFakeTimers();
-    const root = await renderHome();
-    await act(async () => {
-      emitSubscribeAck({ accepted: true, broadcastIntervalMs: 5000 });
-    });
-    await act(async () => {
-      await jest.advanceTimersByTimeAsync(15_000);
-    });
-    expect(texts(root)).toMatch(/non mise à jour depuis/);
-
-    await act(async () => {
-      emitNearbyDrivers([driver({ position: { latitude: 4.061, longitude: 9.717 } })]);
-    });
-
-    expect(texts(root)).not.toMatch(/non mise à jour depuis/);
-  });
-
   it('D50 -- le seuil de silence suit la cadence annoncée par le serveur, pas une constante locale', async () => {
     jest.useFakeTimers();
-    const root = await renderHome();
+    await renderHome();
     await act(async () => {
       // Le serveur annonce une cadence de 8 s -> silence anormal seulement au-delà de 24 s.
       emitSubscribeAck({ accepted: true, broadcastIntervalMs: 8000 });
       emitNearbyDrivers([driver({ position: { latitude: 4.061, longitude: 9.718 } })]);
     });
+    mockSend.mockClear();
 
     await act(async () => {
       await jest.advanceTimersByTimeAsync(15_000);
     });
-    expect(texts(root)).not.toMatch(/non mise à jour depuis/);
+    expect(mockSend).not.toHaveBeenCalledWith('nearby.subscribe', expect.anything());
 
     await act(async () => {
       await jest.advanceTimersByTimeAsync(12_000);
     });
-    expect(texts(root)).toMatch(/non mise à jour depuis/);
+    expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', expect.anything());
   });
 
   it("une reconnexion (coupure réseau puis retour) réémet l'abonnement -- la liste ne se fige jamais", async () => {
@@ -296,20 +281,16 @@ describe('HomeScreen (L6-06)', () => {
     expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', expect.objectContaining({ position: DOUALA }));
   });
 
-  it("critère 4 : l'absence de chauffeur affiche un message clair et une action, pas une erreur", async () => {
+  it("aucun chauffeur à proximité : rien n'est affiché -- ni message, ni bouton « Réessayer »", async () => {
     const root = await renderHome();
 
     await act(async () => {
       emitNearbyDrivers([]);
     });
 
-    expect(texts(root)).toContain('Aucun chauffeur disponible pour l’instant.');
-    expect(root.root.findByProps({ testID: 'retry-nearby' })).toBeTruthy();
-
-    await act(async () => {
-      root.root.findByProps({ testID: 'retry-nearby' }).props.onPress();
-    });
-    expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', expect.anything());
+    expect(texts(root)).not.toContain('Aucun chauffeur');
+    expect(root.root.findAllByProps({ testID: 'retry-nearby' })).toHaveLength(0);
+    expect(root.root.findAllByProps({ testID: 'nearby-count' })).toHaveLength(0);
   });
 
   it('le départ est pré-rempli avec la position courante quand la permission est accordée', async () => {
@@ -382,9 +363,29 @@ describe('HomeScreen (L6-06)', () => {
       emitSubscribeAck({ accepted: false, retryAfterMs: 4000 });
     });
 
-    expect(texts(root)).toContain('Votre demande n’a pas été prise en compte, patientez 4 s avant de réessayer.');
+    expect(texts(root)).toContain('Votre demande n’a pas été prise en compte, nouvelle tentative dans 4 s.');
     expect(texts(root)).not.toContain('Aucun chauffeur disponible pour l’instant.');
     expect(root.root.findByProps({ testID: 'subscribe-refused' })).toBeTruthy();
+    expect(root.root.findAllByProps({ testID: 'retry-nearby' })).toHaveLength(0);
+  });
+
+  it('un abonnement refusé est réessayé automatiquement au délai annoncé par le serveur -- plus de bouton pour le faire', async () => {
+    jest.useFakeTimers();
+    await renderHome();
+    await act(async () => {
+      emitSubscribeAck({ accepted: false, retryAfterMs: 4000 });
+    });
+    mockSend.mockClear();
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(3_900);
+    });
+    expect(mockSend).not.toHaveBeenCalledWith('nearby.subscribe', expect.anything());
+
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(200);
+    });
+    expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', expect.objectContaining({ position: DOUALA }));
   });
 
   it('une liste de chauffeurs reçue après un refus efface le message de refus', async () => {
