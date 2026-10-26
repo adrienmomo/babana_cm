@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import type { LatLng, PlaceResult } from '@babana/maps';
 import type { http } from '@babana/contracts';
@@ -20,6 +20,7 @@ jest.mock('@babana/maps', () => {
     },
     reverseGeocode: (point: LatLng) => mockReverseGeocode(point),
     searchPlace: (query: string) => mockSearchPlace(query),
+    MAP_MARKER_COLORS: { pickup: '#3E7BFA', dropoff: '#E5484D', driver: '#1A9E5C', client: '#3E7BFA', reticle: '#6B7280' },
   };
 });
 
@@ -158,6 +159,52 @@ describe('HomeScreen (L6-06)', () => {
       origin: { position: DOUALA, label: 'vers Akwa, Douala' },
       destination: { position: ELSEWHERE, label: 'vers Bonapriso, Douala' },
     });
+  });
+
+  // 24 octobre : le point en cours de désignation était dessiné deux fois au même endroit -- son
+  // épingle sur la carte ET le réticule 📍 par-dessus. Le réticule le représente seul désormais,
+  // dans la couleur de son rôle (palette de @babana/maps) ; l'autre point garde son épingle.
+  it('le point en cours de désignation n’est dessiné que par le réticule, à la couleur de son rôle', async () => {
+    const root = await renderHome();
+    await designate(root, 'departure-slot', DOUALA);
+    await designate(root, 'arrival-slot', ELSEWHERE);
+
+    // L'arrivée est en cours de désignation : pas d'épingle d'arrivée, réticule rouge.
+    expect(capturedMarkers.map((m) => m.kind)).toContain('pickup');
+    expect(capturedMarkers.map((m) => m.kind)).not.toContain('dropoff');
+    expect(StyleSheet.flatten(root.root.findByProps({ testID: 'reticle-pin' }).props.style).backgroundColor).toBe('#E5484D');
+
+    // Retour au départ : le réticule devient bleu ; la carte est encore centrée sur l'arrivée,
+    // dont l'épingle reste masquée sous lui tant que la carte ne bouge pas (voir le test suivant).
+    await act(async () => {
+      root.root.findByProps({ testID: 'departure-slot' }).props.onPress();
+    });
+    expect(capturedMarkers.map((m) => m.kind)).not.toContain('dropoff');
+    await act(async () => {
+      await capturedOnRegionChange?.(DOUALA);
+    });
+    expect(capturedMarkers.map((m) => m.kind)).toContain('dropoff');
+    expect(capturedMarkers.map((m) => m.kind)).not.toContain('pickup');
+    expect(StyleSheet.flatten(root.root.findByProps({ testID: 'reticle-pin' }).props.style).backgroundColor).toBe('#3E7BFA');
+  });
+
+  it('à l’ouverture, la carte est centrée sur le départ GPS et le réticule (arrivée) le recouvre : son épingle n’est pas dessinée dessous', async () => {
+    mockGetCurrentPosition.mockResolvedValue({ status: 'success', position: CLIENT_GPS });
+    mockReverseGeocode.mockResolvedValue('Bonamoussadi, Douala');
+    const root = await renderHome();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(StyleSheet.flatten(root.root.findByProps({ testID: 'reticle-pin' }).props.style).backgroundColor).toBe('#E5484D');
+    expect(capturedMarkers.map((m) => m.kind)).not.toContain('pickup');
+
+    // Dès que la carte quitte le départ (désignation de l'arrivée), son épingle réapparaît.
+    await act(async () => {
+      await capturedOnRegionChange?.(ELSEWHERE);
+    });
+    expect(capturedMarkers.map((m) => m.kind)).toContain('pickup');
   });
 
   it('« Suivant » reste désactivé tant que le départ et l’arrivée ne sont pas tous deux désignés', async () => {

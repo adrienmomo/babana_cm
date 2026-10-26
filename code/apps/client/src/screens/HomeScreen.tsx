@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { MapView, reverseGeocode, type LatLng, type MapMarker } from '@babana/maps';
+import { MAP_MARKER_COLORS, MapView, reverseGeocode, type LatLng, type MapMarker } from '@babana/maps';
 import { Button } from '@babana/ui';
 import type { http, realtime } from '@babana/contracts';
 import { StreamLivenessWatchdog } from '@babana/api-client';
@@ -27,6 +27,10 @@ const DOUALA_DEFAULT_CENTER: LatLng = { latitude: 4.0511, longitude: 9.7679 };
 // Choix d'implémentation non spécifié, à ajuster si L6-17 (mesure batterie/données) le juge trop
 // large.
 const NEARBY_SUBSCRIBE_RADIUS_METERS = 5000;
+
+// En deçà de cet écart (degrés, ~2 m), une épingle est sous le réticule : elle serait masquée par
+// lui, on ne la dessine pas. Un seuil d'affichage, pas une règle métier.
+const RETICLE_OVERLAP_DEGREES = 0.00002;
 
 type ActiveSlot = 'departure' | 'arrival';
 
@@ -231,9 +235,21 @@ export function HomeScreen({ navigation }: Props) {
     loadCurrentPosition(() => false);
   }
 
+  // Le point en cours de désignation est représenté par le réticule, pas par une épingle : il est
+  // sous le réticule par construction, et les deux se superposaient (24 octobre). L'autre point
+  // garde son épingle -- sauf s'il est lui aussi exactement au centre (à l'ouverture, la carte est
+  // centrée sur le départ GPS pendant que le réticule désigne l'arrivée) : il réapparaît dès que
+  // la carte bouge.
+  const underReticle = (point: LatLng) =>
+    Math.abs(point.latitude - region.latitude) < RETICLE_OVERLAP_DEGREES &&
+    Math.abs(point.longitude - region.longitude) < RETICLE_OVERLAP_DEGREES;
   const markers: MapMarker[] = [
-    ...(departure ? [{ id: 'pickup', kind: 'pickup' as const, position: departure.position, label: 'Départ' }] : []),
-    ...(arrival ? [{ id: 'dropoff', kind: 'dropoff' as const, position: arrival.position, label: 'Arrivée' }] : []),
+    ...(departure && activeSlot !== 'departure' && !underReticle(departure.position)
+      ? [{ id: 'pickup', kind: 'pickup' as const, position: departure.position, label: 'Départ' }]
+      : []),
+    ...(arrival && activeSlot !== 'arrival' && !underReticle(arrival.position)
+      ? [{ id: 'dropoff', kind: 'dropoff' as const, position: arrival.position, label: 'Arrivée' }]
+      : []),
     // Anonymes : le serveur n'envoie qu'une position et une distance (ni identifiant, ni prénom)
     // -- un point par chauffeur disponible, repéré par son rang.
     ...nearbyDrivers.map((driver, index) => ({
@@ -277,8 +293,18 @@ export function HomeScreen({ navigation }: Props) {
 
       <View style={styles.mapWrap}>
         <MapView center={region} markers={markers} onRegionChange={handleRegionChange} style={styles.map} />
+        {/* Réticule = l'épingle du point en cours de désignation, à la couleur de son rôle (même
+            palette que les épingles de la carte) ; sa pointe marque le centre exact de la carte. */}
         <View style={styles.reticle} pointerEvents="none" testID="reticle">
-          <Text style={styles.reticleGlyph}>📍</Text>
+          <View
+            testID="reticle-pin"
+            style={[
+              styles.reticlePin,
+              { backgroundColor: activeSlot === 'departure' ? MAP_MARKER_COLORS.pickup : MAP_MARKER_COLORS.dropoff },
+            ]}
+          >
+            <View style={styles.reticlePinDot} />
+          </View>
         </View>
         {geocoding ? <ActivityIndicator style={styles.geocoding} size="small" /> : null}
       </View>
@@ -390,15 +416,39 @@ const styles = StyleSheet.create({
   map: {
     flex: 1,
   },
+  // Épingle en goutte : un carré aux coins arrondis sauf un, tourné de 45° -- le coin pointu, en
+  // bas, tombe exactement sur le centre de la carte : 14 (demi-côté) + 28 * 1.41 / 2 (demi-
+  // diagonale) ~ 34 sous le haut de la boîte.
   reticle: {
     position: 'absolute',
     top: '50%',
     left: '50%',
-    marginTop: -24,
-    marginLeft: -12,
+    marginTop: -34,
+    marginLeft: -14,
   },
-  reticleGlyph: {
-    fontSize: 24,
+  reticlePin: {
+    width: 28,
+    height: 28,
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
+    borderBottomLeftRadius: 14,
+    borderBottomRightRadius: 0,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ rotate: '45deg' }],
+    shadowColor: '#000000',
+    shadowOpacity: 0.3,
+    shadowRadius: 2,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 3,
+  },
+  reticlePinDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#FFFFFF',
   },
   geocoding: {
     position: 'absolute',
