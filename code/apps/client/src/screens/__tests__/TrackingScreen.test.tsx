@@ -208,6 +208,24 @@ describe('TrackingScreen (L6-09)', () => {
     expect(texts(root)).toContain('Course en cours');
   });
 
+  // 24 octobre : une fois la course commencée, l'épingle de prise en charge recouvrait le
+  // chauffeur (il est exactement là). Elle n'a plus de sens : elle disparaît.
+  it('une fois la course commencée, l’épingle de prise en charge n’est plus dessinée -- elle masquait le chauffeur', async () => {
+    await renderTracking();
+    await act(async () => {
+      emitPosition({ etaSeconds: 0 });
+    });
+    expect(lastMapProps()!.markers.map((m) => m.id)).toContain('pickup');
+
+    await act(async () => {
+      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+    });
+
+    const ids = lastMapProps()!.markers.map((m) => m.id);
+    expect(ids).not.toContain('pickup');
+    expect(ids).toEqual(expect.arrayContaining(['dropoff', 'driver']));
+  });
+
   it('ride.completed remplace la pile vers le résumé, avec exactement ce que le serveur a écrit', async () => {
     const { navigation } = await renderTracking();
 

@@ -218,8 +218,10 @@ export function TrackingScreen({ route, navigation }: Props) {
         : undefined;
   const mapCenter: LatLng | null = driverPosition ?? sharedRoute?.points[0] ?? null;
 
+  // La prise en charge n'a plus de sens une fois la course commencée -- et son épingle recouvrait
+  // alors le chauffeur, qui est exactement là (24 octobre).
   const markers: MapMarker[] = [
-    { id: 'pickup', kind: 'pickup' as const, position: origin.position, label: 'Prise en charge' },
+    ...(phase === 'course' ? [] : [{ id: 'pickup', kind: 'pickup' as const, position: origin.position, label: 'Prise en charge' }]),
     { id: 'dropoff', kind: 'dropoff' as const, position: destination.position, label: 'Arrivée' },
     ...(driverPosition ? [{ id: 'driver', kind: 'driver' as const, position: driverPosition, label: driver.firstName ?? undefined }] : []),
   ];
