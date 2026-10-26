@@ -45,7 +45,7 @@ function setConnectionState(state: 'offline' | 'connecting' | 'connected') {
 
 import { ProposalPanel } from '../ProposalPanel';
 import { formatMoney } from '../../format';
-import { resetProposalDedup } from '../../proposalDedup';
+import { isProposalHandled, markProposalHandled, resetProposalDedup } from '../../proposalDedup';
 import type { ProposalParams } from '../../navigation/types';
 
 const RIDE_ID = asRideId('ride-1');
@@ -396,6 +396,21 @@ describe('ProposalPanel (L6-12)', () => {
       await jest.advanceTimersByTimeAsync(2500);
     });
     expect(navigation.goBack).toHaveBeenCalledTimes(1);
+  });
+
+  // Constaté sur émulateur le 24 octobre : le client appuie sur « Réessayer » après une
+  // expiration, le serveur repropose la MÊME course au MÊME chauffeur (il est le seul à
+  // proximité) -- et l'app l'avalait en silence, la course ayant été marquée traitée. Une
+  // expiration doit libérer le registre, comme un refus le fait déjà.
+  it('une expiration libère la course dans le registre de déduplication : une nouvelle proposition de la même course s’affichera', async () => {
+    await renderProposal();
+    markProposalHandled(RIDE_ID);
+
+    await act(async () => {
+      emitExpired();
+    });
+
+    expect(isProposalHandled(RIDE_ID)).toBe(false);
   });
 
   it('un proposal.expired pour une autre course est ignoré', async () => {

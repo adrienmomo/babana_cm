@@ -265,6 +265,9 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
             // `activeProposal` absent, ou pour une autre course : il n'y a plus rien à prendre.
             // On le dit -- pas de boutons pour une course qui n'est plus disponible (critère 3).
             revalidationSettledRef.current = true;
+            // Plus à prendre maintenant -- mais le serveur pourra la reproposer (« Réessayer »
+            // côté client) : le registre ne doit pas l'avaler (voir l'expiration ci-dessous).
+            forgetProposal(rideId);
             setResolutionMessage('Cette course n’est plus à prendre.');
             updateDecision('resolved');
           }
@@ -311,6 +314,10 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
       }
 
       if (isProposalExpiredMessage(message) && message.payload.rideId === rideId) {
+        // Une course expirée peut revenir : le client appuie sur « Réessayer » et le serveur la
+        // repropose au plus proche -- souvent ce même chauffeur. Constaté sur émulateur le 24
+        // octobre : marquée traitée, elle était avalée en silence. Même règle que le refus.
+        forgetProposal(rideId);
         const wasAccepting = decisionRef.current === 'accepting';
         setResolutionMessage(
           wasAccepting
