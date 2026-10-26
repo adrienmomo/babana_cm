@@ -114,7 +114,18 @@ export function buildLeafletHtml(input: LeafletState & { tileUrlTemplate: string
     lastCenter = state.center;
     if (changed && !framed) map.setView([state.center.latitude, state.center.longitude], map.getZoom());
   };
+  // Seul un geste du doigt (glisser, pincer) est une désignation : un recentrage programmé (prop
+  // « centre », cadrage d'un tracé) ne doit jamais être relayé comme un choix de l'utilisateur --
+  // sinon l'arrivée se remplissait seule avec le départ à l'ouverture de l'accueil Client.
+  var userGesture = false;
+  var markGesture = function () { userGesture = true; };
+  var container = map.getContainer();
+  container.addEventListener('touchstart', markGesture, { passive: true });
+  container.addEventListener('mousedown', markGesture);
+  container.addEventListener('wheel', markGesture, { passive: true });
   map.on('moveend', function () {
+    if (!userGesture) return;
+    userGesture = false;
     var c = map.getCenter();
     post({ type: 'moveend', latitude: c.lat, longitude: c.lng });
   });

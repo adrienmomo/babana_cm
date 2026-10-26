@@ -68,6 +68,16 @@ describe('buildLeafletHtml', () => {
     expect(html()).toContain('lastCenter');
   });
 
+  // 25 octobre : à l'ouverture de l'accueil Client, le recentrage programmé sur la position GPS
+  // était relayé comme un déplacement de l'utilisateur -- l'arrivée se remplissait seule avec le
+  // point de départ. Seul un geste du doigt (glisser, pincer) est une désignation.
+  test("ne signale un déplacement que s'il vient d'un geste de l'utilisateur, jamais d'un recentrage programmé", () => {
+    const out = html();
+    expect(out).toContain('userGesture');
+    expect(out).toContain("'touchstart'");
+    expect(out).toMatch(/if \(!userGesture\) return;/);
+  });
+
   test('désactive les contrôles de zoom par défaut inutiles au pouce et signale les déplacements', () => {
     const out = html();
     expect(out).toContain('moveend');
