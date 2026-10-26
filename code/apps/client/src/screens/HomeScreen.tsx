@@ -308,9 +308,6 @@ export function HomeScreen({ navigation }: Props) {
         </View>
         {geocoding ? <ActivityIndicator style={styles.geocoding} size="small" /> : null}
       </View>
-      {/* Doute L6-06 §1 : le libellé du géocodage inverse est une approximation, jamais un fait
-          -- ce rappel reste visible en permanence, pas seulement pendant le géocodage. */}
-      <Text style={styles.mapTruthHint}>📍 C’est le point sur la carte qui fait foi, le libellé n’est qu’une indication.</Text>
 
       <View style={styles.driversSection}>
         {/* 24 octobre : aucun message quand personne n'est à proximité, aucun bouton
@@ -320,11 +317,14 @@ export function HomeScreen({ navigation }: Props) {
             {`Votre demande n’a pas été prise en compte, nouvelle tentative dans ${Math.ceil(subscribeRefusal.retryAfterMs / 1000)} s.`}
           </Text>
         ) : nearbyDrivers.length === 0 ? null : (
-          <Text style={styles.driversCount} testID="nearby-count">
-            {nearbyDrivers.length === 1
-              ? '1 chauffeur disponible à proximité'
-              : `${nearbyDrivers.length} chauffeurs disponibles à proximité`}
-          </Text>
+          // Maquette produit (25 octobre) : le libellé à gauche, la pastille « N en ligne » à droite.
+          <View style={styles.driversRow} testID="nearby-count">
+            <Text style={styles.driversLabel}>{nearbyDrivers.length === 1 ? 'Moto disponible' : 'Motos disponibles'}</Text>
+            <View style={styles.onlineBadge}>
+              <View style={styles.onlineDot} testID="nearby-online-dot" />
+              <Text style={styles.onlineText}>{`${nearbyDrivers.length} en ligne`}</Text>
+            </View>
+          </View>
         )}
       </View>
 
@@ -396,10 +396,6 @@ const styles = StyleSheet.create({
     flex: 1,
     color: '#92400E',
   },
-  mapTruthHint: {
-    fontSize: 12,
-    color: '#6B7280',
-  },
   pointTitle: {
     fontSize: 12,
     color: '#6B7280',
@@ -459,10 +455,36 @@ const styles = StyleSheet.create({
     minHeight: 40,
     justifyContent: 'center',
   },
-  driversCount: {
-    textAlign: 'center',
-    color: '#374151',
-    fontWeight: '600',
+  driversRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: '#F7F7F7',
+  },
+  driversLabel: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#111827',
+  },
+  onlineBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  // Même vert que les repères chauffeur de la carte (MAP_MARKER_COLORS.driver).
+  onlineDot: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+    backgroundColor: MAP_MARKER_COLORS.driver,
+  },
+  onlineText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: MAP_MARKER_COLORS.driver,
   },
   noDriversText: {
     textAlign: 'center',

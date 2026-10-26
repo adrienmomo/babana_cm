@@ -242,12 +242,29 @@ describe('HomeScreen (L6-06)', () => {
     await act(async () => {
       emitNearbyDrivers([driver({ position: { latitude: 4.061, longitude: 9.711 } })]);
     });
-    expect(texts(root)).toContain('1 chauffeur disponible à proximité');
+    expect(texts(root)).toContain('1 en ligne');
 
     await act(async () => {
       emitNearbyDrivers([driver({ position: { latitude: 4.061, longitude: 9.712 } }), driver({ position: { latitude: 4.061, longitude: 9.713 } })]);
     });
-    expect(texts(root)).toContain('2 chauffeurs disponibles à proximité');
+    expect(texts(root)).toContain('Motos disponibles');
+    expect(texts(root)).toContain('2 en ligne');
+  });
+
+  // 25 octobre (maquette produit) : « Moto disponible » à gauche, pastille verte « N en ligne » à
+  // droite -- plus la phrase « N chauffeur(s) disponible(s) à proximité ».
+  it('le compte des motos proches : libellé à gauche, pastille verte « N en ligne » à droite', async () => {
+    const root = await renderHome();
+    await act(async () => {
+      emitNearbyDrivers([driver()]);
+    });
+
+    const row = root.root.findByProps({ testID: 'nearby-count' });
+    const rowTexts = row.findAllByType(Text).map((n) => JSON.stringify(n.props.children)).join(' ');
+    expect(rowTexts).toContain('Moto disponible');
+    expect(rowTexts).toContain('1 en ligne');
+    expect(root.root.findAllByProps({ testID: 'nearby-online-dot' }).length).toBeGreaterThan(0);
+    expect(texts(root)).not.toContain('à proximité');
   });
 
   it("les chauffeurs proches sont anonymes : des points sur la carte, ni nom ni carte à choisir", async () => {
@@ -279,7 +296,7 @@ describe('HomeScreen (L6-06)', () => {
       emitSubscribeAck({ accepted: true, broadcastIntervalMs: 5000 });
       emitNearbyDrivers([driver({ position: { latitude: 4.061, longitude: 9.716 } })]);
     });
-    expect(texts(root)).toContain('1 chauffeur disponible à proximité');
+    expect(texts(root)).toContain('1 en ligne');
     mockSend.mockClear();
 
     // Aucun nearby.drivers pendant 3 x la cadence annoncée (5 s) : exactement le silence du
@@ -291,7 +308,7 @@ describe('HomeScreen (L6-06)', () => {
     expect(texts(root)).not.toMatch(/non mise à jour/);
     expect(root.root.findAllByProps({ testID: 'nearby-stale' })).toHaveLength(0);
     // Le dernier chauffeur connu reste affiché.
-    expect(texts(root)).toContain('1 chauffeur disponible à proximité');
+    expect(texts(root)).toContain('1 en ligne');
     // Réabonnement automatique, sur la connexion existante -- pas une reconnexion.
     expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', expect.objectContaining({ position: DOUALA }));
   });
@@ -397,10 +414,13 @@ describe('HomeScreen (L6-06)', () => {
     expect(texts(root)).toContain('vers Bonamoussadi, Douala');
   });
 
-  it('le rappel "le point sur la carte fait foi" est toujours visible (doute L6-06 §1)', async () => {
+  // 25 octobre (demande produit) : le rappel « c'est le point sur la carte qui fait foi » (doute
+  // L6-06 §1) est retiré -- la carte reprend sa place. Le libellé reste préfixé « vers » quand il
+  // vient du géocodage inverse : c'est lui qui dit encore que ce n'est qu'une approximation.
+  it('le rappel « le point sur la carte fait foi » n’est plus affiché : la carte prend sa place', async () => {
     const root = await renderHome();
 
-    expect(texts(root)).toContain('C’est le point sur la carte qui fait foi, le libellé n’est qu’une indication.');
+    expect(texts(root)).not.toContain('qui fait foi');
   });
 
   it("un accusé de réception refusé (limitation de débit) affiche un message distinct de « aucun chauffeur à proximité » (doute L6-06 §3)", async () => {
@@ -448,6 +468,6 @@ describe('HomeScreen (L6-06)', () => {
     });
 
     expect(root.root.findAllByProps({ testID: 'subscribe-refused' })).toHaveLength(0);
-    expect(texts(root)).toContain('1 chauffeur disponible à proximité');
+    expect(texts(root)).toContain('1 en ligne');
   });
 });
