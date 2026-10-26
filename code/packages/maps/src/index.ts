@@ -1,4 +1,5 @@
 export * from './types';
+export { MAP_MARKER_COLORS } from './markerColors';
 export { MapView } from './MapView';
 export { openNavigation } from './navigation';
 export { searchPlace, reverseGeocode } from './places';

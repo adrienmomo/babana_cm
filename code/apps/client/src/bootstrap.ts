@@ -1,5 +1,5 @@
 import { configureMapsProvider } from '@babana/maps';
-import { GOOGLE_MAPS_API_KEY, MAP_TILE_URL, MAPS_SEARCH_URL } from '../config';
+import { GOOGLE_MAPS_API_KEY, MAP_TILE_ATTRIBUTION, MAP_TILE_URL, MAPS_SEARCH_URL } from '../config';
 
 /**
  * Point d'accroche unique et nommé pour toute configuration à effectuer une seule fois, au tout
@@ -11,6 +11,11 @@ let bootstrapped = false;
 
 export function bootstrap(): void {
   if (bootstrapped) return;
-  configureMapsProvider({ apiKey: GOOGLE_MAPS_API_KEY, searchUrl: MAPS_SEARCH_URL, tileUrl: MAP_TILE_URL });
+  configureMapsProvider({
+    apiKey: GOOGLE_MAPS_API_KEY,
+    searchUrl: MAPS_SEARCH_URL,
+    tileUrl: MAP_TILE_URL,
+    tileAttribution: MAP_TILE_ATTRIBUTION,
+  });
   bootstrapped = true;
 }

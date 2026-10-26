@@ -63,3 +63,11 @@ export const MAPS_SEARCH_URL = process.env.BABANA_MAPS_SEARCH_URL || undefined;
  * (`activeProvider.web.ts`). `make client` / `make client-app` posent la valeur de développement.
  */
 export const MAP_TILE_URL = process.env.BABANA_MAP_TILE_URL || undefined;
+
+/**
+ * Crédit exigé par la licence du fournisseur de tuiles (affiché en bas de la carte), requis dès
+ * que `BABANA_MAP_TILE_URL` est posée : `@babana/maps` refuse une adresse de tuiles sans crédit
+ * (D43, aucun texte par défaut qui citerait le mauvais fournisseur). `make driver` / `make client`
+ * posent celui d'OpenStreetMap avec l'adresse de développement.
+ */
+export const MAP_TILE_ATTRIBUTION = process.env.BABANA_MAP_TILE_ATTRIBUTION || undefined;

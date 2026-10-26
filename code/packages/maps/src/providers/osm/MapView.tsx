@@ -18,15 +18,16 @@ import { buildLeafletHtml, updateScript } from './leafletHtml';
  */
 export interface OsmMapViewProps extends MapViewProps {
   tileUrlTemplate: string;
+  tileAttribution: string;
 }
 
-export function OsmMapView({ center, markers = [], route, onRegionChange, style, tileUrlTemplate }: OsmMapViewProps) {
+export function OsmMapView({ center, markers = [], route, onRegionChange, style, tileUrlTemplate, tileAttribution }: OsmMapViewProps) {
   const webViewRef = useRef<{ injectJavaScript: (script: string) => void } | null>(null);
   const loaded = useRef(false);
 
   // Figé au premier rendu, volontairement.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const html = useMemo(() => buildLeafletHtml({ tileUrlTemplate, center, markers, route }), []);
+  const html = useMemo(() => buildLeafletHtml({ tileUrlTemplate, tileAttribution, center, markers, route }), []);
 
   const push = useCallback(() => {
     if (!loaded.current) return;

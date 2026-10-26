@@ -2,7 +2,7 @@ import React from 'react';
 import type { MapProvider, MapViewProps } from './types';
 import { googleMapProvider } from './providers/google';
 import { OsmMapView } from './providers/osm/MapView';
-import { getMapTileUrl } from './providers/osm/config';
+import { getMapTiles } from './providers/osm/config';
 
 /**
  * Le seul endroit qui choisit un fournisseur concret. Natif : la carte est celle d'OpenStreetMap
@@ -13,9 +13,9 @@ import { getMapTileUrl } from './providers/osm/config';
  * `MapView.tsx`, `navigation.ts` et `places.ts` ne font que relayer `activeMapProvider`.
  */
 function ConfiguredMapView(props: MapViewProps) {
-  const tileUrl = getMapTileUrl();
-  return tileUrl
-    ? React.createElement(OsmMapView, { ...props, tileUrlTemplate: tileUrl })
+  const tiles = getMapTiles();
+  return tiles
+    ? React.createElement(OsmMapView, { ...props, tileUrlTemplate: tiles.url, tileAttribution: tiles.attribution })
     : React.createElement(googleMapProvider.MapView, props);
 }
 

@@ -1,5 +1,5 @@
 import { configureMapsProvider } from '@babana/maps';
-import { GOOGLE_MAPS_API_KEY, MAP_TILE_URL, ROUTING_URL } from '../config';
+import { GOOGLE_MAPS_API_KEY, MAP_TILE_ATTRIBUTION, MAP_TILE_URL, ROUTING_URL } from '../config';
 import { configureProposalAlerts } from './proposalAlert';
 import { locationTracker } from './location';
 
@@ -12,7 +12,12 @@ let bootstrapped = false;
 
 export function bootstrap(): void {
   if (bootstrapped) return;
-  configureMapsProvider({ apiKey: GOOGLE_MAPS_API_KEY, tileUrl: MAP_TILE_URL, routingUrl: ROUTING_URL });
+  configureMapsProvider({
+    apiKey: GOOGLE_MAPS_API_KEY,
+    tileUrl: MAP_TILE_URL,
+    tileAttribution: MAP_TILE_ATTRIBUTION,
+    routingUrl: ROUTING_URL,
+  });
   configureProposalAlerts();
   locationTracker.start();
   bootstrapped = true;

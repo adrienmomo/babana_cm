@@ -50,6 +50,14 @@ export const GOOGLE_MAPS_API_KEY = process.env.BABANA_GOOGLE_MAPS_API_KEY || '';
 export const MAP_TILE_URL = process.env.BABANA_MAP_TILE_URL || undefined;
 
 /**
+ * Crédit exigé par la licence du fournisseur de tuiles (affiché en bas de la carte), requis dès
+ * que `BABANA_MAP_TILE_URL` est posée : `@babana/maps` refuse une adresse de tuiles sans crédit
+ * (D43, aucun texte par défaut qui citerait le mauvais fournisseur). `make driver` / `make client`
+ * posent celui d'OpenStreetMap avec l'adresse de développement.
+ */
+export const MAP_TILE_ATTRIBUTION = process.env.BABANA_MAP_TILE_ATTRIBUTION || undefined;
+
+/**
  * Service de routage (format OSRM) qui calcule l'itinéraire du chauffeur vers le client puis vers
  * la destination (`fetchRoute`, @babana/maps). Absent : la carte reste sans tracé -- jamais un
  * serveur public choisi à la place de l'exploitant (D43). `make driver` pose la valeur de

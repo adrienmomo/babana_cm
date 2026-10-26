@@ -55,6 +55,8 @@ BABANA_API_URL ?= https://api.localhost
 # Tuiles OpenStreetMap des apps natives Chauffeur et Client (développement seulement : le serveur public de la
 # fondation interdit l'usage intensif -- la production pose un fournisseur de tuiles).
 BABANA_MAP_TILE_URL ?= https://tile.openstreetmap.org/{z}/{x}/{y}.png
+# Crédit exigé par le fournisseur de tuiles ci-dessus -- requis avec BABANA_MAP_TILE_URL (D43).
+BABANA_MAP_TILE_ATTRIBUTION ?= © OSM
 # Itinéraires de l'app Chauffeur (format OSRM). Serveur de démonstration public : développement
 # seulement, usage léger -- la production pose le service de routage retenu.
 BABANA_ROUTING_URL ?= https://router.project-osrm.org
@@ -68,19 +70,19 @@ DRIVER_RIDE_FLOW_ENV = BABANA_ARRIVAL_RADIUS_METERS="$(BABANA_ARRIVAL_RADIUS_MET
 BABANA_REALTIME_WS_URL ?= wss://api.localhost/rt/ws
 
 client:          ## Démarre l'app Client (bundler React Native)
-	BABANA_GOOGLE_MAPS_API_KEY="$(BABANA_GOOGLE_MAPS_API_KEY)" BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/client  -- --port 8081 --reset-cache
+	BABANA_GOOGLE_MAPS_API_KEY="$(BABANA_GOOGLE_MAPS_API_KEY)" BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_MAP_TILE_ATTRIBUTION="$(BABANA_MAP_TILE_ATTRIBUTION)" BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/client  -- --port 8081 --reset-cache
 
 client-app:          ## Démarre l'app Client (bundler React Native et emulateur)
-	BABANA_GOOGLE_MAPS_API_KEY="$(BABANA_GOOGLE_MAPS_API_KEY)" BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run android -w @babana/client -- --port 8081
+	BABANA_GOOGLE_MAPS_API_KEY="$(BABANA_GOOGLE_MAPS_API_KEY)" BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_MAP_TILE_ATTRIBUTION="$(BABANA_MAP_TILE_ATTRIBUTION)" BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run android -w @babana/client -- --port 8081
 
 client-web:      ## Construit le bundle web du Client dans apps/client/dist-web (servi par Caddy, D46)
 	BABANA_GOOGLE_MAPS_API_KEY="$(BABANA_GOOGLE_MAPS_API_KEY)" BABANA_MAPS_SEARCH_URL="$(BABANA_MAPS_SEARCH_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run build:web -w @babana/client
 
 driver:          ## Démarre l'app Chauffeur
-	$(DRIVER_RIDE_FLOW_ENV) BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_ROUTING_URL="$(BABANA_ROUTING_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/driver  -- --port 8083 --reset-cache
+	$(DRIVER_RIDE_FLOW_ENV) BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_MAP_TILE_ATTRIBUTION="$(BABANA_MAP_TILE_ATTRIBUTION)" BABANA_ROUTING_URL="$(BABANA_ROUTING_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run start -w @babana/driver  -- --port 8083 --reset-cache
 
 driver-app:          ## Démarre l'app Chauffeur (bundler React Native et emulateur)
-	$(DRIVER_RIDE_FLOW_ENV) BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_ROUTING_URL="$(BABANA_ROUTING_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run android -w @babana/driver -- --port 8083
+	$(DRIVER_RIDE_FLOW_ENV) BABANA_MAP_TILE_URL="$(BABANA_MAP_TILE_URL)" BABANA_MAP_TILE_ATTRIBUTION="$(BABANA_MAP_TILE_ATTRIBUTION)" BABANA_ROUTING_URL="$(BABANA_ROUTING_URL)" BABANA_API_URL="$(BABANA_API_URL)" BABANA_REALTIME_WS_URL="$(BABANA_REALTIME_WS_URL)" npm run android -w @babana/driver -- --port 8083
 
 test:            ## Tests de tous les paquets et services, plus la suite Odoo
 	# La suite Odoo (module babana, jamais installé par `make up` seul) vient AVANT `npm test` :
