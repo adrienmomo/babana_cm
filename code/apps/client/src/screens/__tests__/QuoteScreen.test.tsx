@@ -42,6 +42,7 @@ function quoteResponse(overrides: Partial<http.QuoteResponse> = {}): http.QuoteR
     currency: 'XAF',
     breakdown: {
       baseFare: 200,
+      approachFare: 0,
       distanceFare: 1000,
       surgeAmount: 0,
       discountAmount: 0,
@@ -50,6 +51,7 @@ function quoteResponse(overrides: Partial<http.QuoteResponse> = {}): http.QuoteR
       minimumFareApplied: false,
     },
     distanceMeters: 4200,
+    approachDistanceMeters: 1500,
     etaSeconds: 780,
     promoApplied: false,
     expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
@@ -133,6 +135,27 @@ describe('QuoteScreen (L6-07)', () => {
     expect(texts(root)).toContain(fcfa(1000));
   });
 
+  it('la prise en charge (approche moyenne) et le forfait sont deux lignes distinctes, avant « Commander »', async () => {
+    mockRequest.mockImplementation(async (name: string) => {
+      if (name === 'quote') {
+        return quoteResponse({
+          amount: 1275,
+          breakdown: { ...quoteResponse().breakdown, baseFare: 200, approachFare: 75, distanceFare: 1000 },
+        });
+      }
+      throw new Error('unexpected');
+    });
+
+    const { root } = await renderQuote();
+
+    expect(texts(root)).toContain(fcfa(1275));
+    expect(texts(root)).toContain('Prise en charge');
+    expect(texts(root)).toContain(fcfa(75));
+    expect(texts(root)).toContain('Forfait');
+    expect(texts(root)).toContain(fcfa(200));
+    expect(root.root.findByProps({ testID: 'order-button' }).props.disabled).toBe(false);
+  });
+
   it('les composantes non nulles du détail somment exactement le total affiché', async () => {
     mockRequest.mockImplementation(async (name: string) => {
       if (name === 'quote') {
@@ -140,6 +163,7 @@ describe('QuoteScreen (L6-07)', () => {
           amount: 1450,
           breakdown: {
             baseFare: 200,
+            approachFare: 0,
             distanceFare: 1000,
             surgeAmount: 300,
             discountAmount: 100,

@@ -31,7 +31,14 @@ export type QuoteRequest = z.infer<typeof QuoteRequestSchema>;
  * en implémentant L2-04, voir amoa/questions/L2-04.md.
  */
 export const FareBreakdownSchema = z.object({
+  /** Forfait fixe de la règle (base_fare). */
   baseFare: MoneyAmountSchema,
+  /**
+   * Prise en charge : distance routière MOYENNE des chauffeurs disponibles jusqu'au départ, au
+   * prix au km d'approche (plus léger que celui de la course) -- mesurée à l'estimation et gelée
+   * avec elle (demande produit du 26 octobre). 0 sur les courses tarifées avant ce changement.
+   */
+  approachFare: MoneyAmountSchema,
   distanceFare: MoneyAmountSchema,
   surgeAmount: z.number().int(),
   discountAmount: MoneyAmountSchema,
@@ -47,6 +54,8 @@ export const QuoteResponseSchema = z.object({
   currency: z.literal('XAF'),
   breakdown: FareBreakdownSchema,
   distanceMeters: z.number().int().nonnegative(),
+  /** Distance d'approche moyenne facturée en prise en charge (voir `breakdown.approachFare`). */
+  approachDistanceMeters: z.number().int().nonnegative(),
   /** Distance et durée voiture (É8) : ni Google ni Mapbox ne calculent d'itinéraire deux-roues au Cameroun. */
   etaSeconds: z.number().int().nonnegative(),
   /**
@@ -73,10 +82,11 @@ export const quoteRequestExample: QuoteRequest = {
 
 export const quoteResponseExample: QuoteResponse = {
   quoteId: '7c9e2a1b-3d4e-4f5a-9b8c-1d2e3f4a5b6c',
-  amount: 1200,
+  amount: 1300,
   currency: 'XAF',
   breakdown: {
     baseFare: 200,
+    approachFare: 100,
     distanceFare: 1000,
     surgeAmount: 0,
     discountAmount: 0,
@@ -85,6 +95,7 @@ export const quoteResponseExample: QuoteResponse = {
     minimumFareApplied: false,
   },
   distanceMeters: 4200,
+  approachDistanceMeters: 2000,
   etaSeconds: 780,
   promoApplied: false,
   expiresAt: '2026-08-10T07:30:00+01:00',

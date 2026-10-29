@@ -41,7 +41,8 @@ INVOICE_EMAIL_STATE_SELECTION = [
 # n'afficherait ni prise en charge ni distance serait suspecte) ; les autres n'apparaissent que
 # non nulles, sans quoi la plupart des factures porteraient une ligne "Majoration : 0 FCFA".
 _FARE_LINES = (
-    ("baseFare", "Prise en charge", False, True),
+    ("baseFare", "Forfait", False, False),
+    ("approachFare", "Prise en charge", False, True),
     ("distanceFare", "Distance", False, True),
     ("surgeAmount", "Majoration", False, False),
     ("discountAmount", "Remise", True, False),

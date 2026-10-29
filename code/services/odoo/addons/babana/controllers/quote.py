@@ -13,9 +13,10 @@ from datetime import timedelta
 from odoo import fields, http
 
 from . import _common
-from ..services import routing
+from ..services import approach, routing
 from ..models.babana_quote import QUOTE_VALIDITY_DEFAULT, QUOTE_VALIDITY_PARAM
-from ..services.pricing import FareRuleInput, compute_fare, round_breakdown_for_wire
+from ..services.dispatch import DISPATCH_RADIUS_DEFAULT, DISPATCH_RADIUS_PARAM, _positive_int_param
+from ..services.pricing import compute_fare, round_breakdown_for_wire
 
 _logger = logging.getLogger(__name__)
 
@@ -74,19 +75,27 @@ class QuoteController(http.Controller):
             at_datetime=now,
         )
 
-        rounding_step = env["babana.fare.rule"].sudo()._default_rounding_step()
-        rule_input = FareRuleInput(
-            base_fare=rule.base_fare,
-            price_per_km=rule.price_per_km,
-            minimum_fare=rule.minimum_fare,
-            surge_multiplier=rule.surge_multiplier,
+        # Prise en charge : distance routière MOYENNE des chauffeurs disponibles, dans le rayon où
+        # l'affectation les chercherait -- mesurée maintenant et gelée avec l'estimation.
+        approach_estimate = approach.average_approach(
+            env,
+            pickup=origin,
+            radius_meters=_positive_int_param(env, DISPATCH_RADIUS_PARAM, DISPATCH_RADIUS_DEFAULT),
         )
+
+        rounding_step = env["babana.fare.rule"].sudo()._default_rounding_step()
+        rule_input = rule._pricing_input()
         # promoCode : babana.promotion (L2-06) n'existe pas encore -- un code fourni reste sans
         # effet (promo_applied=False), jamais une erreur (critère d'acceptation 5). Voir
         # amoa/questions/L2-04.md.
         promo_code = body.get("promoCode")
         promo_applied = False
-        breakdown = compute_fare(rule_input, route.distance_meters, rounding_step=rounding_step)
+        breakdown = compute_fare(
+            rule_input,
+            route.distance_meters,
+            rounding_step=rounding_step,
+            approach_distance_m=approach_estimate.distance_meters,
+        )
 
         eta_factor = float(
             env["ir.config_parameter"].sudo().get_param(
@@ -115,6 +124,8 @@ class QuoteController(http.Controller):
                 "vehicle_class": vehicle_class,
                 "distance_meters": route.distance_meters,
                 "duration_seconds": route.duration_seconds,
+                "approach_distance_meters": approach_estimate.distance_meters,
+                "approach_driver_count": approach_estimate.driver_count,
                 "eta_seconds": eta_seconds,
                 "fare_rule_id": rule.id,
                 "fare_rule_snapshot": json.dumps(breakdown_dict),
@@ -133,6 +144,7 @@ class QuoteController(http.Controller):
             "currency": "XAF",
             "breakdown": wire_breakdown,
             "distanceMeters": route.distance_meters,
+            "approachDistanceMeters": approach_estimate.distance_meters,
             "etaSeconds": eta_seconds,
             "promoApplied": promo_applied,
             "expiresAt": _common.iso_datetime(expires_at),

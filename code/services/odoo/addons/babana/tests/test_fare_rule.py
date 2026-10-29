@@ -194,3 +194,20 @@ class TestBabanaFareRule(TransactionCase):
     def test_minimum_fare_field_is_never_negative(self):
         with self.assertRaises(Exception):
             self._make_rule(minimum_fare=-1.0)
+
+    # --- Prise en charge par approche (26 octobre) ---------------------------------------------
+
+    def test_approach_rate_is_versioned_like_the_other_pricing_fields(self):
+        rule = self._make_rule(approach_price_per_km=40.0)
+        self._make_ride_using(rule)
+
+        with self.assertRaises(UserError):
+            rule.write({"approach_price_per_km": 60.0})
+
+    def test_approach_rate_never_exceeds_the_ride_rate(self):
+        with self.assertRaises(Exception), self.env.cr.savepoint():
+            self._make_rule(price_per_km=100.0, approach_price_per_km=150.0)
+
+    def test_pricing_input_carries_the_approach_rate(self):
+        rule = self._make_rule(approach_price_per_km=40.0)
+        self.assertEqual(rule._pricing_input().approach_price_per_km, 40.0)

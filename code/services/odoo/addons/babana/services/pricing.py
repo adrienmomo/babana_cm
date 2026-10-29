@@ -18,6 +18,9 @@ class FareRuleInput:
     price_per_km: float
     minimum_fare: float
     surge_multiplier: float = 1.0
+    # Prix au km de la distance d'approche moyenne (prise en charge, D-suivant proposée le 26
+    # octobre) -- plus léger que price_per_km : la distance de la course pèse davantage.
+    approach_price_per_km: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -45,10 +48,14 @@ class FareBreakdown:
     rounding_amount: float
     minimum_fare_applied: bool
     total: float
+    # Défaut 0.0 et en dernier : les détails gelés avant la prise en charge par approche
+    # (fare_rule_snapshot des courses et estimations anciennes) se relisent sans ce champ.
+    approach_fare: float = 0.0
 
     def sum_matches_total(self) -> bool:
         return math.isclose(
             self.base_fare
+            + self.approach_fare
             + self.distance_fare
             + self.surge_amount
             - self.discount_amount
@@ -64,15 +71,24 @@ def compute_fare(
     distance_m: float,
     *,
     rounding_step: float,
+    approach_distance_m: float = 0.0,
     promotion: PromotionInput | None = None,
 ) -> FareBreakdown:
     """Calcule le montant d'une course (L2-03), dans l'ordre imposé par la spécification :
-    1. base + distance x prix au km ; 2. coefficient d'heure de pointe ; 3. promotion
-    éventuelle ; 4. plancher, après la promotion ; 5. arrondi FCFA au pas configuré."""
+    1. base + approche moyenne x prix au km d'approche + distance x prix au km ; 2. coefficient
+    d'heure de pointe ; 3. promotion éventuelle ; 4. plancher, après la promotion ; 5. arrondi
+    FCFA au pas configuré.
+
+    `approach_distance_m` est la distance routière MOYENNE des chauffeurs disponibles jusqu'au
+    point de prise en charge, mesurée par l'appelant au moment de l'estimation
+    (services/approach.py) et gelée avec elle -- jamais celle du chauffeur finalement affecté,
+    inconnue au moment où le prix est montré."""
     distance_km = distance_m / 1000.0
     distance_fare = distance_km * rule.price_per_km
-    subtotal = (rule.base_fare + distance_fare) * rule.surge_multiplier
-    surge_amount = subtotal - (rule.base_fare + distance_fare)
+    approach_fare = (approach_distance_m / 1000.0) * rule.approach_price_per_km
+    before_surge = rule.base_fare + approach_fare + distance_fare
+    subtotal = before_surge * rule.surge_multiplier
+    surge_amount = subtotal - before_surge
 
     discount_amount = _compute_discount(subtotal, promotion) if promotion is not None else 0.0
     after_discount = subtotal - discount_amount
@@ -95,6 +111,7 @@ def compute_fare(
         rounding_amount=rounding_amount,
         minimum_fare_applied=minimum_fare_applied,
         total=total,
+        approach_fare=approach_fare,
     )
 
 
@@ -113,14 +130,16 @@ def round_breakdown_for_wire(breakdown: FareBreakdown) -> dict:
     le modèle babana.ride, sans faire dépendre un modèle d'un contrôleur (mauvais sens de
     dépendance)."""
     base = round(breakdown.base_fare)
+    approach = round(breakdown.approach_fare)
     distance = round(breakdown.distance_fare)
     surge = round(breakdown.surge_amount)
     discount = round(breakdown.discount_amount)
     floor = round(breakdown.floor_amount)
     total = round(breakdown.total)
-    rounding = total - (base + distance + surge - discount + floor)
+    rounding = total - (base + approach + distance + surge - discount + floor)
     return {
         "baseFare": base,
+        "approachFare": approach,
         "distanceFare": distance,
         "surgeAmount": surge,
         "discountAmount": discount,

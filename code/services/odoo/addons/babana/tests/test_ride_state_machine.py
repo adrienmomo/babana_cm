@@ -469,6 +469,8 @@ class TestRideStateMachine(TransactionCase):
             amount=1200,
             breakdown={
                 "baseFare": 200,
+                # Détail gelé avant la prise en charge par approche : relu à 0 (pricing.py).
+                "approachFare": 0,
                 "distanceFare": 1000,
                 "surgeAmount": 0,
                 "discountAmount": 0,

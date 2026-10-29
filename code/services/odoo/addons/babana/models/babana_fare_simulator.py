@@ -7,8 +7,9 @@ from __future__ import annotations
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 
-from ..services import routing
-from ..services.pricing import FareRuleInput, compute_fare
+from ..services import approach, routing
+from ..services.dispatch import DISPATCH_RADIUS_DEFAULT, DISPATCH_RADIUS_PARAM, _positive_int_param
+from ..services.pricing import compute_fare
 
 
 class BabanaFareSimulator(models.TransientModel):
@@ -41,6 +42,9 @@ class BabanaFareSimulator(models.TransientModel):
     )
     fare_rule_id = fields.Many2one("babana.fare.rule", readonly=True, string="Règle appliquée")
     distance_meters = fields.Integer(readonly=True, string="Distance de référence (m)")
+    approach_distance_meters = fields.Integer(
+        readonly=True, string="Approche moyenne des chauffeurs disponibles (m)"
+    )
     amount = fields.Float(readonly=True, string="Montant simulé (FCFA)")
     breakdown_text = fields.Text(readonly=True, string="Détail décomposé")
     simulated = fields.Boolean(default=False)
@@ -64,16 +68,26 @@ class BabanaFareSimulator(models.TransientModel):
         except routing.RouteUnavailable as exc:
             raise UserError(str(exc)) from exc
 
-        rounding_step = self.env["babana.fare.rule"]._default_rounding_step()
-        rule_input = FareRuleInput(
-            base_fare=rule.base_fare,
-            price_per_km=rule.price_per_km,
-            minimum_fare=rule.minimum_fare,
-            surge_multiplier=rule.surge_multiplier,
+        approach_estimate = approach.average_approach(
+            self.env,
+            pickup=(self.pickup_latitude, self.pickup_longitude),
+            radius_meters=_positive_int_param(self.env, DISPATCH_RADIUS_PARAM, DISPATCH_RADIUS_DEFAULT),
         )
-        breakdown = compute_fare(rule_input, route.distance_meters, rounding_step=rounding_step)
+        rounding_step = self.env["babana.fare.rule"]._default_rounding_step()
+        breakdown = compute_fare(
+            rule._pricing_input(),
+            route.distance_meters,
+            rounding_step=rounding_step,
+            approach_distance_m=approach_estimate.distance_meters,
+        )
         lines = [
-            "Prise en charge : %.0f FCFA" % breakdown.base_fare,
+            "Forfait : %.0f FCFA" % breakdown.base_fare,
+            "Prise en charge (approche moyenne %s m%s) : %.0f FCFA"
+            % (
+                approach_estimate.distance_meters,
+                "" if approach_estimate.driver_count else ", valeur de repli",
+                breakdown.approach_fare,
+            ),
             "Distance : %.0f FCFA" % breakdown.distance_fare,
             "Heure de pointe : %.0f FCFA" % breakdown.surge_amount,
             "Remise : -%.0f FCFA" % breakdown.discount_amount,
@@ -87,6 +101,7 @@ class BabanaFareSimulator(models.TransientModel):
                 "pickup_zone_id": pickup_zone.id,
                 "fare_rule_id": rule.id,
                 "distance_meters": route.distance_meters,
+                "approach_distance_meters": approach_estimate.distance_meters,
                 "amount": breakdown.total,
                 "breakdown_text": "\n".join(lines),
                 "simulated": True,

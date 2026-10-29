@@ -9,6 +9,7 @@ import pytz
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 
+from ..services.pricing import FareRuleInput
 from .res_users import DEFAULT_ACCOUNT_TZ_FALLBACK, DEFAULT_ACCOUNT_TZ_PARAM
 
 # D21 : valeur par défaut plausible, explicitement provisoire (L2-03). Le vrai pas vient du
@@ -31,6 +32,7 @@ FARE_ROUNDING_STEP_FALLBACK = 25.0
 _VERSIONED_FIELDS = {
     "base_fare",
     "price_per_km",
+    "approach_price_per_km",
     "minimum_fare",
     "zone_id",  # amoa/questions/L2-01.md : ajouté par L2-02, déjà dans cet ensemble par avance.
     "vehicle_class",
@@ -50,8 +52,16 @@ class BabanaFareRule(models.Model):
     _order = "priority desc, create_date desc, id desc"
 
     name = fields.Char(required=True)
-    base_fare = fields.Float(string="Prise en charge (FCFA)", required=True)
+    base_fare = fields.Float(string="Forfait de base (FCFA)", required=True)
     price_per_km = fields.Float(string="Prix au kilomètre (FCFA)", required=True)
+    approach_price_per_km = fields.Float(
+        string="Prise en charge : prix au km d'approche (FCFA)",
+        default=50.0,
+        help="Appliqué à la distance routière MOYENNE des chauffeurs disponibles jusqu'au point "
+        "de prise en charge, mesurée à l'estimation (services/approach.py). Jamais supérieur au "
+        "prix au kilomètre de la course : la distance de la course pèse davantage. Défaut "
+        "provisoire (D21).",
+    )
     minimum_fare = fields.Float(string="Montant plancher (FCFA)", required=True)
     zone_id = fields.Many2one(
         "babana.zone",
@@ -126,7 +136,25 @@ class BabanaFareRule(models.Model):
             "check(base_fare >= 0 and price_per_km >= 0 and minimum_fare >= 0)",
             "Les montants d'une règle tarifaire ne peuvent pas être négatifs.",
         ),
+        (
+            "babana_fare_rule_approach_lighter_than_ride",
+            "check(approach_price_per_km >= 0 and approach_price_per_km <= price_per_km)",
+            "Le prix au km d'approche doit être positif et ne jamais dépasser le prix au km de "
+            "la course.",
+        ),
     ]
+
+    def _pricing_input(self):
+        """Vue pure de la règle pour services/pricing.py -- une seule correspondance, partagée par
+        l'estimation (controllers/quote.py) et le simulateur (babana_fare_simulator.py)."""
+        self.ensure_one()
+        return FareRuleInput(
+            base_fare=self.base_fare,
+            price_per_km=self.price_per_km,
+            minimum_fare=self.minimum_fare,
+            surge_multiplier=self.surge_multiplier,
+            approach_price_per_km=self.approach_price_per_km,
+        )
 
     @api.model
     def _default_rounding_step(self) -> float:
@@ -249,6 +277,7 @@ class BabanaFareRule(models.Model):
                 "default_name": self.name,
                 "default_base_fare": self.base_fare,
                 "default_price_per_km": self.price_per_km,
+                "default_approach_price_per_km": self.approach_price_per_km,
                 "default_minimum_fare": self.minimum_fare,
                 "default_zone_id": self.zone_id.id,
                 "default_vehicle_class": self.vehicle_class,

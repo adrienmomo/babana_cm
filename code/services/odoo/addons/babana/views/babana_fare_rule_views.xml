@@ -18,6 +18,7 @@
                 <field name="zone_id"/>
                 <field name="base_fare"/>
                 <field name="price_per_km"/>
+                <field name="approach_price_per_km"/>
                 <field name="minimum_fare"/>
                 <field name="surge_multiplier"/>
                 <field name="priority"/>
@@ -69,6 +70,7 @@
                             <field name="name"/>
                             <field name="base_fare" readonly="locked_by_usage"/>
                             <field name="price_per_km" readonly="locked_by_usage"/>
+                            <field name="approach_price_per_km" readonly="locked_by_usage"/>
                             <field name="minimum_fare" readonly="locked_by_usage"/>
                             <field name="surge_multiplier" readonly="locked_by_usage"/>
                         </group>
@@ -143,6 +145,7 @@
                         <field name="pickup_zone_id"/>
                         <field name="fare_rule_id"/>
                         <field name="distance_meters"/>
+                        <field name="approach_distance_meters"/>
                         <field name="amount"/>
                         <field name="breakdown_text" widget="text"/>
                     </group>
@@ -180,6 +183,7 @@
                             <field name="name"/>
                             <field name="base_fare"/>
                             <field name="price_per_km"/>
+                            <field name="approach_price_per_km"/>
                             <field name="minimum_fare"/>
                             <field name="surge_multiplier"/>
                         </group>

@@ -25,6 +25,7 @@ const RIDE_ID = asRideId('ride-1');
 
 const BREAKDOWN = {
   baseFare: 200,
+  approachFare: 0,
   distanceFare: 1000,
   surgeAmount: 300,
   discountAmount: 100,

@@ -8,10 +8,13 @@ from __future__ import annotations
 
 import json
 import os
+from unittest.mock import patch
 
 import requests
 
 from odoo.tests.common import HttpCase, tagged
+
+from ..services import realtime_client, routing
 
 
 def _mock_google_base_url() -> str:
@@ -107,15 +110,68 @@ class TestQuoteController(HttpCase):
         self.assertEqual(response.status_code, 200)
         breakdown = response.json()["breakdown"]
         for key in (
-            "baseFare", "distanceFare", "surgeAmount", "discountAmount", "floorAmount",
-            "roundingAmount", "minimumFareApplied",
+            "baseFare", "approachFare", "distanceFare", "surgeAmount", "discountAmount",
+            "floorAmount", "roundingAmount", "minimumFareApplied",
         ):
             self.assertIn(key, breakdown)
         total = (
-            breakdown["baseFare"] + breakdown["distanceFare"] + breakdown["surgeAmount"]
+            breakdown["baseFare"] + breakdown["approachFare"] + breakdown["distanceFare"]
+            + breakdown["surgeAmount"]
             - breakdown["discountAmount"] + breakdown["floorAmount"] + breakdown["roundingAmount"]
         )
         self.assertEqual(total, response.json()["amount"])
+
+    # --- Prise en charge : approche routière moyenne des disponibles (26 octobre) --------------
+
+    def _available_drivers(self, *positions):
+        patcher = patch.object(
+            realtime_client,
+            "fetch_nearby_drivers",
+            return_value=[
+                {"driverId": f"driver-{index}", "latitude": lat, "longitude": lng, "distanceMeters": 0}
+                for index, (lat, lng) in enumerate(positions)
+            ],
+        )
+        mock = patcher.start()
+        self.addCleanup(patcher.stop)
+        return mock
+
+    def test_prise_en_charge_is_the_average_road_approach_of_available_drivers(self):
+        positions = [(4.0550, 9.6990), (4.0400, 9.6850)]
+        nearby = self._available_drivers(*positions)
+        pickup = (_ORIGIN["latitude"], _ORIGIN["longitude"])
+        road = [
+            routing.measure_route(self.env, origin=position, destination=pickup).distance_meters
+            for position in positions
+        ]
+        token = self._sign_in_client("sub-quote-approach")
+
+        response = self._quote(token)
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        expected_average = round(sum(road) / len(road))
+        self.assertEqual(body["approachDistanceMeters"], expected_average)
+        quote = self.env["babana.quote"].sudo().search([("public_id", "=", body["quoteId"])])
+        self.assertEqual(quote.approach_driver_count, 2)
+        self.assertEqual(quote.approach_distance_meters, expected_average)
+        self.assertEqual(
+            body["breakdown"]["approachFare"],
+            round(expected_average / 1000.0 * quote.fare_rule_id.approach_price_per_km),
+        )
+        self.assertEqual(nearby.call_args.kwargs["origin"], pickup)
+
+    def test_without_any_available_driver_the_configured_fallback_distance_is_charged(self):
+        self._available_drivers()
+        self.env["ir.config_parameter"].sudo().set_param("babana.default_approach_distance_meters", "1200")
+        token = self._sign_in_client("sub-quote-approach-fallback")
+
+        response = self._quote(token)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["approachDistanceMeters"], 1200)
+        quote = self.env["babana.quote"].sudo().search([("public_id", "=", response.json()["quoteId"])])
+        self.assertEqual(quote.approach_driver_count, 0)
 
     # --- Critère 5 : un code promo invalide n'échoue pas la cotation --------------------------
 

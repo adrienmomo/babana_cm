@@ -324,6 +324,7 @@ describe('exemples valides — serveur vers client', () => {
     );
     const completedBreakdown = {
       baseFare: 200,
+      approachFare: 0,
       distanceFare: 900,
       surgeAmount: 0,
       discountAmount: 0,

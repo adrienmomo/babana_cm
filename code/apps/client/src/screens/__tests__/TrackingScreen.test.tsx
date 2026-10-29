@@ -231,6 +231,7 @@ describe('TrackingScreen (L6-09)', () => {
 
     const breakdown = {
       baseFare: 200,
+      approachFare: 0,
       distanceFare: 1000,
       surgeAmount: 0,
       discountAmount: 0,
@@ -260,6 +261,7 @@ describe('TrackingScreen (L6-09)', () => {
     const { navigation } = await renderTracking();
     const breakdown = {
       baseFare: 200,
+      approachFare: 0,
       distanceFare: 1000,
       surgeAmount: 0,
       discountAmount: 0,

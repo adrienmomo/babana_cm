@@ -47,6 +47,16 @@ class BabanaQuote(models.Model):
     duration_seconds = fields.Integer(help="Durée brute renvoyée par le routeur, avant correction.")
     eta_seconds = fields.Integer(help="Durée corrigée (facteur L10-03) -- celle affichée au client.")
 
+    # --- Prise en charge (services/approach.py) -------------------------------------------------
+    approach_distance_meters = fields.Integer(
+        help="Distance routière MOYENNE des chauffeurs disponibles jusqu'au départ, mesurée à "
+        "l'estimation -- l'entrée de la prise en charge, gelée ici pour rejouer le calcul.",
+    )
+    approach_driver_count = fields.Integer(
+        help="Nombre de chauffeurs dans la moyenne ; 0 = distance de repli "
+        "(babana.default_approach_distance_meters).",
+    )
+
     # --- Tarif figé (L2-03/L2-01) ----------------------------------------------------------------
     fare_rule_id = fields.Many2one(
         "babana.fare.rule",

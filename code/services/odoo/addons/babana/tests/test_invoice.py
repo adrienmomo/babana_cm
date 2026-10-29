@@ -93,7 +93,7 @@ class TestInvoice(TransactionCase):
         labels = lines.mapped("name")
         self.assertEqual(
             set(labels),
-            {"Prise en charge", "Distance", "Majoration", "Remise", "Arrondi"},
+            {"Forfait", "Prise en charge", "Distance", "Majoration", "Remise", "Arrondi"},
             "l'ajustement plancher est nul : il ne doit pas apparaître (règle de "
             "visibleFareLines, apps/client/src/components/fareBreakdown.ts)",
         )

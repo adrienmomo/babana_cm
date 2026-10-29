@@ -14,8 +14,9 @@ class BabanaFareRuleVersionWizard(models.TransientModel):
 
     source_rule_id = fields.Many2one("babana.fare.rule", required=True, readonly=True)
     name = fields.Char(required=True)
-    base_fare = fields.Float(string="Prise en charge (FCFA)", required=True)
+    base_fare = fields.Float(string="Forfait de base (FCFA)", required=True)
     price_per_km = fields.Float(string="Prix au kilomètre (FCFA)", required=True)
+    approach_price_per_km = fields.Float(string="Prise en charge : prix au km d'approche (FCFA)")
     minimum_fare = fields.Float(string="Montant plancher (FCFA)", required=True)
     zone_id = fields.Many2one("babana.zone", string="Zone d'application")
     vehicle_class = fields.Selection(
@@ -34,6 +35,7 @@ class BabanaFareRuleVersionWizard(models.TransientModel):
                 "name": self.name,
                 "base_fare": self.base_fare,
                 "price_per_km": self.price_per_km,
+                "approach_price_per_km": self.approach_price_per_km,
                 "minimum_fare": self.minimum_fare,
                 "zone_id": self.zone_id.id,
                 "vehicle_class": self.vehicle_class,

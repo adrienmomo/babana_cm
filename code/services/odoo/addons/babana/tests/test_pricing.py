@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from odoo.tests.common import BaseCase, tagged
 
-from ..services.pricing import FareRuleInput, PromotionInput, compute_fare
+from ..services.pricing import FareBreakdown, FareRuleInput, PromotionInput, compute_fare, round_breakdown_for_wire
 
 _RULE = FareRuleInput(base_fare=200.0, price_per_km=100.0, minimum_fare=300.0)
 
@@ -114,3 +114,45 @@ class TestPricingEngine(BaseCase):
         breakdown = compute_fare(rule, 5000, rounding_step=25.0)
         self.assertEqual(breakdown.total, 1050.0)
         self.assertEqual(breakdown.surge_amount, 350.0)
+
+    # --- Prise en charge : approche moyenne des chauffeurs disponibles (26 octobre) -------------
+
+    def test_approach_distance_is_charged_at_the_approach_rate(self):
+        rule = FareRuleInput(base_fare=0.0, price_per_km=100.0, minimum_fare=0.0, approach_price_per_km=40.0)
+        breakdown = compute_fare(rule, 5000, rounding_step=25.0, approach_distance_m=2000)
+        self.assertEqual(breakdown.approach_fare, 80.0)
+        self.assertEqual(breakdown.distance_fare, 500.0)
+        self.assertEqual(breakdown.total, 600.0)  # 580 arrondi au pas de 25
+
+    def test_the_ride_distance_weighs_more_than_the_same_approach_distance(self):
+        rule = FareRuleInput(base_fare=0.0, price_per_km=100.0, minimum_fare=0.0, approach_price_per_km=40.0)
+        long_approach = compute_fare(rule, 1000, rounding_step=1.0, approach_distance_m=3000)
+        long_ride = compute_fare(rule, 3000, rounding_step=1.0, approach_distance_m=1000)
+        self.assertGreater(long_ride.total, long_approach.total)
+
+    def test_surge_applies_to_the_approach_too_and_the_sum_still_matches(self):
+        rule = FareRuleInput(
+            base_fare=200.0, price_per_km=100.0, minimum_fare=300.0, surge_multiplier=1.5, approach_price_per_km=50.0
+        )
+        breakdown = compute_fare(rule, 4200, rounding_step=25.0, approach_distance_m=1700)
+        self.assertAlmostEqual(breakdown.surge_amount, (200.0 + 85.0 + 420.0) * 0.5)
+        self.assertTrue(breakdown.sum_matches_total())
+        wire = round_breakdown_for_wire(breakdown)
+        self.assertEqual(
+            wire["baseFare"] + wire["approachFare"] + wire["distanceFare"] + wire["surgeAmount"]
+            - wire["discountAmount"] + wire["floorAmount"] + wire["roundingAmount"],
+            round(breakdown.total),
+        )
+
+    def test_without_an_approach_distance_the_fare_is_unchanged(self):
+        rule = FareRuleInput(base_fare=200.0, price_per_km=100.0, minimum_fare=300.0, approach_price_per_km=50.0)
+        self.assertEqual(compute_fare(rule, 5000, rounding_step=25.0).total, compute_fare(_RULE, 5000, rounding_step=25.0).total)
+
+    def test_a_breakdown_frozen_before_the_approach_existed_still_loads(self):
+        legacy = {
+            "base_fare": 200.0, "distance_fare": 500.0, "surge_amount": 0.0, "discount_amount": 0.0,
+            "floor_amount": 0.0, "rounding_amount": 0.0, "minimum_fare_applied": False, "total": 700.0,
+        }
+        breakdown = FareBreakdown(**legacy)
+        self.assertEqual(breakdown.approach_fare, 0.0)
+        self.assertEqual(round_breakdown_for_wire(breakdown)["approachFare"], 0)

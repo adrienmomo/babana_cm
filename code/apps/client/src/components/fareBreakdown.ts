@@ -17,7 +17,10 @@ export const FARE_LINES: ReadonlyArray<{
   subtract?: boolean;
   alwaysShown?: boolean;
 }> = [
-  { key: 'baseFare', label: 'Prise en charge', alwaysShown: true },
+  // La prise en charge est l'approche moyenne des chauffeurs disponibles ; le forfait fixe de la
+  // règle n'apparaît que s'il n'est pas nul (même table que services/odoo/.../babana_ride_invoice.py).
+  { key: 'baseFare', label: 'Forfait' },
+  { key: 'approachFare', label: 'Prise en charge', alwaysShown: true },
   { key: 'distanceFare', label: 'Distance', alwaysShown: true },
   { key: 'surgeAmount', label: 'Majoration' },
   { key: 'discountAmount', label: 'Remise', subtract: true },
