@@ -23,6 +23,9 @@ from ..services import realtime_client
 # 50 000 FCFA au départ, à confirmer en pilote (L9-06, back-office, hors de ce lot).
 CASH_LIMIT_PARAM = "babana.cash_limit"
 CASH_LIMIT_FALLBACK = 50000.0
+# Nombre de barres de chaque vue de l'activité (GET /drivers/me/activity) : 7 jours, 7 semaines,
+# 7 mois -- une constante d'affichage (« les sept derniers jours »), pas un réglage métier.
+ACTIVITY_BUCKETS = 7
 
 # L9-05 (tableau de bord de caisse, "chauffeurs proches du plafond") : même paramètre que celui
 # que L9-06 exposera un jour dans les réglages ("seuil d'alerte de plafond, en pourcentage") --
@@ -283,6 +286,64 @@ class BabanaDriver(models.Model):
             ]
         )
         return sum(movements.mapped("amount"))
+
+    def _babana_activity(self, buckets: int = ACTIVITY_BUCKETS) -> dict:
+        """Recette encaissée par période (GET /drivers/me/activity) : les `buckets` derniers jours,
+        semaines (du lundi) et mois, du plus ancien au plus récent, la période en cours en dernier.
+        Même source que `_babana_cash_collected_today` -- les mouvements `collection` -- et mêmes
+        bornes locales (D45) : `_read_group` regroupe `create_date:day` dans le fuseau du contexte,
+        une seule requête pour les trois vues, réparties ensuite par jour local."""
+        self.ensure_one()
+        tz_name = self.env.context.get("tz") or self.env.user.tz or "UTC"
+        try:
+            pytz.timezone(tz_name)
+        except pytz.UnknownTimeZoneError:
+            tz_name = "UTC"
+        tz = pytz.timezone(tz_name)
+        today = fields.Date.context_today(self.with_context(tz=tz_name))
+
+        day_starts = [today - timedelta(days=offset) for offset in range(buckets - 1, -1, -1)]
+        this_monday = today - timedelta(days=today.weekday())
+        week_starts = [this_monday - timedelta(weeks=offset) for offset in range(buckets - 1, -1, -1)]
+        month_starts = []
+        year, month = today.year, today.month
+        for _ in range(buckets):
+            month_starts.insert(0, today.replace(year=year, month=month, day=1))
+            year, month = (year - 1, 12) if month == 1 else (year, month - 1)
+
+        earliest = min(day_starts[0], week_starts[0], month_starts[0])
+        start_utc = tz.localize(datetime.combine(earliest, time.min)).astimezone(pytz.UTC).replace(tzinfo=None)
+        groups = (
+            self.env["babana.cash.movement"]
+            .sudo()
+            .with_context(tz=tz_name)
+            ._read_group(
+                [
+                    ("driver_id", "=", self.id),
+                    ("movement_type", "=", "collection"),
+                    ("create_date", ">=", start_utc),
+                ],
+                groupby=["create_date:day"],
+                aggregates=["__count", "amount:sum"],
+            )
+        )
+        per_day = [(day.date() if isinstance(day, datetime) else day, count, amount) for day, count, amount in groups]
+
+        def series(starts):
+            ends = starts[1:] + [None]
+            result = []
+            for start, end in zip(starts, ends):
+                rows = [row for row in per_day if row[0] >= start and (end is None or row[0] < end)]
+                result.append(
+                    {
+                        "start": start.isoformat(),
+                        "rides": sum(row[1] for row in rows),
+                        "collected": round(sum(row[2] for row in rows)),
+                    }
+                )
+            return result
+
+        return {"day": series(day_starts), "week": series(week_starts), "month": series(month_starts)}
 
     @api.model
     def _cash_limit(self) -> float:

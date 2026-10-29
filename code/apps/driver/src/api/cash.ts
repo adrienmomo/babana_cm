@@ -17,6 +17,11 @@ export async function fetchCashSummary(): Promise<http.DriverCashResponse> {
   return (await apiClient.request('driverCash')) as http.DriverCashResponse;
 }
 
+/** Recette encaissée par jour, semaine et mois -- les trois vues en un seul appel. */
+export async function fetchActivity(): Promise<http.DriverActivityResponse> {
+  return (await apiClient.request('driverActivity')) as http.DriverActivityResponse;
+}
+
 /**
  * `declareRemittance` est autorisée hors connexion (L6-16, spécification) : passe par
  * `offlineRunner`, jamais `apiClient` directement -- mise en file automatique sur un réseau

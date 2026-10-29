@@ -4,7 +4,8 @@ import { colors } from '../theme';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '@babana/ui';
 import type { http } from '@babana/contracts';
-import { fetchCashSummary } from '../api/cash';
+import { fetchActivity, fetchCashSummary } from '../api/cash';
+import { ActivityChart } from '../components/ActivityChart';
 import { formatMoney } from '../format';
 import type { DriverParamList } from '../navigation/types';
 
@@ -32,7 +33,9 @@ type Props = NativeStackScreenProps<DriverParamList, 'Cash'>;
 type LoadState =
   | { status: 'loading' }
   | { status: 'error' }
-  | { status: 'loaded'; cash: http.DriverCashResponse };
+  // `activity` null : son chargement a échoué -- la caisse s'affiche quand même, c'est elle qui
+  // dit au chauffeur s'il peut continuer à travailler.
+  | { status: 'loaded'; cash: http.DriverCashResponse; activity: http.DriverActivityResponse | null };
 
 const STATUS_LABELS: Record<http.RemittanceHistoryEntry['status'], string> = {
   pending: 'En attente',
@@ -58,8 +61,8 @@ export function CashScreen({ navigation }: Props) {
   const load = useCallback(async () => {
     setState({ status: 'loading' });
     try {
-      const cash = await fetchCashSummary();
-      setState({ status: 'loaded', cash });
+      const [cash, activity] = await Promise.all([fetchCashSummary(), fetchActivity().catch(() => null)]);
+      setState({ status: 'loaded', cash, activity });
     } catch {
       // Réseau ou erreur serveur -- même écran d'erreur pour les deux, aucune distinction utile
       // au chauffeur ici (rien à réessayer différemment), contrairement à SettlementScreen où
@@ -95,7 +98,7 @@ export function CashScreen({ navigation }: Props) {
     );
   }
 
-  const { cash } = state;
+  const { cash, activity } = state;
   const level = proximityLevel(cash.marginRemaining, cash.limit);
 
   return (
@@ -108,6 +111,14 @@ export function CashScreen({ navigation }: Props) {
           {formatMoney(cash.collectedToday)}
         </Text>
       </View>
+
+      {activity ? (
+        <ActivityChart activity={activity} />
+      ) : (
+        <Text style={styles.historyEmpty} testID="activity-unavailable">
+          Activité indisponible pour le moment.
+        </Text>
+      )}
 
       <View style={styles.block}>
         <Text style={styles.label}>Solde à remettre</Text>

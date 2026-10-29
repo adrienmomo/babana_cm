@@ -336,6 +336,14 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     assert.equal(typeof cash.limit, 'number');
   },
 
+  driverActivity: async () => {
+    const { session } = await approvedDriverSession('driver-activity');
+    const activity = (await clientFor(session.accessToken).request('driverActivity')) as http.DriverActivityResponse;
+    assert.equal(activity.day.length, 7);
+    assert.equal(activity.week.length, 7);
+    assert.equal(activity.month.length, 7);
+  },
+
   createRemittance: async () => {
     const { session } = await approvedDriverSession('remittance');
     const remittance = (await clientFor(session.accessToken).request('createRemittance', {

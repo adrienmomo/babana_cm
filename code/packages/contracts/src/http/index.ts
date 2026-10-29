@@ -226,6 +226,16 @@ export const HTTP_ENDPOINTS = {
     requestExample: null,
     responseExample: settlement.driverCashResponseExample,
   },
+  driverActivity: {
+    method: 'GET',
+    path: '/api/v1/drivers/me/activity',
+    requiresAuth: true,
+    requestSchema: null,
+    responseSchema: settlement.DriverActivityResponseSchema,
+    errors: settlement.DriverActivityErrors,
+    requestExample: null,
+    responseExample: settlement.driverActivityResponseExample,
+  },
   createRemittance: {
     method: 'POST',
     path: '/api/v1/remittances',

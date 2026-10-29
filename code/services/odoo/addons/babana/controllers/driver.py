@@ -106,6 +106,31 @@ class DriverController(http.Controller):
             200,
         )
 
+    @http.route("/api/v1/drivers/me/activity", **_GET_ROUTE)
+    def get_activity(self, **_kwargs):
+        try:
+            payload, status = self._get_activity()
+            return _common.json_response(payload, status)
+        except _common.AuthenticationFailed as exc:
+            return _common.error_response(exc.code, "authentification requise", exc.status)
+        except Exception:
+            _logger.exception("erreur interne dans GET /api/v1/drivers/me/activity")
+            return _common.error_response("INTERNAL_ERROR", "erreur interne", 500)
+
+    def _get_activity(self):
+        """Recette encaissée par jour, semaine et mois (écran « Ma caisse »). Mêmes accès que
+        GET /drivers/me/cash : un chauffeur suspendu garde la lecture de ce qu'il a encaissé
+        (D55), un dossier jamais approuvé n'a rien encaissé."""
+        env, user = _common.authenticated_user()
+        driver = user._babana_driver()
+        if not driver:
+            return _common.error_payload("UNAUTHORIZED", "compte non rattaché à un chauffeur"), 401
+        if driver.state not in ("approved", "suspended"):
+            return _common.error_payload(
+                "DRIVER_NOT_APPROVED", "le dossier chauffeur n'est pas approuvé"
+            ), 403
+        return driver.with_user(user)._babana_activity(), 200
+
     @http.route("/api/v1/drivers/me/availability", **_POST_ROUTE)
     def set_availability(self, **_kwargs):
         try:

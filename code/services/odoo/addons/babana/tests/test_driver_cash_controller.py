@@ -212,3 +212,83 @@ class TestDriverCashController(HttpCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(response.json()["remittances"]), 1)
+
+
+@tagged("post_install", "-at_install")
+class TestDriverActivityController(TestDriverCashController):
+    """GET /drivers/me/activity : recette encaissée par jour, semaine et mois (écran « Ma caisse »).
+    Hérite des aides de TestDriverCashController (création d'un chauffeur approuvé, appel GET)."""
+
+    def _collected(self, driver, amount, days_ago):
+        movement = self.env["babana.cash.movement"].sudo().create(
+            {"driver_id": driver.id, "movement_type": "collection", "amount": amount}
+        )
+        movement.flush_recordset()
+        # create_date est une colonne technique : antidatée en SQL, comme dans make seed.
+        self.env.cr.execute(
+            "UPDATE babana_cash_movement SET create_date = create_date - %s * interval '1 day' WHERE id = %s",
+            (days_ago, movement.id),
+        )
+        movement.invalidate_recordset()
+        return movement
+
+    def test_seven_days_weeks_and_months_oldest_first(self):
+        token, driver = self._make_driver_user("sub-activity-1")
+        self._collected(driver, 1200, 0)
+        self._collected(driver, 800, 0)
+        self._collected(driver, 1500, 1)
+        self._collected(driver, 900, 10)
+        self._collected(driver, 700, 40)
+        self._collected(driver, 5000, 400)  # hors de toutes les vues
+
+        response = self._get("/api/v1/drivers/me/activity", token)
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        for view in ("day", "week", "month"):
+            self.assertEqual(len(body[view]), 7, view)
+            starts = [bucket["start"] for bucket in body[view]]
+            self.assertEqual(starts, sorted(starts), f"{view} : du plus ancien au plus récent")
+        self.assertEqual(body["day"][-1], {"start": body["day"][-1]["start"], "rides": 2, "collected": 2000})
+        self.assertEqual(body["day"][-2]["collected"], 1500)
+        self.assertEqual(sum(bucket["collected"] for bucket in body["day"]), 3500)
+        self.assertEqual(sum(bucket["collected"] for bucket in body["week"]), 5100)
+        self.assertEqual(sum(bucket["rides"] for bucket in body["week"]), 5)
+        self.assertEqual(sum(bucket["collected"] for bucket in body["month"]), 5100)
+
+    def test_weeks_start_on_monday_and_months_on_the_first(self):
+        from datetime import date
+
+        token, _driver = self._make_driver_user("sub-activity-2")
+
+        body = self._get("/api/v1/drivers/me/activity", token).json()
+
+        for bucket in body["week"]:
+            self.assertEqual(date.fromisoformat(bucket["start"]).weekday(), 0)
+        for bucket in body["month"]:
+            self.assertEqual(date.fromisoformat(bucket["start"]).day, 1)
+        self.assertEqual(body["day"][-1]["start"] >= body["week"][-1]["start"], True)
+        self.assertEqual(sum(bucket["rides"] for bucket in body["month"]), 0)
+
+    def test_a_remittance_is_not_activity(self):
+        token, driver = self._make_driver_user("sub-activity-3")
+        self._collected(driver, 1200, 0)
+        self.env["babana.cash.remittance"].sudo().action_declare(driver=driver, declared_amount=1200)
+
+        body = self._get("/api/v1/drivers/me/activity", token).json()
+
+        self.assertEqual(body["day"][-1]["collected"], 1200)
+        self.assertEqual(body["day"][-1]["rides"], 1)
+
+    def test_activity_of_an_unapproved_driver_is_rejected(self):
+        from ..controllers.auth import _issue_access_token
+
+        user = self.env["res.users"].sudo()._babana_find_or_create_from_google(
+            sub="sub-activity-pending", email="sub-activity-pending@example.invalid", name="En attente", role="driver"
+        )
+        access_token, _ = _issue_access_token(user)
+
+        response = self._get("/api/v1/drivers/me/activity", access_token)
+
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"]["code"], "DRIVER_NOT_APPROVED")

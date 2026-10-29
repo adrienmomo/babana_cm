@@ -99,6 +99,22 @@ HISTORY = [
     (5,  3, "Bonabéri", "Akwa"),
     (3,  2, "New-Bell", "Bonapriso"),
     (1,  0, "Makepe", "Akwa"),
+    # Activité du chauffeur 1 sur six mois : l'écran « Ma caisse » trace la recette encaissée par
+    # jour, par semaine et par mois -- chaque vue doit avoir des barres à montrer (CLAUDE.md,
+    # « peupler un écran, ce n'est pas peupler une liste »).
+    (0,  0, "Akwa", "Deïdo"),
+    (2,  0, "Deïdo", "Bonapriso"),
+    (4,  0, "Bonapriso", "Akwa"),
+    (4,  0, "Akwa", "New-Bell"),
+    (17, 0, "New-Bell", "Akwa"),
+    (24, 0, "Akwa", "Makepe"),
+    (31, 0, "Makepe", "Deïdo"),
+    (40, 0, "Deïdo", "Akwa"),
+    (58, 0, "Bonabéri", "Akwa"),
+    (75, 0, "Akwa", "Bonapriso"),
+    (100, 0, "Bonapriso", "New-Bell"),
+    (130, 0, "New-Bell", "Makepe"),
+    (160, 0, "Makepe", "Akwa"),
 ]
 
 
@@ -484,15 +500,14 @@ def make_history(client_user, drivers, zones_by_name):
         )
         dist_m, dur_s, polyline = reference_route((o_lat, o_lng), (d_lat, d_lng))
 
+        # Approche moyenne au moment de l'estimation : inconnaissable après coup (les positions
+        # ne sont pas conservées, invariant 1) -- une valeur plausible et déterministe.
+        approach_m = 700 + 150 * (days_ago % 5)
         breakdown = pricing.compute_fare(
-            pricing.FareRuleInput(
-                base_fare=rule.base_fare,
-                price_per_km=rule.price_per_km,
-                minimum_fare=rule.minimum_fare,
-                surge_multiplier=rule.surge_multiplier,
-            ),
+            rule._pricing_input(),
             dist_m,
             rounding_step=rounding_step,
+            approach_distance_m=approach_m,
         )
         snapshot = json.dumps(_breakdown_dict(breakdown))
 
@@ -509,6 +524,8 @@ def make_history(client_user, drivers, zones_by_name):
                 "distance_meters": dist_m,
                 "duration_seconds": dur_s,
                 "eta_seconds": dur_s,
+                "approach_distance_meters": approach_m,
+                "approach_driver_count": 1,
                 "fare_rule_id": rule.id,
                 "fare_rule_snapshot": snapshot,
                 "amount": breakdown.total,
@@ -622,6 +639,7 @@ def _wait_for_pending_invoice_emails(invoice_ids, *, timeout_seconds=120.0):
 def _breakdown_dict(b):
     return {
         "base_fare": b.base_fare,
+        "approach_fare": b.approach_fare,
         "distance_fare": b.distance_fare,
         "surge_amount": b.surge_amount,
         "discount_amount": b.discount_amount,

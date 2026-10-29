@@ -150,6 +150,11 @@ Le code n'est jamais renvoyé par l'API ni stocké en clair. Limites et durées 
 `distanceMeters` et `etaSeconds` sont calculés sur un modèle voiture (É8) — l'ETA affiché à
 l'utilisateur passe par un facteur de correction côté application (L10-03), pas par ce contrat.
 
+Prise en charge (26 octobre) : `breakdown.approachFare` facture la distance routière **moyenne**
+des chauffeurs disponibles jusqu'au départ (`approachDistanceMeters`), au prix au km d'approche
+de la règle — jamais supérieur au prix au km de la course. `breakdown.baseFare` est le forfait
+fixe de la règle. Mesurée à l'estimation et gelée avec elle : le client paie ce qu'il a vu.
+
 ---
 
 ## Cycle de vie de la course — `ride.ts`
@@ -238,6 +243,15 @@ allait chercher par un second `GET /drivers/me/cash`. `cashLimit` et `marginRema
 - Erreurs : `DRIVER_NOT_APPROVED`
 
 `limit` est une valeur métier en base (D21, invariant 5) — jamais codée en dur dans le service.
+
+### `GET /drivers/me/activity`
+
+- Réponse : `{ day: Bucket[7], week: Bucket[7], month: Bucket[7] }`, `Bucket = { start: "AAAA-MM-JJ", rides, collected }`
+- Erreurs : `DRIVER_NOT_APPROVED`
+
+Recette encaissée (mouvements `collection`, comme `collectedToday`) par jour, semaine (du
+lundi) et mois, du plus ancien au plus récent, bornée dans le fuseau du compte (D45). Les trois
+vues en une réponse : basculer de l'une à l'autre ne coûte aucun appel.
 
 ---
 

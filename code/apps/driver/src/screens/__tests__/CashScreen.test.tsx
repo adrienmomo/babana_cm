@@ -1,11 +1,13 @@
 import React from 'react';
 import { Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
-import type { http } from '@babana/contracts';
+import { http } from '@babana/contracts';
 
 const mockFetchCashSummary = jest.fn();
+const mockFetchActivity = jest.fn();
 jest.mock('../../api/cash', () => ({
   fetchCashSummary: (...args: unknown[]) => mockFetchCashSummary(...args),
+  fetchActivity: (...args: unknown[]) => mockFetchActivity(...args),
 }));
 
 import { CashScreen } from '../CashScreen';
@@ -22,6 +24,7 @@ const renderedRoots: ReactTestRenderer[] = [];
 
 beforeEach(() => {
   jest.clearAllMocks();
+  mockFetchActivity.mockResolvedValue(http.driverActivityResponseExample);
 });
 
 afterEach(async () => {
@@ -213,5 +216,83 @@ describe('CashScreen (L5-07)', () => {
     });
 
     expect(root.root.findByProps({ testID: 'cash-balance' })).toBeTruthy();
+  });
+});
+
+describe('CashScreen -- activité en barres (jour, semaine, mois)', () => {
+  const example = http.driverActivityResponseExample;
+
+  function bars(root: ReactTestRenderer) {
+    const ids = root.root
+      .findAll((node) => typeof node.props.testID === 'string' && /^activity-bar-\d+$/.test(node.props.testID))
+      .map((node) => node.props.testID as string);
+    return [...new Set(ids)];
+  }
+
+  function selectedAmount(root: ReactTestRenderer) {
+    return root.root.findByProps({ testID: 'activity-selected-amount' }).props.children;
+  }
+
+  it('sept barres, vue « Jour » par défaut, la journée en cours sélectionnée', async () => {
+    mockFetchCashSummary.mockResolvedValue(cashResponse());
+    const { root } = await renderCash();
+
+    expect(bars(root)).toHaveLength(7);
+    expect(selectedAmount(root)).toBe(formatMoney(example.day[6]!.collected));
+    expect(texts(root)).toContain('Aujourd’hui');
+  });
+
+  it('basculer en semaine puis en mois affiche la période en cours de chaque vue, sans nouvel appel', async () => {
+    mockFetchCashSummary.mockResolvedValue(cashResponse());
+    const { root } = await renderCash();
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'activity-view-week' }).props.onPress();
+    });
+    expect(selectedAmount(root)).toBe(formatMoney(example.week[6]!.collected));
+    expect(texts(root)).toContain('Cette semaine');
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'activity-view-month' }).props.onPress();
+    });
+    expect(selectedAmount(root)).toBe(formatMoney(example.month[6]!.collected));
+    expect(mockFetchActivity).toHaveBeenCalledTimes(1);
+  });
+
+  it('toucher une barre affiche son montant et son nombre de courses', async () => {
+    mockFetchCashSummary.mockResolvedValue(cashResponse());
+    const { root } = await renderCash();
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'activity-bar-1' }).props.onPress();
+    });
+
+    expect(selectedAmount(root)).toBe(formatMoney(example.day[1]!.collected));
+    expect(JSON.stringify(root.root.findByProps({ testID: 'activity-selected-rides' }).props.children)).toContain(
+      `${example.day[1]!.rides} courses`
+    );
+  });
+
+  it('la plus haute barre est celle du plus gros montant, une journée vide garde une barre visible', async () => {
+    mockFetchCashSummary.mockResolvedValue(cashResponse());
+    const { root } = await renderCash();
+
+    const heights = example.day.map((_, index) => {
+      const style = root.root.findByProps({ testID: `activity-bar-fill-${index}` }).props.style as object[];
+      return (style.find((part) => part && 'height' in part) as { height: number }).height;
+    });
+    const highestIndex = example.day.reduce((best, bucket, index) => (bucket.collected > example.day[best]!.collected ? index : best), 0);
+    expect(Math.max(...heights)).toBe(heights[highestIndex]);
+    const emptyIndex = example.day.findIndex((bucket) => bucket.collected === 0);
+    expect(heights[emptyIndex]).toBeGreaterThan(0);
+  });
+
+  it("un échec de l'activité n'empêche pas d'afficher la caisse", async () => {
+    mockFetchCashSummary.mockResolvedValue(cashResponse());
+    mockFetchActivity.mockRejectedValue(new Error('réseau'));
+    const { root } = await renderCash();
+
+    expect(root.root.findByProps({ testID: 'cash-balance' })).toBeTruthy();
+    expect(root.root.findByProps({ testID: 'activity-unavailable' })).toBeTruthy();
   });
 });

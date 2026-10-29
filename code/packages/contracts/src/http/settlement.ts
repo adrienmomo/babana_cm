@@ -124,3 +124,61 @@ export const driverCashResponseExample: DriverCashResponse = {
     },
   ],
 };
+
+/**
+ * GET /drivers/me/activity
+ * Activité encaissée du chauffeur, en barres : les 7 derniers jours, les 7 dernières semaines
+ * (du lundi au dimanche) et les 7 derniers mois, du plus ancien au plus récent -- la période en
+ * cours en dernier, incomplète. Les trois vues dans une seule réponse : basculer de l'une à
+ * l'autre ne coûte aucun appel réseau (forfait compté, réseau intermittent).
+ *
+ * **« Recette encaissée », jamais « revenus »** (É6) : un chauffeur salarié (D5) détient l'argent
+ * de l'entreprise, il ne le gagne pas. Même source que `collectedToday` : les mouvements
+ * `collection` du compte courant, bornés dans le fuseau du compte (D45).
+ */
+export const ActivityBucketSchema = z.object({
+  /** Premier jour de la période, AAAA-MM-JJ, en date locale. */
+  start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  rides: z.number().int().nonnegative(),
+  collected: MoneyAmountSchema,
+});
+export type ActivityBucket = z.infer<typeof ActivityBucketSchema>;
+
+export const DriverActivityResponseSchema = z.object({
+  day: z.array(ActivityBucketSchema),
+  week: z.array(ActivityBucketSchema),
+  month: z.array(ActivityBucketSchema),
+});
+export type DriverActivityResponse = z.infer<typeof DriverActivityResponseSchema>;
+
+export const DriverActivityErrors = ['DRIVER_NOT_APPROVED'] as const;
+
+export const driverActivityResponseExample: DriverActivityResponse = {
+  day: [
+    { start: '2026-10-20', rides: 6, collected: 7200 },
+    { start: '2026-10-21', rides: 9, collected: 10800 },
+    { start: '2026-10-22', rides: 0, collected: 0 },
+    { start: '2026-10-23', rides: 7, collected: 8400 },
+    { start: '2026-10-24', rides: 11, collected: 13500 },
+    { start: '2026-10-25', rides: 4, collected: 4800 },
+    { start: '2026-10-26', rides: 3, collected: 3600 },
+  ],
+  week: [
+    { start: '2026-09-14', rides: 38, collected: 45600 },
+    { start: '2026-09-21', rides: 42, collected: 50400 },
+    { start: '2026-09-28', rides: 35, collected: 42000 },
+    { start: '2026-10-05', rides: 44, collected: 52800 },
+    { start: '2026-10-12', rides: 40, collected: 48000 },
+    { start: '2026-10-19', rides: 37, collected: 44400 },
+    { start: '2026-10-26', rides: 3, collected: 3600 },
+  ],
+  month: [
+    { start: '2026-04-01', rides: 0, collected: 0 },
+    { start: '2026-05-01', rides: 0, collected: 0 },
+    { start: '2026-06-01', rides: 0, collected: 0 },
+    { start: '2026-07-01', rides: 12, collected: 14400 },
+    { start: '2026-08-01', rides: 151, collected: 181200 },
+    { start: '2026-09-01', rides: 168, collected: 201600 },
+    { start: '2026-10-01', rides: 160, collected: 192000 },
+  ],
+};
