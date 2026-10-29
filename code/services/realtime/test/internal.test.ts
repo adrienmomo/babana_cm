@@ -384,6 +384,7 @@ describe('POST /internal/rides/started|completed (sens Odoo -> temps réel, L3-1
     const driverId = randomUUID();
     const breakdown = {
       baseFare: 200,
+      approachFare: 0,
       distanceFare: 1000,
       surgeAmount: 0,
       discountAmount: 0,
@@ -434,6 +435,7 @@ describe('POST /internal/rides/started|completed (sens Odoo -> temps réel, L3-1
     const driverId = randomUUID();
     const breakdown = {
       baseFare: 200,
+      approachFare: 0,
       distanceFare: 1000,
       surgeAmount: 0,
       discountAmount: 0,
@@ -643,6 +645,39 @@ describe('POST /internal/reservations/nearest (le serveur choisit le chauffeur l
     assert.equal(body.outcome, 'PROPOSED');
     assert.equal(body.driverId, next);
     assert.equal(await isInPool(redis, refused), true);
+  });
+
+  test('le classement routier transmis par Odoo passe avant le vol d’oiseau', async () => {
+    const pickup = nearestSpot();
+    const beeline = await availableDriverAt(id('nearest-beeline'), metersNorth(pickup, 30));
+    const road = await availableDriverAt(id('nearest-road'), metersNorth(pickup, 200));
+
+    const { body } = await post('/internal/reservations/nearest', nearestBody(pickup, { preferredDriverIds: [road, beeline] }));
+
+    assert.equal(body.outcome, 'PROPOSED');
+    assert.equal(body.driverId, road);
+    assert.equal(await isInPool(redis, beeline), true);
+  });
+
+  test('POST /internal/drivers/nearby : les plus proches avec leur position, hors écartés, sans rien réserver', async () => {
+    const pickup = nearestSpot();
+    const first = await availableDriverAt(id('nearby-first'), metersNorth(pickup, 30));
+    const excluded = await availableDriverAt(id('nearby-excluded'), metersNorth(pickup, 60));
+    const second = await availableDriverAt(id('nearby-second'), metersNorth(pickup, 90));
+    await availableDriverAt(id('nearby-third'), metersNorth(pickup, 120));
+
+    const { status, body } = await post('/internal/drivers/nearby', {
+      origin: pickup,
+      radiusMeters: 500,
+      limit: 2,
+      excludeDriverIds: [excluded],
+    });
+
+    assert.equal(status, 200);
+    const drivers = (body as { drivers: Array<{ driverId: string; latitude: number; longitude: number }> }).drivers;
+    assert.deepEqual(drivers.map((driver) => driver.driverId), [first, second]);
+    assert.ok(Math.abs((drivers[0]?.latitude ?? 0) - metersNorth(pickup, 30).latitude) < 1e-4);
+    assert.equal(await isInPool(redis, first), true, 'une lecture ne réserve personne');
   });
 
   test('personne dans le rayon : NO_DRIVER_AVAILABLE, rien de réservé', async () => {

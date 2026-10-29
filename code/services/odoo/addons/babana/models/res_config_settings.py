@@ -4,6 +4,12 @@ from odoo.exceptions import ValidationError
 from .babana_ride_state import NO_SHOW_GRACE_DEFAULT, NO_SHOW_GRACE_PARAM
 from .babana_phone_verification import OTP_TTL_SECONDS_FALLBACK, OTP_TTL_SECONDS_PARAM
 from .babana_quote import QUOTE_VALIDITY_DEFAULT, QUOTE_VALIDITY_PARAM
+from ..services.approach import (
+    APPROACH_SAMPLE_SIZE_DEFAULT,
+    APPROACH_SAMPLE_SIZE_PARAM,
+    DEFAULT_APPROACH_DISTANCE_DEFAULT,
+    DEFAULT_APPROACH_DISTANCE_PARAM,
+)
 from ..services.dispatch import (
     DISPATCH_MAX_ATTEMPTS_DEFAULT,
     DISPATCH_MAX_ATTEMPTS_PARAM,
@@ -47,7 +53,22 @@ class ResConfigSettings(models.TransientModel):
         string="Rayon de recherche d'un chauffeur (mètres)",
         config_parameter=DISPATCH_RADIUS_PARAM,
         default=DISPATCH_RADIUS_DEFAULT,
-        help="La course part au chauffeur disponible le plus proche dans ce rayon, à vol d'oiseau.",
+        help="La course part au chauffeur disponible le plus proche par la route, parmi ceux de ce rayon.",
+    )
+    babana_approach_sample_size = fields.Integer(
+        string="Chauffeurs mesurés par la route",
+        config_parameter=APPROACH_SAMPLE_SIZE_PARAM,
+        default=APPROACH_SAMPLE_SIZE_DEFAULT,
+        help="Les plus proches à vol d'oiseau dont la distance routière est mesurée : pour choisir "
+        "le chauffeur, et pour la prise en charge moyenne de l'estimation. Un appel de routage par "
+        "chauffeur.",
+    )
+    babana_default_approach_distance_meters = fields.Integer(
+        string="Distance d'approche de repli (mètres)",
+        config_parameter=DEFAULT_APPROACH_DISTANCE_PARAM,
+        default=DEFAULT_APPROACH_DISTANCE_DEFAULT,
+        help="Prise en charge facturée sur cette distance quand aucun chauffeur disponible n'est "
+        "mesurable au moment de l'estimation.",
     )
     babana_dispatch_max_attempts = fields.Integer(
         string="Chauffeurs sollicités par demande",
@@ -62,6 +83,8 @@ class ResConfigSettings(models.TransientModel):
         "babana_otp_ttl_seconds",
         "babana_dispatch_radius_meters",
         "babana_dispatch_max_attempts",
+        "babana_approach_sample_size",
+        "babana_default_approach_distance_meters",
     )
 
     @api.constrains(*_BABANA_POSITIVE_FIELDS)

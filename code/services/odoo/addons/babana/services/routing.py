@@ -123,6 +123,18 @@ def get_reference_route(
     return result
 
 
+def measure_route(env, *, origin, destination) -> RouteResult:
+    """Mesure SANS cache, pour la distance d'approche d'un chauffeur (services/approach.py). La
+    grille du cache (~100 m) convient à la cotation, où deux points voisins doivent recevoir le même
+    prix ; elle confond en revanche deux chauffeurs à quelques dizaines de mètres l'un de l'autre,
+    dont il faut justement départager les distances (défaut trouvé par L3-14 le 27 octobre). Une
+    position de chauffeur ne se répète de toute façon presque jamais. Comptée dans le quota. Lève
+    RouteUnavailable -- sans repli périmé : il n'y en a pas pour une position qui vient de changer."""
+    result = _fetch_from_api(origin=origin, destination=destination)
+    _record_quota_usage(env)
+    return result
+
+
 def _routing_url() -> str:
     """Adresse de l'API de routage -- plus de repli implicite vers mock-maps si la variable est
     absente (D43 retournée). Non configurée, on échoue ici plutôt que d'appeler silencieusement

@@ -2,9 +2,13 @@
 # (le choix par le client, D10, et la resélection manuelle après un refus, D11, sont retirés).
 #
 # Partage des rôles :
-# - le service temps réel CHOISIT et RÉSERVE, en un seul geste atomique, le plus proche (à vol
-#   d'oiseau) dans le vivier : c'est lui qui connaît les positions (invariant 1), et le choix suivi
-#   d'une réservation séparée laisserait deux courses prendre le même chauffeur (invariant 4) ;
+# - le service temps réel CHOISIT et RÉSERVE, en un seul geste atomique, le plus proche dans le
+#   vivier : c'est lui qui connaît les positions (invariant 1), et le choix suivi d'une réservation
+#   séparée laisserait deux courses prendre le même chauffeur (invariant 4) ;
+# - « le plus proche » s'entend PAR LA ROUTE (demande produit du 26 octobre) : Odoo mesure la
+#   distance routière des plus proches à vol d'oiseau (services/approach.py) et transmet ce
+#   classement ; le script de réservation l'essaie dans l'ordre, puis se replie sur le vol
+#   d'oiseau -- un routage indisponible dégrade le choix, jamais l'affectation ;
 # - Odoo décide QUI ÉCARTER (les chauffeurs déjà sollicités dans le tour en cours), QUAND S'ARRÊTER
 #   (babana.dispatch_max_attempts) et DANS QUEL RAYON chercher (babana.dispatch_radius_meters) --
 #   des règles métier, réglables dans Paramètres > Babana (invariant 5).
@@ -23,7 +27,7 @@ import logging
 from odoo.exceptions import UserError
 from odoo.service.model import PG_CONCURRENCY_EXCEPTIONS_TO_RETRY
 
-from . import realtime_client
+from . import approach, realtime_client
 
 _logger = logging.getLogger(__name__)
 
@@ -51,14 +55,16 @@ def _client_user(env, ride):
 
 
 def _reserve_and_propose(env, ride, *, exclude, idempotency_key, new_round):
-    """Demande au service temps réel le plus proche hors `exclude`, puis écrit la transition.
-    Renvoie le chauffeur, ou un recordset vide si personne."""
+    """Demande au service temps réel le plus proche (par la route) hors `exclude`, puis écrit la
+    transition. Renvoie le chauffeur, ou un recordset vide si personne."""
+    radius_meters = _positive_int_param(env, DISPATCH_RADIUS_PARAM, DISPATCH_RADIUS_DEFAULT)
     reservation = realtime_client.reserve_nearest_and_propose(
         ride=ride,
         client_user=_client_user(env, ride),
-        radius_meters=_positive_int_param(env, DISPATCH_RADIUS_PARAM, DISPATCH_RADIUS_DEFAULT),
+        radius_meters=radius_meters,
         exclude_driver_public_ids=exclude,
         idempotency_key=idempotency_key,
+        preferred_driver_public_ids=_road_ranking(env, ride, radius_meters=radius_meters, exclude=exclude),
     )
     outcome = reservation.get("outcome")
     if outcome == "NO_DRIVER_AVAILABLE":
@@ -81,6 +87,22 @@ def _reserve_and_propose(env, ride, *, exclude, idempotency_key, new_round):
         realtime_client.release_reservation(driver_public_id=reservation.get("driverId"))
         raise
     return driver
+
+
+def _road_ranking(env, ride, *, radius_meters, exclude) -> list[str]:
+    """Classement routier des candidats (services/approach.py). Vide si le service temps réel ne
+    répond pas à la lecture : la réservation qui suit tranchera (et lèvera si la panne persiste)."""
+    try:
+        candidates = approach.road_ranked_candidates(
+            env,
+            pickup=(ride.pickup_latitude, ride.pickup_longitude),
+            radius_meters=radius_meters,
+            exclude_driver_public_ids=list(exclude),
+        )
+    except realtime_client.RealtimeUnavailable:
+        _logger.warning("classement routier impossible pour la course %s : vol d'oiseau", ride.public_id)
+        return []
+    return [candidate.driver_public_id for candidate in candidates]
 
 
 def propose_to_closest_driver(env, ride, *, by_partner, idempotency_key=None):

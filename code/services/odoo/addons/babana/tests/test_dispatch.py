@@ -14,7 +14,7 @@ from odoo.exceptions import ValidationError
 from odoo.tests.common import TransactionCase, tagged
 
 from ..models.babana_ride_state import RideInvalidTransition
-from ..services import dispatch, realtime_client
+from ..services import dispatch, realtime_client, routing
 
 
 @tagged("post_install", "-at_install")
@@ -28,6 +28,10 @@ class TestDispatch(TransactionCase):
         self.reserve = self._patch("reserve_nearest_and_propose")
         self.release = self._patch("release_reservation")
         self.unmatched = self._patch("notify_ride_unmatched")
+        # Classement routier (services/approach.py) : personne à mesurer par défaut -- le service
+        # temps réel choisit alors seul, à vol d'oiseau. Les tests du classement le remplacent.
+        self.nearby = self._patch("fetch_nearby_drivers")
+        self.nearby.return_value = []
         self.drivers = [self._make_driver(f"Chauffeur {index}") for index in range(4)]
         # Par défaut, le service temps réel choisit les chauffeurs dans l'ordre de la liste.
         self._service_offers(*self.drivers)
@@ -78,6 +82,68 @@ class TestDispatch(TransactionCase):
         kwargs = self.reserve.call_args.kwargs
         self.assertEqual(kwargs["radius_meters"], 4000, "le rayon est le réglage d'Odoo")
         self.assertEqual(kwargs["exclude_driver_public_ids"], [], "une commande n'écarte personne")
+
+    # --- Le plus proche PAR LA ROUTE (demande produit du 26 octobre) -------------------------
+
+    def _nearby(self, *drivers):
+        """Le service temps réel renvoie ces chauffeurs, dans l'ordre à vol d'oiseau."""
+        self.nearby.return_value = [
+            {"driverId": d.public_id, "latitude": 4.05 + index * 0.001, "longitude": 9.70, "distanceMeters": 100 * (index + 1)}
+            for index, d in enumerate(drivers)
+        ]
+
+    def _road(self, distances_by_latitude):
+        def fake_route(env, *, origin, destination):
+            distance = distances_by_latitude[round(origin[0], 3)]
+            if distance is None:
+                raise routing.RouteUnavailable("panne simulée")
+            return routing.RouteResult(distance, distance // 5, "")
+
+        patcher = patch.object(routing, "measure_route", side_effect=fake_route)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_road_ranking_is_handed_to_the_reservation_closest_by_road_first(self):
+        first_by_beeline, second_by_beeline = self.drivers[0], self.drivers[1]
+        self._nearby(first_by_beeline, second_by_beeline)
+        self._road({4.05: 3000, 4.051: 800})
+        ride = self._ride()
+
+        dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
+
+        self.assertEqual(
+            self.reserve.call_args.kwargs["preferred_driver_public_ids"],
+            [second_by_beeline.public_id, first_by_beeline.public_id],
+        )
+        nearby_kwargs = self.nearby.call_args.kwargs
+        self.assertEqual(nearby_kwargs["origin"], (4.05, 9.70))
+        self.assertEqual(nearby_kwargs["radius_meters"], 4000)
+
+    def test_a_driver_whose_road_distance_cannot_be_measured_is_left_to_the_beeline_fallback(self):
+        self._nearby(self.drivers[0], self.drivers[1])
+        self._road({4.05: None, 4.051: 800})
+        ride = self._ride()
+
+        dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
+
+        self.assertEqual(self.reserve.call_args.kwargs["preferred_driver_public_ids"], [self.drivers[1].public_id])
+
+    def test_an_unreadable_realtime_service_still_attempts_the_reservation_by_beeline(self):
+        self.nearby.side_effect = realtime_client.RealtimeUnavailable("panne simulée")
+        ride = self._ride()
+
+        driver = dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
+
+        self.assertEqual(driver, self.drivers[0])
+        self.assertEqual(self.reserve.call_args.kwargs["preferred_driver_public_ids"], [])
+
+    def test_drivers_already_asked_are_not_measured_again_after_a_refusal(self):
+        ride = self._ride()
+        dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
+
+        dispatch.handle_driver_rejection(self.env, ride, self.drivers[0], reason="busy", expired=False)
+
+        self.assertEqual(self.nearby.call_args.kwargs["exclude_driver_public_ids"], [self.drivers[0].public_id])
 
     def test_nobody_in_the_radius_leaves_the_ride_requested(self):
         self._service_offers()

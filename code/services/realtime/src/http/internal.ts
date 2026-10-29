@@ -9,6 +9,7 @@ import { withIdempotency } from '../reservation/idempotency';
 import { clearEngaged } from '../driver/engagement';
 import { endRideSessionForDriver } from '../tracking/session';
 import { reintegrateIfEligible } from '../redis/pool-eligibility';
+import { findNearby } from '../redis/geo-index';
 import { blockForCash, unblockForCash } from '../driver/cash-guard';
 import { holdDriver, releaseHold } from '../driver/admin-hold';
 import { broadcastRideStarted, broadcastRideCompleted, broadcastRideCancelled, broadcastRideUnmatched } from '../tracking/broadcast';
@@ -28,6 +29,9 @@ import { recordDriverArrived } from '../tracking/route';
  *   sollicités pour la course) et lui propose la course, en un geste atomique, avant la transition
  *   Odoo. Idempotent (D25, le piège du rejeu -- voir reservation/idempotency.ts).
  *   `NO_DRIVER_AVAILABLE` si personne.
+ * - `POST /internal/drivers/nearby` : lecture seule -- les disponibles les plus proches et leur
+ *   position, pour qu'Odoo mesure leur distance routière (prise en charge moyenne à l'estimation,
+ *   classement avant la réservation). Aucun commit à attendre (D32).
  * - `POST /internal/rides/unmatched` : plus aucun chauffeur à solliciter (au COMMIT d'Odoo, D32)
  *   -- pousse `ride.unmatched` au client.
  * - `POST /internal/reservations/release` : compensation quand la réservation a réussi mais que la
@@ -95,6 +99,22 @@ const NearestReservationRequestSchema = z.object({
   // avec un Odoo qui ne l'envoie pas encore.
   pickupNote: z.string().max(140).nullable().default(null),
   radiusMeters: z.number().positive(),
+  excludeDriverIds: z.array(z.string().min(1)).default([]),
+  // Classement par distance ROUTIÈRE (Odoo, services/approach.py) : essayé d'abord, dans l'ordre,
+  // puis repli sur le vol d'oiseau. Absent ou vide : vol d'oiseau seul (Odoo antérieur, ou
+  // routage indisponible).
+  preferredDriverIds: z.array(z.string().min(1)).default([]),
+});
+
+// Lecture seule : les chauffeurs disponibles les plus proches à vol d'oiseau, avec leur position,
+// pour qu'Odoo mesure leur distance ROUTIÈRE jusqu'au point de prise en charge -- à l'estimation
+// (prise en charge moyenne) et avant la réservation (classement). N'écrit rien dans Redis hors du
+// nettoyage paresseux de findNearby (retrait d'un chauffeur sans position fraîche) : aucun commit
+// à attendre (D32), même exception assumée que /internal/rides/measurement.
+const NearbyDriversRequestSchema = z.object({
+  origin: z.object({ latitude: z.number(), longitude: z.number() }),
+  radiusMeters: z.number().positive(),
+  limit: z.number().int().positive(),
   excludeDriverIds: z.array(z.string().min(1)).default([]),
 });
 
@@ -201,6 +221,7 @@ async function handleNearestReservation(deps: InternalRouterDeps, rawBody: unkno
       const proposed = await deps.proposals.proposeNearest(details, {
         radiusMeters: body.radiusMeters,
         excludeDriverIds: body.excludeDriverIds,
+        preferredDriverIds: body.preferredDriverIds,
       });
       return proposed.proposed
         ? { outcome: 'PROPOSED', driverId: proposed.driverId, expiresAt: proposed.expiresAt }
@@ -210,6 +231,23 @@ async function handleNearestReservation(deps: InternalRouterDeps, rawBody: unkno
   );
 
   sendJson(res, 200, outcome);
+}
+
+async function handleNearbyDrivers(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
+  const parsed = NearbyDriversRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    sendJson(res, 400, { error: 'VALIDATION_ERROR', details: parsed.error.issues });
+    return;
+  }
+  const { origin, radiusMeters, limit, excludeDriverIds } = parsed.data;
+  const excluded = new Set(excludeDriverIds);
+  // Sur-demande du nombre d'écartés : la limite porte sur les candidats utilisables.
+  const nearby = await findNearby(deps.redis, origin, radiusMeters, limit + excluded.size);
+  const drivers = nearby
+    .filter((driver) => !excluded.has(driver.driverId))
+    .slice(0, limit)
+    .map(({ driverId, latitude, longitude, distanceMeters }) => ({ driverId, latitude, longitude, distanceMeters }));
+  sendJson(res, 200, { drivers });
 }
 
 async function handleRideUnmatched(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
@@ -374,6 +412,9 @@ export function createInternalHandler(deps: InternalRouterDeps) {
     switch (pathname) {
       case '/internal/reservations/nearest':
         await handleNearestReservation(deps, body, res);
+        return;
+      case '/internal/drivers/nearby':
+        await handleNearbyDrivers(deps, body, res);
         return;
       case '/internal/rides/unmatched':
         await handleRideUnmatched(deps, body, res);

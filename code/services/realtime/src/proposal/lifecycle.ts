@@ -58,6 +58,8 @@ export interface NearestSearch {
   radiusMeters: number;
   /** Chauffeurs déjà sollicités pour cette course -- jamais reproposés. */
   excludeDriverIds: readonly string[];
+  /** Classement routier d'Odoo (services/approach.py), essayé avant le vol d'oiseau. */
+  preferredDriverIds?: readonly string[];
 }
 
 /**
@@ -137,6 +139,7 @@ export class ProposalLifecycle {
       radiusMeters: search.radiusMeters,
       ttlSeconds: this.config.RESERVATION_TTL_SECONDS,
       excludeDriverIds: search.excludeDriverIds,
+      preferredDriverIds: search.preferredDriverIds ?? [],
     });
     if (!driverId) return { proposed: false };
     const { expiresAt } = await this.announce(driverId, details);

@@ -27,7 +27,7 @@
                     </block>
                     <block title="Recherche d'un chauffeur" name="babana_dispatch_settings">
                         <setting id="babana_dispatch_radius" string="Rayon de recherche"
-                                 help="La course part au chauffeur disponible le plus proche dans ce rayon (à vol d'oiseau).">
+                                 help="La course part au chauffeur disponible le plus proche par la route, parmi ceux de ce rayon.">
                             <div class="d-flex align-items-center gap-2">
                                 <field name="babana_dispatch_radius_meters" style="width: 6rem"/>
                                 <span>mètres</span>
@@ -38,6 +38,20 @@
                             <div class="d-flex align-items-center gap-2">
                                 <field name="babana_dispatch_max_attempts" style="width: 6rem"/>
                                 <span>chauffeurs</span>
+                            </div>
+                        </setting>
+                        <setting id="babana_approach_sample_size" string="Chauffeurs mesurés par la route"
+                                 help="Les plus proches à vol d'oiseau dont la distance routière est mesurée : pour choisir le chauffeur et pour la prise en charge moyenne de l'estimation.">
+                            <div class="d-flex align-items-center gap-2">
+                                <field name="babana_approach_sample_size" style="width: 6rem"/>
+                                <span>chauffeurs</span>
+                            </div>
+                        </setting>
+                        <setting id="babana_default_approach_distance" string="Distance d'approche de repli"
+                                 help="Prise en charge facturée sur cette distance quand aucun chauffeur disponible n'est mesurable au moment de l'estimation.">
+                            <div class="d-flex align-items-center gap-2">
+                                <field name="babana_default_approach_distance_meters" style="width: 6rem"/>
+                                <span>mètres</span>
                             </div>
                         </setting>
                     </block>

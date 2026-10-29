@@ -53,3 +53,4 @@ from . import test_audit_log
 from . import test_pickup_note
 from . import test_ride_arrival
 from . import test_dispatch
+from . import test_approach

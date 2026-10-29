@@ -59,11 +59,18 @@ def _post(path: str, payload: dict) -> dict:
 
 
 def reserve_nearest_and_propose(
-    *, ride, client_user, radius_meters: int, exclude_driver_public_ids: list[str], idempotency_key: str
+    *,
+    ride,
+    client_user,
+    radius_meters: int,
+    exclude_driver_public_ids: list[str],
+    idempotency_key: str,
+    preferred_driver_public_ids: list[str] | None = None,
 ) -> dict:
     """Le serveur choisit le chauffeur (le client ne désigne plus personne) : le service temps réel
-    réserve le chauffeur disponible le plus proche du point de prise en charge, hors
-    `exclude_driver_public_ids`, et lui adresse la proposition -- un seul geste atomique
+    réserve le chauffeur disponible le plus proche du point de prise en charge -- d'abord dans
+    l'ordre de `preferred_driver_public_ids` (distance routière, services/approach.py), puis à vol
+    d'oiseau -- hors `exclude_driver_public_ids`, et lui adresse la proposition -- un seul geste atomique
     (`ride/state.lua`, action `reserve-nearest`). PRÉCÈDE la transition
     `action_propose` (son résultat la désigne), et repose sur la même idempotence (D25).
 
@@ -83,8 +90,30 @@ def reserve_nearest_and_propose(
             "pickupNote": ride.pickup_note or None,
             "radiusMeters": radius_meters,
             "excludeDriverIds": list(exclude_driver_public_ids),
+            "preferredDriverIds": list(preferred_driver_public_ids or []),
         },
     )
+
+
+def fetch_nearby_drivers(
+    *, origin: tuple[float, float], radius_meters: int, limit: int, exclude_driver_public_ids: list[str]
+) -> list[dict]:
+    """Les chauffeurs disponibles les plus proches du point (à vol d'oiseau), avec leur position :
+    `[{"driverId", "latitude", "longitude", "distanceMeters"}, ...]`, par distance croissante.
+    Une LECTURE, jamais une écriture Redis -- aucun commit à attendre (D32), même exception assumée
+    que fetch_ride_measurement. Sert services/approach.py, qui en mesure la distance routière.
+    Lève RealtimeUnavailable sur une vraie panne."""
+    body = _post(
+        "/internal/drivers/nearby",
+        {
+            "origin": {"latitude": origin[0], "longitude": origin[1]},
+            "radiusMeters": radius_meters,
+            "limit": limit,
+            "excludeDriverIds": list(exclude_driver_public_ids),
+        },
+    )
+    drivers = body.get("drivers")
+    return drivers if isinstance(drivers, list) else []
 
 
 def fetch_ride_measurement(*, driver_public_id: str) -> dict | None:

@@ -83,11 +83,16 @@ export interface NearestReservationRequest {
   ttlSeconds: number;
   /** Chauffeurs déjà sollicités pour cette course (refus ou expiration) -- jamais reproposés. */
   excludeDriverIds?: readonly string[];
+  /**
+   * Candidats classés par distance ROUTIÈRE croissante (Odoo, services/approach.py) -- essayés
+   * d'abord, dans cet ordre, puis repli sur le vol d'oiseau. Vide : vol d'oiseau seul.
+   */
+  preferredDriverIds?: readonly string[];
 }
 
 /**
- * Le serveur choisit : réserve le chauffeur disponible le plus proche (à vol d'oiseau), hors
- * `excludeDriverIds`, et le renvoie -- `null` si personne dans le rayon. Choix et écriture dans le
+ * Le serveur choisit : réserve le chauffeur disponible le plus proche -- d'abord parmi
+ * `preferredDriverIds` (ordre routier), sinon à vol d'oiseau -- hors `excludeDriverIds`, et le renvoie -- `null` si personne dans le rayon. Choix et écriture dans le
  * MÊME script (`state.lua`, action `reserve-nearest`) : deux courses simultanées n'obtiennent
  * jamais le même chauffeur, et une course n'est jamais laissée sans chauffeur parce qu'une autre
  * lui a pris le premier candidat entre une lecture et une écriture
@@ -105,6 +110,8 @@ export async function reserveNearest(redis: Redis, request: NearestReservationRe
     request.ttlSeconds,
     RIDE_STATE_KEY_PREFIX,
     POSITION_KEY_PREFIX,
+    (request.preferredDriverIds ?? []).length,
+    ...(request.preferredDriverIds ?? []),
     ...(request.excludeDriverIds ?? [])
   );
   return typeof result === 'string' ? result : null;

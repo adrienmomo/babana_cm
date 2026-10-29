@@ -106,4 +106,28 @@ describe('sélection automatique concurrente (invariant 4)', () => {
       assert.deepEqual([...winners].sort(), [...drivers].sort(), 'jamais deux fois le même chauffeur');
     }
   });
+
+  test(`classement routier commun, ${CONCURRENCY} demandes : trois servies, jamais deux fois le même (${ITERATIONS} répétitions)`, async () => {
+    for (let iteration = 0; iteration < ITERATIONS; iteration += 1) {
+      const pickup = uniqueSpot();
+      // eslint-disable-next-line no-await-in-loop
+      const drivers = await Promise.all(
+        [20, 60, 120].map((meters, index) =>
+          availableDriverAt(`road-${iteration}-${index}`, { latitude: pickup.latitude + meters / 111_000, longitude: pickup.longitude })
+        )
+      );
+      // Toutes les demandes portent le même classement routier (inverse du vol d'oiseau) : la gate
+      // du vivier, pas l'ordre, doit garantir l'exclusivité.
+      const preferredDriverIds = [...drivers].reverse();
+      // eslint-disable-next-line no-await-in-loop
+      const results = await Promise.all(
+        connections.map((connection) =>
+          reserveNearestDriver(connection, { origin: pickup, radiusMeters: RADIUS_METERS, ttlSeconds: 30, preferredDriverIds })
+        )
+      );
+      const winners = results.filter((chosen): chosen is string => chosen !== null);
+      assert.equal(winners.length, 3, `itération ${iteration} : ${winners.length} demandes servies au lieu de 3`);
+      assert.deepEqual([...winners].sort(), [...drivers].sort(), 'jamais deux fois le même chauffeur');
+    }
+  });
 });

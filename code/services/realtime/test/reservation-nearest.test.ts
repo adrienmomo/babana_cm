@@ -135,3 +135,58 @@ describe('reserveNearestDriver -- le serveur choisit le chauffeur disponible le 
     assert.equal(second, null);
   });
 });
+
+describe('reserveNearestDriver -- classement par distance routière (preferredDriverIds)', () => {
+  test("le premier du classement routier gagne, même s'il est plus loin à vol d'oiseau", async () => {
+    const pickup = uniqueSpot();
+    const closeAsTheCrowFlies = await availableDriverAt('road-beeline-close', northOf(pickup, 40));
+    const closeByRoad = await availableDriverAt('road-close', northOf(pickup, 250));
+
+    const chosen = await reserveNearestDriver(redis, {
+      origin: pickup,
+      radiusMeters: RADIUS_METERS,
+      ttlSeconds: 30,
+      preferredDriverIds: [closeByRoad, closeAsTheCrowFlies],
+    });
+
+    assert.equal(chosen, closeByRoad);
+    assert.equal(await isInPool(redis, closeByRoad), false);
+    assert.equal(await isInPool(redis, closeAsTheCrowFlies), true);
+  });
+
+  test('un préféré déjà réservé, écarté ou sans position fraîche est passé, dans l’ordre', async () => {
+    const pickup = uniqueSpot();
+    const taken = await availableDriverAt('road-taken', northOf(pickup, 50));
+    const excluded = await availableDriverAt('road-excluded', northOf(pickup, 80));
+    const stale = await availableDriverAt('road-stale', northOf(pickup, 110));
+    const next = await availableDriverAt('road-next', northOf(pickup, 300));
+    await reserveNearestDriver(redis, { origin: pickup, radiusMeters: RADIUS_METERS, ttlSeconds: 30, preferredDriverIds: [taken] });
+    await redis.del(positionKey(stale));
+
+    const chosen = await reserveNearestDriver(redis, {
+      origin: pickup,
+      radiusMeters: RADIUS_METERS,
+      ttlSeconds: 30,
+      preferredDriverIds: [taken, excluded, stale, next],
+      excludeDriverIds: [excluded],
+    });
+
+    assert.equal(chosen, next);
+    assert.equal(await isInPool(redis, excluded), true);
+  });
+
+  test("aucun préféré disponible : repli sur le plus proche à vol d'oiseau", async () => {
+    const pickup = uniqueSpot();
+    const gone = id('road-gone');
+    const close = await availableDriverAt('road-fallback-close', northOf(pickup, 60));
+
+    const chosen = await reserveNearestDriver(redis, {
+      origin: pickup,
+      radiusMeters: RADIUS_METERS,
+      ttlSeconds: 30,
+      preferredDriverIds: [gone],
+    });
+
+    assert.equal(chosen, close);
+  });
+});

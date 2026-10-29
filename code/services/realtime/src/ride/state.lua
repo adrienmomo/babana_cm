@@ -27,8 +27,15 @@
 -- 'reserve-nearest' -- KEYS[1] pool des chauffeurs disponibles (AVAILABLE_DRIVERS_KEY).
 --   ARGV[2] longitude, ARGV[3] latitude du point de prise en charge, ARGV[4] rayon en mètres,
 --   ARGV[5] durée de vie de la réservation, ARGV[6] préfixe des clés d'état (RIDE_STATE_KEY_PREFIX),
---   ARGV[7] préfixe des clés de position (POSITION_KEY_PREFIX), ARGV[8..] chauffeurs à écarter
---   (déjà sollicités pour cette course).
+--   ARGV[7] préfixe des clés de position (POSITION_KEY_PREFIX), ARGV[8] nombre P de candidats
+--   préférés, ARGV[9..8+P] candidats préférés DANS L'ORDRE (classés par distance ROUTIÈRE par
+--   Odoo, services/approach.py), ARGV[9+P..] chauffeurs à écarter (déjà sollicités pour cette
+--   course).
+--   Les préférés sont essayés d'abord, dans leur ordre ; chacun passe la même gate qu'un candidat
+--   du GEOSEARCH (présent dans le vivier, non écarté, position fraîche) -- un préféré réservé
+--   entre-temps par une autre course n'est donc jamais pris deux fois. Ensuite seulement, repli
+--   sur le GEOSEARCH à vol d'oiseau : un classement routier périmé ou vide (routage indisponible)
+--   ne laisse jamais une course sans chauffeur alors qu'un disponible est dans le rayon.
 --   Le serveur choisit le chauffeur (le client ne choisit plus, D10 retiré) : le CHOIX et la
 --   RÉSERVATION se font dans ce même script -- jamais un GEOSEARCH en TypeScript suivi d'une
 --   réservation, qui laisserait deux courses lire le même « plus proche » (invariant 4). Parcourt le
@@ -83,17 +90,32 @@ if action == 'reserve' then
 end
 
 if action == 'reserve-nearest' then
+  local preferredCount = tonumber(ARGV[8])
   local excluded = {}
-  for index = 8, #ARGV do
+  for index = 9 + preferredCount, #ARGV do
     excluded[ARGV[index]] = true
+  end
+  local function tryReserve(driverId)
+    if excluded[driverId]
+      or redis.call('ZSCORE', KEYS[1], driverId) == false
+      or redis.call('EXISTS', ARGV[7] .. driverId) == 0
+    then
+      return false
+    end
+    local stateKey = ARGV[6] .. driverId
+    redis.call('ZREM', KEYS[1], driverId)
+    redis.call('HSET', stateKey, 'state', 'reserved')
+    redis.call('EXPIRE', stateKey, ARGV[5])
+    return true
+  end
+  for index = 9, 8 + preferredCount do
+    if tryReserve(ARGV[index]) then
+      return ARGV[index]
+    end
   end
   local candidates = redis.call('GEOSEARCH', KEYS[1], 'FROMLONLAT', ARGV[2], ARGV[3], 'BYRADIUS', ARGV[4], 'm', 'ASC')
   for _, driverId in ipairs(candidates) do
-    if not excluded[driverId] and redis.call('EXISTS', ARGV[7] .. driverId) == 1 then
-      local stateKey = ARGV[6] .. driverId
-      redis.call('ZREM', KEYS[1], driverId)
-      redis.call('HSET', stateKey, 'state', 'reserved')
-      redis.call('EXPIRE', stateKey, ARGV[5])
+    if tryReserve(driverId) then
       return driverId
     end
   end
