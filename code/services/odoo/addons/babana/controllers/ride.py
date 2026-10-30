@@ -20,7 +20,7 @@ from odoo.http import request
 from odoo.service.model import PG_CONCURRENCY_EXCEPTIONS_TO_RETRY
 
 from . import _common
-from ..models.babana_ride import PICKUP_NOTE_MAX_LENGTH
+from ..models.babana_ride import PICKUP_NOTE_MAX_LENGTH, PLACE_LABEL_MAX_LENGTH
 from ..models.babana_ride_state import NO_SHOW_REASON, RideInvalidTransition, RideNoShowTooEarly
 from ..services import dispatch, realtime_client
 
@@ -135,6 +135,20 @@ class RideController(http.Controller):
                 ), 400
             pickup_note = pickup_note.strip()
 
+        # Libellés des points tels que l'app les a affichés (« vers Carrefour Tiff ») -- repris
+        # par l'historique et la facture (L6-10). Facultatifs ; un libellé invalide refuse la
+        # commande, même règle que pickupNote.
+        labels = {}
+        for key, field in (("pickupLabel", "pickup_label"), ("dropoffLabel", "dropoff_label")):
+            value = (body or {}).get(key)
+            if value is None:
+                continue
+            if not isinstance(value, str) or not value.strip() or len(value.strip()) > PLACE_LABEL_MAX_LENGTH:
+                return _common.error_payload(
+                    "VALIDATION_ERROR", f"{key} doit contenir de 1 à {PLACE_LABEL_MAX_LENGTH} caractères"
+                ), 400
+            labels[field] = value.strip()
+
         # Un client ne peut référencer que sa propre estimation -- traité comme "introuvable",
         # pas comme un défaut d'appartenance distinct : le catalogue de createRide (C-01) ne
         # prévoit que QUOTE_EXPIRED et QUOTE_NOT_FOUND, pas de RIDE_NOT_OWNED équivalent pour
@@ -162,6 +176,7 @@ class RideController(http.Controller):
                 "dropoff_zone_id": quote.dropoff_zone_id.id,
                 "quote_id": quote.id,
                 "pickup_note": pickup_note or False,
+                **labels,
                 "currency_id": quote.currency_id.id,
                 "estimated_amount": quote.amount,
                 "reference_distance_km": quote.distance_meters / 1000.0,

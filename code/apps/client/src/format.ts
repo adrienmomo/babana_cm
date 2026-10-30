@@ -20,3 +20,13 @@ export function formatEta(etaSeconds: number): string {
   // que ce chiffre n'a pas.
   return `≈ ${Math.max(1, Math.round(etaSeconds / 60))} min`;
 }
+
+function twoDigits(n: number): string {
+  return n < 10 ? `0${n}` : String(n);
+}
+
+/** Date et heure d'une course (historique, facture), dans le fuseau du téléphone : « 29/10/2026 · 18:12 ». */
+export function formatRideDate(iso: string): string {
+  const date = new Date(iso);
+  return `${twoDigits(date.getDate())}/${twoDigits(date.getMonth() + 1)}/${date.getFullYear()} · ${twoDigits(date.getHours())}:${twoDigits(date.getMinutes())}`;
+}

@@ -182,7 +182,7 @@ doute, le code (`packages/contracts/src/http/`) a raison, pas cette colonne.
 | `POST /rides/{id}/arrived` | aucune (`assigned`, écrit `arrived_at` une fois) | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui |
 | `POST /rides/{id}/complete` | `in_progress → completed` | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui |
 
-`POST /rides` accepte `{ quoteId, pickupNote? }` : `pickupNote` est un repère libre du client (« devant la pharmacie du rond-point »), 140 caractères au plus, transmis au chauffeur dès la proposition (`proposal.new.pickupNote`).
+`POST /rides` accepte `{ quoteId, pickupNote?, pickupLabel?, dropoffLabel? }` (libellés affichés des points, 120 caractères au plus, repris par l'historique et la facture) : `pickupNote` est un repère libre du client (« devant la pharmacie du rond-point »), 140 caractères au plus, transmis au chauffeur dès la proposition (`proposal.new.pickupNote`).
 
 `POST /rides/{id}/complete` ne porte **que la décision** (J24, `amoa/questions/L6-13.md`) : le
 corps est vide, l'app dit « terminée » et rien d'autre. Le relevé du trajet (distance parcourue,
@@ -395,6 +395,32 @@ actif, réussit sans effet.
 
 - Réponse : `{ revoked: true }`
 - Erreurs : `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`
+
+---
+
+## Historique et factures — `history.ts`
+
+### `GET /rides`
+
+- Requête : `?cursor=<nextCursor de la page précédente>` (absent pour la première page)
+- Réponse : `{ rides: RideHistoryEntry[], nextCursor }` — courses terminées (`completed`,
+  `settled`, `cancelled`) du client, de la plus récente à la plus ancienne **par date de la
+  course** ; taille de page fixée par le serveur (`babana.ride_history_page_size`, 20)
+- `RideHistoryEntry = { id, reference, requestedAt, pickupLabel, dropoffLabel, dropoff, amount, status, invoiceAvailable }`
+
+### `GET /rides/{id}/invoice`
+
+- Réponse : `{ rideId, reference, invoiceNumber, invoiceDate, rideDate, pickupLabel, dropoffLabel, distanceMeters, driverName, amount, currency, breakdown, paymentMethod: "cash", email }`
+- Erreurs : `RIDE_NOT_FOUND`, `INVOICE_NOT_AVAILABLE` (course non encaissée)
+
+Le détail est celui gelé à la commande, jamais recalculé depuis la grille actuelle.
+
+### `POST /rides/{id}/invoice/email`
+
+- Réponse : `{ sent: true, email }`
+- Erreurs : `RIDE_NOT_FOUND`, `INVOICE_NOT_AVAILABLE`, `CLIENT_EMAIL_MISSING`, `INVOICE_EMAIL_FAILED`
+
+Même chemin d'envoi que l'envoi automatique à l'encaissement et le bouton du back-office (D57).
 
 ---
 

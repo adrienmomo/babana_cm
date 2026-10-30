@@ -58,6 +58,11 @@ export const ErrorCode = z.enum([
   // place effectivement le client et le chauffeur ensemble (assigned/in_progress) -- avant
   // l'affectation, personne n'est encore réuni ; après un état terminal, ce n'est plus "pendant".
   'RIDE_NOT_ACTIVE',
+  // Historique et factures (L6-10) : facture d'une course non encaissée, client sans adresse
+  // email, envoi tenté mais refusé (SMTP).
+  'INVOICE_NOT_AVAILABLE',
+  'CLIENT_EMAIL_MISSING',
+  'INVOICE_EMAIL_FAILED',
 
   // Caisse
   'CASH_LIMIT_REACHED',
@@ -103,6 +108,9 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
   ROUTE_UNAVAILABLE: 503,
 
   RIDE_NOT_FOUND: 404,
+  INVOICE_NOT_AVAILABLE: 409,
+  CLIENT_EMAIL_MISSING: 409,
+  INVOICE_EMAIL_FAILED: 502,
   RIDE_INVALID_TRANSITION: 409,
   NO_SHOW_TOO_EARLY: 409,
   RIDE_NOT_OWNED: 403,
@@ -153,6 +161,9 @@ export const ERROR_DESCRIPTION: Record<ErrorCode, string> = {
   ROUTE_UNAVAILABLE: "L'API de routage est indisponible ; réessayer plus tard (aucune estimation dégradée n'est produite).",
 
   RIDE_NOT_FOUND: "Aucune course pour cet identifiant.",
+  INVOICE_NOT_AVAILABLE: "Cette course n'a pas de facture : seule une course encaissée en a une.",
+  CLIENT_EMAIL_MISSING: "Aucune adresse email n'est connue pour ce client.",
+  INVOICE_EMAIL_FAILED: "L'envoi de la facture par email a été tenté mais a échoué ; réessayer plus tard.",
   RIDE_INVALID_TRANSITION: "La transition demandée n'est pas permise depuis l'état courant de la course (voir docs/contracts/ride-state-machine.md).",
   NO_SHOW_TOO_EARLY: "« Client absent » n'est permis qu'une fois le délai de grâce écoulé depuis « Sur place » (paramètre babana.no_show_grace_seconds).",
   RIDE_NOT_OWNED: "Cette course n'appartient pas à l'appelant.",

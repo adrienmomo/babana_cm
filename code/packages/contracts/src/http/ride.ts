@@ -43,9 +43,17 @@ export type RideSummary = z.infer<typeof RideSummarySchema>;
 export const PICKUP_NOTE_MAX_LENGTH = 140;
 export const PickupNoteSchema = z.string().trim().min(1).max(PICKUP_NOTE_MAX_LENGTH);
 
+/** Libellé du point désigné tel que l'app l'a affiché (« vers Carrefour Tiff ») -- repris dans
+ * l'historique et sur la facture. Une étiquette d'affichage, jamais une adresse qui ferait foi :
+ * ce sont les coordonnées de l'estimation qui comptent. */
+export const PLACE_LABEL_MAX_LENGTH = 120;
+export const PlaceLabelSchema = z.string().trim().min(1).max(PLACE_LABEL_MAX_LENGTH);
+
 export const CreateRideRequestSchema = z.object({
   quoteId: z.string().uuid(),
   pickupNote: PickupNoteSchema.optional(),
+  pickupLabel: PlaceLabelSchema.optional(),
+  dropoffLabel: PlaceLabelSchema.optional(),
 });
 export type CreateRideRequest = z.infer<typeof CreateRideRequestSchema>;
 

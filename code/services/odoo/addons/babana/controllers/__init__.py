@@ -4,6 +4,7 @@ from . import auth
 from . import devices
 from . import documents
 from . import driver
+from . import history
 from . import incident
 from . import internal
 from . import internal_profiles

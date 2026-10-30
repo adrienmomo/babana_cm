@@ -567,6 +567,29 @@ class TestRideController(HttpCase):
             "aucune course créée avec une indication refusée",
         )
 
+    def test_create_ride_keeps_the_place_labels_shown_by_the_app(self):
+        # Repris par l'historique et la facture (L6-10) : sans eux, une course n'y a ni départ ni
+        # arrivée lisibles.
+        client_token, _ = self._sign_in("sub-createride-labels", "client")
+        quote_id = self._make_quote(client_token)
+
+        response = self._post(
+            "/api/v1/rides",
+            client_token,
+            {"quoteId": quote_id, "pickupLabel": " vers Carrefour Tiff ", "dropoffLabel": "vers Rond-point Deïdo"},
+        )
+
+        self.assertEqual(response.status_code, 201)
+        ride = self.env["babana.ride"].sudo().search([("public_id", "=", response.json()["id"])])
+        self.assertEqual((ride.pickup_label, ride.dropoff_label), ("vers Carrefour Tiff", "vers Rond-point Deïdo"))
+
+    def test_create_ride_with_an_invalid_place_label_is_a_validation_error(self):
+        client_token, _ = self._sign_in("sub-createride-badlabel", "client")
+        for bad in ("x" * 121, "  ", 7):
+            quote_id = self._make_quote(client_token)
+            response = self._post("/api/v1/rides", client_token, {"quoteId": quote_id, "dropoffLabel": bad})
+            self.assertEqual(response.status_code, 400, bad)
+
     def test_create_ride_with_missing_quote_id_is_a_validation_error(self):
         client_token, _ = self._sign_in("sub-createride-badbody", "client")
 

@@ -116,9 +116,15 @@ export function QuoteScreen({ route, navigation }: Props) {
     setOrderError(null);
     try {
       const note = pickupNote.trim();
-      const ride = (await apiClient.request('createRide', {
-        body: note ? { quoteId: quote.quoteId, pickupNote: note } : { quoteId: quote.quoteId },
-      })) as http.CreateRideResponse;
+      // Les libellés affichés ici (« vers Carrefour Tiff ») suivent la course : l'historique et la
+      // facture les reprennent (L6-10).
+      const body: http.CreateRideRequest = {
+        quoteId: quote.quoteId,
+        pickupLabel: origin.label.slice(0, http.PLACE_LABEL_MAX_LENGTH),
+        dropoffLabel: destination.label.slice(0, http.PLACE_LABEL_MAX_LENGTH),
+        ...(note ? { pickupNote: note } : {}),
+      };
+      const ride = (await apiClient.request('createRide', { body })) as http.CreateRideResponse;
       // Le piège du bouton retour Android (L6-00, `navigation/transitions.ts`) : la pile
       // Home/Quote est remplacée, pas empilée sous Waiting -- un retour depuis l'attente ne doit
       // jamais ramener à l'estimation d'une course qui existe désormais côté serveur. La recherche

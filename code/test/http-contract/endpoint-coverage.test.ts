@@ -117,6 +117,16 @@ async function setupProposedRide(label: string): Promise<ProposedRide> {
 /** Course affectée (proposed -> assigned), par le seul chemin d'écriture réel (D31) : le canal
  * interne, comme le ferait le service temps réel après une acceptation résolue atomiquement --
  * jamais un second chemin HTTP public qui ignorerait la réservation. */
+/** Course encaissée de bout en bout (facture émise) -- pour les endpoints de facture (L6-10). */
+async function settledRide(label: string): Promise<ProposedRide> {
+  const rig = await setupAssignedRide(label);
+  const driverClient = clientFor(rig.driverSession.accessToken);
+  await driverClient.request('startRide', { pathParams: { id: rig.ride.id } });
+  const completed = (await driverClient.request('completeRide', { pathParams: { id: rig.ride.id }, body: {} })) as http.CompleteRideResponse;
+  await driverClient.request('settleRide', { pathParams: { id: rig.ride.id }, body: { amountCollected: completed.amount } });
+  return rig;
+}
+
 async function setupAssignedRide(label: string): Promise<ProposedRide> {
   const rig = await setupProposedRide(label);
   const accept = await callInternalEndpoint(`/api/internal/rides/${rig.ride.id}/driver-accepted`, {
@@ -254,6 +264,34 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
       body: { amountCollected: completed.amount },
     })) as http.SettleRideResponse;
     assert.equal(settled.state, 'settled');
+  },
+
+  rideHistory: async () => {
+    const session = await freshSession('client', 'ride-history');
+    const client = clientFor(session.accessToken);
+    const quote = (await client.request('quote', { body: { origin: ORIGIN, destination: DESTINATION } })) as http.QuoteResponse;
+    const ride = (await client.request('createRide', {
+      body: { quoteId: quote.quoteId, pickupLabel: 'vers Carrefour Tiff', dropoffLabel: 'vers Rond-point Deïdo' },
+    })) as http.CreateRideResponse;
+    await client.request('cancelRide', { pathParams: { id: ride.id }, body: {} });
+    const history = (await client.request('rideHistory', { query: {} })) as http.RideHistoryResponse;
+    const entry = history.rides.find((candidate) => candidate.id === ride.id);
+    assert.ok(entry, 'la course annulée figure dans l’historique');
+    assert.equal(entry.status, 'cancelled');
+    assert.equal(entry.dropoffLabel, 'vers Rond-point Deïdo');
+  },
+
+  rideInvoice: async () => {
+    const rig = await settledRide('ride-invoice');
+    const invoice = (await rig.client.request('rideInvoice', { pathParams: { id: rig.ride.id } })) as http.RideInvoiceResponse;
+    assert.equal(invoice.paymentMethod, 'cash');
+    assert.equal(invoice.rideId, rig.ride.id);
+  },
+
+  sendInvoiceEmail: async () => {
+    const rig = await settledRide('send-invoice-email');
+    const sent = (await rig.client.request('sendInvoiceEmail', { pathParams: { id: rig.ride.id } })) as http.SendInvoiceEmailResponse;
+    assert.equal(sent.sent, true);
   },
 
   cancelRide: async () => {

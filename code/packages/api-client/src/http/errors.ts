@@ -54,6 +54,9 @@ export const USER_MESSAGES = {
   ROUTE_UNAVAILABLE: "Impossible de calculer l'itinéraire pour le moment. Réessayez.",
 
   RIDE_NOT_FOUND: "Cette course n'existe pas ou n'est plus disponible.",
+  INVOICE_NOT_AVAILABLE: "La facture n'est disponible qu'une fois la course payée.",
+  CLIENT_EMAIL_MISSING: "Aucune adresse email n'est associée à votre compte.",
+  INVOICE_EMAIL_FAILED: "L'envoi de la facture a échoué. Réessayez dans un instant.",
   RIDE_INVALID_TRANSITION: "Cette action n'est plus possible pour cette course.",
   NO_SHOW_TOO_EARLY: "Le délai d'attente du client n'est pas encore écoulé.",
   RIDE_NOT_OWNED: "Cette course ne vous appartient pas.",

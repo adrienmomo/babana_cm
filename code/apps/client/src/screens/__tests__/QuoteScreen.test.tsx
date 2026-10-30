@@ -283,7 +283,14 @@ describe('QuoteScreen (L6-07)', () => {
 
       expect(mockRequest).toHaveBeenCalledWith(
         'createRide',
-        expect.objectContaining({ body: { quoteId: quoteResponse().quoteId, pickupNote: 'Devant la pharmacie du rond-point' } })
+        expect.objectContaining({
+          body: {
+            quoteId: quoteResponse().quoteId,
+            pickupLabel: ORIGIN.label,
+            dropoffLabel: DESTINATION.label,
+            pickupNote: 'Devant la pharmacie du rond-point',
+          },
+        })
       );
     });
 
@@ -296,7 +303,22 @@ describe('QuoteScreen (L6-07)', () => {
       await act(async () => {
         root.root.findByProps({ testID: 'order-button' }).props.onPress();
       });
-      expect(mockRequest).toHaveBeenCalledWith('createRide', expect.objectContaining({ body: { quoteId: quoteResponse().quoteId } }));
+      expect(mockRequest).toHaveBeenCalledWith(
+        'createRide',
+        expect.objectContaining({
+          body: { quoteId: quoteResponse().quoteId, pickupLabel: ORIGIN.label, dropoffLabel: DESTINATION.label },
+        })
+      );
+    });
+
+    it('les libellés affichés du départ et de l’arrivée partent avec la commande (historique, facture)', async () => {
+      mockOrderFlow();
+      const { root } = await renderQuote();
+      await act(async () => {
+        root.root.findByProps({ testID: 'order-button' }).props.onPress();
+      });
+      const call = mockRequest.mock.calls.find(([name]) => name === 'createRide');
+      expect(call?.[1].body).toMatchObject({ pickupLabel: 'vers Akwa, Douala', dropoffLabel: 'vers Bonapriso, Douala' });
     });
   });
 

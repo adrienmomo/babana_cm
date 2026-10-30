@@ -50,6 +50,9 @@ TOGETHER_STATES = ("assigned", "in_progress")
 # Même borne que le contrat (`PickupNoteSchema`, packages/contracts/src/http/ride.ts) -- une
 # borne de format, pas une valeur métier.
 PICKUP_NOTE_MAX_LENGTH = 140
+# Libellé d'un point désigné (contrat C-01 ride.ts, PLACE_LABEL_MAX_LENGTH) -- même valeur des deux
+# côtés : une étiquette d'affichage, pas une adresse qui ferait foi.
+PLACE_LABEL_MAX_LENGTH = 120
 
 class BabanaRide(models.Model):
     _name = "babana.ride"

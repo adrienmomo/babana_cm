@@ -14,6 +14,7 @@ export * from './documents';
 export * from './devices';
 export * from './incident';
 export * from './share';
+export * from './history';
 
 import * as auth from './auth';
 import * as phone from './phone';
@@ -26,6 +27,7 @@ import * as documents from './documents';
 import * as devices from './devices';
 import * as incident from './incident';
 import * as share from './share';
+import * as history from './history';
 
 /**
  * Codes implicitement possibles sur tout endpoint, sans être répétés dans la liste
@@ -311,6 +313,36 @@ export const HTTP_ENDPOINTS = {
     errors: incident.TriggerIncidentErrors,
     requestExample: incident.triggerIncidentRequestExample,
     responseExample: incident.triggerIncidentResponseExample,
+  },
+  rideHistory: {
+    method: 'GET',
+    path: '/api/v1/rides',
+    requiresAuth: true,
+    requestSchema: history.RideHistoryQuerySchema,
+    responseSchema: history.RideHistoryResponseSchema,
+    errors: history.RideHistoryErrors,
+    requestExample: history.rideHistoryRequestExample,
+    responseExample: history.rideHistoryResponseExample,
+  },
+  rideInvoice: {
+    method: 'GET',
+    path: '/api/v1/rides/{id}/invoice',
+    requiresAuth: true,
+    requestSchema: null,
+    responseSchema: history.RideInvoiceResponseSchema,
+    errors: history.RideInvoiceErrors,
+    requestExample: null,
+    responseExample: history.rideInvoiceResponseExample,
+  },
+  sendInvoiceEmail: {
+    method: 'POST',
+    path: '/api/v1/rides/{id}/invoice/email',
+    requiresAuth: true,
+    requestSchema: null,
+    responseSchema: history.SendInvoiceEmailResponseSchema,
+    errors: history.SendInvoiceEmailErrors,
+    requestExample: null,
+    responseExample: history.sendInvoiceEmailResponseExample,
   },
   createRideShare: {
     method: 'POST',

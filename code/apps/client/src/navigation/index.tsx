@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { createNavigationContainerRef, NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AuthGate, PlaceholderScreen, type SessionState } from '@babana/navigation';
@@ -14,6 +14,8 @@ import { QuoteScreen } from '../screens/QuoteScreen';
 import { WaitingScreen } from '../screens/WaitingScreen';
 import { TrackingScreen } from '../screens/TrackingScreen';
 import { RideSummaryScreen } from '../screens/RideSummaryScreen';
+import { HistoryScreen } from '../screens/HistoryScreen';
+import { InvoiceScreen } from '../screens/InvoiceScreen';
 import type { AuthParamList, ClientParamList } from './types';
 import { SCREEN_TITLES } from './titles';
 
@@ -119,17 +121,23 @@ function ClientNavigator() {
       // Sans titre explicite, la barre affiche le nom technique de la route (« Home », « Quote »).
       screenOptions={({ route }) => ({ title: SCREEN_TITLES[route.name] })}
     >
-      <ClientStack.Screen name="Home" component={HomeScreen} />
+      <ClientStack.Screen
+        name="Home"
+        component={HomeScreen}
+        options={({ navigation }) => ({
+          headerRight: () => (
+            <Pressable testID="open-history" onPress={() => navigation.navigate('History')} hitSlop={12}>
+              <Text style={styles.headerLink}>Mes courses</Text>
+            </Pressable>
+          ),
+        })}
+      />
       <ClientStack.Screen name="Quote" component={QuoteScreen} />
       <ClientStack.Screen name="Waiting" component={WaitingScreen} />
       <ClientStack.Screen name="Tracking" component={TrackingScreen} />
       <ClientStack.Screen name="RideSummary" component={RideSummaryScreen} />
-      <ClientStack.Screen name="History">
-        {() => <PlaceholderScreen title="Historique" task="L6-10" />}
-      </ClientStack.Screen>
-      <ClientStack.Screen name="Invoice">
-        {() => <PlaceholderScreen title="Facture" task="L6-10" />}
-      </ClientStack.Screen>
+      <ClientStack.Screen name="History" component={HistoryScreen} />
+      <ClientStack.Screen name="Invoice" component={InvoiceScreen} />
     </ClientStack.Navigator>
   );
 }
@@ -169,5 +177,10 @@ const styles = StyleSheet.create({
   },
   signedInRoot: {
     flex: 1,
+  },
+  headerLink: {
+    color: '#137347',
+    fontWeight: '600',
+    fontSize: 15,
   },
 });
