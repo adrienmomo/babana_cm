@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { MAP_MARKER_COLORS, MapView, type MapMarker } from '@babana/maps';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '@babana/ui';
 import { asDriverId } from '@babana/navigation';
@@ -145,9 +146,20 @@ export function WaitingScreen({ route, navigation }: Props) {
 
   const searching = phase.kind === 'searching' || phase.kind === 'proposed' || phase.kind === 'moving-on';
 
+  const markers: MapMarker[] = [
+    { id: 'pickup', kind: 'pickup', position: origin.position, label: 'Départ' },
+    { id: 'dropoff', kind: 'dropoff', position: destination.position, label: 'Arrivée' },
+  ];
+
   return (
     <View style={styles.container}>
-      {searching ? <ActivityIndicator size="large" testID="waiting-spinner" /> : null}
+      <View style={styles.mapWrap}>
+        <MapView center={origin.position} markers={markers} style={styles.map} />
+        {/* La recherche se voit : un halo qui pulse autour du point de départ, au centre de la carte. */}
+        {searching ? <SearchPulse /> : null}
+      </View>
+      <View style={styles.card}>
+      {searching ? <ActivityIndicator size="small" testID="waiting-spinner" /> : null}
       <Text style={styles.title} testID="waiting-status">
         {phase.kind === 'searching'
           ? 'Recherche du chauffeur le plus proche…'
@@ -159,12 +171,42 @@ export function WaitingScreen({ route, navigation }: Props) {
                 ? USER_MESSAGES.NO_DRIVER_AVAILABLE
                 : phase.message}
       </Text>
+      <Text style={styles.route} numberOfLines={1}>
+        {origin.label} → {destination.label}
+      </Text>
       <Text style={styles.amount}>{formatMoney(amount)}</Text>
+      <Text style={styles.payment}>Paiement en espèces au chauffeur</Text>
       {phase.kind === 'unmatched' || phase.kind === 'failed' ? (
         <Button testID="retry-dispatch" label="Réessayer" onPress={dispatch} />
       ) : null}
       {cancelError ? <Text style={styles.error}>{cancelError}</Text> : null}
       <Button testID="cancel-waiting" label="Annuler" variant="secondary" onPress={handleCancel} disabled={cancelling} />
+      </View>
+    </View>
+  );
+}
+
+/** Halo qui s'agrandit et s'efface en boucle, centré sur la carte (donc sur le point de départ). */
+function SearchPulse() {
+  const progress = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.timing(progress, { toValue: 1, duration: 1600, easing: Easing.out(Easing.ease), useNativeDriver: true })
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [progress]);
+  return (
+    <View style={styles.pulseLayer} pointerEvents="none" testID="search-pulse">
+      <Animated.View
+        style={[
+          styles.pulse,
+          {
+            opacity: progress.interpolate({ inputRange: [0, 1], outputRange: [0.5, 0] }),
+            transform: [{ scale: progress.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }) }],
+          },
+        ]}
+      />
     </View>
   );
 }
@@ -172,10 +214,42 @@ export function WaitingScreen({ route, navigation }: Props) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  mapWrap: {
+    flex: 1,
+  },
+  map: {
+    flex: 1,
+  },
+  pulseLayer: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 16,
-    padding: 24,
+  },
+  pulse: {
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+    backgroundColor: MAP_MARKER_COLORS.pickup,
+  },
+  card: {
+    alignItems: 'center',
+    gap: 12,
+    padding: 20,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    backgroundColor: '#FFFFFF',
+  },
+  route: {
+    color: '#6B7280',
+  },
+  payment: {
+    color: '#374151',
+    fontWeight: '600',
   },
   title: {
     fontSize: 20,

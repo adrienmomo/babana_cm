@@ -3,6 +3,18 @@ import { Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { asDriverId, asRideId } from '@babana/navigation';
 
+const mockMapProps = jest.fn();
+jest.mock('@babana/maps', () => {
+  const { View } = jest.requireActual('react-native');
+  return {
+    MAP_MARKER_COLORS: { pickup: '#1A9E5C', dropoff: '#E5484D', driver: '#1A9E5C' },
+    MapView: (props: unknown) => {
+      mockMapProps(props);
+      return <View testID="mock-map" />;
+    },
+  };
+});
+
 const mockRequest = jest.fn();
 jest.mock('../../auth', () => ({
   apiClient: { request: (...args: unknown[]) => mockRequest(...args) },
@@ -291,5 +303,28 @@ describe('WaitingScreen -- la course part au chauffeur le plus proche, choisi pa
     expect(navigation.navigate).not.toHaveBeenCalled();
     expect(root.root.findByProps({ testID: 'cancel-waiting' }).props.disabled).toBe(false);
     expect(texts(root)).toContain("Cette course n'existe pas ou n'est plus disponible.");
+  });
+});
+
+describe('WaitingScreen -- l’attente se voit', () => {
+  it('la carte montre le départ et l’arrivée, centrée sur le départ, avec le trajet et le prix', async () => {
+    const { root } = await renderWaiting();
+
+    const props = mockMapProps.mock.calls.at(-1)?.[0] as { center: unknown; markers: Array<{ kind: string; position: unknown }> };
+    expect(props.center).toEqual(ORIGIN.position);
+    expect(props.markers.map((marker) => marker.kind)).toEqual(['pickup', 'dropoff']);
+    expect(texts(root)).toContain(ORIGIN.label);
+    expect(texts(root)).toContain('Paiement en espèces au chauffeur');
+  });
+
+  it('le halo de recherche pulse pendant la recherche, et disparaît quand personne n’est trouvé', async () => {
+    const { root } = await renderWaiting();
+    expect(shown(root, 'search-pulse')).toBe(true);
+
+    await act(async () => {
+      emit('ride.unmatched', { rideId: RIDE_ID });
+    });
+
+    expect(shown(root, 'search-pulse')).toBe(false);
   });
 });
