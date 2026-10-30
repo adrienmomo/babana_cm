@@ -3,6 +3,7 @@ jest.mock('@babana/maps', () => ({ configureMapsProvider: (...args: unknown[]) =
 jest.mock('../../config', () => ({
   GOOGLE_MAPS_API_KEY: 'rest-key',
   MAPS_SEARCH_URL: 'https://search.example.test/search',
+  MAPS_GEOCODE_URL: 'https://geocode.example.test/geocode',
   MAP_TILE_URL: 'https://tiles.example.test/{z}/{x}/{y}.png',
   MAP_TILE_ATTRIBUTION: '© Tuiles Exemple',
 }));
@@ -14,6 +15,7 @@ test("la carte native du Client suit l'adresse de tuiles configurée (OpenStreet
   expect(mockConfigureMapsProvider).toHaveBeenCalledWith({
     apiKey: 'rest-key',
     searchUrl: 'https://search.example.test/search',
+    geocodeUrl: 'https://geocode.example.test/geocode',
     tileUrl: 'https://tiles.example.test/{z}/{x}/{y}.png',
     tileAttribution: '© Tuiles Exemple',
   });

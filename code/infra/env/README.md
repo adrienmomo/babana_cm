@@ -13,7 +13,7 @@ même désactivée ou de test.
 
 **Exception : les adresses de fournisseur externe n'ont pas de valeur dans `.env.example`**
 (D43 retournée, `amoa/questions/REPONSES-2026-09-06.md` §2). `GOOGLE_JWKS_URL`,
-`GOOGLE_ROUTING_URL`, `SMTP_HOST`, `SMTP_PORT` y sont **vides** ; `BABANA_MAPS_SEARCH_URL` aussi.
+`GOOGLE_ROUTING_URL`, `SMTP_HOST`, `SMTP_PORT` y sont **vides** ; `BABANA_MAPS_SEARCH_URL` et `BABANA_MAPS_GEOCODE_URL` aussi.
 `S3_PUBLIC_ENDPOINT` (D64, 16 septembre) rejoint la liste pour le même motif : c'est une
 destination, jamais un réglage — voir la ligne dédiée dans la table plus bas.
 La valeur de développement (vers les simulateurs `L0-08`, vers `mailpit`) est posée
@@ -85,6 +85,7 @@ directe dans l'environnement du conteneur au démarrage. Documenté en détail d
 | `TB_SMS_API_URL`, `TB_SMS_API_KEY`, `TB_SMS_TIMEOUT` | API SMS Tidjani & Brothers (OTP) | URL, clé Bearer, secondes | URL publique, clé vide (non consommée en `console`) | Clé de l'espace client, liée à un expéditeur approuvé |
 | `GOOGLE_MAPS_API_KEY` | Clé API Google Maps consommée par les apps au build natif (D13) | clé API | vide, non consommée (mock-maps sert de doublure complète, D19) | Console Google Cloud, restreinte par empreinte de signature Android / bundle iOS |
 | `BABANA_MAPS_SEARCH_URL` | Adresse de la recherche de lieu REST (`searchPlace`, L6-01) consommée par `apps/client` **au build** (lue de `process.env` de l'hôte, pas d'un conteneur) | URL | **vide** dans `.env.example` ; `make client` / `make client-web` posent `http://localhost:4001/v1/places:searchText` (mock-maps, port hôte exposé) | `https://places.googleapis.com/v1/places:searchText` (Places API (New)) — explicite au build (aucun repli : `getSearchUrl()` lève) |
+| `BABANA_MAPS_GEOCODE_URL` | Adresse du géocodage inverse REST (`reverseGeocode`, libellé du point désigné) consommée par `apps/client` **au build** | URL | **vide** dans `.env.example` ; `make client` / `make client-web` posent `http://localhost:4001/maps/api/geocode/json` (mock-maps) | `https://maps.googleapis.com/maps/api/geocode/json` (Geocoding API) — explicite au build (aucun repli : `getGeocodeUrl()` lève) |
 | `BABANA_API_URL` | Adresse de l'API pour les apps natives Client/Chauffeur (`apps/*/config.ts`), consommée **au build** | URL | **vide** dans `.env.example` ; `make client` / `make driver` posent `https://api.localhost` | Domaine réel (`https://api.babana.cm`) — explicite au build (aucun repli depuis D61 : `config.ts` lève) |
 | `BABANA_REALTIME_WS_URL` | Adresse WebSocket du service temps réel pour les mêmes apps natives, même mécanisme | URL (`wss://`) | **vide** dans `.env.example` ; `make client` / `make driver` posent `wss://api.localhost/rt/ws` | Domaine réel (`wss://api.babana.cm/rt/ws`) — explicite au build (aucun repli depuis D61) |
 

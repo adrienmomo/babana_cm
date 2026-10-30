@@ -57,6 +57,13 @@ export const GOOGLE_MAPS_API_KEY = process.env.BABANA_GOOGLE_MAPS_API_KEY || '';
 export const MAPS_SEARCH_URL = process.env.BABANA_MAPS_SEARCH_URL || undefined;
 
 /**
+ * Géocodage inverse (`reverseGeocode`, libellé « vers <repère> » du point désigné) : même règle que
+ * `MAPS_SEARCH_URL` (D43) -- `mock-maps` en développement, la Geocoding API de Google en production,
+ * jamais un repli implicite.
+ */
+export const MAPS_GEOCODE_URL = process.env.BABANA_MAPS_GEOCODE_URL || undefined;
+
+/**
  * Adresse des tuiles de la carte OpenStreetMap native (`https://.../{z}/{x}/{y}.png`) -- même
  * réglage que l'app Chauffeur (`apps/driver/config.ts`). Absente, la carte native est celle de
  * Google (clé de build requise). Sans effet sur l'export web, qui garde sa carte Google

@@ -55,7 +55,10 @@ async function labelFor(position: LatLng): Promise<string> {
   // L'échec du géocodage inverse (Odoo/Google indisponible) ne doit jamais empêcher de désigner
   // un point -- les coordonnées elles-mêmes restent la vérité, seul le libellé se dégrade.
   const label = await reverseGeocode(position).catch(() => null);
-  return label ? `vers ${label}` : `${position.latitude.toFixed(4)}, ${position.longitude.toFixed(4)}`;
+  // Seul le premier segment de l'adresse (« Carrefour Tiff », pas « Carrefour Tiff, Douala,
+  // Cameroun ») : la ville est implicite, et le champ est étroit.
+  const landmark = label?.split(',')[0]?.trim();
+  return landmark ? `vers ${landmark}` : `${position.latitude.toFixed(4)}, ${position.longitude.toFixed(4)}`;
 }
 
 // Doute L6-06 §2 : les trois causes ne se règlent pas de la même façon, le message ne doit plus

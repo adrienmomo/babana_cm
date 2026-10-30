@@ -1,5 +1,5 @@
 import type { LatLng, PlaceResult } from '../../types';
-import { getGoogleMapsApiKey, getSearchUrl } from './config';
+import { getGeocodeUrl, getGoogleMapsApiKey, getSearchUrl } from './config';
 
 /**
  * Recherche de lieu et géocodage inverse (L6-01, spécification) via les API REST Google -- pas le
@@ -14,8 +14,6 @@ import { getGoogleMapsApiKey, getSearchUrl } from './config';
  * API not enabled ». mock-maps (D19) sert la même route et la même forme : une seule requête part,
  * seule l'adresse change.
  */
-const GEOCODE_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
-
 /** Le masque est obligatoire chez Google et fixe le prix de l'appel : seulement ce que l'écran
  * affiche (libellé, position). `formattedAddress` en plus, pour lever l'ambiguïté d'un repère. */
 const SEARCH_FIELD_MASK = 'places.displayName,places.formattedAddress,places.location';
@@ -70,9 +68,11 @@ export async function searchPlace(query: string): Promise<PlaceResult[]> {
 }
 
 export async function reverseGeocode(point: LatLng): Promise<string | null> {
-  const url = new URL(GEOCODE_URL);
+  const apiKey = getGoogleMapsApiKey();
+  const url = new URL(getGeocodeUrl());
   url.searchParams.set('latlng', `${point.latitude},${point.longitude}`);
-  url.searchParams.set('key', getGoogleMapsApiKey());
+  // Clé vide : mock-maps en développement (D19), même règle que searchPlace.
+  if (apiKey) url.searchParams.set('key', apiKey);
 
   const response = await fetch(url.toString());
   const body = (await response.json()) as GoogleGeocodeResponse;

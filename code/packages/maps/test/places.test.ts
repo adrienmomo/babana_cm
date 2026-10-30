@@ -10,6 +10,7 @@ import { reverseGeocode, searchPlace } from '../src/providers/google/places';
 // constaté le 22 octobre, REQUEST_DENIED « legacy API not enabled » sur le projet de babana.
 // Depuis D43, `searchUrl` doit toujours être posé explicitement.
 const GOOGLE_SEARCH_URL = 'https://places.googleapis.com/v1/places:searchText';
+const GOOGLE_GEOCODE_URL = 'https://maps.googleapis.com/maps/api/geocode/json';
 
 function mockFetchOnce(body: unknown, init: { ok?: boolean; status?: number } = {}) {
   global.fetch = jest.fn().mockResolvedValue({
@@ -118,15 +119,37 @@ describe('searchPlace / reverseGeocode (fournisseur Google)', () => {
     expect(lastRequest().init.headers['X-Goog-Api-Key']).toBeUndefined();
   });
 
-  it('géocode un point vers un libellé', async () => {
-    configureGoogleMapsProvider({ apiKey: 'test-key' });
+  it('géocode un point vers un libellé, à l’adresse configurée', async () => {
+    configureGoogleMapsProvider({ apiKey: 'test-key', geocodeUrl: GOOGLE_GEOCODE_URL });
     mockFetchOnce({ status: 'OK', results: [{ formatted_address: 'Akwa, Douala' }] });
 
     await expect(reverseGeocode({ latitude: 4.05, longitude: 9.7 })).resolves.toBe('Akwa, Douala');
+    const url = new URL(lastRequest().url);
+    expect(`${url.origin}${url.pathname}`).toBe(GOOGLE_GEOCODE_URL);
+    expect(url.searchParams.get('latlng')).toBe('4.05,9.7');
+    expect(url.searchParams.get('key')).toBe('test-key');
+  });
+
+  // Défaut du 30 octobre : l'adresse Google était codée en dur -- en développement l'appel
+  // échouait toujours et l'app affichait des coordonnées au lieu d'un repère.
+  it('exige une adresse de géocodage configurée, plutôt que de retomber sur Google (D43)', async () => {
+    configureGoogleMapsProvider({ apiKey: 'test-key', searchUrl: GOOGLE_SEARCH_URL });
+    mockFetchOnce({ status: 'OK', results: [] });
+
+    await expect(reverseGeocode({ latitude: 4.05, longitude: 9.7 })).rejects.toThrow(/geocodeUrl/);
+    expect(global.fetch).not.toHaveBeenCalled();
+  });
+
+  it('vers mock-maps (D19) : clé vide, aucun paramètre de clé envoyé', async () => {
+    configureGoogleMapsProvider({ apiKey: '', geocodeUrl: 'http://localhost:4001/maps/api/geocode/json' });
+    mockFetchOnce({ status: 'OK', results: [{ formatted_address: 'Carrefour Tiff, Douala' }] });
+
+    await expect(reverseGeocode({ latitude: 4.0447, longitude: 9.6996 })).resolves.toBe('Carrefour Tiff, Douala');
+    expect(new URL(lastRequest().url).searchParams.has('key')).toBe(false);
   });
 
   it('un point non géocodable renvoie null, pas une erreur', async () => {
-    configureGoogleMapsProvider({ apiKey: 'test-key' });
+    configureGoogleMapsProvider({ apiKey: 'test-key', geocodeUrl: GOOGLE_GEOCODE_URL });
     mockFetchOnce({ status: 'ZERO_RESULTS' });
 
     await expect(reverseGeocode({ latitude: 0, longitude: 0 })).resolves.toBeNull();

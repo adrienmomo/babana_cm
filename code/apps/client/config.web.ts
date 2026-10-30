@@ -31,3 +31,10 @@ export const GOOGLE_MAPS_API_KEY = process.env.BABANA_GOOGLE_MAPS_API_KEY || '';
  * Google réelle en production. Ce n'est pas une API à jeton, D46 ne s'y applique pas.
  */
 export const MAPS_SEARCH_URL = process.env.BABANA_MAPS_SEARCH_URL || undefined;
+
+/**
+ * Géocodage inverse (`reverseGeocode`, libellé « vers <repère> » du point désigné) : même règle que
+ * `MAPS_SEARCH_URL` (D43) -- `mock-maps` en développement, la Geocoding API de Google en production,
+ * jamais un repli implicite.
+ */
+export const MAPS_GEOCODE_URL = process.env.BABANA_MAPS_GEOCODE_URL || undefined;

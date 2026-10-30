@@ -44,7 +44,7 @@ set -eu
 out="apps/client/dist-web/bundle.js"
 mkdir -p "$(dirname "$out")"
 : > "$out"
-for name in BABANA_MAPS_SEARCH_URL BABANA_GOOGLE_MAPS_API_KEY; do
+for name in BABANA_MAPS_SEARCH_URL BABANA_MAPS_GEOCODE_URL BABANA_GOOGLE_MAPS_API_KEY; do
   eval "value=\${$name:-}"
   if [ -n "$value" ]; then
     printf 'var %s = "%s";\n' "$name" "$value" >> "$out"
@@ -57,6 +57,7 @@ chmod +x "$FAKE_NPM"
 
 PROD_MAPS_SEARCH_URL="https://places.googleapis.com/v1/places:searchText"
 PROD_GOOGLE_MAPS_API_KEY="test-maps-key"
+PROD_MAPS_GEOCODE_URL="https://maps.googleapis.com/maps/api/geocode/json"
 
 # --- 1. Reproduction du défaut du 13 septembre --------------------------------------------------
 # Les variables existent en tant que variables de SHELL (comme après `. infra/env/.env`
@@ -69,6 +70,7 @@ mkdir -p "$BEFORE_DIR"
   cd "$BEFORE_DIR"
   BABANA_MAPS_SEARCH_URL="$PROD_MAPS_SEARCH_URL"
   BABANA_GOOGLE_MAPS_API_KEY="$PROD_GOOGLE_MAPS_API_KEY"
+  BABANA_MAPS_GEOCODE_URL="$PROD_MAPS_GEOCODE_URL"
   # Volontairement PAS de `export` ici -- reproduction fidèle du bug.
   "$FAKE_NPM"
 )
@@ -91,12 +93,13 @@ mkdir -p "$AFTER_DIR"
   . "$LIB"
   BABANA_MAPS_SEARCH_URL="$PROD_MAPS_SEARCH_URL"
   BABANA_GOOGLE_MAPS_API_KEY="$PROD_GOOGLE_MAPS_API_KEY"
+  BABANA_MAPS_GEOCODE_URL="$PROD_MAPS_GEOCODE_URL"
   build_web_bundle "$AFTER_DIR" "$FAKE_NPM"
 )
 AFTER_BUNDLE="$AFTER_DIR/apps/client/dist-web/bundle.js"
 if [ ! -f "$AFTER_BUNDLE" ]; then
   ko "build_web_bundle n'a produit aucun bundle."
-elif ! grep -qF "$PROD_MAPS_SEARCH_URL" "$AFTER_BUNDLE" || ! grep -qF "$PROD_GOOGLE_MAPS_API_KEY" "$AFTER_BUNDLE"; then
+elif ! grep -qF "$PROD_MAPS_SEARCH_URL" "$AFTER_BUNDLE" || ! grep -qF "$PROD_MAPS_GEOCODE_URL" "$AFTER_BUNDLE" || ! grep -qF "$PROD_GOOGLE_MAPS_API_KEY" "$AFTER_BUNDLE"; then
   ko "build_web_bundle : le bundle produit n'embarque pas les valeurs de production -- correction du 13 septembre non effective."
   cat "$AFTER_BUNDLE" >&2
 else
@@ -120,6 +123,7 @@ set +e
   . "$LIB"
   BABANA_MAPS_SEARCH_URL=""
   BABANA_GOOGLE_MAPS_API_KEY="$PROD_GOOGLE_MAPS_API_KEY"
+  BABANA_MAPS_GEOCODE_URL="$PROD_MAPS_GEOCODE_URL"
   build_web_bundle "$EMPTY_DIR" "$TATTLE_NPM"
 )
 empty_status=$?

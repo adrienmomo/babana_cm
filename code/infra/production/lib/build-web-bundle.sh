@@ -26,7 +26,7 @@
 # variable exportée passe.
 set -eu
 
-_BUILD_WEB_BUNDLE_VARS="BABANA_MAPS_SEARCH_URL BABANA_GOOGLE_MAPS_API_KEY"
+_BUILD_WEB_BUNDLE_VARS="BABANA_MAPS_SEARCH_URL BABANA_MAPS_GEOCODE_URL BABANA_GOOGLE_MAPS_API_KEY"
 
 build_web_bundle() {
   root_dir="$1"
@@ -46,7 +46,7 @@ build_web_bundle() {
   # exportée. `export` ci-dessous est donc la ligne qui ferme L0-10, pas un détail de style --
   # c'est aussi l'ancrage que tools/config-coherence/scan.ts (scanDeliveredByShellExport)
   # reconnaît pour vérifier mécaniquement que ces trois variables sont "livrées" quelque part.
-  export BABANA_MAPS_SEARCH_URL BABANA_GOOGLE_MAPS_API_KEY
+  export BABANA_MAPS_SEARCH_URL BABANA_MAPS_GEOCODE_URL BABANA_GOOGLE_MAPS_API_KEY
   # NODE_ENV (D65, amoa/questions/L0-10.md) : `set -a` dans deploy.sh l'exporte déjà vers ce
   # processus quand cette fonction est appelée depuis deploy.sh -- mais tools/config-coherence
   # ne reconnaît que des `export NOM` explicites (jamais `set -a`, indétectable mécaniquement).

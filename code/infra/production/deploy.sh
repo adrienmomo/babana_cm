@@ -98,6 +98,9 @@ esac
 case "${BABANA_MAPS_SEARCH_URL:-}" in
   ""|*localhost:4001*|*mock-maps*) die "BABANA_MAPS_SEARCH_URL vide ou vers mock-maps dans $ENV_FILE -- poser l'adresse Google réelle (searchPlace) avant de construire le bundle web de production." ;;
 esac
+case "${BABANA_MAPS_GEOCODE_URL:-}" in
+  ""|*localhost:4001*|*mock-maps*) die "BABANA_MAPS_GEOCODE_URL vide ou vers mock-maps dans $ENV_FILE -- poser l'adresse Google réelle (reverseGeocode, https://maps.googleapis.com/maps/api/geocode/json) avant de construire le bundle web de production." ;;
+esac
 case "${BABANA_GOOGLE_MAPS_API_KEY:-}" in
   "") die "BABANA_GOOGLE_MAPS_API_KEY vide dans $ENV_FILE -- poser la clé Google Maps réelle (appels REST Places/Geocoding) avant de construire le bundle web de production." ;;
 esac

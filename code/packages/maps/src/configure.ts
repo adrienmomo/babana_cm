@@ -6,6 +6,8 @@ export interface MapsConfig {
   /** Clé Google pour la recherche de lieu et le géocodage inverse (appels REST). */
   apiKey: string;
   searchUrl?: string;
+  /** Géocodage inverse (Geocoding API de Google, ou mock-maps en développement -- D19, D43). */
+  geocodeUrl?: string;
   /** Adresse des tuiles OpenStreetMap (`{r}` accepté : tuiles @2x sur écran dense). Absente : la
    * carte reste celle de Google. */
   tileUrl?: string;
@@ -20,7 +22,7 @@ export interface MapsConfig {
  * configuration sans SDK -- jamais le barrel d'un fournisseur (voir `index.ts`, L6-18).
  */
 export function configureMapsProvider(config: MapsConfig): void {
-  configureGoogleMapsProvider({ apiKey: config.apiKey, searchUrl: config.searchUrl });
+  configureGoogleMapsProvider({ apiKey: config.apiKey, searchUrl: config.searchUrl, geocodeUrl: config.geocodeUrl });
   setMapTiles(config.tileUrl, config.tileAttribution);
   setRoutingUrl(config.routingUrl);
 }

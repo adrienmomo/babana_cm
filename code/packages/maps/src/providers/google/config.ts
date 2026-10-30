@@ -25,9 +25,19 @@ let apiKey: string | undefined;
  */
 let searchUrl: string | undefined;
 
-export function configureGoogleMapsProvider(config: { apiKey: string; searchUrl?: string }): void {
+/**
+ * Adresse du géocodage inverse -- même règle que `searchUrl` (D43) : `mock-maps` en développement
+ * (`http://localhost:4001/maps/api/geocode/json`), la Geocoding API de Google en production
+ * (`https://maps.googleapis.com/maps/api/geocode/json`), jamais un repli implicite. Jusqu'au 30
+ * octobre, l'adresse Google était codée en dur : en développement l'appel échouait toujours, et
+ * l'app affichait des coordonnées brutes au lieu d'un repère.
+ */
+let geocodeUrl: string | undefined;
+
+export function configureGoogleMapsProvider(config: { apiKey: string; searchUrl?: string; geocodeUrl?: string }): void {
   apiKey = config.apiKey;
   searchUrl = config.searchUrl;
+  geocodeUrl = config.geocodeUrl;
 }
 
 /**
@@ -64,8 +74,21 @@ export function getSearchUrl(): string {
   return searchUrl;
 }
 
+/** Même règle que `getSearchUrl`, pour le géocodage inverse (D43). */
+export function getGeocodeUrl(): string {
+  if (geocodeUrl === undefined) {
+    throw new Error(
+      "@babana/maps: configureMapsProvider({ geocodeUrl }) doit être appelé au démarrage de l'app " +
+        'avant tout appel à reverseGeocode -- aucune adresse de fournisseur externe ne retombe ' +
+        'silencieusement sur une valeur par défaut (invariant 5, D43).'
+    );
+  }
+  return geocodeUrl;
+}
+
 /** Réservé aux tests : remet le module dans son état initial entre deux cas. */
 export function _resetGoogleMapsApiKeyForTests(): void {
   apiKey = undefined;
   searchUrl = undefined;
+  geocodeUrl = undefined;
 }

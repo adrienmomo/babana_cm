@@ -6,6 +6,7 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const { buildRoute } = require('./routing');
+const { geocodeResponse } = require('./geocode');
 
 if (process.env.NODE_ENV === 'production') {
   console.error('mock-maps refuse de démarrer : NODE_ENV=production (D19, critère 6 de L0-08).');
@@ -17,6 +18,8 @@ const fixtures = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'fixtures
 
 /** Route de la recherche de lieu -- celle de Google Places API (New). */
 const SEARCH_TEXT_PATH = '/v1/places:searchText';
+/** Route du géocodage inverse -- celle de la Geocoding API de Google. */
+const GEOCODE_PATH = '/maps/api/geocode/json';
 
 /** Panne simulée à la demande (critère d'acceptation 4 de L0-08), pour tester L2-05. */
 let failureSimulated = false;
@@ -79,8 +82,19 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  if (failureSimulated && (url.pathname === '/route' || url.pathname === SEARCH_TEXT_PATH)) {
+  if (failureSimulated && (url.pathname === '/route' || url.pathname === SEARCH_TEXT_PATH || url.pathname === GEOCODE_PATH)) {
     sendJson(res, 503, { error: 'panne simulée (POST /_control/fail)' });
+    return;
+  }
+
+  // Même route et même forme que la Geocoding API de Google (`latlng=lat,lng`, `key` ignorée).
+  if (req.method === 'GET' && url.pathname === GEOCODE_PATH) {
+    const [lat, lng] = String(url.searchParams.get('latlng') || '').split(',').map(Number);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      sendJson(res, 400, { status: 'INVALID_REQUEST', results: [] });
+      return;
+    }
+    sendJson(res, 200, geocodeResponse(fixtures.places, { latitude: lat, longitude: lng }));
     return;
   }
 

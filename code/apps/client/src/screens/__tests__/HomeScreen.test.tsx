@@ -134,6 +134,16 @@ afterEach(() => {
 });
 
 describe('HomeScreen (L6-06)', () => {
+  it('le libellé ne garde que le premier segment de l’adresse : « vers Carrefour Tiff », sans la ville', async () => {
+    mockReverseGeocode.mockResolvedValueOnce('Carrefour Tiff, Douala, Cameroun');
+    const root = await renderHome(fakeNavigation());
+
+    await designate(root, 'departure-slot', DOUALA);
+
+    expect(texts(root)).toContain('vers Carrefour Tiff');
+    expect(texts(root)).not.toContain('Carrefour Tiff, Douala');
+  });
+
   it('critère 2 : la désignation sur carte seule (sans jamais toucher la recherche) suffit à activer "Suivant"', async () => {
     mockReverseGeocode.mockResolvedValueOnce('Akwa, Douala').mockResolvedValueOnce('Bonapriso, Douala');
     const navigation = fakeNavigation();
@@ -145,8 +155,8 @@ describe('HomeScreen (L6-06)', () => {
     // "vers " préfixe le libellé du géocodage inverse (doute L6-06 §1) : une approximation, pas
     // un fait -- jamais appliqué au résultat d'une recherche textuelle délibérée (ligne 166 plus
     // bas, `handlePlaceSelected`, qui ne passe jamais par `labelFor`).
-    expect(texts(root)).toContain('vers Akwa, Douala');
-    expect(texts(root)).toContain('vers Bonapriso, Douala');
+    expect(texts(root)).toContain('vers Akwa');
+    expect(texts(root)).toContain('vers Bonapriso');
     expect(mockSearchPlace).not.toHaveBeenCalled();
 
     const next = root.root.findByProps({ testID: 'next-button' });
@@ -156,8 +166,8 @@ describe('HomeScreen (L6-06)', () => {
       root.root.findByProps({ testID: 'next-button' }).props.onPress();
     });
     expect(navigation.navigate).toHaveBeenCalledWith('Quote', {
-      origin: { position: DOUALA, label: 'vers Akwa, Douala' },
-      destination: { position: ELSEWHERE, label: 'vers Bonapriso, Douala' },
+      origin: { position: DOUALA, label: 'vers Akwa' },
+      destination: { position: ELSEWHERE, label: 'vers Bonapriso' },
     });
   });
 
@@ -368,7 +378,7 @@ describe('HomeScreen (L6-06)', () => {
       await Promise.resolve();
     });
 
-    expect(texts(root)).toContain('vers Bonamoussadi, Douala');
+    expect(texts(root)).toContain('vers Bonamoussadi');
   });
 
   // Doute L6-06 §2 (amoa/questions/REPONSES-2026-08-23.md §2) : les trois causes d'échec de
@@ -411,7 +421,7 @@ describe('HomeScreen (L6-06)', () => {
     });
 
     expect(root.root.findAllByProps({ testID: 'location-error' })).toHaveLength(0);
-    expect(texts(root)).toContain('vers Bonamoussadi, Douala');
+    expect(texts(root)).toContain('vers Bonamoussadi');
   });
 
   // 25 octobre (demande produit) : le rappel « c'est le point sur la carte qui fait foi » (doute
