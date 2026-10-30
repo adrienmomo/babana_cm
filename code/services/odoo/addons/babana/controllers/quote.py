@@ -103,6 +103,12 @@ class QuoteController(http.Controller):
             )
         )
         eta_seconds = round(route.duration_seconds * eta_factor)
+        # « Moto à ~N min » : même correction voiture -> deux-roues que la durée du trajet (É8).
+        pickup_eta_seconds = (
+            round(approach_estimate.nearest_duration_seconds * eta_factor)
+            if approach_estimate.nearest_duration_seconds is not None
+            else None
+        )
 
         validity_seconds = int(
             env["ir.config_parameter"].sudo().get_param(
@@ -146,8 +152,12 @@ class QuoteController(http.Controller):
             "distanceMeters": route.distance_meters,
             "approachDistanceMeters": approach_estimate.distance_meters,
             "etaSeconds": eta_seconds,
+            "pickupEtaSeconds": pickup_eta_seconds,
             "promoApplied": promo_applied,
             "expiresAt": _common.iso_datetime(expires_at),
+            # Le compte à rebours de l'app part de cette durée, pas de l'horloge du téléphone --
+            # souvent fausse sur un terminal d'entrée de gamme (« Valable 1476 min », 26 octobre).
+            "validForSeconds": validity_seconds,
         }, 200
 
     def _validate(self, body):

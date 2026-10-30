@@ -36,6 +36,7 @@ DEFAULT_APPROACH_DISTANCE_DEFAULT = 1500
 class RoadCandidate:
     driver_public_id: str
     road_distance_meters: int
+    road_duration_seconds: int = 0
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,9 @@ class ApproachEstimate:
     distance_meters: int
     # Nombre de chauffeurs dont la moyenne est faite ; 0 = valeur de repli.
     driver_count: int
+    # Durée routière brute (modèle voiture, É8) du plus proche par la route -- l'affichage
+    # « Moto à ~N min » avant de commander. None : personne de mesurable.
+    nearest_duration_seconds: int | None = None
 
 
 def _positive_int_param(env, name: str, default: int) -> int:
@@ -54,8 +58,8 @@ def _positive_int_param(env, name: str, default: int) -> int:
     return value if value > 0 else default
 
 
-def _road_distance(env, *, driver: dict, pickup) -> int | None:
-    """Distance routière chauffeur -> prise en charge, ou None si elle n'est pas mesurable.
+def _road_route(env, *, driver: dict, pickup):
+    """Itinéraire chauffeur -> prise en charge (distance et durée), ou None s'il n'est pas mesurable.
 
     Dans un savepoint : le compteur de quota est une ligne partagée, et un conflit d'écriture ici
     ne doit jamais faire échouer la transaction de la course -- il retire seulement ce chauffeur
@@ -68,7 +72,7 @@ def _road_distance(env, *, driver: dict, pickup) -> int | None:
             route = routing.measure_route(
                 env, origin=(float(driver["latitude"]), float(driver["longitude"])), destination=pickup
             )
-        return route.distance_meters
+        return route
     except Exception:  # noqa: BLE001 -- best effort, le repli à vol d'oiseau existe
         _logger.warning(
             "distance d'approche non mesurable pour le chauffeur %s", driver.get("driverId"), exc_info=True
@@ -94,9 +98,9 @@ def road_ranked_candidates(
     )
     ranked = []
     for driver in drivers:
-        distance = _road_distance(env, driver=driver, pickup=pickup)
-        if distance is not None:
-            ranked.append(RoadCandidate(driver["driverId"], distance))
+        route = _road_route(env, driver=driver, pickup=pickup)
+        if route is not None:
+            ranked.append(RoadCandidate(driver["driverId"], route.distance_meters, route.duration_seconds))
     # sorted() est stable : à distance routière égale, l'ordre à vol d'oiseau du service temps réel.
     return sorted(ranked, key=lambda candidate: candidate.road_distance_meters)
 
@@ -123,4 +127,8 @@ def average_approach(env, *, pickup: tuple[float, float], radius_meters: int) ->
             driver_count=0,
         )
     total = sum(candidate.road_distance_meters for candidate in candidates)
-    return ApproachEstimate(distance_meters=round(total / len(candidates)), driver_count=len(candidates))
+    return ApproachEstimate(
+        distance_meters=round(total / len(candidates)),
+        driver_count=len(candidates),
+        nearest_duration_seconds=candidates[0].road_duration_seconds,
+    )

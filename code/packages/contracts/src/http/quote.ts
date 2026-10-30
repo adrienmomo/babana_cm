@@ -62,8 +62,21 @@ export const QuoteResponseSchema = z.object({
    * Un code promo fourni mais invalide, expiré ou épuisé n'échoue pas la cotation (critère 5) :
    * l'estimation revient sans remise, avec cet indicateur explicite plutôt qu'une erreur.
    */
+  /**
+   * Temps d'arrivée du chauffeur disponible le plus proche par la route, corrigé comme `etaSeconds`
+   * -- l'affichage « Moto à ~N min » avant de commander. `null` : personne de mesurable à
+   * proximité. Une indication, pas un engagement : la course part au plus proche au moment de la
+   * commande.
+   */
+  pickupEtaSeconds: z.number().int().nonnegative().nullable(),
   promoApplied: z.boolean(),
   expiresAt: IsoDateTimeSchema,
+  /**
+   * Durée de validité, en secondes, comptée à la réception. Le compte à rebours de l'app part de
+   * cette durée, jamais de `expiresAt` comparé à l'horloge du téléphone -- souvent fausse sur un
+   * terminal d'entrée de gamme. `expiresAt` reste l'échéance qui fait foi côté serveur.
+   */
+  validForSeconds: z.number().int().positive(),
 });
 export type QuoteResponse = z.infer<typeof QuoteResponseSchema>;
 
@@ -97,6 +110,8 @@ export const quoteResponseExample: QuoteResponse = {
   distanceMeters: 4200,
   approachDistanceMeters: 2000,
   etaSeconds: 780,
+  pickupEtaSeconds: 180,
   promoApplied: false,
   expiresAt: '2026-08-10T07:30:00+01:00',
+  validForSeconds: 300,
 };

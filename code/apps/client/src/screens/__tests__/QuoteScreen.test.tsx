@@ -53,8 +53,10 @@ function quoteResponse(overrides: Partial<http.QuoteResponse> = {}): http.QuoteR
     distanceMeters: 4200,
     approachDistanceMeters: 1500,
     etaSeconds: 780,
+    pickupEtaSeconds: 180,
     promoApplied: false,
     expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+    validForSeconds: 300,
     ...overrides,
   };
 }
@@ -217,6 +219,44 @@ describe('QuoteScreen (L6-07)', () => {
 
     expect(root.root.findByProps({ testID: 'refresh-quote' })).toBeTruthy();
     jest.useRealTimers();
+  });
+
+  it("la validité se compte depuis la réception, jamais avec l'horloge du téléphone", async () => {
+    // Horloge du téléphone en retard d'un jour (cas réel, 26 octobre) : `expiresAt` paraît alors à
+    // 24 h dans le futur. La validité affichée reste celle envoyée par le serveur.
+    mockRequest.mockImplementation(async (name: string) => {
+      if (name === 'quote') {
+        return quoteResponse({ expiresAt: new Date(Date.now() + 24 * 3600_000).toISOString(), validForSeconds: 300 });
+      }
+      throw new Error('unexpected');
+    });
+    jest.useFakeTimers();
+    const { root } = await renderQuote();
+
+    expect(JSON.stringify(root.root.findByProps({ testID: 'quote-validity' }).props.children)).toContain('5');
+    await act(async () => {
+      jest.advanceTimersByTime(6 * 60_000);
+    });
+    expect(root.root.findByProps({ testID: 'refresh-quote' })).toBeTruthy();
+    jest.useRealTimers();
+  });
+
+  it('« Moto à ~N min » et le paiement en espèces sont visibles avant de commander', async () => {
+    const { root } = await renderQuote();
+
+    expect(texts(root)).toContain('Moto à ≈ 3 min');
+    expect(texts(root)).toContain('Paiement en espèces au chauffeur');
+  });
+
+  it('personne à proximité : le client le sait avant de commander', async () => {
+    mockRequest.mockImplementation(async (name: string) => {
+      if (name === 'quote') return quoteResponse({ pickupEtaSeconds: null });
+      throw new Error('unexpected');
+    });
+    const { root } = await renderQuote();
+
+    expect(texts(root)).toContain('Aucune moto à proximité pour le moment');
+    expect(root.root.findByProps({ testID: 'order-button' }).props.disabled).toBe(false);
   });
 
   describe('indication pour le chauffeur (repère, facultatif)', () => {

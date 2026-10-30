@@ -193,3 +193,10 @@ describe('RideSummaryScreen (L6-09)', () => {
     expect(navigation.navigate).toHaveBeenCalledWith('Invoice', { rideId: RIDE_ID });
   });
 });
+
+describe('RideSummaryScreen -- paiement', () => {
+  it('rappelle que la course a été payée en espèces', async () => {
+    const { root } = await renderSummary();
+    expect(texts(root)).toContain('Payé en espèces au chauffeur');
+  });
+});

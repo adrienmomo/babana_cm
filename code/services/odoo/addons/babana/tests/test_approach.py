@@ -55,6 +55,10 @@ class TestApproach(TransactionCase):
         self.assertEqual([candidate.driver_public_id for candidate in ranked], ["on-the-pickup", "close-by"])
         self.assertEqual([candidate.road_distance_meters for candidate in ranked], [2, 45])
         self.assertEqual(api.call_count, 2, "une mesure par chauffeur, jamais le cache de la cotation")
+        # « Moto à ~N min » : la durée du plus proche par la route.
+        self.assertEqual(
+            approach.average_approach(self.env, pickup=_PICKUP, radius_meters=500).nearest_duration_seconds, 60
+        )
 
     def test_an_unreachable_routing_api_leaves_the_driver_out_of_the_ranking(self):
         self._nearby({"driverId": "unmeasurable", "latitude": 4.0504, "longitude": 9.7012, "distanceMeters": 50})

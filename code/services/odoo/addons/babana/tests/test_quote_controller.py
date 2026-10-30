@@ -140,10 +140,8 @@ class TestQuoteController(HttpCase):
         positions = [(4.0550, 9.6990), (4.0400, 9.6850)]
         nearby = self._available_drivers(*positions)
         pickup = (_ORIGIN["latitude"], _ORIGIN["longitude"])
-        road = [
-            routing.measure_route(self.env, origin=position, destination=pickup).distance_meters
-            for position in positions
-        ]
+        routes = [routing.measure_route(self.env, origin=position, destination=pickup) for position in positions]
+        road = [route.distance_meters for route in routes]
         token = self._sign_in_client("sub-quote-approach")
 
         response = self._quote(token)
@@ -160,6 +158,10 @@ class TestQuoteController(HttpCase):
             round(expected_average / 1000.0 * quote.fare_rule_id.approach_price_per_km),
         )
         self.assertEqual(nearby.call_args.kwargs["origin"], pickup)
+        # « Moto à ~N min » : la durée du plus proche par la route (facteur de correction 1.0 par
+        # défaut, É8).
+        nearest = min(routes, key=lambda route: route.distance_meters)
+        self.assertEqual(body["pickupEtaSeconds"], nearest.duration_seconds)
 
     def test_without_any_available_driver_the_configured_fallback_distance_is_charged(self):
         self._available_drivers()
@@ -170,8 +172,19 @@ class TestQuoteController(HttpCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["approachDistanceMeters"], 1200)
+        self.assertIsNone(response.json()["pickupEtaSeconds"], "personne à proximité : pas de « Moto à ~N min »")
         quote = self.env["babana.quote"].sudo().search([("public_id", "=", response.json()["quoteId"])])
         self.assertEqual(quote.approach_driver_count, 0)
+
+    def test_the_validity_is_sent_as_a_duration_not_only_as_a_date(self):
+        # Le compte à rebours de l'app part de cette durée : l'horloge d'un téléphone d'entrée de
+        # gamme est souvent fausse (« Valable 1476 min », constaté le 26 octobre).
+        self.env["ir.config_parameter"].sudo().set_param("babana.quote_validity_seconds", "240")
+        token = self._sign_in_client("sub-quote-validity")
+
+        body = self._quote(token).json()
+
+        self.assertEqual(body["validForSeconds"], 240)
 
     # --- Critère 5 : un code promo invalide n'échoue pas la cotation --------------------------
 

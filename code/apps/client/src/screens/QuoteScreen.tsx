@@ -29,14 +29,21 @@ const VEHICLE_CLASS_LABELS: Record<http.VehicleClass, string> = {
   premium: 'Confort',
 };
 
-function remainingSeconds(expiresAt: string): number {
-  return Math.max(0, Math.round((new Date(expiresAt).getTime() - Date.now()) / 1000));
+/**
+ * Validité restante, comptée depuis la RÉCEPTION de l'estimation avec la durée envoyée par le
+ * serveur (`validForSeconds`) -- jamais `expiresAt` comparé à l'horloge du téléphone, souvent
+ * fausse sur un terminal d'entrée de gamme (« Valable 1476 min », constaté le 26 octobre). Seul
+ * l'écart entre deux lectures de l'horloge compte ici, pas sa valeur absolue.
+ */
+function remainingSeconds(quote: http.QuoteResponse, receivedAt: number): number {
+  return Math.max(0, Math.round(quote.validForSeconds - (Date.now() - receivedAt) / 1000));
 }
 
 export function QuoteScreen({ route, navigation }: Props) {
   const { origin, destination } = route.params;
   const [vehicleClass, setVehicleClass] = useState<http.VehicleClass>('standard');
   const [quote, setQuote] = useState<http.QuoteResponse | null>(null);
+  const receivedAt = useRef(0);
   const [loading, setLoading] = useState(true);
   const [quoteError, setQuoteError] = useState<string | null>(null);
   const [expired, setExpired] = useState(false);
@@ -64,6 +71,7 @@ export function QuoteScreen({ route, navigation }: Props) {
           body: { origin: origin.position, destination: destination.position, vehicleClass: targetClass },
         })) as http.QuoteResponse;
         if (requestId.current !== thisRequest) return;
+        receivedAt.current = Date.now();
         setQuote(response);
       } catch (cause) {
         if (requestId.current !== thisRequest) return;
@@ -88,12 +96,12 @@ export function QuoteScreen({ route, navigation }: Props) {
   const [, forceTick] = useState(0);
   useEffect(() => {
     if (!quote) return;
-    if (remainingSeconds(quote.expiresAt) <= 0) {
+    if (remainingSeconds(quote, receivedAt.current) <= 0) {
       setExpired(true);
       return;
     }
     const timer = setInterval(() => {
-      if (remainingSeconds(quote.expiresAt) <= 0) {
+      if (remainingSeconds(quote, receivedAt.current) <= 0) {
         setExpired(true);
       } else {
         forceTick((n) => n + 1);
@@ -173,6 +181,17 @@ export function QuoteScreen({ route, navigation }: Props) {
         <View style={styles.quoteBox} testID="quote-box">
           {/* D20 : le montant et le détail dominent l'écran -- pas une exigence esthétique. */}
           <Text style={styles.amount}>{formatMoney(quote.amount)}</Text>
+          <Text style={styles.payment} testID="quote-payment">
+            Paiement en espèces au chauffeur
+          </Text>
+          <Text
+            style={[styles.pickupEta, quote.pickupEtaSeconds === null && styles.pickupEtaNone]}
+            testID="quote-pickup-eta"
+          >
+            {quote.pickupEtaSeconds === null
+              ? 'Aucune moto à proximité pour le moment'
+              : `Moto à ${formatEta(quote.pickupEtaSeconds)}`}
+          </Text>
           <View style={styles.breakdown} testID="fare-breakdown">
             {FARE_LINES.filter((line) => line.alwaysShown || quote.breakdown[line.key] !== 0).map((line) => (
               <View style={styles.breakdownRow} key={line.key}>
@@ -194,7 +213,7 @@ export function QuoteScreen({ route, navigation }: Props) {
             </View>
           ) : (
             <Text style={styles.validity} testID="quote-validity">
-              Valable {Math.max(1, Math.ceil(remainingSeconds(quote.expiresAt) / 60))} min
+              Valable {Math.max(1, Math.ceil(remainingSeconds(quote, receivedAt.current) / 60))} min
             </Text>
           )}
         </View>
@@ -270,6 +289,17 @@ const styles = StyleSheet.create({
   breakdownValue: {
     color: '#374151',
     fontVariant: ['tabular-nums'],
+  },
+  payment: {
+    color: '#374151',
+    fontWeight: '600',
+  },
+  pickupEta: {
+    color: '#137347',
+    fontWeight: '700',
+  },
+  pickupEtaNone: {
+    color: '#8A5A00',
   },
   tripMeta: {
     color: '#6B7280',

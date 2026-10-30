@@ -155,6 +155,10 @@ des chauffeurs disponibles jusqu'au départ (`approachDistanceMeters`), au prix 
 de la règle — jamais supérieur au prix au km de la course. `breakdown.baseFare` est le forfait
 fixe de la règle. Mesurée à l'estimation et gelée avec elle : le client paie ce qu'il a vu.
 
+`pickupEtaSeconds` : temps d'arrivée du plus proche par la route (« Moto à ~N min »), `null` si
+personne n'est mesurable. `validForSeconds` : durée de validité comptée à la réception — l'app
+s'en sert pour son compte à rebours plutôt que de comparer `expiresAt` à l'horloge du téléphone.
+
 ---
 
 ## Cycle de vie de la course — `ride.ts`

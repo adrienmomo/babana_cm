@@ -96,10 +96,11 @@ export function RideSummaryScreen({ route, navigation }: Props) {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Course terminée</Text>
-
       <View style={styles.amountBox} testID="ride-summary-amount-box">
         <Text style={styles.amount}>{formatMoney(amount)}</Text>
+        <Text style={styles.payment} testID="ride-summary-payment">
+          Payé en espèces au chauffeur
+        </Text>
         <View style={styles.breakdown} testID="ride-summary-breakdown">
           {visibleFareLines(breakdown).map((line) => (
             <View style={styles.breakdownRow} key={line.key}>
@@ -181,15 +182,15 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 16,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: '700',
-  },
   amountBox: {
     gap: 8,
     padding: 16,
     borderRadius: 12,
     backgroundColor: '#F9FAFB',
+  },
+  payment: {
+    color: '#374151',
+    fontWeight: '600',
   },
   amount: {
     fontSize: 32,
