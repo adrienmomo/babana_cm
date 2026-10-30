@@ -142,9 +142,8 @@ async function setupAssignedRide(label: string): Promise<ProposedRide> {
 // dépôt") : aucune de ces routes n'existe dans services/odoo/addons/babana/controllers/*.py ni
 // dans services/realtime/src -- voir la vérification exécutable ci-dessous (chacune doit encore
 // répondre 404 aujourd'hui, sans quoi ce fichier n'a pas été mis à jour avec le code).
-const NOT_YET_IMPLEMENTED: Partial<Record<EndpointName, string>> = {
-  rateRide: 'babana.rating absent (L4-09, hors périmètre à ce jour -- controllers/ride.py en tête de fichier le documente déjà).',
-};
+// Vide depuis le 30 octobre : rateRide (L4-09) est implémenté et exercé ci-dessous.
+const NOT_YET_IMPLEMENTED: Partial<Record<EndpointName, string>> = {};
 
 const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
   authGoogle: async () => {
@@ -286,6 +285,16 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     const invoice = (await rig.client.request('rideInvoice', { pathParams: { id: rig.ride.id } })) as http.RideInvoiceResponse;
     assert.equal(invoice.paymentMethod, 'cash');
     assert.equal(invoice.rideId, rig.ride.id);
+  },
+
+  // Le commentaire est accepté mais jamais renvoyé : la réponse ne porte que la note (L4-09).
+  rateRide: async () => {
+    const rig = await settledRide('rate-ride');
+    const rated = (await rig.client.request('rateRide', {
+      pathParams: { id: rig.ride.id },
+      body: { rating: 5, comment: 'Trajet rapide' },
+    })) as http.RateRideResponse;
+    assert.deepEqual(rated, { rideId: rig.ride.id, rating: 5 });
   },
 
   sendInvoiceEmail: async () => {
