@@ -24,6 +24,11 @@ jest.mock('@babana/maps', () => {
   };
 });
 
+const mockFetchRecentDestinations = jest.fn();
+jest.mock('../../recentDestinations', () => ({
+  fetchRecentDestinations: () => mockFetchRecentDestinations(),
+}));
+
 const mockGetCurrentPosition = jest.fn<Promise<LocationResult>, []>();
 jest.mock('../../location', () => ({
   getCurrentPosition: () => mockGetCurrentPosition(),
@@ -122,6 +127,7 @@ beforeEach(() => {
   mockGetCurrentPosition.mockResolvedValue({ status: 'error', reason: 'position-unavailable' });
   mockReverseGeocode.mockResolvedValue(null);
   mockSearchPlace.mockResolvedValue([]);
+  mockFetchRecentDestinations.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -479,5 +485,52 @@ describe('HomeScreen (L6-06)', () => {
 
     expect(root.root.findAllByProps({ testID: 'subscribe-refused' })).toHaveLength(0);
     expect(texts(root)).toContain('1 en ligne');
+  });
+});
+
+describe('HomeScreen -- destinations récentes', () => {
+  const RECENT = [
+    { position: { latitude: 4.0622, longitude: 9.7108 }, label: 'vers Rond-point Deïdo' },
+    { position: { latitude: 4.0476, longitude: 9.7059 }, label: 'vers Marché Sandaga' },
+  ];
+
+  it('pendant le choix de l’arrivée, un raccourci par destination récente, sans « vers »', async () => {
+    mockFetchRecentDestinations.mockResolvedValue(RECENT);
+    const root = await renderHome();
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'arrival-slot' }).props.onPress();
+    });
+
+    expect(root.root.findByProps({ testID: 'recent-destinations' })).toBeTruthy();
+    expect(texts(root)).toContain('Rond-point Deïdo');
+    expect(texts(root)).toContain('Marché Sandaga');
+  });
+
+  it('un raccourci désigne l’arrivée d’un seul geste', async () => {
+    mockFetchRecentDestinations.mockResolvedValue(RECENT);
+    const root = await renderHome();
+    await act(async () => {
+      root.root.findByProps({ testID: 'arrival-slot' }).props.onPress();
+    });
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'recent-destination-0' }).props.onPress();
+    });
+
+    expect(root.root.findByProps({ testID: 'arrival-slot' }).findAllByType(Text).map((n) => n.props.children)).toContain(
+      'vers Rond-point Deïdo'
+    );
+  });
+
+  it('pas de raccourci pendant le choix du départ', async () => {
+    mockFetchRecentDestinations.mockResolvedValue(RECENT);
+    const root = await renderHome();
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'departure-slot' }).props.onPress();
+    });
+
+    expect(root.root.findAllByProps({ testID: 'recent-destinations' })).toHaveLength(0);
   });
 });

@@ -6,6 +6,7 @@ import { Button } from '@babana/ui';
 import type { http, realtime } from '@babana/contracts';
 import { StreamLivenessWatchdog } from '@babana/api-client';
 import { PlacePicker } from '../components/PlacePicker';
+import { RecentDestinations } from '../components/RecentDestinations';
 import { getCurrentPosition, type LocationFailureReason } from '../location';
 import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import type { ClientParamList, RidePoint } from '../navigation/types';
@@ -293,6 +294,9 @@ export function HomeScreen({ navigation }: Props) {
         placeholder={activeSlot === 'departure' ? 'Rechercher le point de départ' : 'Rechercher la destination'}
         onSelect={handlePlaceSelected}
       />
+
+      {/* Trajets habituels : un geste au lieu d'une recherche, pendant le choix de l'arrivée. */}
+      {activeSlot === 'arrival' ? <RecentDestinations onSelect={handlePlaceSelected} /> : null}
 
       <View style={styles.mapWrap}>
         <MapView center={region} markers={markers} onRegionChange={handleRegionChange} style={styles.map} />
