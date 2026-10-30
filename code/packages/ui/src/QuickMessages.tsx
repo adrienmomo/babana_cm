@@ -22,7 +22,15 @@ export interface QuickMessageChipsProps<Code extends string> {
 
 export function QuickMessageChips<Code extends string>({ options, onSend, disabled = false, testID }: QuickMessageChipsProps<Code>) {
   return (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.row} testID={testID}>
+    // flexGrow: 0 -- dans une colonne, une ScrollView horizontale prend toute la hauteur libre et
+    // étire chaque pastille en ovale géant (vu sur l'écran de suivi du client, 30 octobre).
+    <ScrollView
+      horizontal
+      showsHorizontalScrollIndicator={false}
+      style={styles.scroller}
+      contentContainerStyle={styles.row}
+      testID={testID}
+    >
       {options.map((option) => (
         <Pressable
           key={option.code}
@@ -71,7 +79,12 @@ export function MessageBubble({ author, text, onDismiss, testID }: MessageBubble
 }
 
 const styles = StyleSheet.create({
+  scroller: {
+    flexGrow: 0,
+    flexShrink: 0,
+  },
   row: {
+    alignItems: 'center',
     gap: 8,
     paddingHorizontal: 2,
     paddingVertical: 2,

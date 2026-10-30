@@ -287,7 +287,8 @@ export function TrackingScreen({ route, navigation }: Props) {
             {driver.licensePlate ?? 'Immatriculation indisponible'}
           </Text>
         </View>
-        {phase === 'approach' && etaSeconds !== null ? (
+        {/* Sur place, plus d'ETA : « ≈ 1 min » à côté de « Votre chauffeur est arrivé » se contredirait. */}
+        {phase === 'approach' && !driverArrived && etaSeconds !== null ? (
           <Text style={styles.eta} testID="tracking-eta">
             {formatEta(etaSeconds)}
           </Text>

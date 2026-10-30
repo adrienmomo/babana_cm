@@ -195,8 +195,25 @@ describe('RideSummaryScreen (L6-09)', () => {
 });
 
 describe('RideSummaryScreen -- paiement', () => {
-  it('rappelle que la course a été payée en espèces', async () => {
+  it("dit comment payer, sans affirmer que c'est payé : le chauffeur n'a pas encore confirmé l'encaissement", async () => {
     const { root } = await renderSummary();
-    expect(texts(root)).toContain('Payé en espèces au chauffeur');
+    expect(texts(root)).toContain('Paiement en espèces au chauffeur');
+    expect(texts(root)).not.toContain('Payé');
+  });
+
+  it("une note envoyée avant l'encaissement dit d'attendre la confirmation du chauffeur", async () => {
+    mockRequest.mockRejectedValue(new ApiError('RATING_NOT_ALLOWED', 'non encaissée', 403));
+    const { root } = await renderSummary();
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'rating-star-5' }).props.onPress();
+    });
+    await act(async () => {
+      root.root.findByProps({ testID: 'submit-rating' }).props.onPress();
+    });
+
+    expect(texts(root)).toContain('Vous pourrez noter la course dès que le chauffeur aura confirmé le paiement.');
+    // L'envoi reste possible : une fois l'encaissement confirmé, le même bouton aboutit.
+    expect(root.root.findByProps({ testID: 'submit-rating' }).props.disabled).toBeFalsy();
   });
 });

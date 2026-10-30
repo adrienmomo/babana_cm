@@ -21,9 +21,12 @@ import type { ClientParamList } from '../navigation/types';
  *
  * **La notation est autorisée hors connexion** (L6-16, spécification) : `handleSubmitRating`
  * passe par `offlineRunner`, jamais `apiClient` directement -- mise en file automatique sur un
- * réseau absent, rejouée à la reconnexion avec la même clé d'idempotence. `rateRide` reste sans
- * implémentation côté serveur ce soir (`babana.rating`, L4-09, hors périmètre) -- la file
- * fonctionnera dès que ce modèle existera, rien à refaire côté app à ce moment-là.
+ * réseau absent, rejouée à la reconnexion avec la même clé d'idempotence. Le serveur n'accepte
+ * une note que sur une course encaissée (L4-09) : avant la confirmation du chauffeur, il répond
+ * RATING_NOT_ALLOWED et le bouton reste disponible pour réessayer.
+ *
+ * « Paiement en espèces », jamais « Payé » : cet écran s'ouvre à `ride.completed`, avant que le
+ * chauffeur ait confirmé l'encaissement.
  */
 
 type Props = NativeStackScreenProps<ClientParamList, 'RideSummary'>;
@@ -99,7 +102,7 @@ export function RideSummaryScreen({ route, navigation }: Props) {
       <View style={styles.amountBox} testID="ride-summary-amount-box">
         <Text style={styles.amount}>{formatMoney(amount)}</Text>
         <Text style={styles.payment} testID="ride-summary-payment">
-          Payé en espèces au chauffeur
+          Paiement en espèces au chauffeur
         </Text>
         <View style={styles.breakdown} testID="ride-summary-breakdown">
           {visibleFareLines(breakdown).map((line) => (

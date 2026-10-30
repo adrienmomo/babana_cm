@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text } from 'react-native';
+import { StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 import { asDriverId, asRideId } from '@babana/navigation';
 
@@ -487,6 +487,21 @@ describe('itinéraire du chauffeur et « Sur place » (déroulé sur la carte du
     expect(texts(root)).not.toContain('Votre chauffeur arrive"');
   });
 
+  it("« Sur place » : l'ETA disparaît -- le chauffeur est là, « ≈ 1 min » mentirait", async () => {
+    const { root } = await renderTracking();
+    await act(async () => {
+      emitPosition({ etaSeconds: 60 });
+    });
+    expect(root.root.findAllByProps({ testID: 'tracking-eta' }).length).toBeGreaterThan(0);
+
+    await act(async () => {
+      realtimeListener?.({ type: 'driver.arrived', id: 'm3', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, arrivedAt: new Date().toISOString(), noShowGraceSeconds: 300 } });
+      emitPosition({ etaSeconds: 60 });
+    });
+
+    expect(root.root.findAllByProps({ testID: 'tracking-eta' })).toHaveLength(0);
+  });
+
   it('« Sur place » pour une autre course est ignoré, et disparaît quand la course démarre', async () => {
     const { root } = await renderTracking();
     await act(async () => {
@@ -515,6 +530,12 @@ describe('messages rapides avec le chauffeur', () => {
       root.root.findByProps({ testID: 'quick-message-client_coming' }).props.onPress();
     });
     expect(mockSend).toHaveBeenCalledWith('chat.send', { rideId: RIDE_ID, code: 'client_coming' });
+  });
+
+  it("les pastilles de messages gardent leur hauteur naturelle (une ScrollView horizontale s'étirait en ovales géants)", async () => {
+    const { root } = await renderTracking();
+    const [row] = root.root.findAll((node) => node.props.testID === 'tracking-quick-messages' && node.props.horizontal === true);
+    expect(StyleSheet.flatten(row.props.style)).toEqual(expect.objectContaining({ flexGrow: 0 }));
   });
 
   it('hors connexion, les messages sont désactivés (jamais mis en file)', async () => {
