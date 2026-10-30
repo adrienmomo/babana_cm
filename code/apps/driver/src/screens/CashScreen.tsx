@@ -103,8 +103,7 @@ export function CashScreen({ navigation }: Props) {
 
   return (
     <ScrollView style={styles.container} testID="cash-screen" contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Ma caisse</Text>
-
+      {/* Le titre « Ma caisse » est déjà dans la barre de navigation : pas de second titre. */}
       <View style={styles.block}>
         <Text style={styles.label}>Recette encaissée aujourd’hui</Text>
         <Text style={styles.amount} testID="cash-collected-today">
@@ -186,10 +185,6 @@ const styles = StyleSheet.create({
   content: {
     padding: 24,
     gap: 20,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
   },
   block: {
     gap: 4,

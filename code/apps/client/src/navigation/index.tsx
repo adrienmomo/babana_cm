@@ -15,6 +15,7 @@ import { WaitingScreen } from '../screens/WaitingScreen';
 import { TrackingScreen } from '../screens/TrackingScreen';
 import { RideSummaryScreen } from '../screens/RideSummaryScreen';
 import type { AuthParamList, ClientParamList } from './types';
+import { SCREEN_TITLES } from './titles';
 
 const AuthStack = createNativeStackNavigator<AuthParamList>();
 const ClientStack = createNativeStackNavigator<ClientParamList>();
@@ -113,7 +114,11 @@ function SignInStack({ onSignedIn }: { onSignedIn: (session: AuthState) => void 
 
 function ClientNavigator() {
   return (
-    <ClientStack.Navigator initialRouteName="Home">
+    <ClientStack.Navigator
+      initialRouteName="Home"
+      // Sans titre explicite, la barre affiche le nom technique de la route (« Home », « Quote »).
+      screenOptions={({ route }) => ({ title: SCREEN_TITLES[route.name] })}
+    >
       <ClientStack.Screen name="Home" component={HomeScreen} />
       <ClientStack.Screen name="Quote" component={QuoteScreen} />
       <ClientStack.Screen name="Waiting" component={WaitingScreen} />
