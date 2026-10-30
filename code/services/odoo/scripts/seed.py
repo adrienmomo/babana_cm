@@ -421,6 +421,11 @@ def ensure_fleet():
             driver.sudo().action_approve(new_employee_name=name)
             info("+ chauffeur approuvé : %s [%s, %s]", name, plate, vclass)
 
+        # Le numéro que le client appelle (D42) est celui de la fiche employé, pas du partenaire :
+        # sans lui, le bouton « Appeler » n'apparaît pas sur l'écran de suivi (vu le 30 octobre).
+        if driver.employee_id and driver.employee_id.mobile_phone != phone:
+            driver.employee_id.sudo().write({"mobile_phone": phone})
+
         if not driver.is_online:
             driver.sudo().write({"is_online": True})
 
