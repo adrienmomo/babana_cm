@@ -540,10 +540,13 @@ def make_history(client_user, drivers, zones_by_name):
                 "client_id": partner.id,
                 "pickup_latitude": o_lat,
                 "pickup_longitude": o_lng,
-                "pickup_label": "%s (démo)" % from_name,
+                # Le nom du quartier seul, comme un lieu désigné dans l'app : ces libellés sont
+                # montrés tels quels dans « Mes courses », sur la facture et dans les destinations
+                # récentes -- un suffixe « (démo) » s'y lisait pendant la démonstration.
+                "pickup_label": from_name,
                 "dropoff_latitude": d_lat,
                 "dropoff_longitude": d_lng,
-                "dropoff_label": "%s (démo)" % to_name,
+                "dropoff_label": to_name,
                 "pickup_zone_id": pickup_zone.id,
                 "dropoff_zone_id": dropoff_zone.id,
                 "quote_id": quote.id,
