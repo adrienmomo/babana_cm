@@ -192,7 +192,7 @@ l'app. La réponse porte `{ ..., distanceMeters, durationSeconds, measured }` : 
 disponible, aucune distance ni tracé enregistrés, écart de distance de L4-04 non calculé
 (D30, D43).
 | `POST /rides/{id}/cancel` | `{requested,proposed,assigned,rejected} → cancelled` | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_INVALID_TRANSITION`, `NO_SHOW_TOO_EARLY` (motif `client_no_show` avant la fin du délai de grâce) | Oui |
-| `POST /rides/{id}/rate` | (aucune — ride déjà `settled`) | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RATING_NOT_ALLOWED`, `RATING_ALREADY_SUBMITTED` | Non — attend L4-09 |
+| `POST /rides/{id}/rate` | (aucune — ride déjà `settled`) | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RATING_NOT_ALLOWED`, `RATING_ALREADY_SUBMITTED` | Oui (L4-09) — une note par course, le commentaire reste au back-office |
 
 `POST /rides/{id}/dispatch` : **le client ne choisit pas son chauffeur.** La course part au
 chauffeur disponible le plus proche du point de prise en charge (à vol d'oiseau, dans le rayon

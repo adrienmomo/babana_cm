@@ -10,8 +10,12 @@ vit dans le message de commit qui l'a retirée, pas ici.
 
 | Champ | Modèle | Remplacé par | Créé le | Pourquoi il ne peut pas exister tout de suite |
 |---|---|---|---|---|
-| `rating_avg`, `rating_count` | `babana.driver` | L4-09 | 10 août 2026 (L1-03) | Comptés depuis `babana.rating`, qui n'existe pas encore. Champs calculés, pas des relations : n'empêchent pas l'installation, mais renvoient 0 tant que L4-09 n'existe pas. |
 | `promotion_code` | `babana.ride` | L2-06 | 10 août 2026 (L4-01) | Remplace un `Many2one` vers `babana.promotion`, absent (L2-06, hors du lot du 10 août comme du 11 août, comme de la nuit J5). |
+
+## Résolu le 30 octobre 2026
+
+**`rating_avg`, `rating_count`** (`babana.driver`, posés le 10 août, L1-03) sont résolus par L4-09 :
+ils sont comptés depuis `babana.rating`. La mention `[PONT]` a quitté leur `help`.
 
 ## Résolu le 18 août 2026
 

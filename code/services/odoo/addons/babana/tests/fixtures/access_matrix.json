@@ -37,6 +37,7 @@
     "babana.cash.discrepancy":    { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.incident":            { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.ride.share":          { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.rating":              { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.ride.rejection":      { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.device.token":        { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.phone.verification":  { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },

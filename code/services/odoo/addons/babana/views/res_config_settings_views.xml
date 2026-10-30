@@ -55,6 +55,15 @@
                             </div>
                         </setting>
                     </block>
+                    <block title="Avis" name="babana_rating_settings">
+                        <setting id="babana_rating_min_count" string="Avis avant d'afficher une note"
+                                 help="En dessous, le chauffeur est présenté comme « nouveau » plutôt qu'avec une moyenne peu significative.">
+                            <div class="d-flex align-items-center gap-2">
+                                <field name="babana_rating_min_count" style="width: 6rem"/>
+                                <span>avis</span>
+                            </div>
+                        </setting>
+                    </block>
                     <block title="Connexion" name="babana_auth_settings">
                         <setting id="babana_otp_ttl" string="Validité d'un code SMS"
                                  help="Durée pendant laquelle le code de connexion reçu par SMS est accepté.">

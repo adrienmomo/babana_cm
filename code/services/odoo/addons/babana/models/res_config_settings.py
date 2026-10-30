@@ -4,6 +4,7 @@ from odoo.exceptions import ValidationError
 from .babana_ride_state import NO_SHOW_GRACE_DEFAULT, NO_SHOW_GRACE_PARAM
 from .babana_phone_verification import OTP_TTL_SECONDS_FALLBACK, OTP_TTL_SECONDS_PARAM
 from .babana_quote import QUOTE_VALIDITY_DEFAULT, QUOTE_VALIDITY_PARAM
+from .babana_rating import RATING_MIN_COUNT_DEFAULT, RATING_MIN_COUNT_PARAM
 from ..services.approach import (
     APPROACH_SAMPLE_SIZE_DEFAULT,
     APPROACH_SAMPLE_SIZE_PARAM,
@@ -77,6 +78,14 @@ class ResConfigSettings(models.TransientModel):
         help="Après autant de refus ou d'absences de réponse, le client est prévenu qu'aucun chauffeur n'est disponible.",
     )
 
+    babana_rating_min_count = fields.Integer(
+        string="Avis avant d'afficher une note",
+        config_parameter=RATING_MIN_COUNT_PARAM,
+        default=RATING_MIN_COUNT_DEFAULT,
+        help="En dessous, le chauffeur est présenté comme « nouveau » plutôt qu'avec une moyenne "
+        "peu significative.",
+    )
+
     _BABANA_POSITIVE_FIELDS = (
         "babana_no_show_grace_seconds",
         "babana_quote_validity_seconds",
@@ -85,6 +94,7 @@ class ResConfigSettings(models.TransientModel):
         "babana_dispatch_max_attempts",
         "babana_approach_sample_size",
         "babana_default_approach_distance_meters",
+        "babana_rating_min_count",
     )
 
     @api.constrains(*_BABANA_POSITIVE_FIELDS)

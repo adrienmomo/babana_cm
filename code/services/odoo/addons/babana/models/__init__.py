@@ -26,5 +26,6 @@ from . import babana_cash_discrepancy
 from . import babana_cash_dashboard
 from . import babana_incident
 from . import babana_ride_share
+from . import babana_rating
 from . import babana_device_token
 from . import res_config_settings

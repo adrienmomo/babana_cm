@@ -68,11 +68,11 @@ class InternalDriverProfilesController(http.Controller):
             # choix d'implémentation non spécifié, à corriger le jour où un prénom dédié existe.
             first_name = driver.employee_id.name.split(" ")[0]
 
-        # rating_avg/rating_count sont un champ-pont (L1-03, [PONT -- remplacé par L4-09]) :
-        # toujours 0.0/0 tant que babana.rating n'existe pas. Servir 0.0 comme une vraie note
-        # inventerait une donnée qui n'existe pas encore -- `None` avoue l'absence (D30), au lieu
-        # d'attendre une seconde correction quand L4-09 arrivera.
-        rating = driver.rating_avg if driver.rating_count > 0 else None
+        # L4-09 : en dessous de babana.rating_min_count avis, la moyenne n'est pas significative --
+        # `None`, que l'app affiche « nouveau », plutôt qu'une note qui condamnerait un chauffeur
+        # sur deux avis (D10, D30).
+        enough = driver.rating_count >= driver.env["babana.rating"]._min_count()
+        rating = round(driver.rating_avg, 1) if enough else None
 
         motorcycle_class = driver.motorcycle_id.vehicle_class if driver.motorcycle_id else None
         license_plate = driver.motorcycle_id.license_plate if driver.motorcycle_id else None

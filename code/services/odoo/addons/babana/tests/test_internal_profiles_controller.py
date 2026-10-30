@@ -55,7 +55,7 @@ class TestInternalProfilesController(HttpCase):
         self.assertEqual(profile["firstName"], "Paul")
         self.assertEqual(profile["motorcycleClass"], "premium")
         self.assertIsNone(profile["photoUrl"])
-        self.assertIsNone(profile["rating"], "rating_count est un champ-pont, toujours 0 (L4-09)")
+        self.assertIsNone(profile["rating"], "aucun avis : « nouveau », jamais une note nulle (L4-09)")
         # licensePlate (D41, 25 août) : décision explicite pour ce canal interne uniquement --
         # jamais exposé par nearby.drivers (voir services/realtime/src/nearby/projection.ts, qui
         # ne le lit pas), seulement par ride.assigned une fois le chauffeur affecté.

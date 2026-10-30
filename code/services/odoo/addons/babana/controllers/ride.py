@@ -7,8 +7,8 @@
 # Acceptation et refus n'ont qu'un chemin d'écriture -- proposal.accept / proposal.reject en temps
 # réel (C-02), résolus atomiquement côté service temps réel puis écrits dans Odoo par le canal
 # interne (controllers/internal.py::driver_accepted/driver_rejected) -- jamais un second chemin
-# HTTP public qui ignorerait la réservation. rateRide reste hors de portée (babana.rating, L4-09,
-# hors de ce lot).
+# HTTP public qui ignorerait la réservation. rateRide (L4-09) n'est pas une transition : la course
+# reste `settled`, la note vit dans babana.rating.
 from __future__ import annotations
 
 import logging
@@ -21,8 +21,11 @@ from odoo.service.model import PG_CONCURRENCY_EXCEPTIONS_TO_RETRY
 
 from . import _common
 from ..models.babana_ride import PICKUP_NOTE_MAX_LENGTH, PLACE_LABEL_MAX_LENGTH
+from ..models.babana_rating import RatingAlreadySubmitted, RatingNotAllowed
 from ..models.babana_ride_state import NO_SHOW_REASON, RideInvalidTransition, RideNoShowTooEarly
 from ..services import dispatch, realtime_client
+
+RATING_COMMENT_MAX_LENGTH = 500
 
 _logger = logging.getLogger(__name__)
 
@@ -429,3 +432,35 @@ class RideController(http.Controller):
         if cancelled_driver:
             realtime_client.notify_cancellation_async(env, cancelled_driver.public_id)
         return _summary(ride), 200
+
+    # --- POST /rides/{id}/rate (rateRide, L4-09) ------------------------------------------------
+
+    @http.route("/api/v1/rides/<string:ride_id>/rate", **_ROUTE)
+    def rate_ride(self, ride_id, **_kwargs):
+        return self._dispatch("rateRide", lambda: self._rate_ride(ride_id))
+
+    def _rate_ride(self, ride_id):
+        env, user = _common.authenticated_user()
+        body = _common.parse_json_body() or {}
+        rating = body.get("rating")
+        comment = body.get("comment")
+        if isinstance(rating, bool) or not isinstance(rating, int) or not 1 <= rating <= 5:
+            return _common.error_payload("VALIDATION_ERROR", "rating : entier de 1 à 5"), 400
+        if comment is not None and (not isinstance(comment, str) or len(comment) > RATING_COMMENT_MAX_LENGTH):
+            return _common.error_payload(
+                "VALIDATION_ERROR", f"comment : texte de {RATING_COMMENT_MAX_LENGTH} caractères au plus"
+            ), 400
+        ride = self._find_ride(env, user, ride_id)
+        if not ride:
+            return _common.error_payload("RIDE_NOT_FOUND", "course inconnue"), 404
+        if ride.sudo().client_id != user.partner_id:
+            # Le chauffeur affecté voit la course, mais seul son client la note.
+            return _common.error_payload("RIDE_NOT_OWNED", "cette course n'appartient pas à l'appelant"), 403
+        try:
+            env["babana.rating"]._rate_ride(ride, user.partner_id, rating, comment)
+        except RatingAlreadySubmitted as exc:
+            return _common.error_payload("RATING_ALREADY_SUBMITTED", str(exc)), 409
+        except RatingNotAllowed as exc:
+            return _common.error_payload("RATING_NOT_ALLOWED", str(exc)), 403
+        # Le commentaire n'est jamais renvoyé (critère 5) : seule la note revient.
+        return {"rideId": ride.public_id, "rating": rating}, 200

@@ -65,7 +65,7 @@ export const USER_MESSAGES = {
   DRIVER_NOT_IN_PROPOSAL: 'Cette proposition ne vous concerne plus.',
   PROPOSAL_EXPIRED: 'Le délai pour répondre à cette proposition est dépassé.',
   RATING_ALREADY_SUBMITTED: 'Vous avez déjà noté cette course.',
-  RATING_NOT_ALLOWED: 'Cette course ne peut pas encore être notée.',
+  RATING_NOT_ALLOWED: 'Vous pourrez noter la course dès que le chauffeur aura confirmé le paiement.',
   RIDE_NOT_ACTIVE: "Cette action n'est possible que pendant une course en cours.",
 
   CASH_LIMIT_REACHED: "Votre plafond d'encaisse est atteint. Faites une remise pour continuer.",

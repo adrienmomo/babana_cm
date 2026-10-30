@@ -1,6 +1,5 @@
 # Tests de babana.driver (L1-03). Le critère d'acceptation 3 (rating_avg se recalcule à chaque
-# nouvel avis) n'est pas testé ici : babana.rating (L4-09) n'existe pas encore, voir
-# amoa/questions/L1-03.md -- un test qui simulerait ce recalcul ne prouverait rien.
+# nouvel avis) est couvert par tests/test_rating.py, avec babana.rating (L4-09).
 from __future__ import annotations
 
 import unittest.mock

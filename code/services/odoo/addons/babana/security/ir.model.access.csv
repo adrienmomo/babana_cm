@@ -60,3 +60,6 @@ access_babana_motorcycle_portal,babana.motorcycle portal read-only assigned,mode
 access_babana_cash_movement_portal,babana.cash.movement portal read-only own,model_babana_cash_movement,base.group_portal,1,0,0,0
 access_babana_cash_remittance_portal,babana.cash.remittance portal read-only own,model_babana_cash_remittance,base.group_portal,1,0,0,0
 access_babana_phone_verification_admin,babana.phone.verification admin,model_babana_phone_verification,group_babana_admin,1,1,1,1
+access_babana_rating_supervisor,babana.rating supervisor,model_babana_rating,group_babana_supervisor,1,0,0,0
+access_babana_rating_manager,babana.rating manager,model_babana_rating,group_babana_manager,1,0,0,0
+access_babana_rating_admin,babana.rating admin,model_babana_rating,group_babana_admin,1,0,0,0

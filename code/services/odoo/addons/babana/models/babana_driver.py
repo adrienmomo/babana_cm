@@ -119,20 +119,17 @@ class BabanaDriver(models.Model):
     )
     is_online = fields.Boolean(string="En ligne", default=False)
 
-    # Champs-pont restants (amoa/questions/L1-03.md, code/docs/bridge-fields.md) : rating_avg et
-    # rating_count renvoient une valeur neutre jusqu'à ce que L4-09 (notation) existe -- la
-    # méthode de calcul est déjà en place pour être branchée dessus sans changer la signature du
-    # champ. ride_count n'en est plus un : babana.ride (L4-01) existe désormais (branché le
-    # 11 août, amoa/questions/REPONSES-2026-08-11.md).
+    # Comptés depuis babana.rating (L4-09). rating_count est le nombre d'avis reçus ; c'est à
+    # l'affichage (internal_profiles.py) que le seuil babana.rating_min_count décide si la
+    # moyenne est montrée ou si le chauffeur reste « nouveau ».
     rating_avg = fields.Float(
         string="Note moyenne",
         compute="_compute_rating",
-        help="[PONT — remplacé par L4-09] Toujours 0.0 tant que babana.rating n'existe pas.",
+        help="Moyenne des notes reçues (1 à 5). 0 quand le chauffeur n'a encore aucun avis.",
     )
     rating_count = fields.Integer(
         string="Nombre d'avis",
         compute="_compute_rating",
-        help="[PONT — remplacé par L4-09] Toujours 0 tant que babana.rating n'existe pas.",
     )
     ride_count = fields.Integer(
         string="Nombre de courses",
@@ -364,11 +361,14 @@ class BabanaDriver(models.Model):
             )
 
     def _compute_rating(self):
-        # Champ-pont : voir amoa/questions/L1-03.md. Recalcul réel à brancher sur babana.rating
-        # (L4-09) -- le critère d'acceptation 3 de L1-03 n'est pas vérifiable avant cette tâche.
+        groups = self.env["babana.rating"].sudo()._read_group(
+            [("driver_id", "in", self.ids)], ["driver_id"], ["rating:avg", "__count"]
+        )
+        by_driver = {driver.id: (average, count) for driver, average, count in groups}
         for record in self:
-            record.rating_avg = 0.0
-            record.rating_count = 0
+            average, count = by_driver.get(record.id, (0.0, 0))
+            record.rating_avg = average or 0.0
+            record.rating_count = count
 
     def _compute_ride_count(self):
         for record in self:
