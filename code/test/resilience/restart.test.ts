@@ -57,11 +57,14 @@ import { enqueueOutboxEntry } from '../../services/realtime/src/odoo/outbox';
 
 // Un point de prise en charge par variante : la course part au chauffeur disponible le plus
 // proche, dans le rayon réduit des tests (support/dispatch-radius.ts) -- le chauffeur de la
-// variante, posé exactement dessus. Base juste à l'est de (4.05, 9.70) : la variante 1 fait rouler
-// le chauffeur autour de (4.0505, 9.7006) -- un départ plus loin ferait rejeter ces positions comme
-// un saut invraisemblable (vitesse implicite, L3-02), et rien ne serait mesuré. Ce fichier tourne
-// seul, après la suite principale : aucun autre fichier n'occupe ces points en même temps.
-const nextSpot = spotSequence({ latitude: 4.05, longitude: 9.701 });
+// variante, posé exactement dessus. Base juste au nord-est de (4.05, 9.70) : la variante 1 fait
+// rouler le chauffeur autour de (4.0505, 9.7006) -- un départ plus loin ferait rejeter ces positions
+// comme un saut invraisemblable (vitesse implicite, L3-02), et rien ne serait mesuré. Latitude 4.051
+// et non 4.05 : ce fichier tourne après la suite principale, dont les chauffeurs de
+// concurrency/ride-transitions.test.ts (base 4.05, 9.70) restent éligibles une minute -- sur la même
+// latitude, l'un d'eux se trouvait à égalité exacte (0 m) avec le chauffeur de la variante et
+// pouvait recevoir la course à sa place (vu sur base fraîche le 30 octobre).
+const nextSpot = spotSequence({ latitude: 4.051, longitude: 9.701 });
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
 const REALTIME_HTTP_ROOT = process.env.REALTIME_HTTP_ROOT ?? 'http://localhost:3000';
 
