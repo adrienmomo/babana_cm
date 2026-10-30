@@ -2,6 +2,7 @@ import React, { useRef } from 'react';
 import { PhoneSignIn } from '@babana/ui';
 import { ApiError, translateApiError, type AuthState } from '@babana/api-client';
 import { authClient } from '../auth';
+import { APP_NAME } from '../brand';
 
 /**
  * Connexion par numéro de téléphone et code SMS (OTP). Toute la logique -- envoi du code, échange
@@ -26,7 +27,7 @@ export function SignInScreen({ onSignedIn }: SignInScreenProps) {
 
   return (
     <PhoneSignIn
-      title="Babana -- Chauffeur"
+      title={APP_NAME}
       describeError={describeSignInError}
       requestCode={async (phoneNumber) => {
         const response = await authClient.requestOtp(phoneNumber, 'driver');

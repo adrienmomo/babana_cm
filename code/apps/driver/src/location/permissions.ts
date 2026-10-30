@@ -1,5 +1,6 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import Geolocation from '@react-native-community/geolocation';
+import { APP_NAME } from '../brand';
 
 /**
  * Permissions de localisation (L6-05) : premier plan (nécessaire à toute lecture GPS) et
@@ -29,7 +30,7 @@ export async function ensureForegroundPermission(): Promise<PermissionState> {
   }
   const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION, {
     title: 'Position',
-    message: 'Babana a besoin de votre position pour vous proposer des courses.',
+    message: `${APP_NAME} a besoin de votre position pour vous proposer des courses.`,
     buttonPositive: 'Autoriser',
     buttonNegative: 'Refuser',
   });
@@ -57,7 +58,7 @@ export async function ensureBackgroundPermission(): Promise<PermissionState> {
   const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_BACKGROUND_LOCATION, {
     title: 'Position en arrière-plan',
     message:
-      'Babana continue de partager votre position pendant que vous naviguez avec une autre application, tant que vous êtes en ligne.',
+      `${APP_NAME} continue de partager votre position pendant que vous naviguez avec une autre application, tant que vous êtes en ligne.`,
     buttonPositive: 'Autoriser',
     buttonNegative: 'Refuser',
   });

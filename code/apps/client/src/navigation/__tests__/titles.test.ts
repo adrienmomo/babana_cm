@@ -7,4 +7,8 @@ describe('titres des écrans', () => {
       expect(title).not.toBe(route);
     }
   });
+
+  it("aucun titre de barre ne répète le titre d'étape que l'écran affiche déjà (« Course en cours » deux fois, 30 octobre)", () => {
+    expect(SCREEN_TITLES.Tracking).toBe('Suivi de course');
+  });
 });

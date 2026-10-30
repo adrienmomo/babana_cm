@@ -40,6 +40,12 @@ async function press(root: ReturnType<typeof create>, id: string) {
 describe('SignInScreen (app Driver) -- connexion par OTP', () => {
   afterEach(() => jest.clearAllMocks());
 
+  it('le titre est le nom de l’app, « Babana Pro »', async () => {
+    const root = await render();
+    expect(texts(root)).toContain('Babana Pro');
+    expect(texts(root)).not.toContain('--');
+  });
+
   it("n'offre aucune connexion Google", async () => {
     const root = await render();
     expect(texts(root)).not.toMatch(/google/i);

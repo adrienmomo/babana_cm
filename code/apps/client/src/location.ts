@@ -1,6 +1,7 @@
 import { PermissionsAndroid, Platform } from 'react-native';
 import Geolocation from '@react-native-community/geolocation';
 import { mapGeolocationErrorCode, type LocationResult } from './location.types';
+import { APP_NAME } from './brand';
 
 export type { LocationResult, LocationFailureReason } from './location.types';
 
@@ -26,7 +27,7 @@ async function ensurePermission(): Promise<boolean> {
   }
   const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION, {
     title: 'Position',
-    message: 'Babana utilise votre position pour centrer la carte et proposer votre point de départ.',
+    message: `${APP_NAME} utilise votre position pour centrer la carte et proposer votre point de départ.`,
     buttonPositive: 'Autoriser',
     buttonNegative: 'Refuser',
   });

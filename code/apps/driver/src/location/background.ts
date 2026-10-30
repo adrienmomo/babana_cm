@@ -1,4 +1,5 @@
 import PushNotification, { Importance } from 'react-native-push-notification';
+import { APP_NAME } from '../brand';
 
 /**
  * Notification persistante de capture (L6-05, critère d'acceptation 4 -- « avec une notification
@@ -42,7 +43,7 @@ function ensureChannel(): void {
     {
       channelId: TRACKING_CHANNEL_ID,
       channelName: 'Partage de position',
-      channelDescription: 'Indique quand Babana a envoyé votre position pour la dernière fois, pendant que vous êtes en ligne',
+      channelDescription: `Indique quand ${APP_NAME} a envoyé votre position pour la dernière fois, pendant que vous êtes en ligne`,
       importance: Importance.LOW,
       playSound: false,
       vibrate: false,
@@ -85,7 +86,7 @@ export function updateTrackingNotification(message: string): void {
   PushNotification.localNotification({
     id: TRACKING_NOTIFICATION_ID,
     channelId: TRACKING_CHANNEL_ID,
-    title: 'Babana',
+    title: APP_NAME,
     message,
     ongoing: true,
     autoCancel: false,

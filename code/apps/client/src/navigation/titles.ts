@@ -1,3 +1,4 @@
+import { APP_NAME } from '../brand';
 import type { ClientParamList } from './types';
 
 /**
@@ -6,10 +7,11 @@ import type { ClientParamList } from './types';
  * (« Home », « Quote »), en anglais, devant le client.
  */
 export const SCREEN_TITLES: Record<keyof ClientParamList, string> = {
-  Home: 'Babana',
+  Home: APP_NAME,
   Quote: 'Votre course',
   Waiting: 'Recherche d’un chauffeur',
-  Tracking: 'Course en cours',
+  // L'écran affiche déjà l'étape (« Votre chauffeur arrive », « Course en cours ») : la barre ne la répète pas.
+  Tracking: 'Suivi de course',
   RideSummary: 'Course terminée',
   History: 'Mes courses',
   Invoice: 'Facture',

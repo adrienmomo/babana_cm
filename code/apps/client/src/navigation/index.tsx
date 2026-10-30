@@ -5,6 +5,7 @@ import { createNativeStackNavigator, type NativeStackNavigationProp } from '@rea
 import { AuthGate, PlaceholderScreen, type SessionState } from '@babana/navigation';
 import { ApiError, type AuthState, type AuthUser } from '@babana/api-client';
 import { apiClient, authClient, onSessionLost } from '../auth';
+import { APP_NAME } from '../brand';
 import { bootstrap } from '../bootstrap';
 import { ConnectionBanner } from '../components/ConnectionBanner';
 import { WebDemoBanner } from '../components/WebDemoBanner';
@@ -99,7 +100,7 @@ function useSession() {
 }
 
 function LoadingScreen() {
-  return <PlaceholderScreen title="Babana" task="chargement de la session" />;
+  return <PlaceholderScreen title={APP_NAME} task="chargement de la session" />;
 }
 
 function SignInStack({ onSignedIn }: { onSignedIn: (session: AuthState) => void }) {
