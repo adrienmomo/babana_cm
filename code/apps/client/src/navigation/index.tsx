@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { createNavigationContainerRef, NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createNavigationContainerRef, NavigationContainer, useNavigation } from '@react-navigation/native';
+import { createNativeStackNavigator, type NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AuthGate, PlaceholderScreen, type SessionState } from '@babana/navigation';
 import { ApiError, type AuthState, type AuthUser } from '@babana/api-client';
 import { apiClient, authClient, onSessionLost } from '../auth';
@@ -114,6 +114,16 @@ function SignInStack({ onSignedIn }: { onSignedIn: (session: AuthState) => void 
   );
 }
 
+/** « Mes courses », à droite de la barre de l'accueil (L6-10). */
+function HistoryHeaderLink() {
+  const navigation = useNavigation<NativeStackNavigationProp<ClientParamList>>();
+  return (
+    <Pressable testID="open-history" onPress={() => navigation.navigate('History')} hitSlop={12}>
+      <Text style={styles.headerLink}>Mes courses</Text>
+    </Pressable>
+  );
+}
+
 function ClientNavigator() {
   return (
     <ClientStack.Navigator
@@ -121,17 +131,7 @@ function ClientNavigator() {
       // Sans titre explicite, la barre affiche le nom technique de la route (« Home », « Quote »).
       screenOptions={({ route }) => ({ title: SCREEN_TITLES[route.name] })}
     >
-      <ClientStack.Screen
-        name="Home"
-        component={HomeScreen}
-        options={({ navigation }) => ({
-          headerRight: () => (
-            <Pressable testID="open-history" onPress={() => navigation.navigate('History')} hitSlop={12}>
-              <Text style={styles.headerLink}>Mes courses</Text>
-            </Pressable>
-          ),
-        })}
-      />
+      <ClientStack.Screen name="Home" component={HomeScreen} options={{ headerRight: HistoryHeaderLink }} />
       <ClientStack.Screen name="Quote" component={QuoteScreen} />
       <ClientStack.Screen name="Waiting" component={WaitingScreen} />
       <ClientStack.Screen name="Tracking" component={TrackingScreen} />
