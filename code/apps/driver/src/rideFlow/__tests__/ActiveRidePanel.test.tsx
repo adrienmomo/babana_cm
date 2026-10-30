@@ -568,6 +568,19 @@ describe('itinéraire -- calculé par le chauffeur, affiché à l’identique ch
     expect(texts(root)).toContain('2 min');
   });
 
+  it("la distance affichée est ce qui reste à parcourir sur le tracé, pas sa longueur au moment du calcul (« 0.7 km » arrivé, 30 octobre)", async () => {
+    const { root, rerender } = await renderActiveRide({ position: FAR });
+    expect(texts(root)).toContain('0.5 km');
+
+    // Un peu plus loin que mi-chemin sur le tracé (≈ 280 m restants) : pas d'écart, pas de nouveau calcul d'itinéraire -- l'affichage suit quand même.
+    await rerender({ latitude: 4.0525, longitude: 9.7 });
+
+    expect(mockFetchRoute).toHaveBeenCalledTimes(1);
+    expect(texts(root)).toContain('0.3 km');
+    expect(texts(root)).toContain('1 min');
+    expect(texts(root)).not.toContain('0.5 km');
+  });
+
   it('service de routage injoignable : pas de tracé inventé, nouvel essai seulement après le délai', async () => {
     mockFetchRoute.mockResolvedValue(null);
     const { callbacks, rerender } = await renderActiveRide({ position: FAR });

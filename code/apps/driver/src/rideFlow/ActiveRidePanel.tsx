@@ -12,7 +12,7 @@ import { EmergencyButton } from '../components/EmergencyButton';
 import { SwipeButton } from '../components/SwipeButton';
 import { onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { formatDistance } from '../format';
-import { distanceToRouteMeters, isWithinRadius } from './proximity';
+import { distanceToRouteMeters, isWithinRadius, remainingRouteFraction } from './proximity';
 import type { ActiveRideParams } from '../navigation/types';
 import { buttonLabels, buttons, cards, colors } from '../theme';
 
@@ -123,10 +123,14 @@ function isSessionSyncedMessage(m: realtime.ServerToClientMessage): m is realtim
   return m.type === 'session.synced';
 }
 
-function formatTripSummary(route: SharedRoute | null): string | null {
+/** Distance et durée RESTANTES : celles du tracé, au prorata de ce qui reste à parcourir depuis la
+ * position courante (`remainingRouteFraction`). */
+function formatTripSummary(route: SharedRoute | null, position: LatLng | null): string | null {
   if (!route || route.distanceMeters === null) return null;
-  const minutes = route.durationSeconds === null ? null : Math.max(1, Math.round(route.durationSeconds / 60));
-  return minutes === null ? formatDistance(route.distanceMeters) : `${formatDistance(route.distanceMeters)} · ≈ ${minutes} min`;
+  const fraction = position ? remainingRouteFraction(position, route.points) : 1;
+  const distance = route.distanceMeters * fraction;
+  const minutes = route.durationSeconds === null ? null : Math.max(1, Math.round((route.durationSeconds * fraction) / 60));
+  return minutes === null ? formatDistance(distance) : `${formatDistance(distance)} · ≈ ${minutes} min`;
 }
 
 export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle, onEnded }: ActiveRidePanelProps) {
@@ -460,7 +464,7 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
   }
 
   const nearPickup = isWithinRadius(position, origin, settings.arrivalRadiusMeters);
-  const tripSummary = formatTripSummary(route);
+  const tripSummary = formatTripSummary(route, position);
 
   return (
     <View style={styles.overlay} pointerEvents="box-none" testID="active-ride-screen">

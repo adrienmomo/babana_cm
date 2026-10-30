@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import PushNotification, { Importance } from 'react-native-push-notification';
 
 /**
@@ -16,6 +16,10 @@ import PushNotification, { Importance } from 'react-native-push-notification';
  */
 
 const PROPOSAL_CHANNEL_ID = 'proposal-alert';
+// App déjà à l'écran : la proposition s'y affiche, la bannière système (heads-up) n'en masquerait
+// que le haut -- le prix (vu le 30 octobre). Même son, même vibration, sans bannière : importance
+// par défaut. Un canal Android garde l'importance de sa création, d'où un second canal.
+const PROPOSAL_FOREGROUND_CHANNEL_ID = 'proposal-alert-foreground';
 // Identifiant fixe et réutilisé, jamais un nouvel identifiant par proposition -- une seule
 // notification peut exister à la fois (L6-12, critère 5 : deux propositions ne s'affichent
 // jamais simultanément côté écran, donc jamais deux alertes non plus). Poser la même la remplace
@@ -57,6 +61,19 @@ export function configureProposalAlerts(): void {
       // idempotent côté natif, appelé une seule fois de toute façon (configured, ci-dessus).
     }
   );
+
+  PushNotification.createChannel(
+    {
+      channelId: PROPOSAL_FOREGROUND_CHANNEL_ID,
+      channelName: 'Proposition de course (app ouverte)',
+      channelDescription: 'Son et vibration à la réception d’une proposition quand l’app est déjà à l’écran',
+      playSound: true,
+      soundName: 'default',
+      importance: Importance.DEFAULT,
+      vibrate: true,
+    },
+    () => {}
+  );
 }
 
 /** Déclenche l'alerte -- réveille l'appareil, joue le son, vibre (critère 1). `message` reste
@@ -64,17 +81,18 @@ export function configureProposalAlerts(): void {
  * n'importe quelle notification (D20 -- pas de montant ni de point exact dans le texte système,
  * l'écran lui-même porte le détail une fois l'app ouverte). */
 export function alertIncomingProposal(): void {
+  const foreground = AppState.currentState === 'active';
   PushNotification.localNotification({
     id: PROPOSAL_NOTIFICATION_ID,
-    channelId: PROPOSAL_CHANNEL_ID,
+    channelId: foreground ? PROPOSAL_FOREGROUND_CHANNEL_ID : PROPOSAL_CHANNEL_ID,
     title: 'Nouvelle proposition de course',
     message: 'Une course vous est proposée -- ouvrez l’app pour répondre.',
     playSound: true,
     soundName: 'default',
     vibrate: true,
     vibration: 1000,
-    priority: 'high',
-    importance: 'high',
+    priority: foreground ? 'default' : 'high',
+    importance: foreground ? 'default' : 'high',
   });
 }
 

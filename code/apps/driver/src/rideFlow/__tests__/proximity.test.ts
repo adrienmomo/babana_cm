@@ -1,4 +1,4 @@
-import { distanceMeters, distanceToRouteMeters, isWithinRadius } from '../proximity';
+import { distanceMeters, distanceToRouteMeters, isWithinRadius, remainingRouteFraction } from '../proximity';
 
 const PICKUP = { latitude: 4.0511, longitude: 9.7679 };
 // ~0,00045° de latitude ≈ 50 m ; 0,0018° ≈ 200 m.
@@ -51,5 +51,28 @@ describe('distanceToRouteMeters -- écart du chauffeur au tracé', () => {
 
   it('infinie pour un tracé vide', () => {
     expect(distanceToRouteMeters(PICKUP, [])).toBe(Infinity);
+  });
+});
+
+describe('remainingRouteFraction', () => {
+  const route = [at(0.0045), at(0.00225), PICKUP];
+
+  it('au départ du tracé : tout reste à faire', () => {
+    expect(remainingRouteFraction(at(0.0045), route)).toBeCloseTo(1, 2);
+  });
+
+  it('à mi-chemin, entre deux sommets comme sur un sommet', () => {
+    expect(remainingRouteFraction(at(0.00225), route)).toBeCloseTo(0.5, 2);
+    expect(remainingRouteFraction(at(0.001125), route)).toBeCloseTo(0.25, 2);
+  });
+
+  it('au bout du tracé, ou au-delà : rien ne reste', () => {
+    expect(remainingRouteFraction(PICKUP, route)).toBeCloseTo(0, 2);
+    expect(remainingRouteFraction(at(-0.001), route)).toBeCloseTo(0, 2);
+  });
+
+  it('tracé dégénéré : tout reste à faire (on ne sait rien de mieux)', () => {
+    expect(remainingRouteFraction(PICKUP, [])).toBe(1);
+    expect(remainingRouteFraction(PICKUP, [PICKUP])).toBe(1);
   });
 });

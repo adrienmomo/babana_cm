@@ -13,12 +13,20 @@ jest.mock('react-native-push-notification', () => ({
     localNotification: (...args: unknown[]) => mockLocalNotification(...args),
     cancelLocalNotification: (...args: unknown[]) => mockCancelLocalNotification(...args),
   },
-  Importance: { HIGH: 4 },
+  Importance: { HIGH: 4, DEFAULT: 3 },
 }));
 
+import { AppState } from 'react-native';
 import { alertIncomingProposal, dismissProposalAlert } from '../proposalAlert';
 
-beforeEach(() => jest.clearAllMocks());
+function setAppState(state: 'active' | 'background') {
+  Object.defineProperty(AppState, 'currentState', { value: state, configurable: true });
+}
+
+beforeEach(() => {
+  jest.clearAllMocks();
+  setAppState('background');
+});
 
 test("l'identifiant de l'alerte est un entier sous forme de chaîne (exigence Android de la bibliothèque)", () => {
   alertIncomingProposal();
@@ -35,6 +43,7 @@ test("l'alerte est retirée avec le même identifiant que celui sous lequel elle
 });
 
 test('l\'alerte réveille l\'appareil : son, vibration et priorité haute', () => {
+  setAppState('background');
   alertIncomingProposal();
   expect(mockLocalNotification.mock.calls[0][0]).toMatchObject({
     playSound: true,
@@ -42,4 +51,13 @@ test('l\'alerte réveille l\'appareil : son, vibration et priorité haute', () =
     priority: 'high',
     importance: 'high',
   });
+});
+
+test("app à l'écran : son et vibration, sans bannière -- elle masquait le haut de la carte et son prix (30 octobre)", () => {
+  setAppState('active');
+  alertIncomingProposal();
+  const posted = mockLocalNotification.mock.calls[0][0] as Record<string, unknown>;
+  expect(posted).toMatchObject({ playSound: true, vibrate: true, priority: 'default', importance: 'default' });
+  // Un canal Android garde l'importance de sa création : la discrétion passe par un second canal.
+  expect(posted.channelId).not.toBe('proposal-alert');
 });
