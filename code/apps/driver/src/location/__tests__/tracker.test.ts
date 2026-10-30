@@ -330,6 +330,26 @@ describe('LocationTracker (L6-05)', () => {
     expect(deps.sent[1]!.precedingSamples.length).toBe(2); // 2 précédents + le point le plus récent porté par les champs de tête
   });
 
+  test('les relevés agrégés sont datés à l’heure du serveur, jamais à celle du téléphone (3 h 30 de retard, 30 octobre)', async () => {
+    const LAG_MS = 3.5 * 60 * 60 * 1000;
+    const deps = fakeDeps({
+      fixQueue: Array.from({ length: 4 }, (_, i) => movingFix(i)),
+      serverNow: () => Date.now() + LAG_MS,
+    });
+    const tracker = new LocationTracker(deps, { ...CONFIG, batchSize: 3, batchMaxWaitMs: 10_000_000 });
+    tracker.start();
+    tracker.setOnline(true);
+
+    await jest.advanceTimersByTimeAsync(0);
+    await jest.advanceTimersByTimeAsync(CONFIG.movingIntervalMs);
+    await jest.advanceTimersByTimeAsync(CONFIG.movingIntervalMs);
+    const sentAt = Date.now();
+    await jest.advanceTimersByTimeAsync(CONFIG.movingIntervalMs);
+
+    const [first] = deps.sent[1]!.precedingSamples;
+    expect(Date.parse(first!.capturedAt)).toBe(sentAt - CONFIG.movingIntervalMs + LAG_MS);
+  });
+
   test('critère 3 -- l’agrégation se déclenche aussi par délai maximal, sans attendre que le tampon soit plein', async () => {
     const deps = fakeDeps({ fixQueue: Array.from({ length: 4 }, (_, i) => movingFix(i)) });
     // batchSize élevé (jamais atteint par la taille dans ce test) ; cadence de capture (5 s)

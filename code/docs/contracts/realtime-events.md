@@ -27,7 +27,13 @@ Tout message, dans les deux sens, a la forme :
   récepteur tient une fenêtre de déduplication par connexion (taille exacte laissée à
   l'implémentation de L3-*, pas figée par ce contrat).
 - **`emittedAt`** — horodatage d'émission, ISO 8601 avec fuseau. Sert à la règle « position trop
-  ancienne » ci-dessous.
+  ancienne » ci-dessous. **Côté app, toujours à l'heure du serveur, jamais à celle du téléphone**
+  (30 octobre) : le client temps réel apprend l'écart entre les deux horloges des messages reçus,
+  tous datés par le serveur, et date ce qu'il envoie avec (`serverNow()`,
+  `packages/api-client/src/realtime/connection.ts`). Les `capturedAt` d'un lot de positions aussi.
+  Un téléphone qui a des heures d'écart reste ainsi dans le pool, et une position retenue hors
+  connexion puis envoyée à la reconnexion garde sa date réelle — donc reste reconnaissable comme
+  ancienne. Avant le premier message reçu, l'heure du téléphone sert telle quelle.
 
 `packages/contracts/src/realtime/envelope.ts` expose `envelopeSchema(type, payloadSchema)`, une
 fabrique utilisée par chaque message plutôt que de redéclarer ces trois champs partout.

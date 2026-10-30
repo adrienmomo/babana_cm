@@ -53,6 +53,10 @@ export interface LocationTrackerDeps {
   updateNotification: (message: string) => void;
   hideNotification: () => void;
   now: () => number;
+  /** Heure du serveur estimée (`realtimeClient.serverNow()`) : date les relevés agrégés
+   * (`capturedAt`), que le serveur valide contre sa propre horloge (L3-02) -- jamais l'heure du
+   * téléphone, qui peut avoir des heures d'écart (30 octobre). Absente : `now`. */
+  serverNow?: () => number;
 }
 
 interface RawFix {
@@ -361,7 +365,7 @@ export class LocationTracker {
 
     if (fix) {
       this.metrics.positionsCaptured += 1;
-      const capturedAtIso = new Date(this.deps.now()).toISOString();
+      const capturedAtIso = new Date((this.deps.serverNow ?? this.deps.now)()).toISOString();
       this.movement.record(fix, this.deps.now());
       this.fixListeners.forEach((listener) => listener({ latitude: fix.latitude, longitude: fix.longitude }));
       this.buffer.push({ ...fix, capturedAtIso });
@@ -460,6 +464,7 @@ function defaultDeps(): LocationTrackerDeps {
     updateNotification: updateTrackingNotification,
     hideNotification: hideTrackingNotification,
     now: () => Date.now(),
+    serverNow: () => realtimeClient.serverNow(),
   };
 }
 

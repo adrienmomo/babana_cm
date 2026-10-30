@@ -42,6 +42,10 @@ export interface RealtimeClientConfig {
   reconnectPolicy?: ReconnectPolicyConfig;
   /** Injectable pour les tests -- une vraie temporisation par défaut. */
   wait?: (ms: number) => Promise<void>;
+  /** Heure du téléphone, injectable pour les tests -- `Date.now` par défaut. Jamais utilisée
+   * telle quelle pour dater un message dès qu'un message du serveur a été reçu : voir
+   * `serverNow()`. */
+  now?: () => number;
 }
 
 function defaultWait(ms: number): Promise<void> {
@@ -90,14 +94,42 @@ const NEVER_QUEUED_MESSAGE_TYPES: ReadonlySet<realtime.ClientToServerMessage['ty
 function buildEnvelope<Type extends realtime.ClientToServerMessage['type']>(
   type: Type,
   payload: Extract<realtime.ClientToServerMessage, { type: Type }>['payload'],
+  emittedAtMs: number,
   id: string = randomUUID()
 ) {
-  return { type, id, emittedAt: new Date().toISOString(), payload };
+  return { type, id, emittedAt: new Date(emittedAtMs).toISOString(), payload };
 }
 
 export function createRealtimeClient(config: RealtimeClientConfig) {
   const queue = new ActionQueue(config.queueStorage ?? createAsyncStorageActionQueue());
   const wait = config.wait ?? defaultWait;
+  const phoneNow = config.now ?? Date.now;
+
+  // Écart entre l'horloge du serveur et celle du téléphone, appris des messages reçus : chacun
+  // est daté par le serveur (`emittedAt`). Un échantillon (heure du serveur à l'émission − heure
+  // du téléphone à la réception) sous-estime l'écart réel -- de la latence du réseau, ou de l'âge
+  // d'un message rejoué avec sa date d'origine (proposition à la resynchronisation) -- jamais ne
+  // le surestime : le plus grand échantillon est la meilleure estimation. Réappris à chaque
+  // connexion (le téléphone a pu être remis à l'heure entre-temps) ; l'estimation précédente sert
+  // jusqu'au premier message de la nouvelle connexion. Sans aucun message reçu : heure du
+  // téléphone telle quelle. Constaté le 30 octobre : un téléphone en retard de 3 h 30 voyait
+  // toutes ses positions rejetées comme anciennes (L3-02) et n'entrait jamais dans le pool.
+  let clockOffsetMs = 0;
+  let connectionMaxOffsetMs: number | null = null;
+
+  function observeServerTime(emittedAt: string) {
+    const serverMs = Date.parse(emittedAt);
+    if (Number.isNaN(serverMs)) return;
+    const sample = serverMs - phoneNow();
+    connectionMaxOffsetMs = connectionMaxOffsetMs === null ? sample : Math.max(connectionMaxOffsetMs, sample);
+    clockOffsetMs = connectionMaxOffsetMs;
+  }
+
+  /** Heure du serveur, estimée depuis le téléphone -- pour dater ce qui part vers le serveur
+   * (enveloppes, relevés GPS agrégés : `apps/driver/src/location/tracker.ts`). */
+  function serverNow(): number {
+    return phoneNow() + clockOffsetMs;
+  }
 
   let socket: WebSocketLike | null = null;
   let state: ConnectionState = 'offline';
@@ -147,7 +179,8 @@ export function createRealtimeClient(config: RealtimeClientConfig) {
     ws.onopen = () => {
       setState('connected');
       reconnectAttempt = 0;
-      const resync = buildEnvelope('session.resync', { lastKnownRideId: config.getLastKnownRideId?.() ?? null });
+      connectionMaxOffsetMs = null;
+      const resync = buildEnvelope('session.resync', { lastKnownRideId: config.getLastKnownRideId?.() ?? null }, serverNow());
       ws.send(JSON.stringify(resync));
       if (latestPosition) ws.send(JSON.stringify(latestPosition));
       void replayQueue();
@@ -155,7 +188,9 @@ export function createRealtimeClient(config: RealtimeClientConfig) {
 
     ws.onmessage = (event) => {
       const message = parseIncomingMessage(event.data);
-      if (message) config.onMessage?.(message);
+      if (!message) return;
+      observeServerTime(message.emittedAt);
+      config.onMessage?.(message);
     };
 
     ws.onclose = (event) => {
@@ -201,7 +236,7 @@ export function createRealtimeClient(config: RealtimeClientConfig) {
     // cet appel (limitation connue des fonctions à dispatch générique) -- `payload` est déjà
     // garanti correct par la signature de `send` elle-même, l'assertion ne fait que rétablir ce
     // que le contexte a déjà vérifié.
-    const envelope = buildEnvelope(type, payload as never);
+    const envelope = buildEnvelope(type, payload as never, serverNow());
 
     if (type === 'position.update') {
       latestPosition = envelope as ReturnType<typeof buildEnvelope<'position.update'>>;
@@ -233,7 +268,7 @@ export function createRealtimeClient(config: RealtimeClientConfig) {
     return state;
   }
 
-  return { connect, disconnect, send, getState };
+  return { connect, disconnect, send, getState, serverNow };
 }
 
 export type RealtimeClient = ReturnType<typeof createRealtimeClient>;

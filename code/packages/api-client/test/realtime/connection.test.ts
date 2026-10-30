@@ -288,3 +288,95 @@ describe('createRealtimeClient -- reconnexion (critère 1 ; L3-01)', () => {
     expect(client.getState()).toBe('offline');
   });
 });
+
+describe("createRealtimeClient -- horloge du serveur (positions datées sans dépendre de l'heure du téléphone)", () => {
+  // Constaté le 30 octobre : deux émulateurs avec 3 h 30 de retard. Toutes les positions du
+  // chauffeur étaient rejetées comme trop anciennes par la validation de plausibilité (L3-02) --
+  // en ligne, mais jamais dans le pool. L'heure du téléphone ne doit plus compter : seul l'écart
+  // avec le serveur, appris des messages qu'il envoie (tous datés par son horloge), sert à dater.
+  const SERVER_NOW = Date.parse('2026-10-30T16:30:00.000Z');
+  const PHONE_LAG_MS = 3.5 * 60 * 60 * 1000;
+
+  function ack(emittedAtMs: number) {
+    return { type: 'ride.track.ack', id: '11111111-1111-4111-8111-111111111111', emittedAt: new Date(emittedAtMs).toISOString(), payload: { broadcastIntervalMs: 10_000 } };
+  }
+
+  function lastSent(socket: FakeSocket) {
+    return JSON.parse(socket.sent[socket.sent.length - 1]);
+  }
+
+  const POSITION = { latitude: 4.05, longitude: 9.7, accuracyMeters: 5, speedMetersPerSecond: null, headingDegrees: null, precedingSamples: [] };
+
+  it('un téléphone en retard de 3 h 30 date ses positions à l’heure du serveur dès le premier message reçu', async () => {
+    let phoneNow = SERVER_NOW - PHONE_LAG_MS;
+    const { sockets, config } = baseConfig({ now: () => phoneNow });
+    const client = createRealtimeClient(config);
+    await client.connect();
+    sockets[0].simulateOpen();
+
+    sockets[0].simulateMessage(ack(SERVER_NOW));
+    phoneNow += 2_000;
+    client.send('position.update', POSITION);
+
+    expect(Date.parse(lastSent(sockets[0]).emittedAt)).toBe(SERVER_NOW + 2_000);
+    expect(client.serverNow()).toBe(SERVER_NOW + 2_000);
+  });
+
+  it('un message serveur rejoué avec sa date d’origine ne recule pas l’estimation (on garde l’écart le plus grand)', async () => {
+    const phoneNow = SERVER_NOW - PHONE_LAG_MS;
+    const { sockets, config } = baseConfig({ now: () => phoneNow });
+    const client = createRealtimeClient(config);
+    await client.connect();
+    sockets[0].simulateOpen();
+
+    sockets[0].simulateMessage(ack(SERVER_NOW));
+    sockets[0].simulateMessage(ack(SERVER_NOW - 60_000)); // proposition rejouée à la resynchronisation
+
+    expect(client.serverNow()).toBe(SERVER_NOW);
+  });
+
+  it('sans aucun message du serveur, l’heure du téléphone est utilisée telle quelle', async () => {
+    const phoneNow = SERVER_NOW - PHONE_LAG_MS;
+    const { config } = baseConfig({ now: () => phoneNow });
+    const client = createRealtimeClient(config);
+    expect(client.serverNow()).toBe(phoneNow);
+  });
+
+  it('une nouvelle connexion réapprend l’écart : un téléphone remis à l’heure entre-temps n’est pas daté dans le futur', async () => {
+    let phoneNow = SERVER_NOW - PHONE_LAG_MS;
+    const { sockets, config } = baseConfig({ now: () => phoneNow });
+    const client = createRealtimeClient(config);
+    await client.connect();
+    sockets[0].simulateOpen();
+    sockets[0].simulateMessage(ack(SERVER_NOW));
+
+    sockets[0].simulateClose(1006);
+    await Promise.resolve();
+    await Promise.resolve();
+    phoneNow = SERVER_NOW + 5_000; // le téléphone s'est remis à l'heure pendant la coupure
+    // Avant le premier message de la nouvelle connexion, l'estimation précédente reste la meilleure.
+    sockets[1].simulateOpen();
+    sockets[1].simulateMessage(ack(SERVER_NOW + 5_000));
+
+    expect(client.serverNow()).toBe(SERVER_NOW + 5_000);
+  });
+
+  it('une position mise de côté hors connexion garde sa date : renvoyée plus tard, elle reste reconnaissable comme ancienne', async () => {
+    let phoneNow = SERVER_NOW - PHONE_LAG_MS;
+    const { sockets, config } = baseConfig({ now: () => phoneNow });
+    const client = createRealtimeClient(config);
+    await client.connect();
+    sockets[0].simulateOpen();
+    sockets[0].simulateMessage(ack(SERVER_NOW));
+
+    sockets[0].simulateClose(1006);
+    client.send('position.update', POSITION); // hors connexion : retenue, pas envoyée
+    phoneNow += 120_000;
+    await Promise.resolve();
+    await Promise.resolve();
+    sockets[1].simulateOpen();
+
+    const replayed = sockets[1].sent.map((raw) => JSON.parse(raw)).find((m) => m.type === 'position.update');
+    expect(Date.parse(replayed.emittedAt)).toBe(SERVER_NOW);
+  });
+});
