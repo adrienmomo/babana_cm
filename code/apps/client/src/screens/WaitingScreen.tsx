@@ -159,7 +159,9 @@ export function WaitingScreen({ route, navigation }: Props) {
         rejectionStreak: rejections.current,
         elapsedMs: Date.now() - requestedAt,
       });
-      navigation.navigate('Home');
+      // Remise à zéro : l'attente est seule dans la pile (transitions.ts) -- navigate empilerait
+      // l'accueil par-dessus, et un retour ramènerait à l'attente d'une course annulée.
+      navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
     } catch (cause) {
       setCancelError(cause instanceof ApiError ? translateApiError(cause) : "L'annulation a échoué. Réessayez.");
       setCancelling(false);

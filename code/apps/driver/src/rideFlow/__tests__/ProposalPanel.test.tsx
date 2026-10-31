@@ -355,6 +355,23 @@ describe('ProposalPanel (L6-12)', () => {
     );
   });
 
+  it('le client annule pendant la proposition : la carte se ferme en le disant (31 octobre)', async () => {
+    const { root, navigation } = await renderProposal();
+
+    await act(async () => {
+      realtimeListener?.({ type: 'ride.cancelled', id: 'c0', emittedAt: new Date().toISOString(), payload: { rideId: 'another-ride', cancelledBy: 'client' } });
+    });
+    expect(root.root.findAllByProps({ testID: 'proposal-accept' }).length).toBeGreaterThan(0);
+
+    await act(async () => {
+      realtimeListener?.({ type: 'ride.cancelled', id: 'c1', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, cancelledBy: 'client' } });
+    });
+
+    expect(texts(root)).toContain('Le client a annulé la course.');
+    expect(root.root.findAllByProps({ testID: 'proposal-accept' })).toHaveLength(0);
+    expect(navigation.accepted).not.toHaveBeenCalled();
+  });
+
   it('critère 3 -- une acceptation tardive (proposal.expired reçu après l’envoi) affiche un message compréhensible, jamais ActiveRide', async () => {
     const { root, navigation } = await renderProposal();
 

@@ -506,6 +506,33 @@ describe('POST /internal/rides/cancelled (sens Odoo -> temps réel, L4-12)', () 
     }
   });
 
+  test('sans motif -- le cas de l’app Client -- le chauffeur est prévenu quand même (motif null accepté, 31 octobre)', async () => {
+    // Odoo transmettait `reason: null` ; refusé en 400, le chauffeur gardait à l'écran la
+    // proposition d'une course annulée, puis restait bloqué sur « Envoi de votre acceptation… ».
+    const rideId = randomUUID();
+    const driverId = randomUUID();
+    const driverWs = await connectWs(tokenFor('driver', driverId, driverId));
+
+    try {
+      const [driverMessage, { status }] = await Promise.all([
+        waitForMessage(driverWs, 'ride.cancelled'),
+        post('/internal/rides/cancelled', {
+          rideId,
+          cancelledBy: 'client',
+          reason: null,
+          notifyClientUserId: null,
+          notifyDriverId: driverId,
+        }),
+      ]);
+      assert.equal(status, 200);
+      const payload = driverMessage.payload as Record<string, unknown>;
+      assert.equal(payload.rideId, rideId);
+      assert.equal(payload.reason, undefined, 'pas de motif inventé');
+    } finally {
+      driverWs.close();
+    }
+  });
+
   test('un chauffeur qui annule prévient le client, jamais lui-même', async () => {
     const rideId = randomUUID();
     const clientUserId = randomUUID();

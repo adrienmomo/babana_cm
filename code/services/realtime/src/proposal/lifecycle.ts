@@ -230,9 +230,24 @@ export class ProposalLifecycle {
    * l'appelant avant d'arriver ici, voir ws/dispatch.ts).
    */
   async accept(driverId: string, rideId: string): Promise<boolean> {
-    this.timers.cancel(driverId);
     const resolved = await resolveProposal(this.redis, driverId, rideId, 'accepted');
-    if (!resolved) return false;
+    if (!resolved) {
+      // Plus rien à accepter (proposition expirée, relâchée par une annulation, ou pour une autre
+      // course) : le chauffeur doit le savoir, sinon son écran attend indéfiniment (vu le 31
+      // octobre). Sauf s'il est déjà engagé -- double appui : l'acceptation gagnante a répondu.
+      if ((await getRideState(this.redis, driverId)) !== 'engaged') {
+        this.sendToDriver(driverId, {
+          type: 'proposal.expired',
+          id: randomUUID(),
+          emittedAt: new Date().toISOString(),
+          payload: { rideId },
+        });
+      }
+      return false;
+    }
+    // Échéance désarmée seulement une fois l'acceptation acquise : une acceptation pour une autre
+    // course ne doit pas laisser la proposition en cours sans fin.
+    this.timers.cancel(driverId);
 
     // D49 (31 août) + D42 (2 septembre, amoa/questions/REPONSES-2026-09-02.md §1) :
     // `consumeRecord` AVANT l'accusé de réception, pas après -- ce n'est qu'une lecture/suppression

@@ -62,7 +62,7 @@ const PROPOSED = {
 const WIDENING = { ...PROPOSED, state: 'requested', assignedDriverId: null, proposalExpiresAt: null, searching: true };
 
 function fakeNavigation() {
-  return { navigate: jest.fn(), replace: jest.fn() };
+  return { navigate: jest.fn(), replace: jest.fn(), reset: jest.fn() };
 }
 
 const renderedRoots: ReactTestRenderer[] = [];
@@ -328,7 +328,7 @@ describe('WaitingScreen -- la course part au chauffeur le plus proche, choisi pa
     expect(shown(root, 'retry-dispatch')).toBe(true);
   });
 
-  it('« Annuler » annule la course, instrumente l’abandon avec le nombre de refus, et revient à l’accueil', async () => {
+  it('« Annuler » annule la course, instrumente l’abandon avec le nombre de refus, et revient à l’accueil sans garder l’attente dans la pile', async () => {
     const { root, navigation } = await renderWaiting();
     await act(async () => {
       emit('ride.rejected', { rideId: RIDE_ID, driverId: DRIVER_ID, reason: 'driver_rejected' });
@@ -340,7 +340,11 @@ describe('WaitingScreen -- la course part au chauffeur le plus proche, choisi pa
 
     expect(mockRequest).toHaveBeenCalledWith('cancelRide', expect.objectContaining({ pathParams: { id: RIDE_ID } }));
     expect(mockReportMetric).toHaveBeenCalledWith('client.ride_abandoned', expect.objectContaining({ rejectionStreak: 1 }));
-    expect(navigation.navigate).toHaveBeenCalledWith('Home');
+    // Remise à zéro, pas navigate : l'attente est seule dans la pile (reset depuis l'estimation) ;
+    // navigate('Home') empilait l'accueil PAR-DESSUS, et un retour Android ramenait à l'attente
+    // d'une course annulée, « Annuler » grisé (vu le 31 octobre).
+    expect(navigation.reset).toHaveBeenCalledWith({ index: 0, routes: [{ name: 'Home' }] });
+    expect(navigation.navigate).not.toHaveBeenCalledWith('Home');
   });
 
   it("un échec de l'annulation affiche un message, sans quitter l'écran", async () => {

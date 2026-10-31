@@ -80,6 +80,10 @@ function isProposalNewMessage(message: realtime.ServerToClientMessage): message 
   return message.type === 'proposal.new';
 }
 
+function isRideCancelledMessage(message: realtime.ServerToClientMessage): message is realtime.RideCancelledMessage {
+  return message.type === 'ride.cancelled';
+}
+
 function isProposalExpiredMessage(message: realtime.ServerToClientMessage): message is realtime.ProposalExpiredMessage {
   return message.type === 'proposal.expired';
 }
@@ -310,6 +314,15 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
         if (decisionRef.current === 'rejecting' || decisionRef.current === 'resolved') return;
         updateDecision('resolved');
         navigateToActiveRide(message.payload.clientPhoneNumber);
+        return;
+      }
+
+      if (isRideCancelledMessage(message) && message.payload.rideId === rideId) {
+        // Le client a annulé pendant la proposition : plus rien à accepter -- la carte se ferme
+        // en le disant, au lieu d'attendre une échéance que le serveur a déjà levée (31 octobre).
+        if (decisionRef.current === 'resolved') return;
+        setResolutionMessage('Le client a annulé la course.');
+        updateDecision('resolved');
         return;
       }
 

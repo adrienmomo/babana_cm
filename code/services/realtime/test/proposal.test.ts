@@ -326,6 +326,56 @@ describe('ProposalLifecycle (L3-07)', () => {
       1,
       'D49 -- un seul accusé de réception, celui de l\'acceptation qui a gagné la résolution atomique'
     );
+    assert.equal(
+      driverSocket.messages.filter((m) => m.type === 'proposal.expired').length,
+      0,
+      'l’acceptation perdante ne contredit pas la gagnante'
+    );
+  });
+
+  test("une acceptation d'une proposition déjà relâchée (course annulée par le client) reçoit proposal.expired, jamais le silence", async () => {
+    // Vu le 31 octobre : la course annulée relâche la réservation (`cancel`) ; le chauffeur, qui
+    // n'en savait rien, accepte -- et restait indéfiniment sur « Envoi de votre acceptation… ».
+    const config = configWith();
+    const registry = new ConnectionRegistry();
+    const lifecycle = new ProposalLifecycle(config, redis, registry);
+    const driverId = await availableDriver('accept-released-driver');
+    const rideId = randomUUID();
+    const driverSocket = fakeSocket();
+    registry.add(driverContext(driverId), driverSocket.socket);
+    await lifecycle.propose(driverId, proposalDetails(rideId, id('accept-released-client')));
+    await lifecycle.cancel(driverId);
+
+    const accepted = await lifecycle.accept(driverId, rideId);
+
+    assert.equal(accepted, false);
+    const expired = driverSocket.messages.filter((m) => m.type === 'proposal.expired');
+    assert.equal(expired.length, 1);
+    assert.equal(expired[0]!.payload.rideId, rideId);
+    assert.equal(await isEngaged(redis, driverId), false);
+  });
+
+  test("une acceptation pour une autre course ne désarme pas l'échéance de la proposition en cours", async () => {
+    const config = configWith({ PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: '1', RESERVATION_TTL_SECONDS: '30' });
+    const registry = new ConnectionRegistry();
+    const lifecycle = new ProposalLifecycle(config, redis, registry);
+    const driverId = await availableDriver('stale-accept-driver');
+    const clientUserId = id('stale-accept-client');
+    const rideId = randomUUID();
+    const driverSocket = fakeSocket();
+    const clientSocket = fakeSocket();
+    registry.add(driverContext(driverId), driverSocket.socket);
+    registry.add(clientContext(clientUserId), clientSocket.socket);
+    await lifecycle.propose(driverId, proposalDetails(rideId, clientUserId));
+
+    assert.equal(await lifecycle.accept(driverId, randomUUID()), false);
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+
+    assert.ok(
+      driverSocket.messages.some((m) => m.type === 'proposal.expired' && m.payload.rideId === rideId),
+      'la proposition en cours expire toujours à son échéance'
+    );
+    assert.ok(clientSocket.messages.some((m) => m.type === 'ride.rejected'));
   });
 
   test('critère 6 -- le délai est lu depuis la configuration, pas codé en dur', async () => {

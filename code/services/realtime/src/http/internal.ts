@@ -181,7 +181,9 @@ const RideCompletedRequestSchema = z.object({
 const RideCancelledRequestSchema = z.object({
   rideId: z.string().min(1),
   cancelledBy: z.enum(['client', 'driver', 'supervisor']),
-  reason: z.string().max(280).optional(),
+  // `null` accepté : c'est ce qu'Odoo envoie pour une annulation sans motif (le cas de l'app
+  // Client). Refusé jusqu'au 31 octobre -- le chauffeur n'apprenait alors jamais l'annulation.
+  reason: z.string().max(280).nullable().optional(),
   notifyClientUserId: z.string().min(1).nullable().optional(),
   notifyDriverId: z.string().min(1).nullable().optional(),
 });
@@ -420,7 +422,9 @@ async function handleRideCancelled(deps: InternalRouterDeps, rawBody: unknown, r
     sendJson(res, 400, { error: 'VALIDATION_ERROR', details: parsed.error.issues });
     return;
   }
-  broadcastRideCancelled(deps.registry, parsed.data);
+  const { reason, ...rest } = parsed.data;
+  // Pas de motif : absent du message, jamais `null` (C-02, `reason` optionnel).
+  broadcastRideCancelled(deps.registry, { ...rest, ...(reason ? { reason } : {}) });
   sendJson(res, 200, { notified: true });
 }
 

@@ -466,17 +466,18 @@ def _notify_ride_cancelled_now(
     notify_client_user_id: str | None,
     notify_driver_id: str | None,
 ) -> None:
+    payload = {
+        "rideId": ride_public_id,
+        "cancelledBy": cancelled_by,
+        "notifyClientUserId": notify_client_user_id,
+        "notifyDriverId": notify_driver_id,
+    }
+    # Pas de motif (l'app Client n'en donne pas) : champ absent, jamais `null` -- refusé en 400
+    # jusqu'au 31 octobre, le chauffeur n'apprenait pas l'annulation.
+    if reason:
+        payload["reason"] = reason
     try:
-        _post(
-            "/internal/rides/cancelled",
-            {
-                "rideId": ride_public_id,
-                "cancelledBy": cancelled_by,
-                "reason": reason,
-                "notifyClientUserId": notify_client_user_id,
-                "notifyDriverId": notify_driver_id,
-            },
-        )
+        _post("/internal/rides/cancelled", payload)
     except RealtimeUnavailable:
         _logger.warning(
             "échec de la notification ride.cancelled pour la course %s -- le destinataire ne "

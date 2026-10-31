@@ -450,6 +450,19 @@ class TestRealtimeCommitHook(HttpCase):
             },
         )
 
+    def test_notify_ride_cancelled_without_a_reason_sends_no_reason_field(self):
+        # L'app Client annule sans motif : `"reason": null` était refusé en 400 par le service
+        # temps réel, et le chauffeur ne savait jamais que la course était annulée (31 octobre).
+        env = _FakeEnv()
+        with patch.object(realtime_client, "_post") as mock_post:
+            realtime_client.notify_ride_cancelled(
+                env, ride_public_id="ride-1", cancelled_by="client", notify_driver_id="driver-1"
+            )
+            env.cr.commit()
+        payload = mock_post.call_args.args[1]
+        self.assertNotIn("reason", payload)
+        self.assertEqual(payload["notifyDriverId"], "driver-1")
+
     # --- notify_driver_unavailable / notify_driver_available (J33) --------------------------
     #
     # Câblage suspension/rejet/réactivation -> service temps réel. Même patron que
