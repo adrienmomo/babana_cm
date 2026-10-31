@@ -57,7 +57,7 @@ class TestApproach(TransactionCase):
         self.assertEqual(api.call_count, 2, "une mesure par chauffeur, jamais le cache de la cotation")
         # « Moto à ~N min » : la durée du plus proche par la route.
         self.assertEqual(
-            approach.average_approach(self.env, pickup=_PICKUP, radius_meters=500).nearest_duration_seconds, 60
+            approach.average_approach(self.env, pickup=_PICKUP, radii=[500]).nearest_duration_seconds, 60
         )
 
     def test_an_unreachable_routing_api_leaves_the_driver_out_of_the_ranking(self):
@@ -76,6 +76,23 @@ class TestApproach(TransactionCase):
         self._nearby()
         self.env["ir.config_parameter"].sudo().set_param("babana.default_approach_distance_meters", "1300")
 
-        estimate = approach.average_approach(self.env, pickup=_PICKUP, radius_meters=500)
+        estimate = approach.average_approach(self.env, pickup=_PICKUP, radii=[500])
 
         self.assertEqual((estimate.distance_meters, estimate.driver_count), (1300, 0))
+
+    def test_the_estimate_uses_the_first_search_ring_that_has_drivers(self):
+        # Rien à 2 km, deux chauffeurs à 4 km : la prise en charge et « Moto à ~N min » sont ceux
+        # du cercle où l'affectation les trouvera (demande produit du 31 octobre).
+        far = {"driverId": "far", "latitude": 4.0820, "longitude": 9.7010, "distanceMeters": 3500}
+        nearby = patch.object(
+            realtime_client, "fetch_nearby_drivers",
+            side_effect=lambda **kwargs: [] if kwargs["radius_meters"] < 4000 else [far],
+        ).start()
+        self.addCleanup(patch.stopall)
+        patch.object(routing, "_fetch_from_api", return_value=routing.RouteResult(3900, 420, "")).start()
+
+        estimate = approach.average_approach(self.env, pickup=_PICKUP, radii=[2000, 4000, 6000])
+
+        self.assertEqual((estimate.distance_meters, estimate.driver_count), (3900, 1))
+        self.assertEqual(estimate.nearest_duration_seconds, 420)
+        self.assertEqual([c.kwargs["radius_meters"] for c in nearby.call_args_list], [2000, 4000])

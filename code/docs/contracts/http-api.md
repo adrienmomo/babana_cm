@@ -195,14 +195,25 @@ disponible, aucune distance ni tracé enregistrés, écart de distance de L4-04 
 | `POST /rides/{id}/rate` | (aucune — ride déjà `settled`) | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RATING_NOT_ALLOWED`, `RATING_ALREADY_SUBMITTED` | Oui (L4-09) — une note par course, le commentaire reste au back-office |
 
 `POST /rides/{id}/dispatch` : **le client ne choisit pas son chauffeur.** La course part au
-chauffeur disponible le plus proche du point de prise en charge (à vol d'oiseau, dans le rayon
-`babana.dispatch_radius_meters`), choisi et réservé atomiquement par le service temps réel. Corps
+chauffeur disponible le plus proche du point de prise en charge (par la route, dans le cercle de
+recherche courant — voir ci-dessous), choisi et réservé atomiquement par le service temps réel. Corps
 vide -- un corps qui désignerait un chauffeur est refusé (`VALIDATION_ERROR`). Après un refus ou
 une expiration, le serveur sollicite de lui-même le suivant le plus proche, sans jamais
 resolliciter un chauffeur du même tour, jusqu'à `babana.dispatch_max_attempts` chauffeurs ;
 ensuite, ou s'il n'y a plus personne, la course reste `rejected` et le client reçoit
 `ride.unmatched` (« Réessayer » rappelle `dispatch` : un nouveau tour). Les deux réglages sont
 dans Paramètres > Babana.
+
+**Recherche par cercles élargis (31 octobre).** La recherche commence dans le premier rayon
+(`babana.dispatch_radius_meters`, 2 km). Personne : le serveur réessaie après
+`babana.dispatch_widening_delay_seconds` (5 s) dans un rayon élargi de
+`babana.dispatch_radius_step_meters` (2 km), autant de fois que `babana.dispatch_widenings` (2) —
+2, puis 4, puis 6 km — et seulement ensuite « aucun chauffeur ». Si le premier cercle est vide,
+`dispatch` répond **`202`** avec `searching: true` et `proposalExpiresAt: null` : le client
+continue d'attendre, l'issue lui vient par le temps réel (`ride.assigned`, ou `ride.unmatched` une
+fois les cercles épuisés). Une proposition faite répond `200` avec `searching: false`. Même
+recherche par cercles après un refus. L'estimation (`POST /quote`) mesure la prise en charge et
+« Moto à ≈ N min » dans le premier cercle qui compte un chauffeur.
 
 Exemple — `POST /rides/{id}/dispatch`, corps `{}` ; réponse (`200`) :
 ```json
@@ -215,7 +226,8 @@ Exemple — `POST /rides/{id}/dispatch`, corps `{}` ; réponse (`200`) :
   "currency": "XAF",
   "createdAt": "2026-08-10T07:00:00+01:00",
   "assignedDriverId": "5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
-  "proposalExpiresAt": "2026-08-10T07:00:30+01:00"
+  "proposalExpiresAt": "2026-08-10T07:00:30+01:00",
+  "searching": false
 }
 ```
 

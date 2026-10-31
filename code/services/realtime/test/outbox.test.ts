@@ -12,6 +12,7 @@ import {
   drainDueEntries,
   getOutboxStats,
   reportOutboxWrite,
+  scheduleOutboxWrite,
   OUTBOX_ENTRY_TYPES,
   type OutboxEntry,
 } from '../src/odoo/outbox';
@@ -119,8 +120,9 @@ async function makeEntry(type: 'driver-accepted' | 'driver-rejected', suffix: st
 }
 
 describe('OUTBOX_ENTRY_TYPES (L3-12, critère 1 corrigé -- amoa/questions/L3-12.md)', () => {
-  test('porte exactement les deux écritures réellement sorties du service temps réel', () => {
-    assert.deepEqual([...OUTBOX_ENTRY_TYPES].sort(), ['driver-accepted', 'driver-rejected']);
+  test('porte exactement les deux écritures sorties du service temps réel, plus l’élargissement différé de la recherche', () => {
+    // dispatch-widen ajouté le 31 octobre, en connaissance de cause : amoa/questions/DISPATCH-2026-10-31.md.
+    assert.deepEqual([...OUTBOX_ENTRY_TYPES].sort(), ['dispatch-widen', 'driver-accepted', 'driver-rejected']);
   });
 
   test('enqueueOutboxEntry refuse un type inconnu plutôt que de le mettre en file en silence', async () => {
@@ -405,4 +407,68 @@ describe('D71 (amoa/01-architecture.md §9 terdecies) -- Odoo silencieux, pas se
       );
     }
   );
+});
+
+describe('scheduleOutboxWrite (élargissement différé de la recherche, 31 octobre)', () => {
+  test('l’entrée est persistée avec son échéance : un passage périodique avant l’échéance ne l’envoie pas', async () => {
+    const entryId = id('widen-not-due');
+    await scheduleOutboxWrite(config, redis, 'dispatch-widen', `/api/internal/rides/${id('r1')}/widen-search`, { ring: 1 }, { id: entryId, delayMs: 60_000 });
+
+    const raw = await redis.get(`babana:outbox:entry:${entryId}`);
+    assert.ok(raw, 'persistée avant toute tentative');
+    assert.ok(JSON.parse(raw!).nextAttemptAt > Date.now() + 50_000);
+    await drainDueEntries(config, redis);
+    assert.equal(requestLog.filter((r) => r.idempotencyKey === entryId).length, 0);
+    await redis.del(`babana:outbox:entry:${entryId}`);
+    await redis.zrem('babana:outbox:queue', entryId);
+  });
+
+  test('à l’échéance, Odoo est appelé une fois, avec l’identifiant de l’entrée comme clé d’idempotence', async () => {
+    respond = () => ({ status: 200, body: { proposed: false } });
+    const entryId = id('widen-due');
+    const path = `/api/internal/rides/${id('r2')}/widen-search`;
+    await scheduleOutboxWrite(config, redis, 'dispatch-widen', path, { ring: 1, chain: 'c' }, { id: entryId, delayMs: 50 });
+
+    for (let i = 0; i < 40 && !requestLog.some((r) => r.idempotencyKey === entryId); i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const calls = requestLog.filter((r) => r.idempotencyKey === entryId);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0]!.path, path);
+    assert.deepEqual(calls[0]!.body, { ring: 1, chain: 'c' });
+    assert.equal(await redis.get(`babana:outbox:entry:${entryId}`), null, 'retirée une fois appliquée');
+  });
+
+  test('la même intention programmée deux fois ne donne qu’une entrée', async () => {
+    const entryId = id('widen-twice');
+    const path = `/api/internal/rides/${id('r3')}/widen-search`;
+    await scheduleOutboxWrite(config, redis, 'dispatch-widen', path, { ring: 2 }, { id: entryId, delayMs: 60_000 });
+    await scheduleOutboxWrite(config, redis, 'dispatch-widen', path, { ring: 2 }, { id: entryId, delayMs: 60_000 });
+
+    const members = await redis.zrange('babana:outbox:queue', 0, -1);
+    assert.equal(members.filter((member) => member === entryId).length, 1);
+    await redis.del(`babana:outbox:entry:${entryId}`);
+    await redis.zrem('babana:outbox:queue', entryId);
+  });
+});
+
+describe('dispatch-widen refusé par Odoo', () => {
+  test('une course inconnue (404) abandonne la recherche différée au lieu de la réessayer indéfiniment', async () => {
+    respond = () => ({ status: 404, body: { error: { code: 'RIDE_NOT_FOUND', message: 'course inconnue', details: null } } });
+    const entry = await enqueueOutboxEntry(redis, 'dispatch-widen', `/api/internal/rides/${id('gone')}/widen-search`, { ring: 1 });
+
+    const outcome = await attemptOutboxEntry(config, redis, entry);
+
+    assert.equal(outcome, 'dropped');
+    assert.equal(await redis.get(`babana:outbox:entry:${entry.id}`), null);
+  });
+
+  test('une course disparue ne concerne pas les écritures de course : un 404 sur driver-accepted reste réessayé', async () => {
+    respond = () => ({ status: 404, body: { error: { code: 'RIDE_NOT_FOUND', message: 'course inconnue', details: null } } });
+    const entry = await makeEntry('driver-accepted', 'still-retried');
+
+    assert.equal(await attemptOutboxEntry(config, redis, entry), 'retry');
+    await redis.del(`babana:outbox:entry:${entry.id}`);
+    await redis.zrem('babana:outbox:queue', entry.id);
+  });
 });

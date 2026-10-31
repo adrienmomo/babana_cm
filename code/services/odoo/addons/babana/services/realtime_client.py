@@ -579,3 +579,47 @@ def notify_ride_unmatched(env, *, ride_public_id: str, client_user_public_id: st
             ride_public_id=ride_public_id, client_user_public_id=client_user_public_id
         )
     )
+
+
+def _schedule_search_widening_now(
+    *, ride_public_id: str, ring: int, chain: str, new_round: bool, delay_seconds: int, client_user_public_id: str
+) -> None:
+    try:
+        _post(
+            "/internal/rides/widen-search",
+            {
+                "rideId": ride_public_id,
+                "ring": ring,
+                "chain": chain,
+                "newRound": new_round,
+                "delayMs": delay_seconds * 1000,
+            },
+        )
+    except RealtimeUnavailable:
+        # Sans élargissement programmé, personne ne rappellerait Odoo : le client attendrait
+        # indéfiniment. Il est prévenu tout de suite, comme si les cercles étaient épuisés.
+        _logger.warning(
+            "élargissement de la recherche non programmé pour la course %s -- le client est prévenu "
+            "qu'aucun chauffeur n'est disponible.",
+            ride_public_id,
+        )
+        _notify_ride_unmatched_now(ride_public_id=ride_public_id, client_user_public_id=client_user_public_id)
+
+
+def schedule_search_widening(
+    env, *, ride_public_id: str, client_user_public_id: str, ring: int, chain: str, new_round: bool, delay_seconds: int
+) -> None:
+    """Personne dans le cercle courant (services/dispatch.py) : confie au service temps réel la
+    recherche dans le cercle `ring`, dans `delay_seconds` -- il rappellera
+    /api/internal/rides/{id}/widen-search par sa file persistante. Au COMMIT (D32) : une recherche
+    annulée par un rejeu ne doit rien programmer."""
+    env.cr.postcommit.add(
+        lambda: _schedule_search_widening_now(
+            ride_public_id=ride_public_id,
+            ring=ring,
+            chain=chain,
+            new_round=new_round,
+            delay_seconds=delay_seconds,
+            client_user_public_id=client_user_public_id,
+        )
+    )

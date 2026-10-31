@@ -15,7 +15,7 @@ from odoo import fields, http
 from . import _common
 from ..services import approach, routing
 from ..models.babana_quote import QUOTE_VALIDITY_DEFAULT, QUOTE_VALIDITY_PARAM
-from ..services.dispatch import DISPATCH_RADIUS_DEFAULT, DISPATCH_RADIUS_PARAM, _positive_int_param
+from ..services.dispatch import search_radii
 from ..services.pricing import compute_fare, round_breakdown_for_wire
 
 _logger = logging.getLogger(__name__)
@@ -75,12 +75,13 @@ class QuoteController(http.Controller):
             at_datetime=now,
         )
 
-        # Prise en charge : distance routière MOYENNE des chauffeurs disponibles, dans le rayon où
-        # l'affectation les chercherait -- mesurée maintenant et gelée avec l'estimation.
+        # Prise en charge : distance routière MOYENNE des chauffeurs disponibles, dans le premier
+        # cercle de recherche qui en compte -- celui où l'affectation les trouvera ; mesurée
+        # maintenant et gelée avec l'estimation.
         approach_estimate = approach.average_approach(
             env,
             pickup=origin,
-            radius_meters=_positive_int_param(env, DISPATCH_RADIUS_PARAM, DISPATCH_RADIUS_DEFAULT),
+            radii=search_radii(env),
         )
 
         rounding_step = env["babana.fare.rule"].sudo()._default_rounding_step()

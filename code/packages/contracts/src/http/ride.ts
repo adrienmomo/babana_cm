@@ -91,8 +91,18 @@ export const createRideResponseExample: CreateRideResponse = {
 export const DispatchRideRequestSchema = z.object({}).strict();
 export type DispatchRideRequest = z.infer<typeof DispatchRideRequestSchema>;
 
+/**
+ * Deux issues réussies. **200** -- un chauffeur a reçu la proposition : `searching` faux,
+ * `proposalExpiresAt` posé. **202** -- personne dans le premier cercle de recherche, mais un cercle
+ * plus large sera essayé après un délai (réglages Odoo babana.dispatch_radius_step_meters,
+ * babana.dispatch_widenings, babana.dispatch_widening_delay_seconds) : `searching` vrai,
+ * `proposalExpiresAt` nul -- le client continue d'attendre, l'issue lui viendra par le temps réel
+ * (`ride.assigned`, ou `ride.unmatched` une fois les cercles épuisés). `NO_DRIVER_AVAILABLE`
+ * ne survient plus que s'il n'y a aucun cercle plus large à essayer.
+ */
 export const DispatchRideResponseSchema = RideSummarySchema.extend({
-  proposalExpiresAt: IsoDateTimeSchema,
+  proposalExpiresAt: IsoDateTimeSchema.nullable(),
+  searching: z.boolean(),
 });
 export type DispatchRideResponse = z.infer<typeof DispatchRideResponseSchema>;
 
@@ -110,6 +120,7 @@ export const dispatchRideResponseExample: DispatchRideResponse = {
   state: 'proposed',
   assignedDriverId: '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b',
   proposalExpiresAt: '2026-08-10T07:00:30+01:00',
+  searching: false,
 };
 
 /**

@@ -5,7 +5,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '@babana/ui';
 import { asDriverId } from '@babana/navigation';
 import { ApiError, USER_MESSAGES, reportMetric, translateApiError } from '@babana/api-client';
-import type { realtime } from '@babana/contracts';
+import type { http, realtime } from '@babana/contracts';
 import { apiClient } from '../auth';
 import { formatMoney } from '../format';
 import { ensureRealtimeConnected, onRealtimeMessage, realtimeClient } from '../realtime';
@@ -18,12 +18,17 @@ import type { ClientParamList } from '../navigation/types';
  * issue lui vient du serveur -- `ride.assigned` (un chauffeur a accepté), `ride.rejected` (un
  * chauffeur a décliné, le suivant est sollicité), `ride.unmatched` (plus personne : « Réessayer » ou
  * « Annuler »).
+ *
+ * Personne dans le premier cercle : le serveur répond `searching` (202) et élargit lui-même la
+ * recherche après un délai (31 octobre) -- l'écran le dit et attend, l'issue arrive par les mêmes
+ * messages.
  */
 
 type Props = NativeStackScreenProps<ClientParamList, 'Waiting'>;
 
 type Phase =
   | { kind: 'searching' }
+  | { kind: 'widening' }
   | { kind: 'proposed' }
   | { kind: 'moving-on'; reason: realtime.RideRejectedMessage['payload']['reason'] }
   | { kind: 'unmatched' }
@@ -33,6 +38,23 @@ const MOVING_ON_MESSAGES: Record<realtime.RideRejectedMessage['payload']['reason
   driver_rejected: "Ce chauffeur n'est pas disponible.",
   driver_timeout: "Ce chauffeur n'a pas répondu.",
 };
+
+function statusText(phase: Phase): string {
+  switch (phase.kind) {
+    case 'searching':
+      return 'Recherche du chauffeur le plus proche…';
+    case 'widening':
+      return 'Personne tout près : la recherche s’élargit…';
+    case 'proposed':
+      return 'Un chauffeur proche a reçu votre demande…';
+    case 'moving-on':
+      return `${MOVING_ON_MESSAGES[phase.reason]} Recherche d'un autre chauffeur…`;
+    case 'unmatched':
+      return USER_MESSAGES.NO_DRIVER_AVAILABLE;
+    case 'failed':
+      return phase.message;
+  }
+}
 
 function isRideAssigned(message: realtime.ServerToClientMessage): message is realtime.RideAssignedMessage {
   return message.type === 'ride.assigned';
@@ -63,8 +85,8 @@ export function WaitingScreen({ route, navigation }: Props) {
   const dispatch = useCallback(async () => {
     setPhase({ kind: 'searching' });
     try {
-      await apiClient.request('dispatchRide', { pathParams: { id: rideId }, body: {} });
-      setPhase({ kind: 'proposed' });
+      const response = (await apiClient.request('dispatchRide', { pathParams: { id: rideId }, body: {} })) as http.DispatchRideResponse;
+      setPhase(response.searching ? { kind: 'widening' } : { kind: 'proposed' });
     } catch (cause) {
       if (cause instanceof ApiError && cause.code === 'NO_DRIVER_AVAILABLE') {
         setPhase({ kind: 'unmatched' });
@@ -144,7 +166,8 @@ export function WaitingScreen({ route, navigation }: Props) {
     }
   }
 
-  const searching = phase.kind === 'searching' || phase.kind === 'proposed' || phase.kind === 'moving-on';
+  const searching =
+    phase.kind === 'searching' || phase.kind === 'widening' || phase.kind === 'proposed' || phase.kind === 'moving-on';
 
   const markers: MapMarker[] = [
     { id: 'pickup', kind: 'pickup', position: origin.position, label: 'Départ' },
@@ -161,15 +184,7 @@ export function WaitingScreen({ route, navigation }: Props) {
       <View style={styles.card}>
       {searching ? <ActivityIndicator size="small" testID="waiting-spinner" /> : null}
       <Text style={styles.title} testID="waiting-status">
-        {phase.kind === 'searching'
-          ? 'Recherche du chauffeur le plus proche…'
-          : phase.kind === 'proposed'
-            ? 'Un chauffeur proche a reçu votre demande…'
-            : phase.kind === 'moving-on'
-              ? `${MOVING_ON_MESSAGES[phase.reason]} Recherche d'un autre chauffeur…`
-              : phase.kind === 'unmatched'
-                ? USER_MESSAGES.NO_DRIVER_AVAILABLE
-                : phase.message}
+        {statusText(phase)}
       </Text>
       <Text style={styles.route} numberOfLines={1}>
         {origin.label} → {destination.label}

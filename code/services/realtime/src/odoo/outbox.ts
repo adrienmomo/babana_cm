@@ -54,7 +54,16 @@ function outboxEntryKey(id: string): string {
  * is_meant_to_carry` (test/outbox.test.ts), délibérément -- `OUTBOX_ENTRY_TYPES` ci-dessous, pas
  * seulement le type TypeScript, pour que ce test-là ait quelque chose à énumérer à l'exécution.
  */
-export const OUTBOX_ENTRY_TYPES = ['driver-accepted', 'driver-rejected'] as const;
+/*
+ * Troisième type, `dispatch-widen` (demande produit du 31 octobre, amoa/questions/
+ * DISPATCH-2026-10-31.md) : l'élargissement différé de la recherche d'un chauffeur. Odoo, qui ne
+ * sait pas attendre quelques secondes, confie à ce service l'échéance du cercle suivant
+ * (`/internal/rides/widen-search`) ; l'entrée est posée avec un délai (`scheduleOutboxWrite`) et
+ * rappelle Odoo à l'échéance. Ce n'est pas une écriture issue d'un événement temps réel comme les
+ * deux autres, mais c'est exactement le besoin que cette file résout : un appel vers Odoo qui ne
+ * doit pas se perdre (sinon le client attendrait indéfiniment), rejoué sans double effet.
+ */
+export const OUTBOX_ENTRY_TYPES = ['driver-accepted', 'driver-rejected', 'dispatch-widen'] as const;
 export type OutboxEntryType = (typeof OUTBOX_ENTRY_TYPES)[number];
 
 export interface OutboxEntry {
@@ -68,7 +77,7 @@ export interface OutboxEntry {
   lastError: string | null;
 }
 
-export type OutboxAttemptOutcome = 'applied' | 'retry';
+export type OutboxAttemptOutcome = 'applied' | 'retry' | 'dropped';
 
 const inFlight = new Set<string>();
 
@@ -93,7 +102,8 @@ export async function enqueueOutboxEntry(
   redis: Redis,
   type: OutboxEntryType,
   path: string,
-  body: unknown
+  body: unknown,
+  options: { id?: string; delayMs?: number } = {}
 ): Promise<OutboxEntry> {
   if (!(OUTBOX_ENTRY_TYPES as readonly string[]).includes(type)) {
     // Garde d'exécution, pas seulement de typage (le typage ne protège pas un appelant JS, ou un
@@ -103,13 +113,15 @@ export async function enqueueOutboxEntry(
   }
   const now = Date.now();
   const entry: OutboxEntry = {
-    id: randomUUID(),
+    // Un identifiant fourni rend la mise en file idempotente : la même intention posée deux fois
+    // remplace la première au lieu de la doubler (clé Redis et membre de la file identiques).
+    id: options.id ?? randomUUID(),
     type,
     path,
     body,
     attempts: 0,
     enqueuedAt: now,
-    nextAttemptAt: now,
+    nextAttemptAt: now + (options.delayMs ?? 0),
     lastError: null,
   };
   await persistEntry(redis, entry);
@@ -153,6 +165,14 @@ export async function attemptOutboxEntry(
     if (isAlreadyApplied(result.status, result.body)) {
       await removeEntry(redis, entry.id);
       return 'applied';
+    }
+    if (entry.type === 'dispatch-widen' && result.status >= 400 && result.status < 500) {
+      // Une recherche différée qu'Odoo refuse (course inconnue, demande invalide) ne réussira
+      // pas en réessayant : la garder la ferait tourner indéfiniment. Les deux écritures de course
+      // ne sont pas concernées -- leur refus est traité par isAlreadyApplied ou réessayé.
+      await removeEntry(redis, entry.id);
+      console.warn(`[dispatch-widen] recherche différée abandonnée : Odoo a répondu ${result.status} pour ${entry.path}`);
+      return 'dropped';
     }
 
     const attempts = entry.attempts + 1;
@@ -286,6 +306,30 @@ export function reportOutboxWrite(
     .catch((err: unknown) => {
       console.error(`[L3-12] échec inattendu de mise en file (${type}, ${path}) :`, err);
     });
+}
+
+/**
+ * Appel vers Odoo à faire dans `delayMs` (élargissement de recherche, `dispatch-widen`). Persisté
+ * d'abord, avec son échéance : un redémarrage avant l'échéance ne le perd pas, le passage
+ * périodique le reprendra. Une minuterie en mémoire le déclenche à l'heure exacte -- le passage
+ * périodique (`OUTBOX_POLL_INTERVAL_SECONDS`) seul ajouterait jusqu'à un intervalle de retard.
+ */
+export async function scheduleOutboxWrite(
+  config: Config,
+  redis: Redis,
+  type: OutboxEntryType,
+  path: string,
+  body: unknown,
+  options: { id: string; delayMs: number }
+): Promise<OutboxEntry> {
+  const entry = await enqueueOutboxEntry(redis, type, path, body, options);
+  const timer = setTimeout(() => {
+    attemptOutboxEntryById(config, redis, entry.id).catch((err: unknown) => {
+      console.error(`[dispatch-widen] échec inattendu de l'appel programmé (${path}) :`, err);
+    });
+  }, options.delayMs);
+  timer.unref();
+  return entry;
 }
 
 /**

@@ -753,3 +753,30 @@ describe('POST /internal/rides/unmatched (aucun chauffeur après les tentatives 
     assert.equal(status, 400);
   });
 });
+
+describe('POST /internal/rides/widen-search (élargissement différé de la recherche, 31 octobre)', () => {
+  test('programme le rappel d’Odoo dans la file persistante, à l’échéance demandée, une seule fois par étape', async () => {
+    const rideId = randomUUID();
+    const body = { rideId, ring: 1, chain: 'chain-1', newRound: true, delayMs: 60_000 };
+    const before = Date.now();
+
+    assert.equal((await post('/internal/rides/widen-search', body)).status, 200);
+    assert.equal((await post('/internal/rides/widen-search', body)).status, 200); // rejeu d'Odoo
+
+    const entryId = `widen:${rideId}:chain-1:1`;
+    const members = await redis.zrange('babana:outbox:queue', 0, -1);
+    assert.equal(members.filter((member) => member === entryId).length, 1);
+    const entry = JSON.parse((await redis.get(`babana:outbox:entry:${entryId}`))!);
+    assert.equal(entry.type, 'dispatch-widen');
+    assert.equal(entry.path, `/api/internal/rides/${rideId}/widen-search`);
+    assert.deepEqual(entry.body, { ring: 1, chain: 'chain-1', newRound: true });
+    assert.ok(entry.nextAttemptAt >= before + 60_000);
+    await redis.del(`babana:outbox:entry:${entryId}`);
+    await redis.zrem('babana:outbox:queue', entryId);
+  });
+
+  test('un cercle absent ou nul est refusé (400) -- le premier cercle n’est jamais différé', async () => {
+    const { status } = await post('/internal/rides/widen-search', { rideId: randomUUID(), ring: 0, chain: 'c', newRound: true, delayMs: 5000 });
+    assert.equal(status, 400);
+  });
+});

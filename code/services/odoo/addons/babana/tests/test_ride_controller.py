@@ -81,6 +81,9 @@ class TestRideController(HttpCase):
         self.env["ir.config_parameter"].sudo().set_param(
             "babana.dispatch_radius_meters", str(_TEST_DISPATCH_RADIUS_METERS)
         )
+        # Une seule recherche : un cercle élargi atteindrait les chauffeurs des autres tests. Le 202
+        # de l'élargissement a son test, plus bas.
+        self.env["ir.config_parameter"].sudo().set_param("babana.dispatch_widenings", "0")
 
     @classmethod
     def _request_handler(cls, s, r, **kw):
@@ -293,6 +296,7 @@ class TestRideController(HttpCase):
         self.assertEqual(body["assignedDriverId"], closest.public_id)
         self.assertNotEqual(body["assignedDriverId"], farther.public_id)
         self.assertTrue(body["proposalExpiresAt"])
+        self.assertFalse(body["searching"])
 
     def test_dispatch_with_nobody_nearby_is_no_driver_available(self):
         client_token, client_public_id = self._sign_in("sub-dispatch-alone", "client")
@@ -304,6 +308,21 @@ class TestRideController(HttpCase):
         self.assertEqual(response.status_code, 404)
         self.assertEqual(response.json()["error"]["code"], "NO_DRIVER_AVAILABLE")
         self.assertEqual(ride.state, "requested")
+
+    def test_dispatch_with_nobody_in_the_first_ring_keeps_the_client_waiting_for_a_wider_search(self):
+        self.env["ir.config_parameter"].sudo().set_param("babana.dispatch_widenings", "2")
+        client_token, client_public_id = self._sign_in("sub-dispatch-widen", "client")
+        client_user = self.env["res.users"].sudo().search([("babana_public_id", "=", client_public_id)])
+        ride = self._make_ride(client_user.partner_id)
+        # L'échéance elle-même (le service temps réel rappelle Odoo) est couverte par
+        # test_dispatch.py et services/realtime/test : ici, ce que voit le client.
+        with patch.object(realtime_client, "schedule_search_widening") as schedule:
+            response = self._post(f"/api/v1/rides/{ride.public_id}/dispatch", client_token)
+
+        self.assertEqual(response.status_code, 202, response.text)
+        body = response.json()
+        self.assertEqual((body["searching"], body["proposalExpiresAt"], body["state"]), (True, None, "requested"))
+        self.assertEqual(schedule.call_args.kwargs["ring"], 1)
 
     def test_dispatch_refuses_a_driver_chosen_by_the_client(self):
         client_token, client_public_id = self._sign_in("sub-dispatch-choice", "client")

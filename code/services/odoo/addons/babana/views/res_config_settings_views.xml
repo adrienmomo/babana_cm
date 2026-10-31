@@ -26,11 +26,27 @@
                         </setting>
                     </block>
                     <block title="Recherche d'un chauffeur" name="babana_dispatch_settings">
-                        <setting id="babana_dispatch_radius" string="Rayon de recherche"
-                                 help="La course part au chauffeur disponible le plus proche par la route, parmi ceux de ce rayon.">
+                        <setting id="babana_dispatch_radius" string="Premier rayon de recherche"
+                                 help="La course part au chauffeur disponible le plus proche par la route, d'abord parmi ceux de ce rayon.">
                             <div class="d-flex align-items-center gap-2">
                                 <field name="babana_dispatch_radius_meters" style="width: 6rem"/>
                                 <span>mètres</span>
+                            </div>
+                        </setting>
+                        <setting id="babana_dispatch_widening" string="Élargir si personne"
+                                 help="Personne dans le rayon : après le délai, nouvelle recherche dans un rayon élargi du pas, autant de fois qu'indiqué ; ensuite seulement, le client est prévenu qu'aucun chauffeur n'est disponible. 2 km, 2 élargissements de 2 km : 2, puis 4, puis 6 km.">
+                            <div class="d-flex flex-column gap-1">
+                                <div class="d-flex align-items-center gap-2">
+                                    <field name="babana_dispatch_widenings" style="width: 4rem"/>
+                                    <span>élargissements de</span>
+                                    <field name="babana_dispatch_radius_step_meters" style="width: 6rem"/>
+                                    <span>mètres</span>
+                                </div>
+                                <div class="d-flex align-items-center gap-2">
+                                    <span>après</span>
+                                    <field name="babana_dispatch_widening_delay_seconds" style="width: 4rem"/>
+                                    <span>secondes</span>
+                                </div>
                             </div>
                         </setting>
                         <setting id="babana_dispatch_max_attempts" string="Chauffeurs sollicités par demande"

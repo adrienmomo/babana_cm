@@ -122,6 +122,28 @@ class InternalController(http.Controller):
         )
         return {"ok": True}, 200
 
+    # --- POST /internal/rides/{id}/widen-search (échéance d'un élargissement) -----------------
+
+    @http.route("/api/internal/rides/<string:ride_id>/widen-search", **_WRITE_ROUTE)
+    def widen_search(self, ride_id, **_kwargs):
+        return self._dispatch("widenSearch", lambda: self._widen_search(ride_id))
+
+    def _widen_search(self, ride_id):
+        """Rappel du service temps réel, à l'échéance programmée par services/dispatch.py::_search :
+        cherche dans le cercle suivant -- ou prévient le client qu'il n'y a plus personne. Rejoué
+        par la file persistante du service : la clé d'idempotence (identifiant de l'entrée) rend
+        un second passage sans effet."""
+        env = request.env(user=SUPERUSER_ID)
+        ride = self._find_ride(env, ride_id)
+        if not ride:
+            return _common.error_payload("RIDE_NOT_FOUND", "course inconnue"), 404
+        body = _common.parse_json_body() or {}
+        ring, chain = body.get("ring"), body.get("chain")
+        if isinstance(ring, bool) or not isinstance(ring, int) or ring < 1 or not isinstance(chain, str) or not chain:
+            return _common.error_payload("VALIDATION_ERROR", "ring (entier >= 1) et chain attendus"), 400
+        driver = dispatch.continue_search(env, ride, ring=ring, chain=chain, new_round=bool(body.get("newRound")))
+        return {"proposed": bool(driver)}, 200
+
     # --- POST /internal/drivers/engaged (réconciliation, L3-17 critère 7) ---------------------
 
     @http.route("/api/internal/drivers/engaged", **_READ_ROUTE)

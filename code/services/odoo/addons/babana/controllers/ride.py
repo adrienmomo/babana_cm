@@ -212,9 +212,17 @@ class RideController(http.Controller):
         if _common.parse_json_body():
             return _common.error_payload("VALIDATION_ERROR", "aucun champ attendu : le chauffeur est choisi par le serveur"), 400
 
-        driver = dispatch.propose_to_closest_driver(
+        driver, widening = dispatch.propose_to_closest_driver(
             env, ride, by_partner=user.partner_id, idempotency_key=_common.idempotency_key()
         )
+        if widening:
+            # Personne dans le premier cercle, un cercle plus large sera essayé après le délai : le
+            # client continue d'attendre -- l'issue lui viendra par le temps réel (ride.assigned,
+            # ou ride.unmatched une fois les cercles épuisés).
+            payload = _summary(ride)
+            payload["proposalExpiresAt"] = None
+            payload["searching"] = True
+            return payload, 202
         if not driver:
             return _common.error_payload("NO_DRIVER_AVAILABLE", "aucun chauffeur disponible à proximité"), 404
 
@@ -225,6 +233,7 @@ class RideController(http.Controller):
         payload["proposalExpiresAt"] = _common.iso_datetime(
             ride.proposed_at + timedelta(seconds=window_seconds)
         )
+        payload["searching"] = False
         return payload, 200
 
     # --- POST /rides/{id}/start -----------------------------------------------------------------

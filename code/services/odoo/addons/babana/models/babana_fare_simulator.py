@@ -8,7 +8,7 @@ from odoo import api, fields, models
 from odoo.exceptions import UserError
 
 from ..services import approach, routing
-from ..services.dispatch import DISPATCH_RADIUS_DEFAULT, DISPATCH_RADIUS_PARAM, _positive_int_param
+from ..services.dispatch import search_radii
 from ..services.pricing import compute_fare
 
 
@@ -71,7 +71,7 @@ class BabanaFareSimulator(models.TransientModel):
         approach_estimate = approach.average_approach(
             self.env,
             pickup=(self.pickup_latitude, self.pickup_longitude),
-            radius_meters=_positive_int_param(self.env, DISPATCH_RADIUS_PARAM, DISPATCH_RADIUS_DEFAULT),
+            radii=search_radii(self.env),
         )
         rounding_step = self.env["babana.fare.rule"]._default_rounding_step()
         breakdown = compute_fare(

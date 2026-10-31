@@ -16,6 +16,12 @@ from ..services.dispatch import (
     DISPATCH_MAX_ATTEMPTS_PARAM,
     DISPATCH_RADIUS_DEFAULT,
     DISPATCH_RADIUS_PARAM,
+    DISPATCH_RADIUS_STEP_DEFAULT,
+    DISPATCH_RADIUS_STEP_PARAM,
+    DISPATCH_WIDENING_DELAY_DEFAULT,
+    DISPATCH_WIDENING_DELAY_PARAM,
+    DISPATCH_WIDENINGS_DEFAULT,
+    DISPATCH_WIDENINGS_PARAM,
 )
 
 
@@ -51,10 +57,28 @@ class ResConfigSettings(models.TransientModel):
     )
 
     babana_dispatch_radius_meters = fields.Integer(
-        string="Rayon de recherche d'un chauffeur (mètres)",
+        string="Premier rayon de recherche (mètres)",
         config_parameter=DISPATCH_RADIUS_PARAM,
         default=DISPATCH_RADIUS_DEFAULT,
-        help="La course part au chauffeur disponible le plus proche par la route, parmi ceux de ce rayon.",
+        help="La course part au chauffeur disponible le plus proche par la route, d'abord parmi ceux de ce rayon.",
+    )
+    babana_dispatch_radius_step_meters = fields.Integer(
+        string="Élargissement du rayon (mètres)",
+        config_parameter=DISPATCH_RADIUS_STEP_PARAM,
+        default=DISPATCH_RADIUS_STEP_DEFAULT,
+        help="Personne dans le rayon courant : la recherche suivante va aussi loin plus ce pas.",
+    )
+    babana_dispatch_widenings = fields.Integer(
+        string="Élargissements avant « aucun chauffeur »",
+        config_parameter=DISPATCH_WIDENINGS_PARAM,
+        default=DISPATCH_WIDENINGS_DEFAULT,
+        help="Nombre de recherches dans un rayon élargi après la première. 0 : une seule recherche.",
+    )
+    babana_dispatch_widening_delay_seconds = fields.Integer(
+        string="Délai avant chaque élargissement (secondes)",
+        config_parameter=DISPATCH_WIDENING_DELAY_PARAM,
+        default=DISPATCH_WIDENING_DELAY_DEFAULT,
+        help="Le temps laissé à un chauffeur pour se libérer ou se mettre en ligne avant d'élargir.",
     )
     babana_approach_sample_size = fields.Integer(
         string="Chauffeurs mesurés par la route",
@@ -91,11 +115,19 @@ class ResConfigSettings(models.TransientModel):
         "babana_quote_validity_seconds",
         "babana_otp_ttl_seconds",
         "babana_dispatch_radius_meters",
+        "babana_dispatch_radius_step_meters",
+        "babana_dispatch_widening_delay_seconds",
         "babana_dispatch_max_attempts",
         "babana_approach_sample_size",
         "babana_default_approach_distance_meters",
         "babana_rating_min_count",
     )
+
+    @api.constrains("babana_dispatch_widenings")
+    def _check_babana_widenings_not_negative(self):
+        for settings in self:
+            if settings.babana_dispatch_widenings < 0:
+                raise ValidationError(_("Le nombre d'élargissements ne peut pas être négatif."))
 
     @api.constrains(*_BABANA_POSITIVE_FIELDS)
     def _check_babana_delays_positive(self):

@@ -445,3 +445,32 @@ class TestInternalController(HttpCase):
             "/drivers/proposal-push", {"driverId": "x", "rideId": "r", "expiresAt": "x"}
         )
         self.assertEqual(response.status_code, 401)
+
+    # --- widen-search (élargissement différé de la recherche, 31 octobre) -------------------------
+
+    def test_widen_search_requires_the_shared_secret(self):
+        ride = self.env["babana.ride"].sudo().action_request(self._base_vals(self._make_partner()))
+        response = self._post(f"/rides/{ride.public_id}/widen-search", {"ring": 1, "chain": "c"})
+        self.assertEqual(response.status_code, 401)
+
+    def test_widen_search_hands_the_ring_to_the_dispatch_service(self):
+        ride = self.env["babana.ride"].sudo().action_request(self._base_vals(self._make_partner()))
+        from ..services import dispatch
+
+        with patch.object(dispatch, "continue_search", return_value=self.env["babana.driver"]) as continue_search:
+            response = self._post(
+                f"/rides/{ride.public_id}/widen-search",
+                {"ring": 2, "chain": "chain-x", "newRound": True},
+                secret=self._real_secret(),
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json(), {"proposed": False})
+        kwargs = continue_search.call_args.kwargs
+        self.assertEqual((kwargs["ring"], kwargs["chain"], kwargs["new_round"]), (2, "chain-x", True))
+
+    def test_widen_search_rejects_a_missing_or_first_ring(self):
+        ride = self.env["babana.ride"].sudo().action_request(self._base_vals(self._make_partner()))
+        for body in ({"chain": "c"}, {"ring": 0, "chain": "c"}, {"ring": True, "chain": "c"}, {"ring": 1}):
+            response = self._post(f"/rides/{ride.public_id}/widen-search", body, secret=self._real_secret())
+            self.assertEqual(response.status_code, 400, body)

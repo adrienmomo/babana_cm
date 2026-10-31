@@ -15,6 +15,7 @@ import { holdDriver, releaseHold } from '../driver/admin-hold';
 import { broadcastRideStarted, broadcastRideCompleted, broadcastRideCancelled, broadcastRideUnmatched } from '../tracking/broadcast';
 import { startAccumulation, getAccumulation, endAccumulation } from '../tracking/accumulator';
 import { recordDriverArrived } from '../tracking/route';
+import { scheduleOutboxWrite } from '../odoo/outbox';
 
 /**
  * Endpoint HTTP interne, sens Odoo -> temps réel (L3-17). Authentifié par `REALTIME_SHARED_SECRET`
@@ -34,6 +35,10 @@ import { recordDriverArrived } from '../tracking/route';
  *   classement avant la réservation). Aucun commit à attendre (D32).
  * - `POST /internal/rides/unmatched` : plus aucun chauffeur à solliciter (au COMMIT d'Odoo, D32)
  *   -- pousse `ride.unmatched` au client.
+ * - `POST /internal/rides/widen-search` : personne dans le cercle de recherche courant (au COMMIT
+ *   d'Odoo, D32) -- programme, après le délai fixé par Odoo, le rappel
+ *   `/api/internal/rides/{id}/widen-search` qui cherchera dans le cercle suivant. Porté par la
+ *   file persistante (`odoo/outbox.ts`, type `dispatch-widen`) : un redémarrage ne le perd pas.
  * - `POST /internal/reservations/release` : compensation quand la réservation a réussi mais que la
  *   transition Odoo qui devait suivre échoue (critère 4).
  * - `POST /internal/engagement/clear` : fin de course, efface le marqueur d'engagement (critère 6).
@@ -260,6 +265,36 @@ async function handleRideUnmatched(deps: InternalRouterDeps, rawBody: unknown, r
   sendJson(res, 200, { notified: true });
 }
 
+// Rien de métier ici : le cercle, le délai et le sens d'un nouveau tour sont décidés par Odoo
+// (services/dispatch.py) et rendus tels quels à l'échéance.
+const WidenSearchRequestSchema = z.object({
+  rideId: z.string().min(1),
+  ring: z.number().int().min(1),
+  chain: z.string().min(1),
+  newRound: z.boolean(),
+  delayMs: z.number().int().min(0),
+});
+
+async function handleWidenSearch(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
+  const parsed = WidenSearchRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    sendJson(res, 400, { error: 'VALIDATION_ERROR', details: parsed.error.issues });
+    return;
+  }
+  const { rideId, ring, chain, newRound, delayMs } = parsed.data;
+  await scheduleOutboxWrite(
+    deps.config,
+    deps.redis,
+    'dispatch-widen',
+    `/api/internal/rides/${encodeURIComponent(rideId)}/widen-search`,
+    { ring, chain, newRound },
+    // Une étape d'une chaîne, une seule entrée : programmée deux fois (rejeu d'Odoo), elle ne
+    // cherche qu'une fois.
+    { id: `widen:${rideId}:${chain}:${ring}`, delayMs }
+  );
+  sendJson(res, 200, { scheduled: true });
+}
+
 async function handleRelease(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
   const parsed = ReleaseRequestSchema.safeParse(rawBody);
   if (!parsed.success) {
@@ -418,6 +453,9 @@ export function createInternalHandler(deps: InternalRouterDeps) {
         return;
       case '/internal/rides/unmatched':
         await handleRideUnmatched(deps, body, res);
+        return;
+      case '/internal/rides/widen-search':
+        await handleWidenSearch(deps, body, res);
         return;
       case '/internal/reservations/release':
         await handleRelease(deps, body, res);

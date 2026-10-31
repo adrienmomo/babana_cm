@@ -105,20 +105,27 @@ def road_ranked_candidates(
     return sorted(ranked, key=lambda candidate: candidate.road_distance_meters)
 
 
-def average_approach(env, *, pickup: tuple[float, float], radius_meters: int) -> ApproachEstimate:
+def average_approach(env, *, pickup: tuple[float, float], radii: list[int]) -> ApproachEstimate:
     """Distance routière MOYENNE des chauffeurs disponibles jusqu'au point de prise en charge --
-    l'entrée de la prise en charge de compute_fare. Ne lève jamais : sans aucune mesure, la
-    valeur de repli paramétrée (babana.default_approach_distance_meters)."""
-    try:
-        candidates = road_ranked_candidates(
-            env,
-            pickup=pickup,
-            radius_meters=radius_meters,
-            exclude_driver_public_ids=[],
-        )
-    except realtime_client.RealtimeUnavailable:
-        _logger.warning("service temps réel injoignable : distance d'approche de repli à l'estimation")
-        candidates = []
+    l'entrée de la prise en charge de compute_fare. Mesurée dans le premier des cercles `radii`
+    (services/dispatch.py::search_radii) qui compte au moins un chauffeur : celui où l'affectation
+    le trouvera. Ne lève jamais : sans aucune mesure, la valeur de repli paramétrée
+    (babana.default_approach_distance_meters)."""
+    candidates = []
+    for radius_meters in radii:
+        try:
+            candidates = road_ranked_candidates(
+                env,
+                pickup=pickup,
+                radius_meters=radius_meters,
+                exclude_driver_public_ids=[],
+            )
+        except realtime_client.RealtimeUnavailable:
+            _logger.warning("service temps réel injoignable : distance d'approche de repli à l'estimation")
+            candidates = []
+            break
+        if candidates:
+            break
     if not candidates:
         return ApproachEstimate(
             distance_meters=_positive_int_param(

@@ -55,7 +55,11 @@ const PROPOSED = {
   currency: 'XAF',
   assignedDriverId: DRIVER_ID,
   proposalExpiresAt: new Date(Date.now() + 30_000).toISOString(),
+  searching: false,
 };
+
+// 202 : personne dans le premier cercle, un cercle plus large sera essayé après le délai.
+const WIDENING = { ...PROPOSED, state: 'requested', assignedDriverId: null, proposalExpiresAt: null, searching: true };
 
 function fakeNavigation() {
   return { navigate: jest.fn(), replace: jest.fn() };
@@ -193,6 +197,56 @@ describe('WaitingScreen -- la course part au chauffeur le plus proche, choisi pa
 
     expect(navigation.replace).not.toHaveBeenCalled();
     expect(shown(root, 'retry-dispatch')).toBe(false);
+  });
+
+  describe('recherche élargie (personne dans le premier cercle, 31 octobre)', () => {
+    function dispatchAnswersWidening() {
+      mockRequest.mockImplementation(async (name: string) => {
+        if (name === 'dispatchRide') return WIDENING;
+        throw new Error(`unexpected call: ${name}`);
+      });
+    }
+
+    it('le client continue d’attendre : la recherche s’élargit, sans « aucun chauffeur » ni Réessayer', async () => {
+      dispatchAnswersWidening();
+      const { root } = await renderWaiting();
+
+      expect(texts(root)).toContain('Personne tout près : la recherche s’élargit…');
+      expect(texts(root)).not.toContain("Aucun chauffeur n'est disponible");
+      expect(shown(root, 'retry-dispatch')).toBe(false);
+      expect(shown(root, 'waiting-spinner')).toBe(true);
+    });
+
+    it('un chauffeur trouvé plus loin arrive comme les autres, par ride.assigned', async () => {
+      dispatchAnswersWidening();
+      const { navigation } = await renderWaiting();
+
+      await act(async () => {
+        emit('ride.assigned', {
+          rideId: RIDE_ID,
+          driverId: DRIVER_ID,
+          firstName: 'Paul',
+          photoUrl: null,
+          motorcycleClass: 'standard',
+          licensePlate: 'LT 1234 AB',
+          phoneNumber: null,
+        });
+      });
+
+      expect(navigation.replace).toHaveBeenCalledWith('Tracking', expect.objectContaining({ rideId: RIDE_ID }));
+    });
+
+    it('les cercles épuisés, ride.unmatched propose Réessayer et Annuler', async () => {
+      dispatchAnswersWidening();
+      const { root } = await renderWaiting();
+
+      await act(async () => {
+        emit('ride.unmatched', { rideId: RIDE_ID });
+      });
+
+      expect(texts(root)).toContain("Aucun chauffeur n'est disponible pour le moment.");
+      expect(shown(root, 'retry-dispatch')).toBe(true);
+    });
   });
 
   describe('aucun chauffeur disponible', () => {

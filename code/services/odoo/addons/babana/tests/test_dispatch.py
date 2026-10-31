@@ -24,6 +24,8 @@ class TestDispatch(TransactionCase):
         params = self.env["ir.config_parameter"].sudo()
         params.set_param("babana.dispatch_radius_meters", "4000")
         params.set_param("babana.dispatch_max_attempts", "3")
+        # Une seule recherche : l'élargissement par cercles a sa propre classe, plus bas.
+        params.set_param("babana.dispatch_widenings", "0")
 
         self.reserve = self._patch("reserve_nearest_and_propose")
         self.release = self._patch("release_reservation")
@@ -74,7 +76,7 @@ class TestDispatch(TransactionCase):
 
     def test_the_ride_is_proposed_to_the_driver_the_service_chose(self):
         ride = self._ride()
-        driver = dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
+        driver, _widening = dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
 
         self.assertEqual(driver, self.drivers[0])
         self.assertEqual(ride.state, "proposed")
@@ -132,7 +134,7 @@ class TestDispatch(TransactionCase):
         self.nearby.side_effect = realtime_client.RealtimeUnavailable("panne simulée")
         ride = self._ride()
 
-        driver = dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
+        driver, _widening = dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
 
         self.assertEqual(driver, self.drivers[0])
         self.assertEqual(self.reserve.call_args.kwargs["preferred_driver_public_ids"], [])
@@ -149,7 +151,7 @@ class TestDispatch(TransactionCase):
         self._service_offers()
         ride = self._ride()
 
-        driver = dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
+        driver, _widening = dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
 
         self.assertFalse(driver)
         self.assertEqual(ride.state, "requested")
@@ -300,3 +302,153 @@ class TestDispatchSettings(TransactionCase):
             self.env["res.config.settings"].create({"babana_dispatch_max_attempts": 0}).execute()
         with self.assertRaises(ValidationError):
             self.env["res.config.settings"].create({"babana_dispatch_radius_meters": 0}).execute()
+
+
+@tagged("post_install", "-at_install")
+class TestDispatchWidening(TransactionCase):
+    """Recherche par cercles élargis (demande produit du 31 octobre) : 2, puis 4, puis 6 km, à
+    5 secondes d'intervalle, avant de prévenir le client qu'il n'y a personne."""
+
+    def setUp(self):
+        super().setUp()
+        params = self.env["ir.config_parameter"].sudo()
+        params.set_param("babana.dispatch_radius_meters", "2000")
+        params.set_param("babana.dispatch_radius_step_meters", "2000")
+        params.set_param("babana.dispatch_widenings", "2")
+        params.set_param("babana.dispatch_widening_delay_seconds", "5")
+        params.set_param("babana.dispatch_max_attempts", "3")
+        self.reserve = self._patch("reserve_nearest_and_propose")
+        self.release = self._patch("release_reservation")
+        self.unmatched = self._patch("notify_ride_unmatched")
+        self.schedule = self._patch("schedule_search_widening")
+        self.nearby = self._patch("fetch_nearby_drivers")
+        self.nearby.return_value = []
+        employee = self.env["hr.employee"].create({"name": "Chauffeur lointain"})
+        self.driver = self.env["babana.driver"].create({"employee_id": employee.id, "state": "approved"})
+
+    _patch = TestDispatch._patch
+    _ride = TestDispatch._ride
+
+    def _nobody(self):
+        self.reserve.side_effect = None
+        self.reserve.return_value = {"outcome": "NO_DRIVER_AVAILABLE"}
+
+    def _offers_driver(self):
+        self.reserve.side_effect = None
+        self.reserve.return_value = {"outcome": "PROPOSED", "driverId": self.driver.public_id, "expiresAt": "2026-10-31T10:00:30Z"}
+
+    def _scheduled(self):
+        return self.schedule.call_args.kwargs
+
+    def test_without_any_stored_setting_the_rings_are_2_4_and_6_km(self):
+        # Vu sur émulateur le 31 octobre : get_param renvoie False pour un paramètre absent, et
+        # int(False) vaut 0 -- la recherche ne s'élargissait jamais sur une base sans réglage.
+        params = self.env["ir.config_parameter"].sudo()
+        for key in (
+            "babana.dispatch_radius_meters",
+            "babana.dispatch_radius_step_meters",
+            "babana.dispatch_widenings",
+            "babana.dispatch_widening_delay_seconds",
+        ):
+            params.search([("key", "=", key)]).unlink()
+
+        self.assertEqual(dispatch.search_radii(self.env), [2000, 4000, 6000])
+
+    def test_the_rings_are_the_first_radius_then_one_step_more_per_widening(self):
+        self.assertEqual(dispatch.search_radii(self.env), [2000, 4000, 6000])
+        self.env["ir.config_parameter"].sudo().set_param("babana.dispatch_widenings", "0")
+        self.assertEqual(dispatch.search_radii(self.env), [2000], "0 : une seule recherche, comme avant")
+
+    def test_nobody_in_the_first_ring_schedules_the_second_after_the_delay_without_telling_the_client(self):
+        self._nobody()
+        ride = self._ride()
+
+        driver, widening = dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
+
+        self.assertFalse(driver)
+        self.assertTrue(widening)
+        self.assertEqual(self.reserve.call_args.kwargs["radius_meters"], 2000)
+        scheduled = self._scheduled()
+        self.assertEqual((scheduled["ring"], scheduled["delay_seconds"], scheduled["new_round"]), (1, 5, True))
+        self.assertEqual(scheduled["ride_public_id"], ride.public_id)
+        self.unmatched.assert_not_called()
+        self.assertEqual(ride.state, "requested", "une recherche sans résultat n'écrit rien")
+
+    def test_the_second_ring_searches_wider_and_proposes_to_the_driver_found_there(self):
+        self._nobody()
+        ride = self._ride()
+        dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
+        chain = self._scheduled()["chain"]
+        self._offers_driver()
+
+        driver = dispatch.continue_search(self.env, ride, ring=1, chain=chain, new_round=True)
+
+        self.assertEqual(driver, self.driver)
+        self.assertEqual(ride.state, "proposed")
+        self.assertEqual(self.reserve.call_args.kwargs["radius_meters"], 4000)
+        self.assertEqual(self.schedule.call_count, 1, "trouvé : plus rien à programmer")
+        self.unmatched.assert_not_called()
+
+    def test_after_the_last_ring_the_client_is_told_nobody_is_available(self):
+        self._nobody()
+        ride = self._ride()
+        dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
+        chain = self._scheduled()["chain"]
+
+        dispatch.continue_search(self.env, ride, ring=1, chain=chain, new_round=True)
+        self.assertEqual(self._scheduled()["ring"], 2)
+        self.assertEqual(self._scheduled()["chain"], chain, "une même chaîne d'élargissements")
+        self.unmatched.assert_not_called()
+
+        dispatch.continue_search(self.env, ride, ring=2, chain=chain, new_round=True)
+        self.assertEqual(self.reserve.call_args.kwargs["radius_meters"], 6000)
+        self.assertEqual(self.schedule.call_count, 2, "pas de quatrième cercle")
+        self.unmatched.assert_called_once()
+
+    def test_a_ride_no_longer_waiting_is_left_alone_when_the_widening_is_due(self):
+        self._nobody()
+        ride = self._ride()
+        dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
+        chain = self._scheduled()["chain"]
+        ride.action_cancel(actor_role="client", actor_record=ride.client_id)
+        calls_before = self.reserve.call_count
+
+        driver = dispatch.continue_search(self.env, ride, ring=1, chain=chain, new_round=True)
+
+        self.assertFalse(driver)
+        self.assertEqual(self.reserve.call_count, calls_before, "annulée : aucune recherche")
+        self.unmatched.assert_not_called()
+
+    def test_after_a_refusal_nobody_left_in_the_first_ring_widens_too(self):
+        self._offers_driver()
+        ride = self._ride()
+        dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
+        self._nobody()
+
+        dispatch.handle_driver_rejection(self.env, ride, self.driver, reason="driver_rejected", expired=False)
+
+        self.assertEqual(ride.state, "rejected")
+        scheduled = self._scheduled()
+        self.assertEqual((scheduled["ring"], scheduled["new_round"]), (1, False))
+        self.unmatched.assert_not_called()
+
+        dispatch.continue_search(self.env, ride, ring=1, chain=scheduled["chain"], new_round=False)
+        self.assertEqual(
+            self.reserve.call_args.kwargs["exclude_driver_public_ids"], [self.driver.public_id],
+            "le chauffeur qui a refusé reste écarté dans le cercle élargi",
+        )
+
+    def test_the_widening_settings_are_editable_and_checked(self):
+        self.env["res.config.settings"].create(
+            {
+                "babana_dispatch_radius_meters": 3000,
+                "babana_dispatch_radius_step_meters": 3000,
+                "babana_dispatch_widenings": 1,
+                "babana_dispatch_widening_delay_seconds": 8,
+            }
+        ).execute()
+        self.assertEqual(dispatch.search_radii(self.env), [3000, 6000])
+        with self.assertRaises(ValidationError):
+            self.env["res.config.settings"].create({"babana_dispatch_widenings": -1}).execute()
+        with self.assertRaises(ValidationError):
+            self.env["res.config.settings"].create({"babana_dispatch_widening_delay_seconds": 0}).execute()
