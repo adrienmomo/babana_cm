@@ -73,5 +73,6 @@ export const otpVerifyResponseExample: OtpVerifyResponse = {
     displayName: '+237691234567',
     photoUrl: null,
     phoneVerified: true,
+    rating: { average: null, count: 0 },
   },
 };

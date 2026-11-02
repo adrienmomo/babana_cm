@@ -212,10 +212,17 @@ def _build_user_payload(user, *, picture=None) -> dict:
         # Une seule vérité pour les deux rôles : le partenaire du compte (L1-09).
         "phoneVerified": user.partner_id.babana_phone_verified,
     }
-    if role == "driver":
+    # Note reçue, dans les deux sens (2 novembre) : le chauffeur par ses clients (L4-09), le
+    # client par ses chauffeurs -- « nouveau » (`average: None`) sous babana.rating_min_count.
+    ratings = user.env["babana.client.rating"]
+    if role != "driver":
+        partner = user.partner_id.sudo()
+        payload["rating"] = ratings._summary(partner.babana_client_rating_avg, partner.babana_client_rating_count)
+    else:
         # babana.driver (L1-03) est désormais créé dès le premier sign-in chauffeur (L1-03R) :
         # la recherche trouve toujours une fiche.
         driver = user._babana_driver()
+        payload["rating"] = ratings._summary(driver.rating_avg, driver.rating_count)
         payload["driverStatus"] = driver.state
         # Motif présent seulement pour une décision négative sur le dossier entier
         # (amoa/questions/REPONSES-2026-09-04.md §2) -- `null` explicite le reste du temps, jamais

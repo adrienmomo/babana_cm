@@ -61,6 +61,18 @@ class ResPartner(models.Model):
         "notifié si renseigné, jamais obligatoire.",
     )
 
+    # Notes reçues de ses chauffeurs (babana.client.rating, 2 novembre) -- même lecture que
+    # babana.driver.rating_avg/rating_count : le seuil « nouveau » s'applique à l'affichage.
+    babana_client_rating_avg = fields.Float(
+        string="Note moyenne (client)",
+        compute="_compute_babana_client_rating",
+        help="Moyenne des notes données par les chauffeurs (1 à 5). 0 sans aucun avis.",
+    )
+    babana_client_rating_count = fields.Integer(
+        string="Nombre d'avis (client)",
+        compute="_compute_babana_client_rating",
+    )
+
     _sql_constraints = [
         (
             "babana_partner_google_sub_unique",
@@ -82,6 +94,16 @@ class ResPartner(models.Model):
                     "babana_phone_verified doit valoir vrai exactement quand babana_phone est "
                     "renseigné."
                 )
+
+    def _compute_babana_client_rating(self):
+        groups = self.env["babana.client.rating"].sudo()._read_group(
+            [("client_id", "in", self.ids)], ["client_id"], ["rating:avg", "__count"]
+        )
+        by_client = {client.id: (average, count) for client, average, count in groups}
+        for record in self:
+            average, count = by_client.get(record.id, (0.0, 0))
+            record.babana_client_rating_avg = average or 0.0
+            record.babana_client_rating_count = count
 
     def _compute_babana_rides_count(self):
         for record in self:

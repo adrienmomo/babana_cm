@@ -5,9 +5,12 @@ import type { AuthUser } from '@babana/api-client';
 import type { http } from '@babana/contracts';
 
 let mockUser: AuthUser | null = null;
+// Le profil relit `GET /me` à l'ouverture (la note bouge après chaque course) ; par défaut, le
+// serveur renvoie le même profil que la session.
+const mockRefreshUser = jest.fn();
 const mockRequest = jest.fn();
 jest.mock('../../auth', () => ({
-  authClient: { getUser: () => mockUser },
+  authClient: { getUser: () => mockUser, refreshUser: (...args: unknown[]) => mockRefreshUser(...args) },
   apiClient: { request: (...args: unknown[]) => mockRequest(...args) },
 }));
 
@@ -24,6 +27,7 @@ const EMMANUEL: AuthUser = {
   displayName: 'Emmanuel Ebongue',
   photoUrl: null,
   phoneVerified: true,
+  rating: { average: null, count: 0 },
   driverStatus: 'approved',
   driverRejectionReason: null,
 };
@@ -59,10 +63,13 @@ afterEach(async () => {
   mockRequest.mockReset();
   mockSignOutDriver.mockReset();
   mockUser = null;
+  mockRefreshUser.mockReset();
 });
 
-async function renderAccount(user: AuthUser | null = EMMANUEL) {
+async function renderAccount(user: AuthUser | null = EMMANUEL, fresh: AuthUser | null = user) {
   mockUser = user;
+  if (fresh) mockRefreshUser.mockResolvedValue({ user: fresh });
+  else mockRefreshUser.mockRejectedValue(new TypeError('Network request failed'));
   const navigation = fakeNavigation();
   let root!: ReactTestRenderer;
   await act(async () => {
@@ -186,5 +193,48 @@ describe('AccountScreen -- profil du chauffeur', () => {
     expect(header.root.findByProps({ testID: 'account-menu-error' }).props.children).toBe(
       'Terminez la course en cours avant de passer hors ligne.'
     );
+  });
+
+  describe('sa note (2 novembre)', () => {
+    it('affiche la moyenne reçue et le nombre d’avis', async () => {
+    mockRequest.mockResolvedValue({ documents: [] });
+      const { root } = await renderAccount({ ...EMMANUEL, rating: { average: 4.7, count: 12 } });
+      expect(root.root.findByProps({ testID: 'account-rating' }).props.children).toBe('★ 4,7 · 12 avis');
+    });
+
+    it('sous le seuil d’avis, « Nouveau » plutôt qu’une note', async () => {
+    mockRequest.mockResolvedValue({ documents: [] });
+      const { root } = await renderAccount({ ...EMMANUEL, rating: { average: null, count: 2 } });
+      expect(root.root.findByProps({ testID: 'account-rating' }).props.children).toBe('Nouveau · 2 avis');
+    });
+
+    it('sans aucun avis, le dit -- jamais une note de zéro', async () => {
+    mockRequest.mockResolvedValue({ documents: [] });
+      const { root } = await renderAccount();
+      expect(root.root.findByProps({ testID: 'account-rating' }).props.children).toBe('Pas encore d’avis');
+    });
+
+    it('la note est relue au serveur à l’ouverture : celle de la session date du démarrage', async () => {
+    mockRequest.mockResolvedValue({ documents: [] });
+      const { root } = await renderAccount(EMMANUEL, { ...EMMANUEL, rating: { average: 4.5, count: 3 } });
+      expect(mockRefreshUser).toHaveBeenCalled();
+      expect(root.root.findByProps({ testID: 'account-rating' }).props.children).toBe('★ 4,5 · 3 avis');
+    });
+
+    it('hors connexion, garde la note de la session', async () => {
+    mockRequest.mockResolvedValue({ documents: [] });
+      const { root } = await renderAccount({ ...EMMANUEL, rating: { average: 4.2, count: 5 } }, null);
+      expect(root.root.findByProps({ testID: 'account-rating' }).props.children).toBe('★ 4,2 · 5 avis');
+    });
+  });
+
+  it('« Mes courses » ouvre l’historique du chauffeur, où il corrige ses notes', async () => {
+    mockRequest.mockResolvedValue({ documents: [] });
+    const { root, navigation } = await renderAccount();
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'account-row-history' }).props.onPress();
+    });
+    expect(navigation.navigate).toHaveBeenCalledWith('RideHistory');
   });
 });

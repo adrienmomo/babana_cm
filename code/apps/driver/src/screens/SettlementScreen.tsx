@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { StarRating } from '@babana/ui';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { buttonLabels, buttons, colors, radius } from '../theme';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -89,6 +90,29 @@ export function SettlementScreen({ route, navigation }: Props) {
     offlineRunner.flush().catch(() => {});
   }
 
+  // Note du client (2 novembre) : proposée ici, à la fin de la course, sans bloquer l'encaissement
+  // ni « Terminé ». Chaque appui l'envoie (et la remplace) ; elle se corrige plus tard dans
+  // « Mes courses ». Hors connexion, elle attend dans la même file que l'encaissement.
+  const [clientRating, setClientRating] = useState<number | null>(null);
+  const [ratingPhase, setRatingPhase] = useState<'idle' | 'saved' | 'queued' | 'error'>('idle');
+  const [ratingError, setRatingError] = useState<string | null>(null);
+
+  async function handleRateClient(value: number) {
+    setClientRating(value);
+    setRatingError(null);
+    try {
+      await offlineRunner.attempt('rateClient', {
+        pathParams: { id: rideId },
+        body: { rating: value },
+        onQueued: () => setRatingPhase('queued'),
+      });
+      setRatingPhase('saved');
+    } catch (error) {
+      setRatingError(error instanceof ApiError ? translateApiError(error) : 'La note n’a pas pu être enregistrée.');
+      setRatingPhase('error');
+    }
+  }
+
   const capReached = cash?.cashLimitReached ?? false;
 
   return (
@@ -101,6 +125,18 @@ export function SettlementScreen({ route, navigation }: Props) {
           {formatMoney(amount)}
         </Text>
         <Text style={styles.amountHint}>Confirmez le montant reçu. Un écart se règle en remise de caisse.</Text>
+      </View>
+
+      <View style={styles.ratingCard} testID="settlement-client-rating">
+        <Text style={styles.ratingTitle}>Notez votre client</Text>
+        <StarRating value={clientRating} onChange={handleRateClient} size={36} testIDPrefix="settlement-client" />
+        {ratingPhase === 'saved' ? (
+          <Text style={styles.ratingHint}>Note enregistrée. Vous pourrez la modifier dans « Mes courses ».</Text>
+        ) : ratingPhase === 'queued' ? (
+          <Text style={styles.ratingQueued}>Note en attente du réseau — elle partira dès que la connexion revient.</Text>
+        ) : ratingError ? (
+          <Text style={styles.error}>{ratingError}</Text>
+        ) : null}
       </View>
 
       {phase === 'settled' && cash !== null ? (
@@ -225,6 +261,26 @@ const styles = StyleSheet.create({
   },
   error: {
     color: colors.dangerText,
+  },
+  ratingCard: {
+    gap: 6,
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: radius.field,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  ratingTitle: {
+    fontWeight: '600',
+    color: colors.ink,
+  },
+  ratingHint: {
+    color: colors.muted,
+    textAlign: 'center',
+  },
+  ratingQueued: {
+    color: colors.warningText,
+    textAlign: 'center',
   },
   primaryButton: {
     ...buttons.base,

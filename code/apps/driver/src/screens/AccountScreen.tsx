@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { AccountMenu, Avatar } from '@babana/ui';
+import { AccountMenu, Avatar, formatRatingSummary } from '@babana/ui';
 import type { http } from '@babana/contracts';
 import { apiClient, authClient } from '../auth';
 import { APP_NAME } from '../brand';
@@ -13,7 +13,8 @@ import type { DriverParamList } from '../navigation/types';
 
 /**
  * Profil du chauffeur (2 novembre), ouvert par l'avatar en haut à droite de la carte : photo, nom,
- * puis « Ma caisse » et « Mes documents » -- chaque pièce avec son état et, pour le permis, sa date
+ * sa note reçue des clients, puis « Ma caisse », « Mes courses » (où il corrige les notes données
+ * à ses clients) et « Mes documents » -- chaque pièce avec son état et, pour le permis, sa date
  * d'expiration, telle qu'Odoo la connaît (`GET /driver/documents`). Le ⋮ de la barre porte la
  * déconnexion, qui passe d'abord hors ligne (`signOut.ts`).
  *
@@ -33,7 +34,22 @@ async function signOutFromMenu(): Promise<string | null> {
 const renderAccountMenu = () => <AccountMenu appName={APP_NAME} onSignOut={signOutFromMenu} />;
 
 export function AccountScreen({ navigation }: Props) {
-  const user = authClient.getUser();
+  const [user, setUser] = useState(() => authClient.getUser());
+
+  // La session date du démarrage de l'app ; la note, elle, bouge après chaque course. Relue à
+  // l'ouverture du profil -- hors connexion, celle de la session reste affichée.
+  useEffect(() => {
+    let cancelled = false;
+    authClient.refreshUser(apiClient).then(
+      (state) => {
+        if (!cancelled) setUser(state.user);
+      },
+      () => undefined
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const [documents, setDocuments] = useState<DocumentsState>({ status: 'loading' });
 
   useLayoutEffect(() => {
@@ -59,6 +75,11 @@ export function AccountScreen({ navigation }: Props) {
       <View style={styles.identity}>
         <Avatar name={user?.displayName ?? ''} photoUrl={user?.photoUrl ?? null} size={96} testID="account-avatar" />
         <Text style={styles.name}>{user?.displayName ?? ''}</Text>
+        {user ? (
+          <Text testID="account-rating" style={styles.rating}>
+            {formatRatingSummary(user.rating)}
+          </Text>
+        ) : null}
         <Text style={styles.status}>✓ Compte chauffeur validé</Text>
       </View>
 
@@ -70,6 +91,15 @@ export function AccountScreen({ navigation }: Props) {
           style={({ pressed }) => [styles.row, pressed ? styles.pressed : null]}
         >
           <Text style={styles.rowLabel}>Ma caisse</Text>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
+        <Pressable
+          testID="account-row-history"
+          accessibilityRole="button"
+          onPress={() => navigation.navigate('RideHistory')}
+          style={({ pressed }) => [styles.row, pressed ? styles.pressed : null]}
+        >
+          <Text style={styles.rowLabel}>Mes courses</Text>
           <Text style={styles.chevron}>›</Text>
         </Pressable>
       </View>
@@ -105,6 +135,7 @@ const styles = StyleSheet.create({
   content: { paddingBottom: 32 },
   identity: { alignItems: 'center', gap: 10, paddingTop: 28, paddingBottom: 24, paddingHorizontal: 16 },
   name: { color: colors.ink, fontSize: 22, fontWeight: '700', textAlign: 'center' },
+  rating: { color: colors.ink, fontSize: 16, fontWeight: '600' },
   status: { color: colors.brandText, fontSize: 14 },
   list: { borderTopWidth: 1, borderColor: colors.border },
   row: {

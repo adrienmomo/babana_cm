@@ -41,6 +41,35 @@ export type RideHistoryResponse = z.infer<typeof RideHistoryResponseSchema>;
 export const RideHistoryErrors = [] as const;
 
 /**
+ * GET /drivers/me/rides -- les courses terminées du chauffeur (2 novembre), même pagination que
+ * GET /rides. Chaque course porte la note que le chauffeur a donnée à son client, et si le serveur
+ * lui permet de la poser ou de la corriger (invariant 3). Jamais le nom ni le numéro du client :
+ * le chauffeur ne joint son passager que pendant la course (L8-01).
+ */
+export const DriverRideHistoryEntrySchema = z.object({
+  id: z.string().uuid(),
+  reference: z.string(),
+  requestedAt: IsoDateTimeSchema,
+  pickupLabel: z.string().nullable(),
+  dropoffLabel: z.string().nullable(),
+  amount: MoneyAmountSchema,
+  status: RideHistoryStatusSchema,
+  /** La note donnée au client, `null` s'il n'est pas (encore) noté. */
+  clientRating: z.number().int().min(1).max(5).nullable(),
+  /** Vrai pour une course menée à son terme (terminée ou encaissée) ; faux pour une annulée. */
+  clientRatingAllowed: z.boolean(),
+});
+export type DriverRideHistoryEntry = z.infer<typeof DriverRideHistoryEntrySchema>;
+
+export const DriverRideHistoryResponseSchema = z.object({
+  rides: z.array(DriverRideHistoryEntrySchema),
+  nextCursor: z.string().nullable(),
+});
+export type DriverRideHistoryResponse = z.infer<typeof DriverRideHistoryResponseSchema>;
+
+export const DriverRideHistoryErrors = [] as const;
+
+/**
  * GET /rides/{id}/invoice -- la facture d'une course encaissée, telle qu'émise : le détail
  * décomposé est celui GELÉ à la création de la course, jamais recalculé depuis la grille actuelle
  * (L6-10, critère 4). Paiement toujours en espèces (D8).
@@ -94,6 +123,25 @@ export const rideHistoryResponseExample: RideHistoryResponse = {
       amount: 700,
       status: 'settled',
       invoiceAvailable: true,
+    },
+  ],
+  nextCursor: null,
+};
+
+export const driverRideHistoryRequestExample: RideHistoryQuery = {};
+
+export const driverRideHistoryResponseExample: DriverRideHistoryResponse = {
+  rides: [
+    {
+      id: '11111111-2222-4333-8444-555555555555',
+      reference: 'BAB-2026-000123',
+      requestedAt: '2026-10-29T18:12:00+01:00',
+      pickupLabel: 'vers Carrefour Tiff',
+      dropoffLabel: 'vers Rond-point Deïdo',
+      amount: 700,
+      status: 'settled',
+      clientRating: 5,
+      clientRatingAllowed: true,
     },
   ],
   nextCursor: null,

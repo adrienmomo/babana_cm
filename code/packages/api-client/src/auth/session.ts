@@ -163,6 +163,7 @@ const EMPTY_USER: AuthUser = {
   displayName: '',
   photoUrl: null,
   phoneVerified: false,
+  rating: { average: null, count: 0 },
 };
 
 /**

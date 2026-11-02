@@ -1,6 +1,7 @@
 # Historique et factures du client (L6-10, version minimale de démonstration, 30 octobre ;
-# contrat C-01 history.ts). Trois routes : la liste paginée des courses terminées, la facture
-# d'une course encaissée, et son renvoi par email.
+# contrat C-01 history.ts), et l'historique du chauffeur (2 novembre). Quatre routes : les deux
+# listes paginées des courses terminées, la facture d'une course encaissée, et son renvoi par
+# email.
 #
 # Lecture au nom de l'utilisateur (D54) : la règle d'enregistrement `babana.ride` décide de ce que
 # le client voit -- une course qui ne lui appartient pas revient vide (RIDE_NOT_FOUND), jamais
@@ -14,6 +15,7 @@ import logging
 from odoo import http
 
 from . import _common
+from ..models.babana_client_rating import CLIENT_RATING_STATES
 from ..services.pricing import FareBreakdown, round_breakdown_for_wire
 
 _logger = logging.getLogger(__name__)
@@ -63,6 +65,32 @@ def _distance_meters(ride):
     return None
 
 
+def _page(env, user, domain, cursor):
+    """Une page de courses vues au nom de l'utilisateur (D54), de la plus récente à la plus
+    ancienne. Renvoie (courses, curseur suivant, erreur) -- l'erreur, déjà mise en forme, pour un
+    curseur inconnu."""
+    rides = env["babana.ride"].with_user(user)
+    if cursor:
+        # Curseur = identifiant public de la dernière course de la page précédente : la suite
+        # commence strictement après elle dans l'ordre (date de demande décroissante, puis id
+        # décroissant pour départager deux courses de la même seconde).
+        anchor = rides.search([("public_id", "=", cursor)], limit=1)
+        if not anchor:
+            return None, None, (_common.error_payload("VALIDATION_ERROR", "curseur inconnu"), 400)
+        domain = domain + [
+            "|",
+            ("requested_at", "<", anchor.requested_at),
+            "&", ("requested_at", "=", anchor.requested_at), ("id", "<", anchor.id),
+        ]
+    size = _page_size(env)
+    # Par date de la course, jamais par identifiant : une course antidatée (jeu de démonstration)
+    # ou reprise n'est pas créée dans l'ordre chronologique (défaut vu le 30 octobre).
+    # Un de plus que la page : savoir s'il reste une suite sans seconde requête.
+    found = rides.search(domain, order="requested_at desc, id desc", limit=size + 1)
+    page = found[:size]
+    return page, (page[-1].public_id if len(found) > size else None), None
+
+
 class RideHistoryController(http.Controller):
     def _run(self, endpoint, handler, *args):
         try:
@@ -82,26 +110,10 @@ class RideHistoryController(http.Controller):
 
     def _ride_history(self, cursor):
         env, user = _common.authenticated_user()
-        rides = env["babana.ride"].with_user(user)
         domain = [("client_id", "=", user.partner_id.id), ("state", "in", _HISTORY_STATES)]
-        if cursor:
-            # Curseur = identifiant public de la dernière course de la page précédente : la suite
-            # commence strictement après elle dans l'ordre (date de demande décroissante, puis id
-            # décroissant pour départager deux courses de la même seconde).
-            anchor = rides.search([("public_id", "=", cursor)], limit=1)
-            if not anchor:
-                return _common.error_payload("VALIDATION_ERROR", "curseur inconnu"), 400
-            domain += [
-                "|",
-                ("requested_at", "<", anchor.requested_at),
-                "&", ("requested_at", "=", anchor.requested_at), ("id", "<", anchor.id),
-            ]
-        size = _page_size(env)
-        # Par date de la course, jamais par identifiant : une course antidatée (jeu de démonstration)
-        # ou reprise n'est pas créée dans l'ordre chronologique (défaut vu le 30 octobre).
-        # Un de plus que la page : savoir s'il reste une suite sans seconde requête.
-        found = rides.search(domain, order="requested_at desc, id desc", limit=size + 1)
-        page = found[:size]
+        page, next_cursor, error = _page(env, user, domain, cursor)
+        if error:
+            return error
         return {
             "rides": [
                 {
@@ -117,7 +129,45 @@ class RideHistoryController(http.Controller):
                 }
                 for ride in page
             ],
-            "nextCursor": page[-1].public_id if len(found) > size else None,
+            "nextCursor": next_cursor,
+        }, 200
+
+    # --- GET /drivers/me/rides (driverRideHistory, 2 novembre) ---------------------------------
+    # Les courses terminées du chauffeur, avec la note qu'il a donnée à son client -- et le droit
+    # de la poser ou de la corriger, décidé ici (invariant 3). Jamais le nom ni le numéro du
+    # client : le chauffeur ne joint son passager que pendant la course (L8-01).
+
+    @http.route("/api/v1/drivers/me/rides", **_GET_ROUTE)
+    def driver_ride_history(self, cursor=None, **_kwargs):
+        return self._run("GET /api/v1/drivers/me/rides", self._driver_ride_history, cursor)
+
+    def _driver_ride_history(self, cursor):
+        env, user = _common.authenticated_user()
+        driver = user._babana_driver()
+        if not driver:
+            return _common.error_payload("UNAUTHORIZED", "compte non rattaché à un chauffeur"), 401
+        domain = [("driver_id", "=", driver.id), ("state", "in", _HISTORY_STATES)]
+        page, next_cursor, error = _page(env, user, domain, cursor)
+        if error:
+            return error
+        ratings = env["babana.client.rating"].sudo().search([("ride_id", "in", page.ids)])
+        rating_by_ride = {rating.ride_id.id: rating.rating for rating in ratings}
+        return {
+            "rides": [
+                {
+                    "id": ride.public_id,
+                    "reference": ride.reference,
+                    "requestedAt": _common.iso_datetime(ride.requested_at),
+                    "pickupLabel": ride.pickup_label or None,
+                    "dropoffLabel": ride.dropoff_label or None,
+                    "amount": _amount(ride),
+                    "status": ride.state,
+                    "clientRating": rating_by_ride.get(ride.id),
+                    "clientRatingAllowed": ride.state in CLIENT_RATING_STATES,
+                }
+                for ride in page
+            ],
+            "nextCursor": next_cursor,
         }, 200
 
     # --- GET /rides/{id}/invoice (rideInvoice) -------------------------------------------------

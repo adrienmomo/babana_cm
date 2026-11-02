@@ -39,7 +39,7 @@ jest.mock('../../screens/SignInScreen', () => {
             accessToken: 'a',
             refreshToken: 'r',
             expiresAt: Date.now() + 3600_000,
-            user: { id: 'u1', role: 'client', displayName: 'Amina', photoUrl: null, phoneVerified: true },
+            user: { id: 'u1', role: 'client', displayName: 'Amina', photoUrl: null, phoneVerified: true, rating: { average: null, count: 0 } },
           })
         }
       >
@@ -96,7 +96,7 @@ describe('AppNavigator Client (L6-00)', () => {
   it('une session déjà valide au démarrage monte directement les écrans métier', async () => {
     mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
     mockRefreshUser.mockResolvedValue({
-      user: { id: 'u1', role: 'client', displayName: 'Amina', photoUrl: null, phoneVerified: true },
+      user: { id: 'u1', role: 'client', displayName: 'Amina', photoUrl: null, phoneVerified: true, rating: { average: null, count: 0 } },
     });
     const root = await renderApp();
 
@@ -119,7 +119,7 @@ describe('AppNavigator Client (L6-00)', () => {
   it("la perte de session en cours d'usage ramène à la connexion, depuis n'importe quel écran (critère 4)", async () => {
     mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
     mockRefreshUser.mockResolvedValue({
-      user: { id: 'u1', role: 'client', displayName: 'Amina', photoUrl: null, phoneVerified: true },
+      user: { id: 'u1', role: 'client', displayName: 'Amina', photoUrl: null, phoneVerified: true, rating: { average: null, count: 0 } },
     });
     const root = await renderApp();
     expect(root.root.findAllByType(Text).map((n) => JSON.stringify(n.props.children)).join(' ')).toContain('Accueil');
@@ -136,7 +136,7 @@ describe('AppNavigator Client (L6-00)', () => {
   it("l'accueil porte l'avatar du profil à droite de sa barre, plus le lien « Mes courses » (2 novembre)", async () => {
     mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
     mockRefreshUser.mockResolvedValue({
-      user: { id: 'u1', role: 'client', displayName: 'Amina', photoUrl: null, phoneVerified: true },
+      user: { id: 'u1', role: 'client', displayName: 'Amina', photoUrl: null, phoneVerified: true, rating: { average: null, count: 0 } },
     });
     (authClient.getUser as jest.Mock).mockReturnValue({
       id: 'u1',
@@ -144,6 +144,7 @@ describe('AppNavigator Client (L6-00)', () => {
       displayName: 'Amina Ngo',
       photoUrl: null,
       phoneVerified: true,
+      rating: { average: null, count: 0 },
     });
     const root = await renderApp();
 

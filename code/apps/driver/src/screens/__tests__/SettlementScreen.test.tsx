@@ -191,4 +191,73 @@ describe('SettlementScreen (L6-14)', () => {
     expect(root.root.findByProps({ testID: 'settlement-error' })).toBeTruthy();
     expect(root.root.findAllByProps({ testID: 'settlement-queued' })).toHaveLength(0);
   });
+
+  describe('noter le client (2 novembre)', () => {
+    it('la note du client est proposée dès l’écran d’encaissement, sans champ de saisie', async () => {
+      const { root } = await renderSettlement();
+
+      expect(texts(root)).toContain('Notez votre client');
+      for (const value of [1, 2, 3, 4, 5]) {
+        expect(root.root.findAllByProps({ testID: `settlement-client-star-${value}` }).length).toBeGreaterThan(0);
+      }
+      expect(root.root.findAllByType(TextInput)).toHaveLength(0);
+    });
+
+    it('un appui sur une étoile envoie la note au serveur, sans attendre l’encaissement', async () => {
+      mockRequest.mockResolvedValueOnce({ rideId: RIDE_ID, rating: 4 });
+      const { root } = await renderSettlement();
+
+      await act(async () => {
+        root.root.findByProps({ testID: 'settlement-client-star-4' }).props.onPress();
+      });
+
+      expect(mockRequest).toHaveBeenCalledWith(
+        'rateClient',
+        expect.objectContaining({ pathParams: { id: RIDE_ID }, body: { rating: 4 } })
+      );
+      expect(texts(root)).toContain('Note enregistrée');
+      expect(texts(root)).toContain('Mes courses');
+    });
+
+    it('changer d’avis sur l’écran renvoie la nouvelle note', async () => {
+      mockRequest.mockResolvedValue({ rideId: RIDE_ID, rating: 0 });
+      const { root } = await renderSettlement();
+
+      await act(async () => {
+        root.root.findByProps({ testID: 'settlement-client-star-2' }).props.onPress();
+      });
+      await act(async () => {
+        root.root.findByProps({ testID: 'settlement-client-star-5' }).props.onPress();
+      });
+
+      const bodies = mockRequest.mock.calls.filter((c) => c[0] === 'rateClient').map((c) => c[1].body);
+      expect(bodies).toEqual([{ rating: 2 }, { rating: 5 }]);
+    });
+
+    it('hors connexion, la note part en file et le dit', async () => {
+      mockRequest.mockRejectedValueOnce(new Error('network down'));
+      const { root } = await renderSettlement();
+
+      await act(async () => {
+        root.root.findByProps({ testID: 'settlement-client-star-3' }).props.onPress();
+      });
+
+      expect(texts(root)).toContain('Note en attente du réseau');
+    });
+
+    it('noter n’est pas obligatoire : « Terminé » reste accessible sans note', async () => {
+      mockRequest.mockResolvedValueOnce(settleResponse());
+      const { root, navigation } = await renderSettlement();
+
+      await act(async () => {
+        root.root.findByProps({ testID: 'settlement-confirm' }).props.onPress();
+      });
+      await act(async () => {
+        root.root.findByProps({ testID: 'settlement-done' }).props.onPress();
+      });
+
+      expect(mockReplaceWithHome).toHaveBeenCalledWith(navigation);
+      expect(mockRequest.mock.calls.filter((c) => c[0] === 'rateClient')).toHaveLength(0);
+    });
+  });
 });

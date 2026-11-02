@@ -103,6 +103,9 @@ export type DriverParamList = {
   /** Profil (2 novembre) : ouvert par l'avatar en haut à droite de la carte -- « Ma caisse »,
    * « Mes documents », déconnexion. */
   Account: undefined;
+  /** « Mes courses » (2 novembre) : l'historique du chauffeur, où il pose ou corrige la note
+   * donnée à chaque client. */
+  RideHistory: undefined;
 };
 
 /**

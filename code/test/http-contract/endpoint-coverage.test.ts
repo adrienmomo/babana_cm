@@ -297,6 +297,33 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     assert.deepEqual(rated, { rideId: rig.ride.id, rating: 5 });
   },
 
+  // Le chauffeur note son client, puis corrige sa note : la seconde remplace la première.
+  rateClient: async () => {
+    const rig = await settledRide('rate-client');
+    const driverClient = clientFor(rig.driverSession.accessToken);
+    const first = (await driverClient.request('rateClient', {
+      pathParams: { id: rig.ride.id },
+      body: { rating: 2, comment: 'En retard' },
+    })) as http.RateClientResponse;
+    assert.deepEqual(first, { rideId: rig.ride.id, rating: 2 });
+    const corrected = (await driverClient.request('rateClient', {
+      pathParams: { id: rig.ride.id },
+      body: { rating: 4 },
+    })) as http.RateClientResponse;
+    assert.deepEqual(corrected, { rideId: rig.ride.id, rating: 4 });
+  },
+
+  driverRideHistory: async () => {
+    const rig = await settledRide('driver-ride-history');
+    const driverClient = clientFor(rig.driverSession.accessToken);
+    await driverClient.request('rateClient', { pathParams: { id: rig.ride.id }, body: { rating: 5 } });
+    const history = (await driverClient.request('driverRideHistory', { query: {} })) as http.DriverRideHistoryResponse;
+    const entry = history.rides.find((ride) => ride.id === rig.ride.id);
+    assert.ok(entry, 'la course encaissée figure dans l’historique de son chauffeur');
+    assert.equal(entry.clientRating, 5);
+    assert.equal(entry.clientRatingAllowed, true);
+  },
+
   sendInvoiceEmail: async () => {
     const rig = await settledRide('send-invoice-email');
     const sent = (await rig.client.request('sendInvoiceEmail', { pathParams: { id: rig.ride.id } })) as http.SendInvoiceEmailResponse;

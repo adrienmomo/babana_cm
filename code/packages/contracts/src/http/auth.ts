@@ -23,12 +23,25 @@ export type GoogleAuthRequest = z.infer<typeof GoogleAuthRequestSchema>;
  * `AuthSessionSchema.user` ; l'absence d'un endpoit dédié au profil a produit le détournement
  * que D35 corrige (voir plus bas, `MeResponseSchema`).
  */
+/**
+ * Note reçue (2 novembre) : le chauffeur par ses clients (L4-09), le client par ses chauffeurs.
+ * `average` à une décimale, `null` tant que `count` reste sous `babana.rating_min_count` --
+ * « nouveau », jamais une note de zéro (L4-09, D10).
+ */
+export const RatingSummarySchema = z.object({
+  average: z.number().min(1).max(5).nullable(),
+  count: z.number().int().nonnegative(),
+});
+export type RatingSummary = z.infer<typeof RatingSummarySchema>;
+
 export const AuthenticatedUserSchema = z.object({
   id: UserIdSchema,
   role: z.enum(['client', 'driver']),
   displayName: z.string(),
   photoUrl: z.string().url().nullable(),
   phoneVerified: z.boolean(),
+  /** Note reçue, affichée sur l'écran de profil (2 novembre). */
+  rating: RatingSummarySchema,
   /**
    * Statut de validation du dossier, présent seulement quand role vaut 'driver' (L1-01,
    * spécification : "pour un chauffeur, son statut de validation"). Absent du schéma
@@ -83,6 +96,7 @@ export const googleAuthResponseExample: GoogleAuthResponse = {
     displayName: 'Amina N.',
     photoUrl: 'https://lh3.googleusercontent.com/mock/amina.jpg',
     phoneVerified: false,
+    rating: { average: null, count: 0 },
   },
 };
 

@@ -14,6 +14,7 @@ import { SettlementScreen } from '../screens/SettlementScreen';
 import { CashScreen } from '../screens/CashScreen';
 import { RemittanceScreen } from '../screens/RemittanceScreen';
 import { AccountScreen } from '../screens/AccountScreen';
+import { RideHistoryScreen } from '../screens/RideHistoryScreen';
 import { ProfileScreen } from '../screens/onboarding/ProfileScreen';
 import { DocumentsScreen } from '../screens/onboarding/DocumentsScreen';
 import { PendingScreen } from '../screens/onboarding/PendingScreen';
@@ -181,6 +182,7 @@ function DriverNavigator() {
       <DriverStack.Screen name="Cash" component={CashScreen} options={{ title: 'Ma caisse' }} />
       <DriverStack.Screen name="Remittance" component={RemittanceScreen} options={{ title: 'Déclarer une remise' }} />
       <DriverStack.Screen name="Account" component={AccountScreen} options={{ title: 'Mon profil' }} />
+      <DriverStack.Screen name="RideHistory" component={RideHistoryScreen} options={{ title: 'Mes courses' }} />
     </DriverStack.Navigator>
   );
 }

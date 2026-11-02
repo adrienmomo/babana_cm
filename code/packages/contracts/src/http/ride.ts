@@ -285,3 +285,24 @@ export const rateRideResponseExample: RateRideResponse = {
   rideId: '11111111-2222-4333-8444-555555555555',
   rating: 5,
 };
+
+/**
+ * POST /rides/{id}/client-rating (2 novembre)
+ * Le chauffeur note son client, sur une course terminée ou encaissée. À la différence de
+ * `rateRide` (définitive), un second envoi remplace le premier : le chauffeur corrige sa note
+ * depuis son historique. Le commentaire, comme pour `rateRide`, ne revient jamais.
+ */
+export const RateClientRequestSchema = RateRideRequestSchema;
+export type RateClientRequest = z.infer<typeof RateClientRequestSchema>;
+
+export const RateClientResponseSchema = RateRideResponseSchema;
+export type RateClientResponse = z.infer<typeof RateClientResponseSchema>;
+
+export const RateClientErrors = ['RIDE_NOT_FOUND', 'RIDE_NOT_OWNED', 'RATING_NOT_ALLOWED'] as const;
+
+export const rateClientRequestExample: RateClientRequest = { rating: 4 };
+
+export const rateClientResponseExample: RateClientResponse = {
+  rideId: '11111111-2222-4333-8444-555555555555',
+  rating: 4,
+};

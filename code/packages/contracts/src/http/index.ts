@@ -208,6 +208,16 @@ export const HTTP_ENDPOINTS = {
     requestExample: ride.rateRideRequestExample,
     responseExample: ride.rateRideResponseExample,
   },
+  rateClient: {
+    method: 'POST',
+    path: '/api/v1/rides/{id}/client-rating',
+    requiresAuth: true,
+    requestSchema: ride.RateClientRequestSchema,
+    responseSchema: ride.RateClientResponseSchema,
+    errors: ride.RateClientErrors,
+    requestExample: ride.rateClientRequestExample,
+    responseExample: ride.rateClientResponseExample,
+  },
   setAvailability: {
     method: 'POST',
     path: '/api/v1/drivers/me/availability',
@@ -323,6 +333,16 @@ export const HTTP_ENDPOINTS = {
     errors: history.RideHistoryErrors,
     requestExample: history.rideHistoryRequestExample,
     responseExample: history.rideHistoryResponseExample,
+  },
+  driverRideHistory: {
+    method: 'GET',
+    path: '/api/v1/drivers/me/rides',
+    requiresAuth: true,
+    requestSchema: history.RideHistoryQuerySchema,
+    responseSchema: history.DriverRideHistoryResponseSchema,
+    errors: history.DriverRideHistoryErrors,
+    requestExample: history.driverRideHistoryRequestExample,
+    responseExample: history.driverRideHistoryResponseExample,
   },
   rideInvoice: {
     method: 'GET',

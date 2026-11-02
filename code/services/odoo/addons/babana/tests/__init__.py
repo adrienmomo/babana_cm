@@ -56,3 +56,4 @@ from . import test_dispatch
 from . import test_approach
 from . import test_history_controller
 from . import test_rating
+from . import test_client_rating

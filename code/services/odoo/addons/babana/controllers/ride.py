@@ -473,3 +473,35 @@ class RideController(http.Controller):
             return _common.error_payload("RATING_NOT_ALLOWED", str(exc)), 403
         # Le commentaire n'est jamais renvoyé (critère 5) : seule la note revient.
         return {"rideId": ride.public_id, "rating": rating}, 200
+
+    # --- POST /rides/{id}/client-rating (rateClient, 2 novembre) --------------------------------
+    # Le chauffeur note son client. À la différence de rateRide, une seconde note n'est pas un
+    # refus : elle remplace la première (correction depuis l'historique du chauffeur).
+
+    @http.route("/api/v1/rides/<string:ride_id>/client-rating", **_ROUTE)
+    def rate_client(self, ride_id, **_kwargs):
+        return self._dispatch("rateClient", lambda: self._rate_client(ride_id))
+
+    def _rate_client(self, ride_id):
+        env, user = _common.authenticated_user()
+        body = _common.parse_json_body() or {}
+        rating = body.get("rating")
+        comment = body.get("comment")
+        if isinstance(rating, bool) or not isinstance(rating, int) or not 1 <= rating <= 5:
+            return _common.error_payload("VALIDATION_ERROR", "rating : entier de 1 à 5"), 400
+        if comment is not None and (not isinstance(comment, str) or len(comment) > RATING_COMMENT_MAX_LENGTH):
+            return _common.error_payload(
+                "VALIDATION_ERROR", f"comment : texte de {RATING_COMMENT_MAX_LENGTH} caractères au plus"
+            ), 400
+        ride = self._find_ride(env, user, ride_id)
+        if not ride:
+            return _common.error_payload("RIDE_NOT_FOUND", "course inconnue"), 404
+        driver = user._babana_driver()
+        if not driver or ride.sudo().driver_id != driver:
+            # Le client voit sa course, mais seul son chauffeur note le client.
+            return _common.error_payload("RIDE_NOT_OWNED", "cette course n'appartient pas à l'appelant"), 403
+        try:
+            env["babana.client.rating"]._rate_client(ride, driver, rating, comment)
+        except RatingNotAllowed as exc:
+            return _common.error_payload("RATING_NOT_ALLOWED", str(exc)), 403
+        return {"rideId": ride.public_id, "rating": rating}, 200
