@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { colors } from '../../theme';
 import { Button } from '@babana/ui';
-import { DOCUMENT_LABELS, type DocumentSlot, type RequiredDocumentType } from './state';
+import { DOCUMENT_LABELS, DOCUMENT_STATUS_LABELS, type DocumentSlot, type RequiredDocumentType } from './state';
 
 /**
  * Écran d'attente de validation (L6-15). Il dit **précisément** où en est le dossier -- pas
@@ -43,7 +43,7 @@ export function PendingScreen({ slots, onFix, onRefresh }: PendingScreenProps) {
         <View key={slot.type} style={styles.row} testID={`pending-row-${slot.type}`}>
           <Text style={styles.rowTitle}>{DOCUMENT_LABELS[slot.type]}</Text>
           <Text style={styles.status} testID={`pending-status-${slot.type}`}>
-            {statusLabel(slot)}
+            {DOCUMENT_STATUS_LABELS[slot.status]}
           </Text>
           {slot.status === 'rejected' && slot.rejectionReason ? (
             <Text style={styles.reason} testID={`pending-reason-${slot.type}`}>
@@ -69,19 +69,6 @@ export function PendingScreen({ slots, onFix, onRefresh }: PendingScreenProps) {
       />
     </View>
   );
-}
-
-function statusLabel(slot: DocumentSlot): string {
-  switch (slot.status) {
-    case 'missing':
-      return 'Pas encore déposé';
-    case 'pending':
-      return 'En cours de validation';
-    case 'verified':
-      return 'Validé';
-    case 'rejected':
-      return 'Refusé';
-  }
 }
 
 const styles = StyleSheet.create({

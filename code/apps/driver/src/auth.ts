@@ -31,3 +31,11 @@ export const authClient = new AuthClient({
 /** Client HTTP à utiliser pour tout appel authentifié -- le renouvellement transparent (critères
  * d'acceptation 2 et 3, L6-02) y est déjà branché. */
 export const apiClient = withTransparentRefresh(baseHttpClient, authClient);
+
+/** Déconnexion volontaire (écran de profil) : révocation best-effort et effacement local
+ * (`logout()`), puis les mêmes abonnés que pour une session perdue -- la garde d'authentification
+ * remonte la connexion, le temps réel se ferme. */
+export async function signOut(): Promise<void> {
+  await authClient.logout();
+  sessionLostListeners.forEach((listener) => listener());
+}

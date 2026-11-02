@@ -25,6 +25,13 @@ export const DOCUMENT_LABELS: Record<RequiredDocumentType, string> = {
 
 export type DocumentSlotStatus = 'missing' | 'pending' | 'verified' | 'rejected';
 
+export const DOCUMENT_STATUS_LABELS: Record<DocumentSlotStatus, string> = {
+  missing: 'Pas encore déposé',
+  pending: 'En cours de validation',
+  verified: 'Validé',
+  rejected: 'Refusé',
+};
+
 export interface DocumentSlot {
   type: RequiredDocumentType;
   status: DocumentSlotStatus;

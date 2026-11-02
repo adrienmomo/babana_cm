@@ -6,7 +6,7 @@ jest.mock('../../bootstrap', () => ({ bootstrap: jest.fn() }));
 
 let sessionLostListener: (() => void) | null = null;
 jest.mock('../../auth', () => ({
-  authClient: { restore: jest.fn(), refreshUser: jest.fn() },
+  authClient: { restore: jest.fn(), refreshUser: jest.fn(), getUser: jest.fn(() => null) },
   // Jamais réellement exercé -- authClient.refreshUser est mocké au-dessus, l'objet n'a besoin
   // que d'exister pour l'argument que `useSession` (index.tsx) lui passe (D35).
   apiClient: {},
@@ -131,5 +131,30 @@ describe('AppNavigator Client (L6-00)', () => {
     const texts = root.root.findAllByType(Text).map((n) => JSON.stringify(n.props.children));
     expect(texts.join(' ')).toContain('sign-in-screen');
     expect(texts.join(' ')).not.toContain('Accueil');
+  });
+
+  it("l'accueil porte l'avatar du profil à droite de sa barre, plus le lien « Mes courses » (2 novembre)", async () => {
+    mockRestore.mockResolvedValue({ accessToken: 'a', refreshToken: 'r', expiresAt: Date.now() + 3600_000 });
+    mockRefreshUser.mockResolvedValue({
+      user: { id: 'u1', role: 'client', displayName: 'Amina', photoUrl: null, phoneVerified: true },
+    });
+    (authClient.getUser as jest.Mock).mockReturnValue({
+      id: 'u1',
+      role: 'client',
+      displayName: 'Amina Ngo',
+      photoUrl: null,
+      phoneVerified: true,
+    });
+    const root = await renderApp();
+
+    const texts = root.root.findAllByType(Text).map((n) => JSON.stringify(n.props.children));
+    expect(texts.join(' ')).not.toContain('Mes courses');
+    const button = root.root.findByProps({ testID: 'open-profile' });
+    expect(button.props.accessibilityLabel).toBe('Mon profil');
+
+    await act(async () => {
+      button.props.onPress();
+    });
+    expect(navigationRef.getCurrentRoute()?.name).toBe('Account');
   });
 });

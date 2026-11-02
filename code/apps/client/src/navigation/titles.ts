@@ -13,6 +13,7 @@ export const SCREEN_TITLES: Record<keyof ClientParamList, string> = {
   // L'écran affiche déjà l'étape (« Votre chauffeur arrive », « Course en cours ») : la barre ne la répète pas.
   Tracking: 'Suivi de course',
   RideSummary: 'Course terminée',
+  Account: 'Mon profil',
   History: 'Mes courses',
   Invoice: 'Facture',
 };

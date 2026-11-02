@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { asRideId } from '@babana/navigation';
+import { Avatar } from '@babana/ui';
 import { MapView, type LatLng, type MapMarker } from '@babana/maps';
 import type { ConnectionState } from '@babana/api-client';
 import type { realtime } from '@babana/contracts';
@@ -13,6 +14,7 @@ import { ActiveRidePanel, type RideFlowSettings, type RideMapState } from '../ri
 import { replaceWithSettlement } from '../navigation/transitions';
 import { buttonLabels, buttons, cards, colors, radius, shadow } from '../theme';
 import { fetchCashSummary } from '../api/cash';
+import { authClient } from '../auth';
 import { formatMoney } from '../format';
 import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { isProposalHandled, markProposalHandled } from '../proposalDedup';
@@ -69,6 +71,7 @@ const RIDE_SETTINGS: RideFlowSettings = {
 };
 
 export function HomeScreen({ navigation, route }: Props) {
+  const user = authClient.getUser();
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => realtimeClient.getState());
   // Lu depuis session.synced (activeRideState), jamais deviné (invariant 3) -- session.resync est
   // déjà envoyé automatiquement à chaque connexion établie, initiale ou après coupure
@@ -264,6 +267,18 @@ export function HomeScreen({ navigation, route }: Props) {
 
       {flow.kind === 'idle' ? (
         <>
+          {/* Avatar en haut à droite : le profil (« Ma caisse », documents, déconnexion). Seulement au
+              repos -- pendant une proposition ou une course, rien ne doit détourner du déroulé. */}
+          <Pressable
+            testID="home-open-profile"
+            accessibilityRole="button"
+            accessibilityLabel="Mon profil"
+            onPress={() => navigation.navigate('Account')}
+            style={({ pressed }) => [styles.profileButton, pressed ? styles.profileButtonPressed : null]}
+          >
+            <Avatar name={user?.displayName ?? ''} photoUrl={user?.photoUrl ?? null} size={44} testID="home-profile-avatar" />
+          </Pressable>
+
           <View style={styles.statusChip} pointerEvents="none">
             <Text style={styles.connectionState} testID="connection-state">
               {connectionState === 'connected'
@@ -334,6 +349,18 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+  },
+  profileButton: {
+    position: 'absolute',
+    top: 8,
+    right: 12,
+    borderRadius: radius.pill,
+    borderWidth: 2,
+    borderColor: colors.surface,
+    ...shadow,
+  },
+  profileButtonPressed: {
+    opacity: 0.85,
   },
   statusChip: {
     ...cards.floating,

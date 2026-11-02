@@ -59,6 +59,8 @@ export type ClientParamList = {
     amount: number;
     breakdown: http.FareBreakdown;
   };
+  /** Profil (2 novembre) : ouvert par l'avatar de l'accueil, mène à « Mes courses ». */
+  Account: undefined;
   History: undefined;
   Invoice: { rideId: RideId };
 };

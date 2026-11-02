@@ -100,6 +100,9 @@ export type DriverParamList = {
    * quand le motif de refus de passage en ligne est le plafond d'encaisse (L3-04), et `Cash`
    * ci-dessus y mène aussi depuis le bouton « Déclarer une remise ». */
   Remittance: undefined;
+  /** Profil (2 novembre) : ouvert par l'avatar en haut à droite de la carte -- « Ma caisse »,
+   * « Mes documents », déconnexion. */
+  Account: undefined;
 };
 
 /**

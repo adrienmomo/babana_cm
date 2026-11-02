@@ -5,6 +5,9 @@ import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 const mockRequest = jest.fn();
 jest.mock('../../auth', () => ({
   apiClient: { request: (...args: unknown[]) => mockRequest(...args) },
+  authClient: {
+    getUser: () => ({ id: 'd1', role: 'driver', displayName: 'Emmanuel Ebongue', photoUrl: null, phoneVerified: true }),
+  },
 }));
 
 let realtimeListener: ((message: unknown) => void) | null = null;
@@ -461,6 +464,29 @@ describe('HomeScreen (L6-11)', () => {
         jest.useRealTimers();
       }
     });
+  });
+
+  it('l’avatar du chauffeur, en haut à droite de la carte, ouvre son profil (2 novembre)', async () => {
+    const { root, navigation } = await renderHome();
+
+    const button = host(root, 'home-open-profile')[0]!;
+    expect(button.props.accessibilityLabel).toBe('Mon profil');
+    expect(root.root.findByProps({ testID: 'home-profile-avatar-initials' }).props.children).toBe('EE');
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'home-open-profile' }).props.onPress();
+    });
+    expect(navigation.navigate).toHaveBeenCalledWith('Account');
+  });
+
+  it('pendant une proposition, l’avatar s’efface : rien ne doit détourner du choix', async () => {
+    const { root } = await renderHome();
+    await act(async () => {
+      emitSessionSynced(null, anActiveProposal());
+    });
+
+    expect(shown(root, 'proposal-screen')).toBe(true);
+    expect(shown(root, 'home-open-profile')).toBe(false);
   });
 
   it("L5-07 -- « Ma caisse » navigue vers l'écran de recette, accessible en permanence depuis l'accueil", async () => {

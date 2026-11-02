@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { createNavigationContainerRef, NavigationContainer, useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator, type NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AuthGate, PlaceholderScreen, type SessionState } from '@babana/navigation';
+import { Avatar } from '@babana/ui';
 import { ApiError, type AuthState, type AuthUser } from '@babana/api-client';
 import { apiClient, authClient, onSessionLost } from '../auth';
 import { APP_NAME } from '../brand';
@@ -15,6 +16,7 @@ import { QuoteScreen } from '../screens/QuoteScreen';
 import { WaitingScreen } from '../screens/WaitingScreen';
 import { TrackingScreen } from '../screens/TrackingScreen';
 import { RideSummaryScreen } from '../screens/RideSummaryScreen';
+import { AccountScreen } from '../screens/AccountScreen';
 import { HistoryScreen } from '../screens/HistoryScreen';
 import { InvoiceScreen } from '../screens/InvoiceScreen';
 import type { AuthParamList, ClientParamList } from './types';
@@ -115,12 +117,20 @@ function SignInStack({ onSignedIn }: { onSignedIn: (session: AuthState) => void 
   );
 }
 
-/** « Mes courses », à droite de la barre de l'accueil (L6-10). */
-function HistoryHeaderLink() {
+/** Avatar du client, à droite de la barre de l'accueil : ouvre son profil, d'où « Mes courses »
+ * (L6-10) est désormais accessible (2 novembre). */
+function ProfileHeaderButton() {
   const navigation = useNavigation<NativeStackNavigationProp<ClientParamList>>();
+  const user = authClient.getUser();
   return (
-    <Pressable testID="open-history" onPress={() => navigation.navigate('History')} hitSlop={12}>
-      <Text style={styles.headerLink}>Mes courses</Text>
+    <Pressable
+      testID="open-profile"
+      accessibilityRole="button"
+      accessibilityLabel="Mon profil"
+      onPress={() => navigation.navigate('Account')}
+      hitSlop={8}
+    >
+      <Avatar name={user?.displayName ?? ''} photoUrl={user?.photoUrl ?? null} size={34} testID="open-profile-avatar" />
     </Pressable>
   );
 }
@@ -132,11 +142,12 @@ function ClientNavigator() {
       // Sans titre explicite, la barre affiche le nom technique de la route (« Home », « Quote »).
       screenOptions={({ route }) => ({ title: SCREEN_TITLES[route.name] })}
     >
-      <ClientStack.Screen name="Home" component={HomeScreen} options={{ headerRight: HistoryHeaderLink }} />
+      <ClientStack.Screen name="Home" component={HomeScreen} options={{ headerRight: ProfileHeaderButton }} />
       <ClientStack.Screen name="Quote" component={QuoteScreen} />
       <ClientStack.Screen name="Waiting" component={WaitingScreen} />
       <ClientStack.Screen name="Tracking" component={TrackingScreen} />
       <ClientStack.Screen name="RideSummary" component={RideSummaryScreen} />
+      <ClientStack.Screen name="Account" component={AccountScreen} />
       <ClientStack.Screen name="History" component={HistoryScreen} />
       <ClientStack.Screen name="Invoice" component={InvoiceScreen} />
     </ClientStack.Navigator>
@@ -178,10 +189,5 @@ const styles = StyleSheet.create({
   },
   signedInRoot: {
     flex: 1,
-  },
-  headerLink: {
-    color: '#137347',
-    fontWeight: '600',
-    fontSize: 15,
   },
 });
