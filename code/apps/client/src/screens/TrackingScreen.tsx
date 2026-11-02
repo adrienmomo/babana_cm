@@ -123,6 +123,10 @@ export function TrackingScreen({ route, navigation }: Props) {
     const unsubscribeMessages = onRealtimeMessage((message) => {
       if (isRideTrackAckMessage(message)) {
         stopWatchdog();
+        // Nouvel accusé (souvent la réponse à un réabonnement pour silence) : la surveillance
+        // repart de zéro, le silence affiché aussi -- sinon l'ancienne surveillance, arrêtée sans
+        // jamais signaler la reprise, laissait le bandeau affiché pour de bon (31 octobre).
+        setPositionStreamStale(false);
         watchdog = new StreamLivenessWatchdog({
           expectedIntervalMs: message.payload.broadcastIntervalMs,
           onStale: () => setPositionStreamStale(true),
@@ -139,7 +143,10 @@ export function TrackingScreen({ route, navigation }: Props) {
         watchdog?.recordActivity();
         setDriverPosition(message.payload.position);
         setEtaSeconds(message.payload.etaSeconds);
-        setLastPositionAt(new Date(message.emittedAt).getTime());
+        // Heure de RÉCEPTION, sur l'horloge de ce téléphone : l'âge affiché (« il y a N s ») se
+        // mesure entre deux instants du même téléphone. L'heure d'émission du serveur, comparée à
+        // une horloge de téléphone décalée, donnait « 0 s » ou « 57 600 s » (31 octobre).
+        setLastPositionAt(Date.now());
         if (phaseRef.current === 'course') {
           setTrace((previous) => [...previous, message.payload.position]);
         }

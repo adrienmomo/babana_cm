@@ -361,6 +361,61 @@ describe('TrackingScreen (L6-09)', () => {
     expect(root.root.findAllByProps({ testID: 'tracking-stale-banner' })).toHaveLength(0);
   });
 
+  it('silence, réabonnement, nouvel accusé, puis reprise : le bandeau disparaît (resté affiché sur émulateur, 31 octobre)', async () => {
+    // Le réabonnement fait renvoyer ride.track.ack, qui remplaçait la surveillance sans jamais
+    // lever le silence affiché : la reprise suivante ne l'effaçait plus.
+    jest.useFakeTimers();
+    const { root } = await renderTracking();
+    await act(async () => {
+      emitTrackAck(10_000);
+      emitPosition();
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(30_000);
+    });
+    expect(root.root.findByProps({ testID: 'tracking-stale-banner' })).toBeTruthy();
+
+    await act(async () => {
+      emitTrackAck(10_000); // réponse au réabonnement
+      emitPosition();
+    });
+
+    expect(root.root.findAllByProps({ testID: 'tracking-stale-banner' })).toHaveLength(0);
+  });
+
+  it('l’âge affiché ne dépend pas de l’horloge du téléphone (téléphone en avance comme en retard)', async () => {
+    jest.useFakeTimers();
+    const { root } = await renderTracking();
+    const SIXTEEN_HOURS = 16 * 3600 * 1000;
+    // Téléphone en avance : le serveur date ses messages 16 h « dans le passé ».
+    await act(async () => {
+      emitTrackAck(10_000);
+      realtimeListener?.({
+        type: 'driver.position',
+        id: 'skew-1',
+        emittedAt: new Date(Date.now() - SIXTEEN_HOURS).toISOString(),
+        payload: { rideId: RIDE_ID, position: { latitude: 4.051, longitude: 9.701 }, etaSeconds: 300 },
+      });
+    });
+    expect(root.root.findByProps({ testID: 'tracking-freshness' }).props.children).toEqual(
+      expect.arrayContaining([0])
+    );
+
+    // Téléphone en retard : messages datés 16 h « dans le futur » -- le silence se compte quand même.
+    await act(async () => {
+      realtimeListener?.({
+        type: 'driver.position',
+        id: 'skew-2',
+        emittedAt: new Date(Date.now() + SIXTEEN_HOURS).toISOString(),
+        payload: { rideId: RIDE_ID, position: { latitude: 4.051, longitude: 9.701 }, etaSeconds: 300 },
+      });
+    });
+    await act(async () => {
+      await jest.advanceTimersByTimeAsync(31_000);
+    });
+    expect(texts(root)).toContain('Position non mise à jour depuis 31 s');
+  });
+
   it('D50 -- le seuil de silence suit la cadence annoncée par ride.track.ack, pas une constante locale', async () => {
     jest.useFakeTimers();
     const { root } = await renderTracking();
