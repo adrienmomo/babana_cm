@@ -53,6 +53,21 @@ login par mot de passe refusé, `ufw status` montre 80 + 443 ouverts et SSH rest
 80 reste ouvert** : Caddy en a besoin pour ACME ; le fermer provoque une expiration silencieuse
 ~3 mois plus tard.
 
+**Changer le port SSH se fait en deux passages** (`amoa/questions/DEVSERVER-2026-11-05.md` §2).
+Sur Ubuntu 24.04, le port appartient à `ssh.socket` ; l'ancienne version du script ne le
+déplaçait pas, puis fermait 22 au pare-feu — enfermé dehors. Désormais :
+
+```sh
+sudo SSH_ADMIN_IPS="<vos adresses>" SSH_PORT=<port> sh infra/production/bootstrap.sh
+# 22 et <port> écoutent tous deux. Ouvrir une NOUVELLE session : ssh -p <port> ..., puis :
+sudo SSH_ADMIN_IPS="<vos adresses>" SSH_PORT=<port> SSH_PORT_CONFIRMED=1 sh infra/production/bootstrap.sh
+```
+
+Le script vérifie que chaque port écoute réellement avant de toucher au pare-feu, et règle la
+prison fail2ban sur le port ouvert. `SSH_ADMIN_IPS=any` et `SSH_KEEP_PASSWORD_LOGIN=1` sont des
+exceptions à §9 réservées au serveur de développement — jamais en production. Vérifié par
+`test/config/bootstrap.test.sh` (dans `make test`).
+
 ### 4. DNS
 
 Enregistrements A pour `babana.cm`, `api.babana.cm`, `admin.babana.cm`, `storage.babana.cm`
