@@ -71,3 +71,52 @@ mon fait** : deux erreurs `TS2345` dans `services/realtime/test/internal.test.ts
 chaîne), présentes à l'identique sur `master` sans mes changements. Dernière modification de ces
 fichiers : `1b0dbcd` (L4-12, 31 octobre). Hors du périmètre de cette tâche : signalé, non corrigé
 ici.
+
+---
+
+## DEVSERVER — installation hors conteneur (branche `devserver-setup`)
+
+Fichiers : `code/infra/devserver/` (README = procédure). Données dans Docker sur `127.0.0.1`,
+Odoo sous systemd, temps réel et simulateur de routage sous pm2 (votre demande), nginx.
+
+**Posé et vérifié, le 5 novembre.**
+
+| Élément | Vérification |
+|---|---|
+| Swap 4 Go, utilisateur `babana` (`/var/lib/babana`) | `free`, `id babana` |
+| Docker 29.1 (paquets Ubuntu), `daemon.json` `"ip": "127.0.0.1"` | publication volontairement négligente `-p 18999:6379` : liée à `127.0.0.1`, injoignable depuis ce poste |
+| Node 22.23 (NodeSource, clé vérifiée), pm2 7.1 | `pm2-babana` activé au démarrage |
+| wkhtmltopdf 0.12.6.1 *patched qt* | empreinte identique par deux chemins réseau (pas de somme publiée) ; PDF rendu ; factures reçues avec PDF |
+| Odoo 18 source, épinglé à `db1315502` (8 sept., = nightly 20260908 de l'image locale), venv Python 3.12 | `pip check` propre ; module installé, 50 modules, `rc=0` |
+| PostgreSQL 16.15, Redis 7.4, MinIO, Mailpit | tous `healthy`, ports sur `127.0.0.1` seulement ; compartiment privé (GET anonyme : 403) |
+| MinIO + `mc` compilés depuis les sources | identifiants de commit identiques à l'image locale (`07c3a429…`, `7394ce0d…`) |
+| Odoo sous systemd, 2 workers + gevent | `/web/health` pass ; 8069 et 8072 sur `127.0.0.1` |
+| Temps réel sous pm2 | `/health` : `redis ok, odoo ok` ; `ws` 8.21.3 (le piège du Dockerfile évité) |
+| Données de démonstration | `seed rc=0` : 6 zones, 5 chauffeurs, 21 courses réglées ; 23 factures dans Mailpit |
+| Connexion OTP par l'API réelle | demande → code lu dans `journalctl` → échange : session « Emmanuel Ndoumbè », chauffeur approuvé |
+| nginx, étape HTTP | IP nue : connexion fermée (444) ; `api.babana.dev` forcé vers ce serveur : 301 vers HTTPS |
+
+**Ce qui m'a surpris.**
+
+- **MinIO ne distribue plus rien** (quay.io 401, Docker Hub absent, `dl.min.io` 410). Concerne tout
+  le dépôt : `amoa/questions/DEVSERVER-2026-11-05.md` §6.
+- **Le garde de D19 a fonctionné** : `mock-maps` refuse `NODE_ENV=production`, et je le lui avais
+  donné. Corrigé dans la configuration pm2 (`development`, comme `compose.dev.yaml`), pas dans le
+  garde.
+- **Mon propre `gen-env.sh`** créait `/etc/babana` en 700 root : `babana` n'atteignait jamais son
+  fichier 640. Ma vérification locale avait regardé le fichier, pas sa lecture par `babana`.
+  Revérifié depuis en lisant réellement en tant que `babana` (et refusé à `nobody`).
+- **Les factures partent de `odoobot@example.com`** (« No mail server matches the from_filter »).
+  Pas propre au serveur : 266 occurrences dans le journal Odoo local. Défaut existant, non traité
+  ici.
+- **GitHub refuse les poussées sur `devserver-setup`** (`fatal error in commit_refs_rules`, trois
+  fois, statut GitHub nominal). Les commits ont rejoint le serveur par `git bundle` : sa copie est
+  identique à cette branche.
+
+**Reste à faire, et pourquoi.**
+
+- Certificat et étape HTTPS : les quatre noms ne pointent pas encore vers ce serveur
+  (`api.`, `admin.`, `storage.` → 5.189.160.12 ; `share.` absent).
+- Clés Google A et B, puis les APK.
+- Redémarrage complet du serveur pour prouver que tout revient seul (systemd, pm2, Docker) — pas
+  encore fait.
