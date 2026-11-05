@@ -34,7 +34,9 @@ module.exports = {
       name: 'babana-mock-maps',
       cwd: path.join(CODE_DIR, 'services/mocks/maps'),
       script: 'src/index.js',
-      env: { NODE_ENV: 'production', PORT: '4001' },
+      // Simulators refuse NODE_ENV=production (D19, L0-08 criterion 6): this server is not
+      // production, and the guard is right -- development, as in compose.dev.yaml.
+      env: { NODE_ENV: 'development', PORT: '4001' },
       instances: 1,
       exec_mode: 'fork',
       max_memory_restart: '200M',
