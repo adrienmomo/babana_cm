@@ -1,0 +1,28 @@
+# Dev server 75.119.155.162 -- Odoo 18 from source, as user babana.
+#   sudo ln -sf /var/www/babana_cm/code/infra/devserver/systemd/babana-odoo.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now babana-odoo
+[Unit]
+Description=Babana Odoo 18 (dev server)
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=babana
+Group=babana
+EnvironmentFile=/etc/babana/babana.env
+ExecStart=/opt/odoo/venv/bin/python /opt/odoo/18.0/odoo-bin -c /var/www/babana_cm/code/infra/devserver/odoo.conf
+Restart=on-failure
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=30
+
+# The code is read-only to this user; only its data directory is writable.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/babana
+
+[Install]
+WantedBy=multi-user.target

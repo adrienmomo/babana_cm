@@ -1,0 +1,72 @@
+# Dev server 75.119.155.162 -- data services only (amoa/questions/DEVSERVER-2026-11-05.md §1).
+#
+# Odoo, the realtime service and nginx run on the host; only the four services that hold data run
+# here. Every port is published on 127.0.0.1 and nowhere else: Docker writes its iptables rules
+# ahead of ufw, so a port published on 0.0.0.0 would be reachable from the internet whatever the
+# firewall says. /etc/docker/daemon.json also sets "ip": "127.0.0.1" as a second guard.
+#
+# Never used by `make up` or any local target. Always run with its own project name and env file:
+#
+#   docker compose -f infra/devserver/compose.yaml --env-file /etc/babana/babana.env up -d --wait
+name: babana-devserver
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: postgres
+    ports: ["127.0.0.1:5432:5432"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4-alpine
+    # Same settings as infra/compose.yaml: nothing durable lives here (invariant 1).
+    command: ["redis-server", "--appendonly", "no", "--save", "", "--maxmemory-policy", "noeviction"]
+    ports: ["127.0.0.1:6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  minio:
+    build:
+      context: ./minio
+    image: babana-devserver/minio:RELEASE.2025-09-07T16-13-09Z
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?}
+    # 9000: S3 API, proxied by nginx as storage.babana.dev. 9001: console, NEVER proxied (D64) --
+    # reachable only through an SSH tunnel.
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
+    volumes:
+      - miniodata:/data
+      - ../minio/bootstrap.sh:/bootstrap.sh:ro
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      retries: 10
+    restart: unless-stopped
+
+  mailpit:
+    image: axllent/mailpit:v1.31.2
+    # 1025: SMTP for Odoo. 8025: web inbox, through an SSH tunnel only.
+    ports: ["127.0.0.1:1025:1025", "127.0.0.1:8025:8025"]
+    volumes:
+      - mailpitdata:/data
+    environment:
+      MP_DATABASE: /data/mailpit.db
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  miniodata:
+  mailpitdata:
