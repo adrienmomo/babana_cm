@@ -95,3 +95,30 @@ Retenu pour ce serveur : deux nouvelles clés. A, SDK natif, restreinte à `cm.b
 d'application, avec plafond journalier. La clé B est lisible dans l'APK : c'est le plafond qui la
 protège. Ajouter les en-têtes Android dans `@babana/maps` n'y changerait rien, les deux valeurs
 étant elles aussi lisibles dans l'APK.
+
+## 6. MinIO ne distribue plus rien de prêt à l'emploi — concerne tout le dépôt
+
+Constaté le 5 novembre en installant le serveur : `quay.io/minio/minio` répond **401** (même
+`latest`), `minio/minio` n'existe plus sur Docker Hub, et `dl.min.io` répond **410 Gone** pour les
+binaires du serveur comme pour ceux du client `mc`. Seules les sources restent, sur GitHub.
+
+**Ce n'est pas propre au serveur de développement.** `infra/compose.yaml` tire
+`quay.io/minio/minio` sans version : le `make up` local ne fonctionne que parce que l'image est
+déjà en cache sur le poste (ARM, du 7 septembre). Un poste neuf, une intégration continue ou
+`deploy.sh` en production échoueraient à cette étape. Le `Dockerfile.release` de MinIO lui-même
+téléchargeait depuis `dl.min.io` : il ne construit plus rien.
+
+**Retenu pour le serveur de développement** (votre choix) : `code/infra/devserver/minio/Dockerfile`
+compile `minio` et `mc` depuis leurs étiquettes source, aux versions de l'image locale
+(`RELEASE.2025-09-07T16-13-09Z` et `RELEASE.2025-08-13T08-35-41Z`).
+
+**Pour le reste du dépôt, à arbitrer.** Deux options :
+
+- **A** — la même compilation depuis les sources pour `infra/compose.yaml`. Même version partout ;
+  plus aucune mise à jour de sécurité en amont sans recompiler depuis une étiquette plus récente,
+  et MinIO communautaire est désormais en maintenance seule.
+- **B** — remplacer MinIO par un autre serveur compatible S3 (Garage, SeaweedFS…). Touche D18,
+  L1-05, D64 et les tests de stockage ; à peser avant le pilote, pas dans l'urgence.
+
+Je propose D-suivant : **A maintenant, pour que `make up` fonctionne sur un poste neuf ; B étudié
+avant le pilote.**
