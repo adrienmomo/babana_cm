@@ -73,8 +73,18 @@ export interface RideFlowSettings {
   routeRefreshMs: number;
 }
 
+/**
+ * Course rouverte après une relance ou une reconnexion (L3-11, 6 novembre) : le panneau démarre
+ * directement à l'étape où en est la course, sans repasser par « en route ». `arrivedAtLocalMs`
+ * est une heure de CE téléphone, déjà reportée depuis les heures du serveur par l'appelant.
+ */
+export type ActiveRideResume =
+  | { stage: 'arrived'; arrivedAtLocalMs: number; noShowGraceSeconds: number }
+  | { stage: 'transit' };
+
 export interface ActiveRidePanelProps {
   ride: ActiveRideParams;
+  resume?: ActiveRideResume;
   /** Dernière position connue du chauffeur (relevés de la capture continue). */
   position: LatLng | null;
   settings: RideFlowSettings;
@@ -133,10 +143,10 @@ function formatTripSummary(route: SharedRoute | null, position: LatLng | null): 
   return minutes === null ? formatDistance(distance) : `${formatDistance(distance)} · ≈ ${minutes} min`;
 }
 
-export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle, onEnded }: ActiveRidePanelProps) {
+export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle, onEnded, resume }: ActiveRidePanelProps) {
   const { rideId, origin, destination, amount, clientPhoneNumber } = ride;
 
-  const [stage, setStage] = useState<RideStage>('approach');
+  const [stage, setStage] = useState<RideStage>(resume?.stage ?? 'approach');
   const [route, setRoute] = useState<SharedRoute | null>(null);
   const [originLabel, setOriginLabel] = useState<string | null>(null);
   const [destinationLabel, setDestinationLabel] = useState<string | null>(null);
@@ -152,14 +162,16 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
   const [messagesOpen, setMessagesOpen] = useState(false);
   // « Sur place » tel qu'Odoo l'a enregistré : l'heure d'arrivée (qui fait foi pour l'attente, des
   // deux côtés) et le délai de grâce avant « client absent » -- jamais une valeur de l'app.
-  const [arrival, setArrival] = useState<{ arrivedAtMs: number; graceSeconds: number } | null>(null);
+  const [arrival, setArrival] = useState<{ arrivedAtMs: number; graceSeconds: number } | null>(
+    resume?.stage === 'arrived' ? { arrivedAtMs: resume.arrivedAtLocalMs, graceSeconds: resume.noShowGraceSeconds } : null
+  );
   const [noShowConfirm, setNoShowConfirm] = useState(false);
   const [, forceTick] = useState(0);
   const [incomingMessage, setIncomingMessage] = useState<realtime.QuickMessageCode | null>(null);
 
   // Lu de façon synchrone par les gestionnaires de messages -- `stage` (état React) y serait
   // périmé (l'effet d'abonnement ne s'exécute qu'une fois, dépendances [rideId]).
-  const stageRef = useRef<RideStage>('approach');
+  const stageRef = useRef<RideStage>(resume?.stage ?? 'approach');
   // La fin de course peut arriver par deux chemins presque simultanés -- la réponse HTTP à
   // `completeRide`, et le message `ride.completed` (L3-19, poussé aussi au chauffeur). Un seul
   // doit conclure.

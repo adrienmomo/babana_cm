@@ -365,9 +365,30 @@ export type RideCompletedMessage = z.infer<typeof RideCompletedMessageSchema>;
  * L'application s'aligne sur cette valeur. `null` pour un client (la disponibilité ne le concerne
  * pas) -- l'absence se dit, elle ne se déduit pas.
  */
+/**
+ * Ce que l'app Chauffeur doit savoir pour rouvrir sa course après une relance ou une reconnexion
+ * (6 novembre, L3-11 « état complet ») -- jusque-là `session.synced` ne portait que l'état, et
+ * l'app retombait sur l'accueil en pleine course. Mêmes champs que la proposition acceptée
+ * (Odoo : `babana.ride._babana_driver_ride_details`), plus `arrivedAt`/`noShowGraceSeconds` pour
+ * rouvrir l'attente « Sur place » là où elle en était.
+ */
+export const ActiveRideSnapshotSchema = z.object({
+  origin: LatLngSchema,
+  destination: LatLngSchema,
+  amount: MoneyAmountSchema,
+  distanceMeters: z.number().int().nonnegative(),
+  clientPhoneNumber: z.string().nullable(),
+  pickupNote: z.string().max(PICKUP_NOTE_MAX_LENGTH).nullable(),
+  arrivedAt: IsoDateTimeSchema.nullable(),
+  noShowGraceSeconds: z.number().int().positive(),
+});
+export type ActiveRideSnapshot = z.infer<typeof ActiveRideSnapshotSchema>;
+
 export const SessionSyncedPayloadSchema = z.object({
   activeRideId: RideIdSchema.nullable(),
   activeRideState: RideStateSchema.nullable(),
+  /** Présent pour un chauffeur dont la course est `assigned` ou `in_progress`, absent sinon. */
+  activeRide: ActiveRideSnapshotSchema.optional(),
   activeProposal: ActiveProposalSchema.nullable(),
   rideStateKnown: z.boolean(),
   driverOnline: z.boolean().nullable(),

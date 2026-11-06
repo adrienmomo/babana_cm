@@ -280,7 +280,16 @@ class InternalController(http.Controller):
             )
         if not ride:
             return {"rideId": None, "state": None}, 200
-        return {"rideId": ride.public_id, "state": ride.state}, 200
+        payload = {"rideId": ride.public_id, "state": ride.state}
+        # Le chauffeur engagé reçoit de quoi rouvrir son panneau de course (6 novembre : une app
+        # relancée en pleine course retombait sur l'accueil -- L3-11 exige un état complet).
+        if role == "driver" and ride.state in ("assigned", "in_progress"):
+            payload["ride"] = {
+                **ride._babana_driver_ride_details(),
+                "arrivedAt": _common.iso_datetime(ride.arrived_at) if ride.arrived_at else None,
+                "noShowGraceSeconds": ride._babana_no_show_grace_seconds(),
+            }
+        return payload, 200
 
     # --- POST /internal/share/resolve (L8-03, sens temps réel -> Odoo) ------------------------
 

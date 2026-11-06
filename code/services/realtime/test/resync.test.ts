@@ -9,7 +9,7 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import type { WebSocket } from 'ws';
-import type { realtime } from '@babana/contracts';
+import { realtime } from '@babana/contracts';
 import { handleSessionResync } from '../src/ws/resync';
 import type { ProposalLifecycle } from '../src/proposal/lifecycle';
 import { parseConfig, type Config } from '../src/config';
@@ -18,7 +18,7 @@ import { setOffline, setOnline } from '../src/driver/availability';
 
 let odooServer: http.Server;
 let odooRequests: unknown[] = [];
-let odooResponse: { rideId: string | null; state: string | null } | 'error' = { rideId: null, state: null };
+let odooResponse: { rideId: string | null; state: string | null; ride?: unknown } | 'error' = { rideId: null, state: null };
 let config: Config;
 let redis: Redis;
 
@@ -131,6 +131,37 @@ describe('handleSessionResync (L3-11)', () => {
     assert.equal(payload.activeRideState, 'in_progress');
     assert.equal(payload.rideStateKnown, true);
     assert.ok(payload.serverTime);
+  });
+
+  test("6 novembre : le chauffeur engagé reçoit sa course de quoi la rouvrir (activeRide), validée par le contrat", async () => {
+    const ride = {
+      origin: { latitude: 4.05, longitude: 9.7 },
+      destination: { latitude: 4.06, longitude: 9.71 },
+      amount: 675,
+      distanceMeters: 2900,
+      clientPhoneNumber: '+237699450102',
+      pickupNote: 'Devant la pharmacie',
+      arrivedAt: '2026-11-06T13:47:00Z',
+      noShowGraceSeconds: 300,
+    };
+    odooResponse = { rideId: '11111111-1111-4111-8111-111111111111', state: 'assigned', ride };
+    const { socket, messages } = fakeSocket();
+
+    await handleSessionResync(config, redis, fakeProposals().proposals, driverContext(), socket, { lastKnownRideId: null });
+
+    const parsed = realtime.SessionSyncedMessageSchema.parse(messages[0]);
+    assert.deepEqual(parsed.payload.activeRide, ride);
+  });
+
+  test("une course mal formée côté Odoo n'est jamais complétée : activeRide absent, l'état seul part", async () => {
+    odooResponse = { rideId: '11111111-1111-4111-8111-111111111111', state: 'assigned', ride: { origin: { latitude: 4.05 } } };
+    const { socket, messages } = fakeSocket();
+
+    await handleSessionResync(config, redis, fakeProposals().proposals, driverContext(), socket, { lastKnownRideId: null });
+
+    const parsed = realtime.SessionSyncedMessageSchema.parse(messages[0]);
+    assert.equal(parsed.payload.activeRideState, 'assigned');
+    assert.equal(parsed.payload.activeRide, undefined);
   });
 
   test("aucune course active : activeRideId et activeRideState sont null, pas une erreur", async () => {
