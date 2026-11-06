@@ -1,5 +1,6 @@
 import type { LatLng, MapMarker, MapRoute } from '../../types';
 import { MAP_MARKER_COLORS } from '../../markerColors';
+import { RECENTER_EPSILON } from '../../heading';
 
 /**
  * Page Leaflet servie à la WebView. Tout ce qui varie (centre, repères, tracé, adresse des tuiles)
@@ -25,9 +26,7 @@ const LEAFLET_CSS_SRI = 'sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=';
 const LEAFLET_JS_SRI = 'sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=';
 const DEFAULT_ZOOM = 15;
 const MAX_ZOOM = 19;
-/** En deçà de ce décalage (degrés, ~1 m), un « nouveau centre » est le même point -- évite la
- * boucle déplacement -> onRegionChange -> centre -> déplacement. */
-export const RECENTER_EPSILON = 0.00001;
+export { RECENTER_EPSILON };
 
 const MARKER_COLORS = MAP_MARKER_COLORS;
 
@@ -35,6 +34,8 @@ export interface LeafletState {
   center: LatLng;
   markers: MapMarker[];
   route?: MapRoute;
+  /** `false` : ne jamais cadrer le tracé (`MapViewProps.frameRoute`). */
+  frameRoute?: boolean;
 }
 
 /** JSON sûr à l'intérieur d'une balise <script> et d'une chaîne injectée. */
@@ -185,8 +186,10 @@ html,body,#map{height:100%;margin:0;padding:0;background:#ebe7df}
       var key = pts.length + ':' + first.latitude + ',' + first.longitude + ':' + last.latitude + ',' + last.longitude;
       if (key !== routeKey) {
         routeKey = key;
-        map.fitBounds(line.getBounds(), { padding: [48, 48], maxZoom: ${MAX_ZOOM - 3} });
-        framed = true;
+        if (state.frameRoute !== false) {
+          map.fitBounds(line.getBounds(), { padding: [48, 48], maxZoom: ${MAX_ZOOM - 3} });
+          framed = true;
+        }
       }
     } else {
       routeKey = null;

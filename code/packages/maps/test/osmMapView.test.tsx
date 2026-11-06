@@ -110,6 +110,11 @@ describe('buildLeafletHtml', () => {
     expect(out).toContain('routeKey');
   });
 
+  test("frameRoute à false : la page ne cadre jamais le tracé -- même règle que le fournisseur Google", () => {
+    const out = html({ route: { points: [CENTER, { latitude: 4.06, longitude: 9.71 }] } });
+    expect(out).toMatch(/state\.frameRoute !== false/);
+  });
+
   test("ne recentre que si la prop centre change (le cadrage d'un tracé ne saute pas à chaque position)", () => {
     expect(html()).toContain('lastCenter');
   });
@@ -159,6 +164,18 @@ describe('OsmMapView', () => {
       root.root.findByType(WebView).props.onMessage({ nativeEvent: { data: 'not json' } });
     });
     expect(onRegionChange).not.toHaveBeenCalled();
+  });
+
+  test('transmet frameRoute à la page, à chaque mise à jour', async () => {
+    const route = { points: [CENTER, { latitude: 4.06, longitude: 9.71 }] };
+    const root = await render(
+      <OsmMapView center={CENTER} route={route} frameRoute={false} tileUrlTemplate={TILES} tileAttribution={ATTRIBUTION} />
+    );
+    expect(root.root.findByType(WebView).props.source.html).toContain('"frameRoute":false');
+    await ReactTestRenderer.act(async () => {
+      root.root.findByType(WebView).props.onLoadEnd();
+    });
+    expect(mockInjectJavaScript.mock.calls.at(-1)?.[0]).toContain('"frameRoute":false');
   });
 
   test('pousse les nouveaux marqueurs dans la carte quand les props changent', async () => {

@@ -252,14 +252,16 @@ export function HomeScreen({ navigation, route }: Props) {
         : { id: 'pickup', kind: 'pickup', position: ride.origin }
     );
   }
-  // Pendant une course la carte est cadrée sur l'itinéraire, pas sur le chauffeur : un centre qui
-  // suivrait chaque relevé défairait ce cadrage toutes les quelques secondes.
-  const center = ride ? ride.origin : (position ?? DOUALA_DEFAULT_CENTER);
+  // La carte suit toujours le chauffeur, course comprise (demande du 6 novembre) : elle cadre
+  // l'itinéraire quand il change (fournisseur de carte), puis revient sur son repère au relevé
+  // suivant. Avant le premier relevé : la prise en charge en course, Douala sinon.
+  const center = position ?? (ride ? ride.origin : DOUALA_DEFAULT_CENTER);
 
   return (
     <View style={styles.container}>
       <MapView
         center={center}
+        frameRoute={false}
         markers={markers}
         route={ride && rideMap?.route ? rideMap.route : undefined}
         style={styles.map}

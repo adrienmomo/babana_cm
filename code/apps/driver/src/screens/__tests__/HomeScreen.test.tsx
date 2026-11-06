@@ -411,6 +411,25 @@ describe('HomeScreen (L6-11)', () => {
       expect(host(root, 'mock-map-marker')).toHaveLength(2);
     });
 
+    it('pendant la course, la carte suit le chauffeur -- jamais figée sur la prise en charge', async () => {
+      // Demande du 6 novembre : la carte du chauffeur suit toujours son repère. Elle restait
+      // jusqu'ici centrée sur le point de prise en charge (4.05, 9.70) pendant toute la course.
+      const mapCenter = () => root.root.findAll((node) => node.props.center && node.props.markers)[0]?.props.center;
+      mockGetCurrentPosition.mockResolvedValue({ latitude: 4.049, longitude: 9.695 });
+      const { root } = await renderHome();
+      await acceptedRide(root);
+      await act(async () => {
+        fixListener?.({ latitude: 4.0475, longitude: 9.6975 });
+      });
+      expect(mapCenter()).toEqual({ latitude: 4.0475, longitude: 9.6975 });
+      await act(async () => {
+        fixListener?.({ latitude: 4.0482, longitude: 9.6986 });
+      });
+      expect(mapCenter()).toEqual({ latitude: 4.0482, longitude: 9.6986 });
+      // Et jamais de recadrage sur l'itinéraire, recalculé dès que le chauffeur s'en écarte.
+      expect(root.root.findAll((node) => node.props.center && node.props.markers)[0]?.props.frameRoute).toBe(false);
+    });
+
     it('la position suit les relevés de la capture continue (aucun second GPS)', async () => {
       const { root } = await renderHome();
       expect(host(root, 'mock-map-marker')).toHaveLength(0);
