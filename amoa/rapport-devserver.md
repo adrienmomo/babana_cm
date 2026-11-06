@@ -120,3 +120,47 @@ Odoo sous systemd, temps réel et simulateur de routage sous pm2 (votre demande)
 - Clés Google A et B, puis les APK.
 - Redémarrage complet du serveur pour prouver que tout revient seul (systemd, pm2, Docker) — pas
   encore fait.
+
+---
+
+## DEVSERVER — clés Google des applications mobiles (6 novembre)
+
+Projet `babana-cm` (n° 936609739982), compte propriétaire. `gcloud` 592.0.0 installé sur ce poste
+depuis l'archive officielle de Google (`~/google-cloud-sdk`) : l'installation par Homebrew a échoué
+sur une dépendance. Les valeurs des clés ne sont dans aucun fichier suivi : elles vivent dans
+`~/.config/babana/devserver-google-keys.env` (600) sur ce poste, lues au build des APK.
+
+**État trouvé** : seule l'API Maps JavaScript était activée. La clé existante « babana web maps »
+(sites `babana.dev`, localhost) est restée telle quelle.
+
+**Posé** :
+
+```sh
+gcloud services enable places.googleapis.com geocoding-backend.googleapis.com \
+  maps-android-backend.googleapis.com apikeys.googleapis.com cloudquotas.googleapis.com --project babana-cm
+
+# A -- SDK natif de carte (GOOGLE_MAPS_API_KEY), les deux applications, empreinte de la clé debug
+gcloud services api-keys create --project babana-cm --display-name="babana devserver A - android map sdk" \
+  --allowed-application=sha1_fingerprint=5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25,package_name=cm.babana.client \
+  --allowed-application=sha1_fingerprint=5E:8F:16:06:2E:A3:CD:2C:4A:0D:54:78:76:BA:A6:F3:8C:AB:F6:25,package_name=cm.babana.driver \
+  --api-target=service=maps-android-backend.googleapis.com
+
+# B -- appels REST de l'app Client (BABANA_GOOGLE_MAPS_API_KEY) : sans restriction d'application
+# (questions/DEVSERVER-2026-11-05.md §5), restreinte par API, protégée par le plafond ci-dessous
+gcloud services api-keys create --project babana-cm --display-name="babana devserver B - mobile REST places+geocoding" \
+  --api-target=service=places.googleapis.com --api-target=service=geocoding-backend.googleapis.com
+
+# Plafonds journaliers -- par PROJET, donc la clé web aussi
+gcloud beta quotas preferences create --project babana-cm --service=places.googleapis.com \
+  --quota-id=SearchTextRequestPerDayPerProject --preferred-value=200 --allow-high-percentage-quota-decrease
+gcloud beta quotas preferences create --project babana-cm --service=geocoding-backend.googleapis.com \
+  --quota-id=BillableDefaultPerDayPerProject --preferred-value=200 --allow-high-percentage-quota-decrease
+```
+
+**Vérifié** : Places (New) avec B → « Akwa I, Douala, Cameroon » (403 avec l'ancienne clé) ;
+Geocoding avec B → `OK` (`REQUEST_DENIED` avant) ; Geocoding avec A → refusé, comme voulu.
+Plafonds accordés : 200/jour chacun (étaient 75 000 et illimité), soit au plus ≈ 7 USD/jour au
+tarif public si B est extraite de l'APK.
+
+**À refaire pour le pilote** : les deux clés portent l'empreinte de la clé **debug**. Une vraie clé
+de signature changera l'empreinte de A ; B ne bouge pas.
