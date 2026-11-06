@@ -118,6 +118,9 @@ test:            ## Tests de tous les paquets et services, plus la suite Odoo
 	# Preuve du défaut du 13 septembre et de sa correction (L0-10, critère d'acceptation 7) --
 	# ne parle ni à docker ni à git, indépendant du reste de cette cible.
 	sh test/config/build-web-bundle.test.sh
+	# bootstrap.sh exécuté pour de vrai dans un conteneur ubuntu:24.04 (amoa/questions/
+	# DEVSERVER-2026-11-05.md §2) -- ne touche ni à la pile ni à git.
+	sh test/config/bootstrap.test.sh
 	# L3-14 (test de résilience, seule vérification de l'invariant 1) -- APRÈS npm test, jamais
 	# dans son glob principal : ce fichier tue pour de vrai le conteneur `realtime` (et `redis`)
 	# par SIGKILL avant de le redémarrer. Le faire tourner concurremment avec le reste de la
