@@ -255,6 +255,23 @@ class BabanaRide(models.Model):
                     record.reference, record.distance_deviation_km, threshold,
                 )
 
+    def _babana_driver_ride_details(self):
+        """Ce que le chauffeur voit d'une course : la proposition (`realtime_client.propose_nearest`)
+        et la reprise après relance de l'app (`/internal/session/active-ride`, L3-11) -- une seule
+        définition, pour qu'une course reprise ne diffère jamais de la course acceptée.
+
+        Le numéro du client n'est lu que pour une course où ce chauffeur est engagé : révélé à
+        l'affectation, il ne vit que jusqu'à la fin de course (D42)."""
+        self.ensure_one()
+        return {
+            "origin": {"latitude": self.pickup_latitude, "longitude": self.pickup_longitude},
+            "destination": {"latitude": self.dropoff_latitude, "longitude": self.dropoff_longitude},
+            "amount": self.estimated_amount,
+            "distanceMeters": round((self.reference_distance_km or 0.0) * 1000),
+            "clientPhoneNumber": self.client_id.phone or None,
+            "pickupNote": self.pickup_note or None,
+        }
+
     def _babana_compute_final_amount(self):
         """Montant final (L4-04, critère d'acceptation 2) : calculé sur la distance de
         référence (L2-05), jamais sur la distance parcourue -- reproductible et connue du

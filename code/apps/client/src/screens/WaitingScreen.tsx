@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Animated, Easing, StyleSheet, Text, View } from 'react-native';
 import { MAP_MARKER_COLORS, MapView, type MapMarker } from '@babana/maps';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Button } from '@babana/ui';
+import { Button, CancelRideSheet } from '@babana/ui';
 import { asDriverId } from '@babana/navigation';
 import { ApiError, USER_MESSAGES, reportMetric, translateApiError } from '@babana/api-client';
 import type { http, realtime } from '@babana/contracts';
@@ -10,6 +10,7 @@ import { apiClient } from '../auth';
 import { formatMoney } from '../format';
 import { ensureRealtimeConnected, onRealtimeMessage, realtimeClient } from '../realtime';
 import type { ClientParamList } from '../navigation/types';
+import { CLIENT_CANCEL_REASONS } from '../cancelReasons';
 
 /**
  * Attente d'un chauffeur. La course part au chauffeur disponible le plus proche, choisi par le
@@ -77,6 +78,8 @@ export function WaitingScreen({ route, navigation }: Props) {
   const [phase, setPhase] = useState<Phase>({ kind: 'searching' });
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  // 6 novembre : « Annuler » demande d'abord pourquoi (facultatif pour le client).
+  const [cancelSheetOpen, setCancelSheetOpen] = useState(false);
   // Refus essuyés sur cette course -- instrumentés à l'abandon (L6-08, critère 5).
   const rejections = useRef(0);
   // Une recherche lancée par montage, pas deux (montage double en développement).
@@ -148,23 +151,25 @@ export function WaitingScreen({ route, navigation }: Props) {
     [rideId, navigation, origin, destination]
   );
 
-  async function handleCancel() {
+  async function handleCancel(reason: string | null) {
     setCancelling(true);
     setCancelError(null);
     try {
-      await apiClient.request('cancelRide', { pathParams: { id: rideId }, body: {} });
+      await apiClient.request('cancelRide', { pathParams: { id: rideId }, body: reason ? { reason } : {} });
       // Critère 5 (L6-08) : instrumenter chaque abandon avec son rang (nombre de refus déjà
       // essuyés sur cette course) et son délai depuis la commande -- la donnée que L9-09 mesure.
       reportMetric('client.ride_abandoned', {
         rejectionStreak: rejections.current,
         elapsedMs: Date.now() - requestedAt,
       });
+      setCancelSheetOpen(false);
       // Remise à zéro : l'attente est seule dans la pile (transitions.ts) -- navigate empilerait
       // l'accueil par-dessus, et un retour ramènerait à l'attente d'une course annulée.
       navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
     } catch (cause) {
       setCancelError(cause instanceof ApiError ? translateApiError(cause) : "L'annulation a échoué. Réessayez.");
       setCancelling(false);
+      setCancelSheetOpen(false);
     }
   }
 
@@ -197,7 +202,16 @@ export function WaitingScreen({ route, navigation }: Props) {
         <Button testID="retry-dispatch" label="Réessayer" onPress={dispatch} />
       ) : null}
       {cancelError ? <Text style={styles.error}>{cancelError}</Text> : null}
-      <Button testID="cancel-waiting" label="Annuler" variant="secondary" onPress={handleCancel} disabled={cancelling} />
+      <Button testID="cancel-waiting" label="Annuler" variant="secondary" onPress={() => setCancelSheetOpen(true)} disabled={cancelling} />
+      <CancelRideSheet
+        visible={cancelSheetOpen}
+        title="Annuler la course ?"
+        reasons={CLIENT_CANCEL_REASONS}
+        reasonRequired={false}
+        busy={cancelling}
+        onConfirm={handleCancel}
+        onDismiss={() => setCancelSheetOpen(false)}
+      />
       </View>
     </View>
   );

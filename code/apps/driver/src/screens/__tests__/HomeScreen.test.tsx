@@ -328,6 +328,68 @@ describe('HomeScreen (L6-11)', () => {
     expect(host(root, 'proposal-accept')).toHaveLength(1);
   });
 
+  describe('6 novembre : une course en cours se rouvre après une relance ou une reconnexion (L3-11)', () => {
+    const SERVER_NOW = '2026-11-06T13:50:00.000Z';
+    function emitResumedRide(state: 'assigned' | 'in_progress', arrivedAt: string | null = null) {
+      realtimeListener?.({
+        type: 'session.synced',
+        id: 's-resume',
+        emittedAt: SERVER_NOW,
+        payload: {
+          activeRideId: 'ride-resumed',
+          activeRideState: state,
+          activeRide: {
+            origin: { latitude: 4.05, longitude: 9.7 },
+            destination: { latitude: 4.06, longitude: 9.71 },
+            amount: 675,
+            distanceMeters: 2900,
+            clientPhoneNumber: '+237699450102',
+            pickupNote: 'Devant la pharmacie',
+            arrivedAt,
+            noShowGraceSeconds: 300,
+          },
+          activeProposal: null,
+          rideStateKnown: true,
+          driverOnline: true,
+          serverTime: SERVER_NOW,
+        },
+      });
+    }
+    const phase = (root: ReactTestRenderer) =>
+      root.root.findAll((n) => typeof n.type === 'string' && n.props.testID === 'active-ride-phase')[0]?.props.children;
+
+    it('acceptée, pas encore sur place : le panneau se rouvre « en route », avec le repère du client', async () => {
+      const { root } = await renderHome();
+      await act(async () => emitResumedRide('assigned'));
+      expect(shown(root, 'active-ride-screen')).toBe(true);
+      expect(phase(root)).toBe('En route vers le client');
+      expect(texts(root)).toContain('Devant la pharmacie');
+    });
+
+    it('sur place : l’attente reprend là où elle en était, comptée depuis l’heure du serveur', async () => {
+      const { root } = await renderHome();
+      // Arrivé quatre minutes avant la resynchronisation : 4:00 d'attente, pas 0:00.
+      await act(async () => emitResumedRide('assigned', '2026-11-06T13:46:00.000Z'));
+      expect(phase(root)).toBe('Sur place');
+      expect(texts(root)).toContain('En attente du client · ');
+      expect(texts(root)).toMatch(/"4:0\d"/);
+    });
+
+    it('en course : le panneau se rouvre sur le trajet vers l’arrivée', async () => {
+      const { root } = await renderHome();
+      await act(async () => emitResumedRide('in_progress'));
+      expect(phase(root)).toBe('Course en cours');
+    });
+
+    it('une course déjà à l’écran n’est pas rouverte par-dessus (simple reconnexion)', async () => {
+      const { root } = await renderHome();
+      await act(async () => emitResumedRide('assigned'));
+      const panel = root.root.findAll((n) => typeof n.type === 'string' && n.props.testID === 'active-ride-screen')[0];
+      await act(async () => emitResumedRide('assigned'));
+      expect(root.root.findAll((n) => typeof n.type === 'string' && n.props.testID === 'active-ride-screen')[0]).toBe(panel);
+    });
+  });
+
   it('L7-04 -- une proposition active retrouvée dans session.synced.activeProposal s’affiche (app relancée / reconnexion)', async () => {
     const { root } = await renderHome();
 

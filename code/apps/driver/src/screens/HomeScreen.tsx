@@ -10,7 +10,7 @@ import { AvailabilityToggle } from '../components/AvailabilityToggle';
 import { getCurrentPosition, locationTracker } from '../location';
 import { ARRIVAL_RADIUS_METERS, ROUTE_DEVIATION_METERS, ROUTE_REFRESH_MS, ROUTE_RETRY_COOLDOWN_MS } from '../../config';
 import { ProposalPanel } from '../rideFlow/ProposalPanel';
-import { ActiveRidePanel, type RideFlowSettings, type RideMapState } from '../rideFlow/ActiveRidePanel';
+import { ActiveRidePanel, type ActiveRideResume, type RideFlowSettings, type RideMapState } from '../rideFlow/ActiveRidePanel';
 import { replaceWithSettlement } from '../navigation/transitions';
 import { buttonLabels, buttons, cards, colors, radius, shadow } from '../theme';
 import { fetchCashSummary } from '../api/cash';
@@ -46,9 +46,42 @@ const DOUALA_DEFAULT_CENTER: LatLng = { latitude: 4.0511, longitude: 9.7679 };
 type Flow =
   | { kind: 'idle' }
   | { kind: 'proposal'; params: ProposalParams }
-  | { kind: 'ride'; ride: ActiveRideParams };
+  | { kind: 'ride'; ride: ActiveRideParams; resume?: ActiveRideResume };
 
 const IDLE: Flow = { kind: 'idle' };
+
+/** La course que `session.synced` demande de rouvrir, ou `null`. L'attente « Sur place » est
+ * mesurée entre deux heures du serveur, puis reportée sur l'horloge de ce téléphone -- même règle
+ * que `driver.arrived` dans le panneau. */
+function resumedRideFrom(
+  payload: realtime.SessionSyncedMessage['payload']
+): { ride: ActiveRideParams; resume?: ActiveRideResume } | null {
+  const { activeRide, activeRideId, activeRideState } = payload;
+  if (!payload.rideStateKnown || !activeRide || !activeRideId) return null;
+  if (activeRideState !== 'assigned' && activeRideState !== 'in_progress') return null;
+  const ride: ActiveRideParams = {
+    rideId: asRideId(activeRideId),
+    origin: activeRide.origin,
+    destination: activeRide.destination,
+    amount: activeRide.amount,
+    distanceMeters: activeRide.distanceMeters,
+    clientPhoneNumber: activeRide.clientPhoneNumber,
+    pickupNote: activeRide.pickupNote,
+  };
+  if (activeRideState === 'in_progress') return { ride, resume: { stage: 'transit' } };
+  if (activeRide.arrivedAt) {
+    const ageMs = Math.max(0, Date.parse(payload.serverTime) - Date.parse(activeRide.arrivedAt));
+    return {
+      ride,
+      resume: {
+        stage: 'arrived',
+        arrivedAtLocalMs: Date.now() - (Number.isNaN(ageMs) ? 0 : ageMs),
+        noShowGraceSeconds: activeRide.noShowGraceSeconds,
+      },
+    };
+  }
+  return { ride };
+}
 
 // États de course qui interdisent le passage hors ligne (L3-04, critère 2) -- mêmes valeurs que
 // `TOGETHER_STATES` côté Odoo (`babana_ride.py`, cité dans TrackingScreen.tsx côté Client) : un
@@ -143,6 +176,16 @@ export function HomeScreen({ navigation, route }: Props) {
         // soit ce drapeau -- il est lu en Redis.
         if (message.payload.rideStateKnown) {
           setInCourse(ACTIVE_RIDE_STATES.has(message.payload.activeRideState));
+        }
+        // 6 novembre (L3-11, état complet) : une app relancée en pleine course retombait sur
+        // l'accueil. La course se rouvre à son étape réelle -- sauf si elle est déjà à l'écran
+        // (simple reconnexion : le panneau en cours sait déjà où il en est).
+        const resumed = resumedRideFrom(message.payload);
+        if (resumed) {
+          const current = flowRef.current;
+          if (current.kind !== 'ride' || current.ride.rideId !== resumed.ride.rideId) {
+            changeFlow({ kind: 'ride', ...resumed });
+          }
         }
         // L7-04 : une proposition active retrouvée par resynchronisation (app relancée en pleine
         // proposition, ou reconnexion réseau) -- l'app n'a jamais reçu `proposal.new`, c'est
@@ -330,6 +373,7 @@ export function HomeScreen({ navigation, route }: Props) {
         <ActiveRidePanel
           key={flow.ride.rideId}
           ride={flow.ride}
+          resume={flow.resume}
           position={position}
           settings={RIDE_SETTINGS}
           onMapState={handleMapState}

@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MapView, type LatLng, type MapMarker } from '@babana/maps';
-import { QUICK_MESSAGE_LABELS, StreamLivenessWatchdog, quickMessagesFor, type ConnectionState } from '@babana/api-client';
-import { MessageBubble, QuickMessageChips } from '@babana/ui';
+import { ApiError, QUICK_MESSAGE_LABELS, StreamLivenessWatchdog, quickMessagesFor, translateApiError, type ConnectionState } from '@babana/api-client';
+import { Button, CancelRideSheet, MessageBubble, QuickMessageChips } from '@babana/ui';
 import type { realtime } from '@babana/contracts';
 import { GENERIC_AVATAR, classLabel } from '../components/driverFormatting';
 import { CallButton } from '../components/CallButton';
@@ -12,6 +12,8 @@ import { ShareTripButton } from '../components/ShareTripButton';
 import { formatEta } from '../format';
 import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import type { ClientParamList } from '../navigation/types';
+import { apiClient } from '../auth';
+import { CLIENT_CANCEL_REASONS } from '../cancelReasons';
 
 /**
  * Suivi de course (L6-09) : voir le chauffeur arriver, puis suivre le trajet jusqu'à la fin.
@@ -63,6 +65,10 @@ function isRideStartedMessage(message: realtime.ServerToClientMessage): message 
   return message.type === 'ride.started';
 }
 
+function isRideCancelledMessage(message: realtime.ServerToClientMessage): message is realtime.RideCancelledMessage {
+  return message.type === 'ride.cancelled';
+}
+
 function isRideCompletedMessage(message: realtime.ServerToClientMessage): message is realtime.RideCompletedMessage {
   return message.type === 'ride.completed';
 }
@@ -96,6 +102,12 @@ export function TrackingScreen({ route, navigation }: Props) {
   const [arrival, setArrival] = useState<{ arrivedAtMs: number; graceSeconds: number } | null>(null);
   // Dernier message rapide du chauffeur, affiché jusqu'à ce que le client le ferme.
   const [incomingMessage, setIncomingMessage] = useState<realtime.QuickMessageCode | null>(null);
+  // 6 novembre : annuler en disant pourquoi, et apprendre pourquoi le chauffeur a annulé (L4-12 :
+  // le message porte l'acteur et le motif -- jusqu'ici cet écran ne le lisait pas du tout).
+  const [cancelSheetOpen, setCancelSheetOpen] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
+  const [cancelledNotice, setCancelledNotice] = useState<realtime.RideCancelledMessage['payload'] | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => realtimeClient.getState());
   // Silence de diffusion détecté par abonnement (L3-20, D47 -- amoa/questions/
   // L3-05-nearby-list-goes-silently-empty.md) : c'est précisément le risque nommé par ce défaut
@@ -172,6 +184,9 @@ export function TrackingScreen({ route, navigation }: Props) {
         // Le chemin vers le client n'a plus sa place sur la carte du trajet -- mais le tracé du
         // trajet a pu arriver AVANT ce message (rien ne les ordonne) : celui-là reste.
         setSharedRoute((current) => (current && current.phase === 'transit' ? current : null));
+      } else if (isRideCancelledMessage(message) && message.payload.rideId === rideId) {
+        setCancelSheetOpen(false);
+        setCancelledNotice(message.payload);
       } else if (isRideCompletedMessage(message) && message.payload.rideId === rideId) {
         // Le résumé de fin affiche exactement ce que le serveur a écrit dans ce message -- jamais
         // une distance ou une durée reconstituée depuis les positions accumulées ci-dessus, qui
@@ -232,6 +247,39 @@ export function TrackingScreen({ route, navigation }: Props) {
     { id: 'dropoff', kind: 'dropoff' as const, position: destination.position, label: 'Arrivée' },
     ...(driverPosition ? [{ id: 'driver', kind: 'driver' as const, position: driverPosition, label: driver.firstName ?? undefined }] : []),
   ];
+
+  function backHome() {
+    // Remise à zéro, comme l'annulation depuis l'attente : un retour ne doit jamais ramener au
+    // suivi d'une course annulée.
+    navigation.reset({ index: 0, routes: [{ name: 'Home' }] });
+  }
+
+  async function handleCancel(reason: string | null) {
+    setCancelling(true);
+    setCancelError(null);
+    try {
+      await apiClient.request('cancelRide', { pathParams: { id: rideId }, body: reason ? { reason } : {} });
+      // Fermer la feuille avant de quitter l'écran : aucune fenêtre modale ne doit survivre au
+      // démontage.
+      setCancelSheetOpen(false);
+      backHome();
+    } catch (cause) {
+      setCancelError(cause instanceof ApiError ? translateApiError(cause) : "L'annulation a échoué. Réessayez.");
+      setCancelling(false);
+    }
+  }
+
+  if (cancelledNotice) {
+    return (
+      <View style={[styles.container, styles.cancelledScreen]} testID="tracking-cancelled">
+        <Text style={styles.cancelledTitle}>
+          {cancelledNotice.cancelledBy === 'driver' ? 'Votre chauffeur a annulé la course.' : 'La course a été annulée.'}
+        </Text>
+        {cancelledNotice.reason ? <Text style={styles.cancelledReason}>Motif : « {cancelledNotice.reason} »</Text> : null}
+        <Button testID="tracking-cancelled-home" label="Commander une autre course" onPress={backHome} />
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -358,6 +406,22 @@ export function TrackingScreen({ route, navigation }: Props) {
           Arrivée : {destination.label}
         </Text>
       </View>
+
+      {/* Jusqu'au démarrage seulement : en course, le client ne peut plus annuler (C-03) -- le
+          bouton d'urgence reste son recours. */}
+      {phase !== 'course' ? (
+        <Button testID="tracking-cancel" label="Annuler la course" variant="secondary" onPress={() => setCancelSheetOpen(true)} disabled={cancelling} />
+      ) : null}
+      <CancelRideSheet
+        visible={cancelSheetOpen && phase !== 'course'}
+        title="Annuler la course ?"
+        reasons={CLIENT_CANCEL_REASONS}
+        reasonRequired={false}
+        busy={cancelling}
+        error={cancelError}
+        onConfirm={handleCancel}
+        onDismiss={() => setCancelSheetOpen(false)}
+      />
     </View>
   );
 }
@@ -367,6 +431,22 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 8,
     padding: 12,
+  },
+  cancelledScreen: {
+    justifyContent: 'center',
+    gap: 16,
+    padding: 24,
+  },
+  cancelledTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#111827',
+    textAlign: 'center',
+  },
+  cancelledReason: {
+    fontSize: 16,
+    color: '#374151',
+    textAlign: 'center',
   },
   phaseTitle: {
     fontSize: 18,

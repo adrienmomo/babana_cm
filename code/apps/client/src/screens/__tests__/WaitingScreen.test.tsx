@@ -328,15 +328,61 @@ describe('WaitingScreen -- la course part au chauffeur le plus proche, choisi pa
     expect(shown(root, 'retry-dispatch')).toBe(true);
   });
 
+  // 6 novembre : « Annuler » passe par la feuille des motifs (facultatif pour le client).
+  async function cancelThroughSheet(root: ReactTestRenderer, pick: number | 'none' | { other: string }) {
+    await act(async () => {
+      root.root.findByProps({ testID: 'cancel-waiting' }).props.onPress();
+    });
+    await act(async () => {
+      if (typeof pick === 'number') {
+        root.root.findAllByProps({ testID: 'cancel-sheet-reason' }).filter((n) => n.props.onPress)[pick]!.props.onPress();
+      } else if (pick !== 'none') {
+        root.root.findAll((n) => n.props.testID === 'cancel-sheet-other' && n.props.onPress)[0]!.props.onPress();
+      }
+    });
+    if (typeof pick === 'object') {
+      await act(async () => {
+        root.root.findAll((n) => n.props.testID === 'cancel-sheet-other-text' && n.props.onChangeText)[0]!.props.onChangeText(pick.other);
+      });
+    }
+    await act(async () => {
+      root.root.findAll((n) => n.props.testID === 'cancel-sheet-confirm' && n.props.onPress)[0]!.props.onPress();
+    });
+  }
+
+  it('« Annuler » ouvre les motifs ; le motif choisi part avec l’annulation', async () => {
+    const { root } = await renderWaiting();
+    await act(async () => {
+      root.root.findByProps({ testID: 'cancel-waiting' }).props.onPress();
+    });
+    expect(mockRequest).not.toHaveBeenCalledWith('cancelRide', expect.anything());
+    expect(texts(root)).toContain('Pourquoi ? (facultatif)');
+    await act(async () => {
+      root.root.findAllByProps({ testID: 'cancel-sheet-reason' }).filter((n) => n.props.onPress)[1]!.props.onPress();
+    });
+    await act(async () => {
+      root.root.findAll((n) => n.props.testID === 'cancel-sheet-confirm' && n.props.onPress)[0]!.props.onPress();
+    });
+    expect(mockRequest).toHaveBeenCalledWith('cancelRide', { pathParams: { id: RIDE_ID }, body: { reason: "J'ai changé d'avis" } });
+  });
+
+  it('le client peut annuler sans motif, ou écrire le sien avec « Autre »', async () => {
+    const first = await renderWaiting();
+    await cancelThroughSheet(first.root, 'none');
+    expect(mockRequest).toHaveBeenCalledWith('cancelRide', { pathParams: { id: RIDE_ID }, body: {} });
+    mockRequest.mockClear();
+    const second = await renderWaiting();
+    await cancelThroughSheet(second.root, { other: '  Trop cher pour moi  ' });
+    expect(mockRequest).toHaveBeenCalledWith('cancelRide', { pathParams: { id: RIDE_ID }, body: { reason: 'Trop cher pour moi' } });
+  });
+
   it('« Annuler » annule la course, instrumente l’abandon avec le nombre de refus, et revient à l’accueil sans garder l’attente dans la pile', async () => {
     const { root, navigation } = await renderWaiting();
     await act(async () => {
       emit('ride.rejected', { rideId: RIDE_ID, driverId: DRIVER_ID, reason: 'driver_rejected' });
     });
 
-    await act(async () => {
-      root.root.findByProps({ testID: 'cancel-waiting' }).props.onPress();
-    });
+    await cancelThroughSheet(root, 0);
 
     expect(mockRequest).toHaveBeenCalledWith('cancelRide', expect.objectContaining({ pathParams: { id: RIDE_ID } }));
     expect(mockReportMetric).toHaveBeenCalledWith('client.ride_abandoned', expect.objectContaining({ rejectionStreak: 1 }));
@@ -354,9 +400,7 @@ describe('WaitingScreen -- la course part au chauffeur le plus proche, choisi pa
     });
     const { root, navigation } = await renderWaiting();
 
-    await act(async () => {
-      root.root.findByProps({ testID: 'cancel-waiting' }).props.onPress();
-    });
+    await cancelThroughSheet(root, 0);
 
     expect(navigation.navigate).not.toHaveBeenCalled();
     expect(root.root.findByProps({ testID: 'cancel-waiting' }).props.disabled).toBe(false);

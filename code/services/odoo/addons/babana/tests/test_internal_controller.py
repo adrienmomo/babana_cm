@@ -315,7 +315,68 @@ class TestInternalController(HttpCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"rideId": ride.public_id, "state": "assigned"})
+        # Égalité stricte jusqu'au 6 novembre ; la réponse porte désormais aussi `ride` pour le
+        # chauffeur (L3-11, état complet) -- son contenu est vérifié par le test suivant.
+        body = response.json()
+        self.assertEqual((body["rideId"], body["state"]), (ride.public_id, "assigned"))
+        self.assertIn("ride", body)
+
+    def test_active_ride_for_driver_carries_what_the_app_needs_to_resume(self):
+        # 6 novembre : un chauffeur dont l'app est relancée en pleine course retombait sur
+        # l'accueil -- `session.synced` ne portait que l'état. L3-11 exige un état complet : le
+        # panneau de course se rouvre avec ce que l'acceptation lui avait donné.
+        client = self._make_client_user("sub-resume-client")
+        client.partner_id.sudo().phone = "+237699450102"
+        driver_user, driver = self._make_driver_user("sub-resume-driver")
+        vals = dict(self._base_vals(client.partner_id), pickup_note="Devant la pharmacie")
+        ride = self.env["babana.ride"].sudo().action_request(vals)
+        ride.sudo().action_propose(by_partner=client.partner_id, driver=driver)
+        ride.sudo().action_accept(by_driver=driver)
+
+        def resume():
+            response = self._post(
+                "/session/active-ride",
+                {"userId": driver_user.babana_public_id, "role": "driver"},
+                secret=self._real_secret(),
+            )
+            self.assertEqual(response.status_code, 200)
+            return response.json()
+
+        body = resume()
+        self.assertEqual((body["rideId"], body["state"]), (ride.public_id, "assigned"))
+        self.assertEqual(body["ride"]["origin"], {"latitude": 4.05, "longitude": 9.70})
+        self.assertEqual(body["ride"]["destination"], {"latitude": 4.06, "longitude": 9.77})
+        self.assertEqual(body["ride"]["amount"], ride.estimated_amount)
+        self.assertEqual(body["ride"]["distanceMeters"], round((ride.reference_distance_km or 0.0) * 1000))
+        self.assertEqual(body["ride"]["pickupNote"], "Devant la pharmacie")
+        self.assertEqual(body["ride"]["clientPhoneNumber"], "+237699450102")
+        self.assertIsNone(body["ride"]["arrivedAt"])
+        self.assertGreater(body["ride"]["noShowGraceSeconds"], 0)
+
+        # « Sur place » : l'app doit rouvrir l'attente du client, avec son vrai point de départ.
+        ride.sudo().action_mark_arrived(by_driver=driver)
+        self.assertTrue(resume()["ride"]["arrivedAt"].endswith("Z"))
+
+        # En course : même contenu, état `in_progress`.
+        ride.sudo().action_start(by_driver=driver)
+        body = resume()
+        self.assertEqual(body["state"], "in_progress")
+        self.assertEqual(body["ride"]["destination"], {"latitude": 4.06, "longitude": 9.77})
+
+    def test_active_ride_details_are_for_the_driver_only(self):
+        # Le client a son propre chemin de reprise ; le numéro du client n'a rien à faire dans
+        # une réponse qui lui est destinée.
+        client = self._make_client_user("sub-resume-client-only")
+        _driver_user, driver = self._make_driver_user("sub-resume-client-only-driver")
+        ride = self.env["babana.ride"].sudo().action_request(self._base_vals(client.partner_id))
+        ride.sudo().action_propose(by_partner=client.partner_id, driver=driver)
+        ride.sudo().action_accept(by_driver=driver)
+        response = self._post(
+            "/session/active-ride",
+            {"userId": client.babana_public_id, "role": "client"},
+            secret=self._real_secret(),
+        )
+        self.assertNotIn("ride", response.json())
 
     def test_active_ride_none_active_returns_nulls(self):
         client = self._make_client_user("sub-active-ride-none")

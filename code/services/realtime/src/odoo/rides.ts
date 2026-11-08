@@ -1,5 +1,5 @@
 import type Redis from 'ioredis';
-import { http } from '@babana/contracts';
+import { http, realtime } from '@babana/contracts';
 import type { Config } from '../config';
 import type { ConnectionContext } from '../ws/auth';
 import { callOdoo } from './client';
@@ -96,6 +96,9 @@ export async function fetchEngagedDrivers(config: Config): Promise<EngagedDriver
 export interface ActiveRide {
   rideId: string | null;
   state: http.RideState | null;
+  /** De quoi rouvrir la course côté chauffeur (L3-11, 6 novembre) ; `null` si Odoo n'en donne pas
+   * -- ou en donne une forme invalide, jamais complétée ici. */
+  ride: realtime.ActiveRideSnapshot | null;
 }
 
 /**
@@ -114,9 +117,14 @@ export async function fetchActiveRide(
     role: context.role,
     lastKnownRideId,
   });
-  const body = result as { rideId?: unknown; state?: unknown };
+  const body = result as { rideId?: unknown; state?: unknown; ride?: unknown };
+  const ride = body.ride === undefined ? null : realtime.ActiveRideSnapshotSchema.safeParse(body.ride);
+  if (ride && !ride.success) {
+    console.error('[L3-11] course active mal formée renvoyée par Odoo -- non transmise :', ride.error.issues);
+  }
   return {
     rideId: typeof body.rideId === 'string' ? body.rideId : null,
     state: typeof body.state === 'string' ? (body.state as http.RideState) : null,
+    ride: ride && ride.success ? ride.data : null,
   };
 }

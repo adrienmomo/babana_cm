@@ -4,3 +4,4 @@ export * from './QuickMessages';
 export * from './AccountMenu';
 export * from './Avatar';
 export * from './StarRating';
+export * from './CancelRideSheet';

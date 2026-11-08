@@ -390,6 +390,48 @@ describe('exemples valides — serveur vers client', () => {
         },
       })
     );
+    // 6 novembre (L3-11, état complet) : le chauffeur engagé reçoit de quoi rouvrir sa course.
+    const resumed = SessionSyncedMessageSchema.parse({
+      type: 'session.synced',
+      id: randomUUID(),
+      emittedAt: now,
+      payload: {
+        activeRideId: rideId,
+        activeRideState: 'assigned',
+        activeRide: {
+          origin: { latitude: 4.05, longitude: 9.7 },
+          destination: { latitude: 4.06, longitude: 9.71 },
+          amount: 1500,
+          distanceMeters: 2400,
+          clientPhoneNumber: '+237699450102',
+          pickupNote: 'Devant la pharmacie',
+          arrivedAt: now,
+          noShowGraceSeconds: 300,
+        },
+        activeProposal: null,
+        rideStateKnown: true,
+        driverOnline: true,
+        serverTime: now,
+      },
+    });
+    assert.equal(resumed.payload.activeRide?.pickupNote, 'Devant la pharmacie');
+    // Incomplet : refusé, jamais complété par des valeurs inventées.
+    assert.throws(() =>
+      SessionSyncedMessageSchema.parse({
+        type: 'session.synced',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: {
+          activeRideId: rideId,
+          activeRideState: 'assigned',
+          activeRide: { origin: { latitude: 4.05, longitude: 9.7 } },
+          activeProposal: null,
+          rideStateKnown: true,
+          driverOnline: true,
+          serverTime: now,
+        },
+      })
+    );
     // L7-04 : une proposition active retrouvée par resynchronisation -- même forme que
     // proposal.new, plus emittedAt (l'échéance portée est la véritable, pas trente secondes).
     assert.doesNotThrow(() =>

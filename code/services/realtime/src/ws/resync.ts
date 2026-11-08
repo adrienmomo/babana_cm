@@ -43,7 +43,7 @@ export async function handleSessionResync(
   socket: WebSocket,
   payload: realtime.SessionResyncMessage['payload']
 ): Promise<void> {
-  let active: ActiveRide = { rideId: null, state: null };
+  let active: ActiveRide = { rideId: null, state: null, ride: null };
   let rideStateKnown = true;
   try {
     active = await fetchActiveRide(config, context, payload.lastKnownRideId);
@@ -78,6 +78,7 @@ function buildSessionSyncedMessage(
     payload: {
       activeRideId: active.rideId,
       activeRideState: active.state,
+      ...(active.ride ? { activeRide: active.ride } : {}),
       activeProposal,
       rideStateKnown,
       driverOnline,

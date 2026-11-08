@@ -5,6 +5,7 @@
 // ce sont les seules qui prennent des recordsets en argument côté Python
 // (babana_ride_state.py), donc pas RPC-safe telles quelles. C'est précisément pourquoi ce test
 // vient après L4-03 cette nuit et non avant (voir le message de commit de ce lot).
+import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
@@ -227,6 +228,16 @@ export async function callInternalEndpoint<T = any>(
  * sign-in (`signIn(sub, 'driver')`) : seul le token compte pour l'API mobile ensuite, mais
  * approuver le dossier exige de retrouver le babana.driver qui lui est rattaché.
  */
+/**
+ * Immatriculation d'une moto de test -- unique en base (`unique(license_plate)`), sur une base de
+ * développement qui accumule les motos de chaque passage de la suite.
+ */
+export function testLicensePlate(): string {
+  // 12 chiffres hexadécimaux d'un UUID : 16^12 combinaisons, contre 36^4 (1,7 million) jusqu'au
+  // 8 novembre -- 120 doublons sur 20 000 tirages.
+  return `LT-${randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}-CC`;
+}
+
 export async function approveDriver(session: Session, label: string): Promise<{ driverId: number; driverPublicId: string }> {
   const userIds = await execute<number[]>('res.users', 'search', [[['babana_public_id', '=', session.publicUserId]]]);
   const [userId] = userIds;
@@ -244,7 +255,7 @@ export async function approveDriver(session: Session, label: string): Promise<{ 
     await execute('babana.driver.document', 'create', [vals]);
   }
 
-  const plate = `LT-${Math.random().toString(36).slice(2, 6).toUpperCase()}-CC`;
+  const plate = testLicensePlate();
   const [motorcycleId] = await execute<number[]>('babana.motorcycle', 'create', [[{ license_plate: plate }]]);
   await execute('babana.motorcycle', 'write', [[motorcycleId], { driver_id: driverId }]);
 
