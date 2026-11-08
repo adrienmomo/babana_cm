@@ -48,6 +48,12 @@ export interface MapViewProps {
    * pas à Douala).
    */
   onRegionChange?: (center: LatLng) => void;
+  /**
+   * Cadrer un nouvel itinéraire en entier quand il change (défaut). `false` : jamais de cadrage,
+   * la carte suit seulement `center` -- la carte du chauffeur (6 novembre), dont l'itinéraire est
+   * recalculé dès qu'il s'en écarte : chaque recadrage le rejetait au bord de l'écran.
+   */
+  frameRoute?: boolean;
   style?: StyleProp<ViewStyle>;
 }
 

@@ -21,18 +21,18 @@ export interface OsmMapViewProps extends MapViewProps {
   tileAttribution: string;
 }
 
-export function OsmMapView({ center, markers = [], route, onRegionChange, style, tileUrlTemplate, tileAttribution }: OsmMapViewProps) {
+export function OsmMapView({ center, markers = [], route, onRegionChange, frameRoute, style, tileUrlTemplate, tileAttribution }: OsmMapViewProps) {
   const webViewRef = useRef<{ injectJavaScript: (script: string) => void } | null>(null);
   const loaded = useRef(false);
 
   // Figé au premier rendu, volontairement.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const html = useMemo(() => buildLeafletHtml({ tileUrlTemplate, tileAttribution, center, markers, route }), []);
+  const html = useMemo(() => buildLeafletHtml({ tileUrlTemplate, tileAttribution, center, markers, route, frameRoute }), []);
 
   const push = useCallback(() => {
     if (!loaded.current) return;
-    webViewRef.current?.injectJavaScript(updateScript({ center, markers, route }));
-  }, [center, markers, route]);
+    webViewRef.current?.injectJavaScript(updateScript({ center, markers, route, frameRoute }));
+  }, [center, markers, route, frameRoute]);
 
   // Premier rendu : la page porte déjà l'état initial. Ensuite, chaque changement est poussé.
   const firstRun = useRef(true);
