@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { fetchRoute, reverseGeocode, type LatLng, type MapRoute } from '@babana/maps';
 import { ApiError, QUICK_MESSAGE_LABELS, quickMessagesFor, translateApiError } from '@babana/api-client';
-import { MessageBubble, QuickMessageChips } from '@babana/ui';
+import { CancelRideSheet, MessageBubble, QuickMessageChips } from '@babana/ui';
+import { DRIVER_CANCEL_REASONS_BEFORE_START, DRIVER_CANCEL_REASONS_IN_RIDE } from './cancelReasons';
 import { http, type realtime } from '@babana/contracts';
 import { apiClient } from '../auth';
 import { offlineRunner } from '../offline';
@@ -153,6 +154,11 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
   const [busy, setBusy] = useState<null | 'arriving' | 'starting' | 'finishing' | 'cancelling'>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [endedNotice, setEndedNotice] = useState<string | null>(null);
+  // 6 novembre : le motif d'une annulation par le client (L4-12, porté par `ride.cancelled`), et
+  // l'annulation par le chauffeur lui-même, motif obligatoire.
+  const [endedReason, setEndedReason] = useState<string | null>(null);
+  const [cancelSheetOpen, setCancelSheetOpen] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
   // Fin de course mise en file (réseau absent, L6-16) : distinct de `busy === 'finishing'`, qui
   // ne dure que le temps d'une tentative -- celui-ci peut durer jusqu'à la prochaine
   // reconnexion.
@@ -326,6 +332,8 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
         resolvedRef.current = true;
         onSettle({ rideId, amount: message.payload.amount });
       } else if (isRideCancelledMessage(message) && message.payload.rideId === rideId) {
+        setCancelSheetOpen(false);
+        setEndedReason(message.payload.reason ?? null);
         setEndedNotice(
           message.payload.cancelledBy === 'client'
             ? 'Le client a annulé la course.'
@@ -413,6 +421,21 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
     }
   }
 
+  async function handleCancel(reason: string | null) {
+    if (busy || !reason) return;
+    setBusy('cancelling');
+    setCancelError(null);
+    try {
+      await apiClient.request('cancelRide', { pathParams: { id: rideId }, body: { reason } });
+      setCancelSheetOpen(false);
+      onEnded();
+    } catch (error) {
+      setCancelError(error instanceof ApiError ? translateApiError(error) : 'Hors connexion — réessayez dès que le réseau revient.');
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function handleStart() {
     if (busy || stage !== 'arrived') return;
     setBusy('starting');
@@ -470,6 +493,7 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
       <View style={styles.overlay} pointerEvents="box-none" testID="active-ride-screen">
         <View style={[styles.card, styles.endedFloating, styles.endedBanner]} testID="active-ride-cancelled">
           <Text style={styles.endedText}>{endedNotice}</Text>
+          {endedReason ? <Text style={styles.endedReason}>Motif : « {endedReason} »</Text> : null}
         </View>
       </View>
     );
@@ -585,7 +609,31 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
           </Pressable>
         ) : null}
         <CallButton clientPhoneNumber={clientPhoneNumber} />
+        <Pressable
+          testID="active-ride-cancel"
+          accessibilityRole="button"
+          accessibilityLabel="Annuler la course"
+          disabled={busy !== null}
+          onPress={() => {
+            setCancelError(null);
+            setCancelSheetOpen(true);
+          }}
+          style={({ pressed }) => [buttons.base, buttons.md, buttons.secondary, buttons.floating, pressed ? buttons.pressed : null]}
+        >
+          <Text style={[buttonLabels.base, buttonLabels.danger]}>Annuler</Text>
+        </Pressable>
       </View>
+
+      <CancelRideSheet
+        visible={cancelSheetOpen}
+        title={stage === 'transit' ? 'Interrompre la course ?' : 'Annuler la course ?'}
+        reasons={stage === 'transit' ? DRIVER_CANCEL_REASONS_IN_RIDE : DRIVER_CANCEL_REASONS_BEFORE_START}
+        reasonRequired
+        busy={busy === 'cancelling'}
+        error={cancelError}
+        onConfirm={handleCancel}
+        onDismiss={() => setCancelSheetOpen(false)}
+      />
 
       {messagesOpen && stage !== 'transit' ? (
         <View style={styles.messagesTray}>
@@ -737,6 +785,12 @@ const styles = StyleSheet.create({
   endedText: {
     color: colors.warningText,
     fontSize: 16,
+    textAlign: 'center',
+  },
+  endedReason: {
+    marginTop: 6,
+    fontSize: 15,
+    color: '#374151',
     textAlign: 'center',
   },
 });

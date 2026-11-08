@@ -691,3 +691,50 @@ describe('attente : le client voit depuis quand son chauffeur l’attend', () =>
     expect(root.root.findByProps({ testID: 'tracking-no-show-warning' })).toBeTruthy();
   });
 });
+
+describe('6 novembre : annuler avec un motif, et apprendre celui du chauffeur', () => {
+  it('chauffeur en route : « Annuler la course » ouvre les motifs, puis annule et revient à l’accueil', async () => {
+    mockRequest.mockResolvedValue({ id: RIDE_ID, state: 'cancelled' });
+    const { root, navigation } = await renderTracking();
+    await act(async () => {
+      root.root.findByProps({ testID: 'tracking-cancel' }).props.onPress();
+    });
+    await act(async () => {
+      root.root.findAllByProps({ testID: 'cancel-sheet-reason' }).filter((n) => n.props.onPress)[0]!.props.onPress();
+    });
+    await act(async () => {
+      root.root.findAll((n) => n.props.testID === 'cancel-sheet-confirm' && n.props.onPress)[0]!.props.onPress();
+    });
+    expect(mockRequest).toHaveBeenCalledWith('cancelRide', {
+      pathParams: { id: RIDE_ID },
+      body: { reason: 'Le chauffeur met trop de temps' },
+    });
+    expect(navigation.reset).toHaveBeenCalledWith({ index: 0, routes: [{ name: 'Home' }] });
+  });
+
+  it('en course : pas d’annulation côté client (C-03) -- l’urgence reste le recours', async () => {
+    const { root } = await renderTracking();
+    await act(async () => {
+      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+    });
+    expect(root.root.findAll((n) => n.props.testID === 'tracking-cancel')).toHaveLength(0);
+  });
+
+  it('le chauffeur annule : le client le voit, avec le motif, et peut commander une autre course', async () => {
+    const { root, navigation } = await renderTracking();
+    await act(async () => {
+      realtimeListener?.({
+        type: 'ride.cancelled',
+        id: 'm-c',
+        emittedAt: new Date().toISOString(),
+        payload: { rideId: RIDE_ID, cancelledBy: 'driver', reason: 'Panne de moto' },
+      });
+    });
+    expect(texts(root)).toContain('Votre chauffeur a annulé la course.');
+    expect(texts(root)).toContain('Panne de moto');
+    await act(async () => {
+      root.root.findByProps({ testID: 'tracking-cancelled-home' }).props.onPress();
+    });
+    expect(navigation.reset).toHaveBeenCalledWith({ index: 0, routes: [{ name: 'Home' }] });
+  });
+});

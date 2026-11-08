@@ -757,3 +757,55 @@ describe('repère du client sur la carte de course', () => {
     expect(has(root, 'active-ride-pickup-note')).toBe(false);
   });
 });
+
+describe('6 novembre : le chauffeur annule en disant pourquoi, et lit pourquoi le client a annulé', () => {
+  const sheetReasons = (root: ReactTestRenderer) =>
+    root.root.findAllByProps({ testID: 'cancel-sheet-reason' }).filter((n) => n.props.onPress);
+  const confirmButton = (root: ReactTestRenderer) =>
+    root.root.findAll((n) => n.props.testID === 'cancel-sheet-confirm' && n.props.onPress)[0]!;
+
+  it('avant le départ : motif obligatoire -- impossible de confirmer sans, puis annulation et retour à l’accueil', async () => {
+    const { root, callbacks } = await renderActiveRide();
+    await press(root, 'active-ride-cancel');
+    expect(texts(root)).toContain('Pourquoi ? (obligatoire)');
+    expect(confirmButton(root).props.disabled).toBe(true);
+
+    await act(async () => sheetReasons(root)[0]!.props.onPress());
+    expect(confirmButton(root).props.disabled).toBe(false);
+    await act(async () => confirmButton(root).props.onPress());
+
+    expect(mockRequest).toHaveBeenCalledWith('cancelRide', { pathParams: { id: RIDE_ID }, body: { reason: 'Client injoignable' } });
+    expect(callbacks.onEnded).toHaveBeenCalledTimes(1);
+  });
+
+  it('en course : les motifs sont ceux d’un incident (le back-office est prévenu côté serveur)', async () => {
+    const { root } = await renderActiveRide();
+    await reachTransit(root);
+    await press(root, 'active-ride-cancel');
+    const labels = sheetReasons(root).map((n) => n.props.accessibilityLabel);
+    expect(labels).toEqual(['Panne de moto', 'Accident', 'Agression / insécurité']);
+    await act(async () => sheetReasons(root)[1]!.props.onPress());
+    await act(async () => confirmButton(root).props.onPress());
+    expect(mockRequest).toHaveBeenCalledWith('cancelRide', { pathParams: { id: RIDE_ID }, body: { reason: 'Accident' } });
+  });
+
+  it('un refus du serveur s’affiche dans la feuille, la course reste à l’écran', async () => {
+    const { root, callbacks } = await renderActiveRide();
+    mockRequest.mockRejectedValueOnce(new ApiError('RIDE_INVALID_TRANSITION', 'transition invalide', 409));
+    await press(root, 'active-ride-cancel');
+    await act(async () => sheetReasons(root)[0]!.props.onPress());
+    await act(async () => confirmButton(root).props.onPress());
+    expect(callbacks.onEnded).not.toHaveBeenCalled();
+    expect(has(root, 'active-ride-screen')).toBe(true);
+    expect(texts(root)).toMatch(/transition|course/i);
+  });
+
+  it('le client annule avec un motif : le chauffeur le lit', async () => {
+    const { root } = await renderActiveRide();
+    await act(async () => {
+      emit({ type: 'ride.cancelled', payload: { rideId: RIDE_ID, cancelledBy: 'client', reason: "J'ai changé d'avis" } });
+    });
+    expect(texts(root)).toContain('Le client a annulé la course.');
+    expect(texts(root)).toContain("J'ai changé d'avis");
+  });
+});
