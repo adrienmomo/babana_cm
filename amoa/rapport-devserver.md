@@ -185,3 +185,53 @@ rechargé ; le lien a été retiré aussitôt pour qu'un redémarrage ne tombe p
   bloc `server`. Posée une fois, sur le `listen … default_server` ; la répéter dans chaque bloc
   donne « protocol options redefined ». Le test échoue aussi sur un avertissement (rouge sur ce
   point avant la seconde correction).
+
+## DEVSERVER — APK Babana et Babana Pro vers le serveur (9 novembre, branche `devserver-apks`)
+
+**Serveur mis à jour d'abord** : il tournait encore le code de PR #1 ; les APK sont construites
+depuis `master` (`0f785ab`, L3-11 et L4-07 compris). Procédure « Mise à jour du code » du README :
+Odoo `-u babana` sans erreur, temps réel reconstruit et rechargé, santé vérifiée.
+
+**Construction** : release, signées avec la clé debug du dépôt, variables du tableau du README.
+Le chauffeur ne reçoit pas la clé B (sans restriction d'application, et inutile : il n'appelle ni
+Places ni Geocoding). Tracé d'itinéraire chauffeur : le serveur OSRM public, comme `make driver` —
+choix par défaut pour le serveur de développement, à remplacer quand le service de routage retenu
+existera.
+
+**Vérifié dans les APK** : paquet, nom (« Babana », « Babana Pro »), empreinte de signature égale à
+celle de la clé A, clé A dans le manifeste, adresses `https://api.babana.dev` et
+`wss://api.babana.dev/rt/ws` dans le bundle, aucune adresse locale (`10.0.2.2`, `api.localhost`,
+`localhost:4001`), clé B dans le seul client.
+
+**Vérifié sur émulateur, contre le serveur** : client — OTP, accueil, carte Google, libellé de
+départ par Geocoding, connexion temps réel ouverte ; chauffeur — OTP, « Connexion au service
+établie », carte Google et marqueur moto, passage en ligne (`POST /drivers/me/availability` 200).
+Pas de course complète : un seul émulateur.
+
+Trouvé en chemin :
+
+- **README faux sur les OTP** : `grep -i otp` ne trouve rien, la ligne dit `[sms:console] … votre
+  code est …`. Corrigé.
+- **JVM d'Android Studio (17.0.6) qui plante** pendant le Lint de release, sur une méthode
+  précise ; contournement documenté dans le README. Une JDK 17 plus récente réglerait la cause.
+- **Émulateur lancé le 6 novembre** : horloge en retard de deux jours (certificat « pas encore
+  valide ») et relais DNS figé sur la configuration réseau de son démarrage (`unknown host`).
+  Démarrage à froid : les deux disparaissent. Un téléphone réel n'est pas concerné.
+
+## DEVSERVER — code OTP fixe 000000 (9 novembre, à ta demande)
+
+Aucun fournisseur SMS branché : tout code OTP vaut désormais `000000` sur ce serveur. Rien à
+coder — le module le permettait déjà (`OTP_DEV_FIXED_CODE`, `services/sms.py`), honoré seulement
+avec le simulateur (`SMS_PROVIDER=console`) et ignoré dès qu'une vraie passerelle est configurée ;
+comportement déjà couvert par `tests/test_otp_login.py`.
+
+- Serveur : `/etc/babana/babana.env` modifié à la main (copie `babana.env.bak-20261109`, droits
+  640 root:babana inchangés), Odoo redémarré. Vérifié par l'API publique : demande de code puis
+  `000000` → session chauffeur (Aristide Mbarga, approuvé).
+- Dépôt : `gen-env.sh` écrit `OTP_DEV_FIXED_CODE=000000` pour une installation neuve (il ne
+  réécrit jamais un fichier existant). Exécuté en entier dans un conteneur `ubuntu:24.04` :
+  valeur écrite, droits 640 root:babana, second passage refusé.
+- **Conséquence à garder en tête** : le serveur est ouvert sur Internet, et quiconque connaît un
+  numéro semé se connecte avec ce code. Acceptable pour des données de démonstration ; à retirer
+  (vider la variable, redémarrer Odoo) le jour où le serveur porte de vraies données ou un vrai
+  fournisseur SMS.
