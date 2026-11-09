@@ -185,3 +185,35 @@ rechargé ; le lien a été retiré aussitôt pour qu'un redémarrage ne tombe p
   bloc `server`. Posée une fois, sur le `listen … default_server` ; la répéter dans chaque bloc
   donne « protocol options redefined ». Le test échoue aussi sur un avertissement (rouge sur ce
   point avant la seconde correction).
+
+## DEVSERVER — APK Babana et Babana Pro vers le serveur (9 novembre, branche `devserver-apks`)
+
+**Serveur mis à jour d'abord** : il tournait encore le code de PR #1 ; les APK sont construites
+depuis `master` (`0f785ab`, L3-11 et L4-07 compris). Procédure « Mise à jour du code » du README :
+Odoo `-u babana` sans erreur, temps réel reconstruit et rechargé, santé vérifiée.
+
+**Construction** : release, signées avec la clé debug du dépôt, variables du tableau du README.
+Le chauffeur ne reçoit pas la clé B (sans restriction d'application, et inutile : il n'appelle ni
+Places ni Geocoding). Tracé d'itinéraire chauffeur : le serveur OSRM public, comme `make driver` —
+choix par défaut pour le serveur de développement, à remplacer quand le service de routage retenu
+existera.
+
+**Vérifié dans les APK** : paquet, nom (« Babana », « Babana Pro »), empreinte de signature égale à
+celle de la clé A, clé A dans le manifeste, adresses `https://api.babana.dev` et
+`wss://api.babana.dev/rt/ws` dans le bundle, aucune adresse locale (`10.0.2.2`, `api.localhost`,
+`localhost:4001`), clé B dans le seul client.
+
+**Vérifié sur émulateur, contre le serveur** : client — OTP, accueil, carte Google, libellé de
+départ par Geocoding, connexion temps réel ouverte ; chauffeur — OTP, « Connexion au service
+établie », carte Google et marqueur moto, passage en ligne (`POST /drivers/me/availability` 200).
+Pas de course complète : un seul émulateur.
+
+Trouvé en chemin :
+
+- **README faux sur les OTP** : `grep -i otp` ne trouve rien, la ligne dit `[sms:console] … votre
+  code est …`. Corrigé.
+- **JVM d'Android Studio (17.0.6) qui plante** pendant le Lint de release, sur une méthode
+  précise ; contournement documenté dans le README. Une JDK 17 plus récente réglerait la cause.
+- **Émulateur lancé le 6 novembre** : horloge en retard de deux jours (certificat « pas encore
+  valide ») et relais DNS figé sur la configuration réseau de son démarrage (`unknown host`).
+  Démarrage à froid : les deux disparaissent. Un téléphone réel n'est pas concerné.
