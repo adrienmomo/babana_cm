@@ -12,8 +12,9 @@ import { startRideSession } from '../src/tracking/session';
 import { ConnectionRegistry, type ConnectionContext } from '../src/ws/auth';
 import { parseConfig, type Config } from '../src/config';
 import { release } from '../src/ride/state';
+import { TEST_REDIS_URL } from './helpers/redis';
 
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
+const REDIS_URL = TEST_REDIS_URL;
 const RUN_ID = randomUUID().slice(0, 8);
 const id = (label: string) => `${label}-${RUN_ID}`;
 

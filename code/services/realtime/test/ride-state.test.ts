@@ -27,8 +27,9 @@ import { isInPool, removeFromPool } from '../src/redis/geo-index';
 import { addEligibleToPool } from '../src/redis/pool-eligibility';
 import { storePosition } from '../src/redis/positions';
 import { setOnline, setOffline } from '../src/driver/availability';
+import { TEST_REDIS_URL } from './helpers/redis';
 
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
+const REDIS_URL = TEST_REDIS_URL;
 const RUN_ID = randomUUID().slice(0, 8);
 const id = (label: string) => `${label}-${RUN_ID}`;
 const SOMEWHERE = { latitude: 4.05, longitude: 9.7 };
