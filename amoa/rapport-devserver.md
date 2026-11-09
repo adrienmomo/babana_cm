@@ -164,3 +164,22 @@ tarif public si B est extraite de l'APK.
 
 **À refaire pour le pilote** : les deux clés portent l'empreinte de la clé **debug**. Une vraie clé
 de signature changera l'empreinte de A ; B ne bouge pas.
+
+## DEVSERVER — certificat et HTTPS (9 novembre, branche `devserver-nginx-1-24`)
+
+DNS vérifié avant tout appel à Let's Encrypt : les quatre noms rendent `75.119.155.162`, et un
+fichier témoin déposé sous `/var/www/letsencrypt/.well-known/acme-challenge/` répond 200 depuis
+l'extérieur sur chacun. **Certificat émis** (`--cert-name babana-devserver`, quatre noms, échéance
+2027-02-07, renouvellement automatique par le minuteur certbot, `--deploy-hook` recharge nginx).
+
+**Défaut trouvé à l'étape 8** : `nginx -t` refuse `10-babana-https.conf` — `unknown directive
+"http2"`. Le serveur exécute nginx **1.24** (paquet Ubuntu 24.04) ; `http2 on;` n'existe que depuis
+1.25.1. La configuration n'avait jamais été lue par un nginx. `nginx -t` ayant échoué, rien n'a été
+rechargé ; le lien a été retiré aussitôt pour qu'un redémarrage ne tombe pas dessus.
+
+- Test d'abord : `code/test/config/devserver-nginx.test.sh` installe le nginx d'Ubuntu 24.04 dans
+  un conteneur, lie les deux sites comme le README, pose un certificat auto-signé au chemin de
+  certbot, et lance `nginx -t`. Rouge avec la même erreur que le serveur, vert après correction.
+  Ajouté à `make test`.
+- Correction : `listen 443 ssl http2;` (syntaxe 1.24) à la place de `http2 on;`, dans les quatre
+  blocs.
