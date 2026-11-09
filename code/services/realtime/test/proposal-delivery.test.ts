@@ -15,8 +15,9 @@ import { ProposalLifecycle } from '../src/proposal/lifecycle';
 import { TrackingManager } from '../src/tracking/broadcast';
 import { ConnectionRegistry, type ConnectionContext } from '../src/ws/auth';
 import { parseConfig, type Config } from '../src/config';
+import { TEST_REDIS_URL } from './helpers/redis';
 
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
+const REDIS_URL = TEST_REDIS_URL;
 
 describe('ProposalDeliveryMetrics (L7-04, critère 4)', () => {
   let m: ProposalDeliveryMetrics;

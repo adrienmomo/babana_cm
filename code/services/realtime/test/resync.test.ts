@@ -15,6 +15,7 @@ import type { ProposalLifecycle } from '../src/proposal/lifecycle';
 import { parseConfig, type Config } from '../src/config';
 import type { ConnectionContext } from '../src/ws/auth';
 import { setOffline, setOnline } from '../src/driver/availability';
+import { TEST_REDIS_URL } from './helpers/redis';
 
 let odooServer: http.Server;
 let odooRequests: unknown[] = [];
@@ -23,7 +24,7 @@ let config: Config;
 let redis: Redis;
 
 before(async () => {
-  redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379');
+  redis = new Redis(TEST_REDIS_URL);
   odooServer = http.createServer((req, res) => {
     if (req.url === '/api/internal/session/active-ride') {
       let raw = '';

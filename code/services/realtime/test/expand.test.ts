@@ -11,8 +11,9 @@ import { setDriverProfile, removeDriverProfile, type DriverProfile } from '../sr
 import { setOffline } from '../src/driver/availability';
 import { parseConfig, type Config } from '../src/config';
 import { putInPool } from './helpers/pool';
+import { TEST_REDIS_URL } from './helpers/redis';
 
-const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
+const REDIS_URL = TEST_REDIS_URL;
 const RUN_ID = randomUUID().slice(0, 8);
 const id = (label: string) => `${label}-${RUN_ID}`;
 
