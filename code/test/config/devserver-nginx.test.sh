@@ -36,10 +36,17 @@ rm -f /etc/nginx/sites-enabled/*
 ln -s "$NGINX_DIR/00-babana-http.conf" /etc/nginx/sites-enabled/
 ln -s "$NGINX_DIR/10-babana-https.conf" /etc/nginx/sites-enabled/
 
-if nginx -t 2>/tmp/nginx-t.log; then
-  echo "ok -- nginx -t accepte 00-babana-http.conf et 10-babana-https.conf"
-else
+if ! nginx -t 2>/tmp/nginx-t.log; then
   cat /tmp/nginx-t.log
   echo "not ok -- nginx -t refuse la configuration du serveur de développement" >&2
   exit 1
 fi
+# Un avertissement aussi est un échec : « protocol options redefined » (http2 répété sur chaque
+# `listen` d'une même adresse en 1.24) est la forme que prend une option mal placée -- celle-ci
+# s'appliquait quand même, la suivante pourrait ne pas s'appliquer du tout.
+if grep -q '\[warn\]' /tmp/nginx-t.log; then
+  cat /tmp/nginx-t.log
+  echo "not ok -- nginx -t accepte la configuration, avec des avertissements" >&2
+  exit 1
+fi
+echo "ok -- nginx -t accepte 00-babana-http.conf et 10-babana-https.conf, sans avertissement"

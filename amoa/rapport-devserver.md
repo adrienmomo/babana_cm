@@ -181,5 +181,7 @@ rechargé ; le lien a été retiré aussitôt pour qu'un redémarrage ne tombe p
   un conteneur, lie les deux sites comme le README, pose un certificat auto-signé au chemin de
   certbot, et lance `nginx -t`. Rouge avec la même erreur que le serveur, vert après correction.
   Ajouté à `make test`.
-- Correction : `listen 443 ssl http2;` (syntaxe 1.24) à la place de `http2 on;`, dans les quatre
-  blocs.
+- Correction : en 1.24, `http2` est une option de `listen`, portée par l'adresse et non par le
+  bloc `server`. Posée une fois, sur le `listen … default_server` ; la répéter dans chaque bloc
+  donne « protocol options redefined ». Le test échoue aussi sur un avertissement (rouge sur ce
+  point avant la seconde correction).
