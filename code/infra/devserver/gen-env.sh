@@ -69,9 +69,11 @@ SMTP_USER=
 SMTP_PASSWORD=
 SMTP_FROM=no-reply@babana.dev
 PUSH_PROVIDER=console
-# OTP codes go to Odoo's log only (journalctl -u babana-odoo). Never a fixed code here.
+# No SMS provider yet: messages go to Odoo's log (journalctl -u babana-odoo), and every OTP is
+# 000000 (decided 2026-11-09). Anyone who knows a seeded number can sign in with it -- acceptable
+# on this server only. Ignored by Odoo as soon as SMS_PROVIDER is a real gateway (sms.py).
 SMS_PROVIDER=console
-OTP_DEV_FIXED_CODE=
+OTP_DEV_FIXED_CODE=000000
 
 # --- Realtime service ---
 REDIS_URL=redis://127.0.0.1:6379

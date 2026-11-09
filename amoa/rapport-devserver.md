@@ -217,3 +217,21 @@ Trouvé en chemin :
 - **Émulateur lancé le 6 novembre** : horloge en retard de deux jours (certificat « pas encore
   valide ») et relais DNS figé sur la configuration réseau de son démarrage (`unknown host`).
   Démarrage à froid : les deux disparaissent. Un téléphone réel n'est pas concerné.
+
+## DEVSERVER — code OTP fixe 000000 (9 novembre, à ta demande)
+
+Aucun fournisseur SMS branché : tout code OTP vaut désormais `000000` sur ce serveur. Rien à
+coder — le module le permettait déjà (`OTP_DEV_FIXED_CODE`, `services/sms.py`), honoré seulement
+avec le simulateur (`SMS_PROVIDER=console`) et ignoré dès qu'une vraie passerelle est configurée ;
+comportement déjà couvert par `tests/test_otp_login.py`.
+
+- Serveur : `/etc/babana/babana.env` modifié à la main (copie `babana.env.bak-20261109`, droits
+  640 root:babana inchangés), Odoo redémarré. Vérifié par l'API publique : demande de code puis
+  `000000` → session chauffeur (Aristide Mbarga, approuvé).
+- Dépôt : `gen-env.sh` écrit `OTP_DEV_FIXED_CODE=000000` pour une installation neuve (il ne
+  réécrit jamais un fichier existant). Exécuté en entier dans un conteneur `ubuntu:24.04` :
+  valeur écrite, droits 640 root:babana, second passage refusé.
+- **Conséquence à garder en tête** : le serveur est ouvert sur Internet, et quiconque connaît un
+  numéro semé se connecte avec ce code. Acceptable pour des données de démonstration ; à retirer
+  (vider la variable, redémarrer Odoo) le jour où le serveur porte de vraies données ou un vrai
+  fournisseur SMS.

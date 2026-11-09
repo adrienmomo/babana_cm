@@ -55,8 +55,9 @@ npm ci && npm run build -w @babana/contracts && npm run build -w @babana/realtim
 
 ### Lire ce qui n'est pas publié
 
-- **Codes OTP** (SMS simulé) : `sudo journalctl -u babana-odoo --since -10min | grep "sms:console"` —
-  la ligne dit `[sms:console] -> 237… | Babana : votre code est NNNNNN`, sans le mot « otp ».
+- **Codes OTP** : toujours `000000` tant qu'aucun fournisseur SMS n'est branché
+  (`OTP_DEV_FIXED_CODE`, ignoré par Odoo dès que `SMS_PROVIDER` n'est plus `console`). Les SMS
+  simulés : `sudo journalctl -u babana-odoo --since -10min | grep "sms:console"`.
 - **Mailpit** : `ssh -L 8025:127.0.0.1:8025 babana-dev`, puis http://localhost:8025
 - **Console MinIO** : `ssh -L 9001:127.0.0.1:9001 babana-dev`, puis http://localhost:9001
 - **Journaux** : `journalctl -u babana-odoo -f` ; `sudo -u babana pm2 logs`
@@ -88,5 +89,5 @@ Puis `./gradlew --no-daemon assembleRelease`. Deux pièges :
   pendant le Lint de release, toujours sur la même méthode. Contournement :
   `-Dorg.gradle.jvmargs="-Xmx2048m -XX:MaxMetaspaceSize=512m -XX:CompileCommand=exclude,org.jetbrains.uast.kotlin.FirKotlinUastResolveProviderService::resolveSyntheticJavaPropertyAccessorCall"`.
 
-Comptes semés : client `+237 699 450 102`, chauffeurs `+237 690 110 201` à `205` ; code OTP dans
-le journal (ci-dessus).
+Comptes semés : client `+237 699 450 102`, chauffeurs `+237 690 110 201` à `205` ; code OTP
+`000000`.
