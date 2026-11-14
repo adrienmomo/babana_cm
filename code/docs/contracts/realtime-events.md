@@ -93,6 +93,10 @@ service temps réel (`tracking/ingest.ts::ingestPosition`) traite `[...preceding
 dans l'ordre chronologique, chaque point passant la même validation de plausibilité (L3-02) que
 s'il était arrivé seul.
 
+Depuis le 14 novembre (D85), l'app Chauffeur envoie un point toutes les 2 secondes, chacun seul :
+`precedingSamples` est vide par défaut. Le champ reste au contrat — `BABANA_LOCATION_BATCH_SIZE`
+au-dessus de 1 réactive l'agrégation sans rien changer côté serveur.
+
 ## Messages émis par le serveur (`server-to-client.ts`)
 
 | Message | Destinataire | Payload | Rôle |

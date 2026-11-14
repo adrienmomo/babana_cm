@@ -5,7 +5,7 @@
       "name": "position.update",
       "direction": "client-to-server",
       "status": "wired",
-      "emitter": "apps/driver/src/location/tracker.ts (L6-05, 2 septembre) -- fréquence adaptative selon l'état (hors ligne/immobile/en mouvement/en course), positions agrégées dans precedingSamples avant envoi. Démarré par bootstrap.ts, mis à jour par AvailabilityToggle.tsx (setOnline) et par le flux temps réel lui-même (proposal.accepted/ride.completed/ride.cancelled/session.synced). apps/driver/src/location/__tests__/tracker.test.ts.",
+      "emitter": "apps/driver/src/location/tracker.ts (L6-05, 2 septembre ; D85, 14 novembre) -- une position toutes les 2 s tant que le chauffeur est en ligne, chacune seule (precedingSamples vide par défaut, l'agrégation reste réglable), y compris app en arrière-plan ou fermée (service de premier plan, D84). Démarré par bootstrap.ts, mis à jour par AvailabilityToggle.tsx (setOnline) et par le flux temps réel lui-même (proposal.accepted/ride.completed/ride.cancelled/session.synced). apps/driver/src/location/__tests__/tracker.test.ts.",
       "consumer": "réel et testé : services/realtime/src/ws/dispatch.ts (case 'position.update') -> tracking/ingest.ts, services/realtime/test/ingest.test.ts."
     },
     {

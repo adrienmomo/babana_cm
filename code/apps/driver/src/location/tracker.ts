@@ -395,9 +395,13 @@ export class LocationTracker {
       }
     }
 
-    // À la cadence de l'état courant (potentiellement mise à jour ci-dessus) -- jamais 0, ce
-    // relevé vient de réussir, le suivant attend son tour normalement.
-    this.scheduleNextCapture();
+    // À la cadence de l'état courant (potentiellement mise à jour ci-dessus), comptée depuis le
+    // DÉBUT de ce relevé : un GPS qui met une seconde à répondre ne doit pas étirer la cadence de
+    // 2 s à 3 s (14 novembre). Jamais en dessous de zéro -- un GPS plus lent que la cadence
+    // enchaîne simplement le relevé suivant.
+    const nextInterval = captureIntervalFor(this.state, this.config);
+    if (nextInterval === null) return;
+    this.scheduleNextCapture(Math.max(0, nextInterval - (this.deps.now() - startedAtMs)));
   }
 
   private maybeFlush(): void {

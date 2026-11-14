@@ -1,3 +1,4 @@
+import { NativeModules, Platform } from 'react-native';
 import PushNotification, { Importance } from 'react-native-push-notification';
 import { APP_NAME } from '../brand';
 
@@ -8,19 +9,19 @@ import { APP_NAME } from '../brand';
  * délibérément : contrairement à une proposition de course, cette notification n'a rien à
  * imposer, elle informe.
  *
- * **Ce que ce module NE fait PAS, et pourquoi ça compte** : il pose une notification "ongoing"
- * (non balayable), qui donne à la capture l'apparence visuelle d'un service de premier plan
- * Android. Il ne démarre PAS de vrai service de premier plan natif (`startForegroundService` /
- * `ForegroundService`) -- aucune bibliothèque de ce type n'est une dépendance de ce paquet
- * aujourd'hui (invariant "pas de dépendance nouvelle sans nécessité", signalé plutôt qu'ajouté en
- * silence). Sans ce lien natif, Android peut throttler ou suspendre les minuteurs JS de
- * `tracker.ts` une fois l'app reléguée en arrière-plan, au-delà de ce que ce module peut garantir
- * depuis l'espace JavaScript seul. Détaillé dans `amoa/questions/L6-05.md`.
+ * **Sur Android, cette notification est celle d'un vrai service de premier plan** (décision du
+ * 14 novembre, `android/.../online/OnlineService.kt`) : tant que le chauffeur est en ligne, le
+ * service garde le processus, le GPS et le JavaScript actifs -- app en arrière-plan, écran éteint
+ * ou app balayée des récentes -- et c'est ce qui lui permet de continuer à recevoir des courses.
+ * Jusqu'au 14 novembre, ce module ne posait qu'une notification « ongoing » d'apparence, sans
+ * service : React Native suspend tous les minuteurs JS hors de l'écran (JavaTimerManager), la
+ * capture s'arrêtait donc dès que l'app quittait l'écran. Ailleurs (iOS, tests), la notification
+ * locale d'avant reste le repli.
  *
  * **La notification constate, elle n'affirme pas** (précision du 3 septembre,
- * `amoa/questions/REPONSES-2026-09-03.md` §2 ; L6-05 spécification). Faute de service de premier
- * plan natif, rien ne garantit que la capture continue en arrière-plan : écrire « suivi actif »
- * serait affirmer ce qu'on ne peut pas tenir. Le texte affiche donc QUAND la dernière position
+ * `amoa/questions/REPONSES-2026-09-03.md` §2 ; L6-05 spécification). Même avec le service, un
+ * réseau coupé ou un constructeur qui tue les applications en arrière-plan peuvent arrêter
+ * l'envoi : écrire « suivi actif » serait affirmer ce qu'on ne peut pas tenir. Le texte affiche donc QUAND la dernière position
  * est réellement partie -- et devient au passage le diagnostic gratuit dont la mesure GPS
  * (`amoa/06-jalons-et-pilote.md` §2) aura besoin : celui qui tient le téléphone voit si la
  * capture a calé, sans interroger le serveur. C'est la règle de tout le projet -- une absence
@@ -28,6 +29,22 @@ import { APP_NAME } from '../brand';
  * lui-même.
  */
 
+/** Le service natif (Android seulement) -- absent ailleurs, la notification locale le remplace. */
+interface OnlineServiceModule {
+  /** Démarre le service au premier appel, met seulement sa notification à jour ensuite. Ne
+   * démarre rien tant que la permission de position n'est pas accordée -- l'appel suivant
+   * réessaie. */
+  show(text: string): void;
+  hide(): void;
+}
+
+function onlineService(): OnlineServiceModule | null {
+  const native = (NativeModules as { BabanaOnlineService?: OnlineServiceModule }).BabanaOnlineService;
+  return Platform.OS === 'android' && native ? native : null;
+}
+
+/** Même canal et même identifiant que la notification du service (OnlineService.kt) : une seule
+ * notification, quel que soit le chemin qui la pose. */
 const TRACKING_CHANNEL_ID = 'location-tracking';
 // Numérique sous forme de chaîne : sur Android, react-native-push-notification fait un
 // Integer.parseInt de l'identifiant et ne poste rien s'il échoue -- même exigence que l'alerte de
@@ -82,6 +99,11 @@ export function formatLastSentMessage(lastSentAtMs: number | null, nowMs: number
  * la notification en place, n'en empile pas une seconde.
  */
 export function updateTrackingNotification(message: string): void {
+  const service = onlineService();
+  if (service) {
+    service.show(message);
+    return;
+  }
   ensureChannel();
   PushNotification.localNotification({
     id: TRACKING_NOTIFICATION_ID,
@@ -98,7 +120,28 @@ export function updateTrackingNotification(message: string): void {
 }
 
 /** Effacée au passage hors ligne -- la capture s'arrête au même instant (tracker.ts), la
- * notification ne doit pas survivre à ce qu'elle annonce. */
+ * notification ne doit pas survivre à ce qu'elle annonce. Le service s'arrête avec elle, et la
+ * tâche JS qu'il portait se termine (sans quoi React Native garderait ses minuteurs actifs en
+ * arrière-plan pour rien). */
 export function hideTrackingNotification(): void {
-  PushNotification.cancelLocalNotification(TRACKING_NOTIFICATION_ID);
+  const service = onlineService();
+  if (service) {
+    service.hide();
+  } else {
+    PushNotification.cancelLocalNotification(TRACKING_NOTIFICATION_ID);
+  }
+  const waiting = [...onlineTaskReleases];
+  onlineTaskReleases.clear();
+  waiting.forEach((release) => release());
+}
+
+const onlineTaskReleases = new Set<() => void>();
+
+/**
+ * Résolue au prochain passage hors ligne (`hideTrackingNotification`). C'est la durée de vie de
+ * la tâche JS du service (`../onlineTask.ts`) : tant qu'elle n'est pas résolue, React Native garde
+ * les minuteurs actifs hors de l'écran.
+ */
+export function untilTrackingStops(): Promise<void> {
+  return new Promise((resolve) => onlineTaskReleases.add(resolve));
 }

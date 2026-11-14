@@ -70,7 +70,7 @@ const DRIVER = {
 };
 
 function fakeNavigation() {
-  return { navigate: jest.fn(), replace: jest.fn(), reset: jest.fn() };
+  return { navigate: jest.fn(), replace: jest.fn(), reset: jest.fn(), isFocused: () => true, addListener: jest.fn(() => jest.fn()) };
 }
 
 const renderedRoots: ReactTestRenderer[] = [];

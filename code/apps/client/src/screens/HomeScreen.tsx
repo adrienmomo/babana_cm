@@ -10,6 +10,7 @@ import { RecentDestinations } from '../components/RecentDestinations';
 import { getCurrentPosition, type LocationFailureReason } from '../location';
 import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import type { ClientParamList, RidePoint } from '../navigation/types';
+import { useKeepScreenAwake } from '../keepAwake';
 
 /**
  * Écran d'accueil (L6-06) : la carte, les chauffeurs proches, la désignation du départ et de
@@ -73,6 +74,8 @@ const LOCATION_ERROR_MESSAGES: Record<LocationFailureReason, string> = {
 };
 
 export function HomeScreen({ navigation }: Props) {
+  // Décision du 14 novembre : l'écran ne s'éteint pas tant qu'une carte est ouverte.
+  useKeepScreenAwake(navigation);
   const [region, setRegion] = useState<LatLng>(DOUALA_DEFAULT_CENTER);
   const [activeSlot, setActiveSlot] = useState<ActiveSlot>('departure');
   const [departure, setDeparture] = useState<RidePoint | null>(null);

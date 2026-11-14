@@ -81,7 +81,7 @@ function emitSubscribeAck(
 }
 
 function fakeNavigation() {
-  return { navigate: jest.fn() };
+  return { navigate: jest.fn(), isFocused: () => true, addListener: jest.fn(() => jest.fn()) };
 }
 
 // Démontés dans afterEach ci-dessous -- sans ça, l'effet de L3-20 (StreamLivenessWatchdog,

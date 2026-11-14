@@ -19,6 +19,7 @@ import { formatMoney } from '../format';
 import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { isProposalHandled, markProposalHandled } from '../proposalDedup';
 import { consumePendingProposalNavigation } from '../push/handlers';
+import { attachProposalHost } from '../proposalWatch';
 import type { ActiveRideParams, DriverParamList, ProposalParams } from '../navigation/types';
 
 /**
@@ -146,6 +147,8 @@ export function HomeScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     ensureRealtimeConnected();
+    // Cet écran écoute les propositions : tant qu'il est monté, `proposalWatch` (app fermée) se tait.
+    const detachProposalHost = attachProposalHost();
 
     // Le registre partagé (`proposalDedup`) couvre en plus le cas où le WebSocket et la
     // notification annoncent la même proposition (L7-04, critère 2).
@@ -228,6 +231,7 @@ export function HomeScreen({ navigation, route }: Props) {
     });
 
     return () => {
+      detachProposalHost();
       unsubscribeConnectionState();
       unsubscribeMessages();
     };
