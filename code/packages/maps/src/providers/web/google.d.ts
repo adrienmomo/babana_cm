@@ -36,6 +36,8 @@ interface GoogleMarkerOptions {
 
 interface GoogleMarker {
   setMap(map: GoogleMap | null): void;
+  setPosition(position: GoogleLatLngLiteral): void;
+  setTitle(title: string | null): void;
 }
 
 interface GooglePolylineOptions {
