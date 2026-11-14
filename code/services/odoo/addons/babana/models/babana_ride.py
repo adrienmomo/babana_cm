@@ -272,6 +272,26 @@ class BabanaRide(models.Model):
             "pickupNote": self.pickup_note or None,
         }
 
+    def _babana_client_ride_details(self):
+        """Ce que le client suit de sa course après une relance de l'app (14 novembre,
+        `/internal/session/active-ride`) : ses deux points, avec le libellé qu'il avait choisi, et
+        l'identifiant public du chauffeur affecté -- dont le service temps réel tire la carte du
+        chauffeur, comme pour `ride.assigned`."""
+        self.ensure_one()
+        return {
+            "origin": {
+                "latitude": self.pickup_latitude,
+                "longitude": self.pickup_longitude,
+                "label": self.pickup_label or None,
+            },
+            "destination": {
+                "latitude": self.dropoff_latitude,
+                "longitude": self.dropoff_longitude,
+                "label": self.dropoff_label or None,
+            },
+            "driverId": self.driver_id.public_id,
+        }
+
     def _babana_compute_final_amount(self):
         """Montant final (L4-04, critère d'acceptation 2) : calculé sur la distance de
         référence (L2-05), jamais sur la distance parcourue -- reproductible et connue du

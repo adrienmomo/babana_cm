@@ -289,6 +289,12 @@ class InternalController(http.Controller):
                 "arrivedAt": _common.iso_datetime(ride.arrived_at) if ride.arrived_at else None,
                 "noShowGraceSeconds": ride._babana_no_show_grace_seconds(),
             }
+        # 14 novembre : de même, le client dont l'app est relancée en pleine course rouvre son
+        # suivi -- départ, arrivée et chauffeur affecté. La carte du chauffeur (prénom, photo,
+        # immatriculation, D41) est complétée par le service temps réel depuis le même cache que
+        # `ride.assigned` : une seule définition de ce que le client voit de son chauffeur.
+        if role == "client" and ride.state in ("assigned", "in_progress") and ride.driver_id:
+            payload["clientRide"] = ride._babana_client_ride_details()
         return payload, 200
 
     # --- POST /internal/share/resolve (L8-03, sens temps réel -> Odoo) ------------------------

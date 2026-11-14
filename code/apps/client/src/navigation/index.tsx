@@ -19,6 +19,7 @@ import { RideSummaryScreen } from '../screens/RideSummaryScreen';
 import { AccountScreen } from '../screens/AccountScreen';
 import { HistoryScreen } from '../screens/HistoryScreen';
 import { InvoiceScreen } from '../screens/InvoiceScreen';
+import { flushPendingResume, startRideResume, type ResumeNavigation } from '../rideResume';
 import type { AuthParamList, ClientParamList } from './types';
 import { SCREEN_TITLES } from './titles';
 
@@ -154,8 +155,18 @@ function ClientNavigator() {
   );
 }
 
+/** Reprise du suivi après une relance de l'app (14 novembre, `rideResume.ts`) : le suivi s'ouvre
+ * par-dessus l'accueil, et « retour » y ramène, comme après une commande. */
+const resumeNavigation: ResumeNavigation = {
+  isReady: () => navigationRef.isReady(),
+  currentRoute: () => navigationRef.getCurrentRoute(),
+  openTracking: (params) =>
+    navigationRef.reset({ index: 1, routes: [{ name: 'Home' }, { name: 'Tracking', params }] }),
+};
+
 export function AppNavigator() {
   const { session, handleSignedIn } = useSession();
+  useEffect(() => startRideResume(resumeNavigation), []);
 
   return (
     <View style={styles.root}>
@@ -163,7 +174,7 @@ export function AppNavigator() {
           persistée" (D39) doit se comprendre avant que quelqu'un ne ferme l'onglet et s'étonne
           d'être déconnecté au retour. No-op hors web (WebDemoBanner). */}
       <WebDemoBanner />
-      <NavigationContainer ref={navigationRef}>
+      <NavigationContainer ref={navigationRef} onReady={() => flushPendingResume(resumeNavigation)}>
         <AuthGate<AuthUser>
           session={session}
           renderLoading={() => <LoadingScreen />}

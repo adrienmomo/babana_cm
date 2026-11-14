@@ -93,7 +93,7 @@ service temps réel (`tracking/ingest.ts::ingestPosition`) traite `[...preceding
 dans l'ordre chronologique, chaque point passant la même validation de plausibilité (L3-02) que
 s'il était arrivé seul.
 
-Depuis le 14 novembre (D85), l'app Chauffeur envoie un point toutes les 3 secondes, chacun seul :
+Depuis le 14 novembre (D85), l'app Chauffeur envoie un point toutes les 3 s en course (5 s en mouvement, 15 s à l'arrêt), chacun seul :
 `precedingSamples` est vide par défaut. Le champ reste au contrat — `BABANA_LOCATION_BATCH_SIZE`
 au-dessus de 1 réactive l'agrégation sans rien changer côté serveur.
 
@@ -118,7 +118,7 @@ au-dessus de 1 réactive l'agrégation sans rien changer côté serveur.
 | `chat.message` | L'autre participant | `{ rideId, code, from }` | Message rapide relayé (`chat.send`) — un code prédéfini, jamais du texte libre |
 | `ride.started` | Client | `{ rideId }` | Transition `→ in_progress` |
 | `ride.completed` | Client | `{ rideId, distanceMeters, durationSeconds, measured, amount, breakdown }` | Transition `→ completed` — `distanceMeters` / `durationSeconds` à `null` quand `measured` est faux (course terminée sans accumulation temps réel, L3-10 / `amoa/questions/L6-13.md`) |
-| `session.synced` | Client ou chauffeur | `{ activeRideId, activeRideState, activeProposal, rideStateKnown, driverOnline, serverTime }` | Voir « Politique de reconnexion » |
+| `session.synced` | Client ou chauffeur | `{ activeRideId, activeRideState, activeRide?, clientRide?, activeProposal, rideStateKnown, driverOnline, serverTime }` | Voir « Politique de reconnexion ». `clientRide` (14 novembre) : pour un client dont la course est affectée ou en cours, ses deux points (avec libellé) et la carte du chauffeur -- l'app relancée rouvre le suivi |
 
 `ride.cancelled` a un seul émetteur (le serveur) mais deux destinataires possibles selon qui est
 concerné par la course — le critère d'acceptation 1 de C-02 porte sur l'émetteur, pas sur le
