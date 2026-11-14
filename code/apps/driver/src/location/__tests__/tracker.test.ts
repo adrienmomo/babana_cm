@@ -541,4 +541,39 @@ describe('LocationTracker (L6-05)', () => {
     expect(deps.sent.length).toBeGreaterThanOrEqual(5);
     expect(deps.sent.every((payload) => payload.precedingSamples.length === 0)).toBe(true);
   });
+
+  test('14 novembre -- course en cours, mais le serveur ne tient plus le chauffeur « en ligne » : la position part quand même', async () => {
+    // Vu sur émulateur : app tuée en pleine approche, période de grâce dépassée -- session.synced
+    // rend la course (assigned) ET driverOnline: false. Le suivi du client ne doit pas s'éteindre.
+    const deps = fakeDeps();
+    const tracker = new LocationTracker(deps, { ...CONFIG, batchSize: 1 });
+    tracker.start();
+    deps.emit(sessionSynced({ activeRideId: 'ride-1', activeRideState: 'assigned', driverOnline: false }));
+
+    expect(tracker.getState()).toBe('in_ride');
+    await jest.advanceTimersByTimeAsync(0);
+    expect(deps.sent).toHaveLength(1);
+    expect(deps.notificationShown).toBe(true);
+
+    // Fin de course, toujours hors ligne : tout s'arrête.
+    deps.emit(rideCompleted());
+    expect(tracker.getState()).toBe('offline');
+    expect(deps.notificationShown).toBe(false);
+  });
+
+  test('session perdue en pleine course : la capture s’arrête quand même', async () => {
+    let lost: () => void = () => undefined;
+    const deps = fakeDeps({
+      onSessionLost: (listener) => {
+        lost = listener;
+        return () => undefined;
+      },
+    });
+    const tracker = new LocationTracker(deps, CONFIG);
+    tracker.start();
+    tracker.setOnline(true);
+    deps.emit(proposalAccepted());
+    lost();
+    expect(tracker.getState()).toBe('offline');
+  });
 });

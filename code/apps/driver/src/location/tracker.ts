@@ -208,7 +208,12 @@ export class LocationTracker {
     // Session perdue (déconnexion, jeton de renouvellement révoqué) : un chauffeur qui n'est plus
     // authentifié ne doit plus capturer sa position, ni afficher une notification qui prétendrait
     // le contraire -- même raisonnement que l'arrêt immédiat au passage hors ligne.
-    this.deps.onSessionLost(() => this.setOnline(false));
+    this.deps.onSessionLost(() => {
+      // Plus personne n'est authentifié : rien ne part plus, course en cours ou non.
+      this.rideActive = false;
+      this.setOnline(false);
+      this.recomputeState();
+    });
   }
 
   /** Appelé explicitement par `AvailabilityToggle.tsx`, juste après l'autorisation d'Odoo --
@@ -242,10 +247,14 @@ export class LocationTracker {
   }
 
   private recomputeState(): void {
-    const next: DriverActivityState = !this.online
-      ? 'offline'
-      : this.rideActive
-        ? 'in_ride'
+    // Une course en cours se suit toujours, que le serveur tienne le chauffeur « en ligne » ou non
+    // (14 novembre) : app tuée en pleine approche, période de grâce dépassée, session.synced rend la
+    // course ET driverOnline: false -- sans cette priorité, le client ne voyait plus la moto. Le
+    // serveur garde le chauffeur hors du vivier (pool-eligibility.lua), seule la course en profite.
+    const next: DriverActivityState = this.rideActive
+      ? 'in_ride'
+      : !this.online
+        ? 'offline'
         : this.movement.isMoving(null)
           ? 'online_moving'
           : 'online_idle';
@@ -397,7 +406,7 @@ export class LocationTracker {
 
     // À la cadence de l'état courant (potentiellement mise à jour ci-dessus), comptée depuis le
     // DÉBUT de ce relevé : un GPS qui met une seconde à répondre ne doit pas étirer la cadence de
-    // 2 s à 3 s (14 novembre). Jamais en dessous de zéro -- un GPS plus lent que la cadence
+    // 3 s à 4 s (14 novembre). Jamais en dessous de zéro -- un GPS plus lent que la cadence
     // enchaîne simplement le relevé suivant.
     const nextInterval = captureIntervalFor(this.state, this.config);
     if (nextInterval === null) return;
