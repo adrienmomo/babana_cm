@@ -101,22 +101,22 @@ export const ROUTE_REFRESH_MS = Number(process.env.BABANA_ROUTE_REFRESH_MS) || 1
 /** Hors ligne : aucune capture (voir location/adaptive.ts -- pas une valeur ici, un état à part). */
 
 /**
- * **Toutes les 2 secondes, en ligne comme en course** (décision du 14 novembre) : une position
- * part toutes les 2 secondes tant que le chauffeur est en ligne, app à l'écran ou non (service de
+ * **Toutes les 3 secondes, en ligne comme en course** (décision du 14 novembre, d'abord 2 s puis
+ * 3 s le même jour pour alléger les envois) : une position part toutes les 3 secondes tant que le chauffeur est en ligne, app à l'écran ou non (service de
  * premier plan, `location/background.ts`). Les trois paliers restent distincts et paramétrables --
  * un pilote qui mesure une consommation de batterie ou de données trop forte les écarte sans
- * toucher à la logique -- mais valent tous 2 s par défaut.
+ * toucher à la logique -- mais valent tous 3 s par défaut.
  *
  * Historique : 20 s immobile (22 octobre, trois relevés par durée de vie de position côté serveur,
  * `POSITION_TTL_SECONDS` 60 s), 15 s en mouvement, 5 s en course. Toute valeur reste nettement
  * sous cette durée de vie : au-delà, un chauffeur immobile sortirait du pool entre deux relevés.
  */
-export const LOCATION_CAPTURE_INTERVAL_IDLE_MS = Number(process.env.BABANA_LOCATION_INTERVAL_IDLE_MS) || 2_000;
+export const LOCATION_CAPTURE_INTERVAL_IDLE_MS = Number(process.env.BABANA_LOCATION_INTERVAL_IDLE_MS) || 3_000;
 /** En ligne, en mouvement -- ce que les clients voient sur la carte d'accueil (nearby.drivers). */
-export const LOCATION_CAPTURE_INTERVAL_MOVING_MS = Number(process.env.BABANA_LOCATION_INTERVAL_MOVING_MS) || 2_000;
+export const LOCATION_CAPTURE_INTERVAL_MOVING_MS = Number(process.env.BABANA_LOCATION_INTERVAL_MOVING_MS) || 3_000;
 /** En course -- c'est la donnée que L3-10 accumule en distance/tracé, et ce que le client suit en
  * direct (driver.position). */
-export const LOCATION_CAPTURE_INTERVAL_RIDE_MS = Number(process.env.BABANA_LOCATION_INTERVAL_RIDE_MS) || 2_000;
+export const LOCATION_CAPTURE_INTERVAL_RIDE_MS = Number(process.env.BABANA_LOCATION_INTERVAL_RIDE_MS) || 3_000;
 
 /** En dessous de cette vitesse instantanée (m/s), un chauffeur en ligne (hors course) est
  * considéré immobile -- ~1 m/s, la marche, pas la moto à l'arrêt moteur tournant. */
@@ -130,7 +130,7 @@ export const LOCATION_IDLE_DETECTION_WINDOW_MS = Number(process.env.BABANA_LOCAT
 
 /** Agrégation avant envoi (spécification L6-05, critère 3) : le tampon est vidé dès qu'il atteint
  * cette taille... 1 depuis le 14 novembre : chaque relevé part seul, aussitôt capté -- « une
- * position envoyée toutes les 2 secondes », pas cinq toutes les dix. Une valeur plus grande
+ * position envoyée toutes les 3 secondes », pas cinq d'un coup. Une valeur plus grande
  * réactive l'agrégation (moins d'envois, même tracé). */
 export const LOCATION_BATCH_SIZE = Number(process.env.BABANA_LOCATION_BATCH_SIZE) || 1;
 /** ...ou après ce délai depuis le premier point en attente, même si le tampon n'est pas plein --

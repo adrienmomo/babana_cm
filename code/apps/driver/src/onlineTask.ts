@@ -9,7 +9,7 @@ import { hideTrackingNotification, untilTrackingStops } from './location/backgro
  * Tâche JS du service de premier plan d'un chauffeur en ligne (`BabanaDriverOnline`, décision du
  * 14 novembre -- `android/.../online/OnlineService.kt`). Elle ne fait presque rien : elle EXISTE,
  * et tant qu'elle existe React Native garde les minuteurs JS actifs hors de l'écran -- la capture
- * toutes les 2 secondes, le battement de cœur du WebSocket, l'alerte de proposition.
+ * toutes les 3 secondes, le battement de cœur du WebSocket, l'alerte de proposition.
  *
  * Deux façons d'arriver ici :
  * - le cas courant : le chauffeur passe en ligne, app à l'écran -- tout est déjà démarré, les

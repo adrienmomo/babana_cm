@@ -93,7 +93,7 @@ service temps réel (`tracking/ingest.ts::ingestPosition`) traite `[...preceding
 dans l'ordre chronologique, chaque point passant la même validation de plausibilité (L3-02) que
 s'il était arrivé seul.
 
-Depuis le 14 novembre (D85), l'app Chauffeur envoie un point toutes les 2 secondes, chacun seul :
+Depuis le 14 novembre (D85), l'app Chauffeur envoie un point toutes les 3 secondes, chacun seul :
 `precedingSamples` est vide par défaut. Le champ reste au contrat — `BABANA_LOCATION_BATCH_SIZE`
 au-dessus de 1 réactive l'agrégation sans rien changer côté serveur.
 
@@ -107,12 +107,12 @@ au-dessus de 1 réactive l'agrégation sans rien changer côté serveur.
 | `ride.cancelled` | Chauffeur et/ou client, selon `cancelledBy` (L4-12) | `{ rideId, cancelledBy, reason? }` | La course a été annulée |
 | `nearby.drivers` | Client | `{ drivers: { position, distanceMeters }[] }` (max 5, anonymes) | Réponse à `nearby.subscribe`, puis mises à jour |
 | `nearby.subscribe.ack` | Client | `{ accepted: true, broadcastIntervalMs }` ou `{ accepted: false, retryAfterMs }` | Accusé de réception de `nearby.subscribe` — `broadcastIntervalMs` = cadence réelle de `nearby.drivers` (D50) |
-| `ride.track.ack` | Client | `{ broadcastIntervalMs }` | Accusé de réception de `ride.track` — cadence réelle de `driver.position` (D50) |
+| `ride.track.ack` | Client | `{ broadcastIntervalMs }` | Accusé de réception de `ride.track` — cadence du minuteur de `driver.position` (D50) : la cadence **minimale**, chaque position acceptée part aussi aussitôt (14 novembre) |
 | `ride.proposed` | Client | `{ rideId, driverId, proposalExpiresAt }` | Le chauffeur choisi a été réservé (redondant pour l'appareil qui a fait la demande, gardé pour un second appareil du même client — `amoa/questions/REPONSES-2026-08-28.md` §1) |
 | `ride.assigned` | Client | `{ rideId, driverId, firstName, photoUrl, motorcycleClass, licensePlate, phoneNumber }` | Le chauffeur a accepté |
 | `ride.rejected` | Client | `{ rideId, driverId, reason }` | Le chauffeur a refusé ou le délai a expiré -- le serveur sollicite déjà le suivant le plus proche, le client n'a rien à choisir |
 | `ride.unmatched` | Client | `{ rideId }` | Plus aucun chauffeur à solliciter (vivier épuisé ou `babana.dispatch_max_attempts` atteint) : la course reste `rejected`, le client choisit « Réessayer » (`POST /rides/{id}/dispatch`) ou « Annuler ». Au commit d'Odoo (D32) |
-| `driver.position` | Client | `{ rideId, position, etaSeconds }` | Suivi pendant une course affectée ou en cours |
+| `driver.position` | Client | `{ rideId, position, etaSeconds }` | Suivi pendant une course affectée ou en cours — envoyé dès qu'une position du chauffeur est acceptée (14 novembre), et au rythme du minuteur |
 | `ride.route` | Client | `{ rideId, phase, points, distanceMeters, durationSeconds }` | Le tracé calculé par le chauffeur (`route.share`), rediffusé à l'identique — `approach` vers le client, `transit` vers la destination. Rejoué à `ride.track` |
 | `driver.arrived` | Client et chauffeur | `{ rideId, arrivedAt, noShowGraceSeconds }` | Le chauffeur a déclaré « Sur place » (`POST /rides/{id}/arrived`, écrit dans Odoo, poussé au commit). Les deux apps comptent l'attente depuis `arrivedAt` ; « client absent » permis après `noShowGraceSeconds`. Rejoué à `ride.track` |
 | `chat.message` | L'autre participant | `{ rideId, code, from }` | Message rapide relayé (`chat.send`) — un code prédéfini, jamais du texte libre |
