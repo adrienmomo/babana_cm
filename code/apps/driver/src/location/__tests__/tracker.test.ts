@@ -576,4 +576,17 @@ describe('LocationTracker (L6-05)', () => {
     lost();
     expect(tracker.getState()).toBe('offline');
   });
+
+  test('14 novembre -- chaque changement d’état est signalé, pour régler l’abonnement GPS', async () => {
+    const states: string[] = [];
+    const deps = fakeDeps({ onStateChange: (state) => states.push(state) });
+    const tracker = new LocationTracker(deps, CONFIG);
+    tracker.start();
+    tracker.setOnline(true);
+    deps.emit(proposalAccepted());
+    deps.emit(rideCompleted());
+    tracker.setOnline(false);
+    expect(states).toEqual(['online_idle', 'in_ride', 'online_idle', 'offline']);
+  });
 });
+

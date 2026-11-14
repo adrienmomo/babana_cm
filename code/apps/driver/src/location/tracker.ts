@@ -17,6 +17,7 @@ import { captureIntervalFor, MovementDetector, type AdaptiveCaptureConfig, type 
 import { ensureBackgroundPermission, ensureForegroundPermission, type PermissionState } from './permissions';
 import { updateTrackingNotification, hideTrackingNotification, formatLastSentMessage } from './background';
 import { onRealtimeMessage, realtimeClient } from '../realtime';
+import { PositionWatcher, type RawFix } from './watcher';
 import { onSessionLost } from '../auth';
 
 /**
@@ -57,15 +58,11 @@ export interface LocationTrackerDeps {
    * (`capturedAt`), que le serveur valide contre sa propre horloge (L3-02) -- jamais l'heure du
    * téléphone, qui peut avoir des heures d'écart (30 octobre). Absente : `now`. */
   serverNow?: () => number;
+  /** Prévenu à chaque changement d'état (hors ligne, immobile, en mouvement, en course) : règle
+   * l'abonnement GPS continu (`watcher.ts`) sur la cadence de l'état, l'arrête hors ligne. */
+  onStateChange?: (state: DriverActivityState) => void;
 }
 
-interface RawFix {
-  latitude: number;
-  longitude: number;
-  accuracyMeters: number;
-  speedMetersPerSecond: number | null;
-  headingDegrees: number | null;
-}
 
 interface BufferedSample extends RawFix {
   capturedAtIso: string;
@@ -242,6 +239,12 @@ export class LocationTracker {
     return this.state;
   }
 
+  /** La disponibilité du chauffeur, distincte de la capture : depuis le 14 novembre, une course en
+   * cours se suit même hors ligne -- « capture en cours » ne veut plus dire « en ligne ». */
+  isOnline(): boolean {
+    return this.online;
+  }
+
   getMetrics(): LocationMetricsSnapshot {
     return { ...this.metrics };
   }
@@ -261,6 +264,7 @@ export class LocationTracker {
 
     const wasOffline = this.state === 'offline';
     this.state = next;
+    this.deps.onStateChange?.(next);
 
     if (next === 'offline') {
       this.stopTimer();
@@ -362,7 +366,9 @@ export class LocationTracker {
       // -- ailleurs, la précision par défaut du terminal suffit et coûte moins de batterie.
       enableHighAccuracy: this.state === 'in_ride',
       timeout: Math.min(10_000, interval),
-      maximumAge: Math.floor(interval / 2),
+      // Le système livre une position par période (`watcher.ts`) : la dernière reçue a au plus une
+      // période d'âge -- au-delà, on attend la suivante plutôt que d'envoyer une position périmée.
+      maximumAge: interval,
     }).catch(() => null);
     this.metrics.gpsActiveMs += this.deps.now() - startedAtMs;
 
@@ -388,6 +394,7 @@ export class LocationTracker {
         const next: DriverActivityState = moving ? 'online_moving' : 'online_idle';
         if (next !== this.state) {
           this.state = next;
+          this.deps.onStateChange?.(next);
         }
       }
 
@@ -452,23 +459,14 @@ export class LocationTracker {
   }
 }
 
-function defaultDeps(): LocationTrackerDeps {
+function defaultDeps(config: AdaptiveCaptureConfig): LocationTrackerDeps {
+  const watcher = new PositionWatcher(Geolocation, () => Date.now());
   return {
-    getPosition: (options) =>
-      new Promise((resolve) => {
-        Geolocation.getCurrentPosition(
-          (position) =>
-            resolve({
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              accuracyMeters: position.coords.accuracy ?? 0,
-              speedMetersPerSecond: position.coords.speed ?? null,
-              headingDegrees: position.coords.heading ?? null,
-            }),
-          () => resolve(null),
-          options
-        );
-      }),
+    getPosition: (options) => watcher.next(options),
+    onStateChange: (state) => {
+      const intervalMs = captureIntervalFor(state, config);
+      watcher.configure(intervalMs === null ? null : { intervalMs });
+    },
     ensureForegroundPermission,
     ensureBackgroundPermission,
     send: (payload) => realtimeClient.send('position.update', payload),
@@ -481,4 +479,5 @@ function defaultDeps(): LocationTrackerDeps {
   };
 }
 
-export const locationTracker = new LocationTracker(defaultDeps(), adaptiveConfigFromEnv());
+const captureConfig = adaptiveConfigFromEnv();
+export const locationTracker = new LocationTracker(defaultDeps(captureConfig), captureConfig);
