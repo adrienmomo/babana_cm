@@ -12,7 +12,10 @@ import { TrackingManager } from '../src/tracking/broadcast';
 import { startRideSession, endRideSessionForDriver } from '../src/tracking/session';
 import { storePosition } from '../src/redis/positions';
 import { parseConfig, type Config } from '../src/config';
-import type { ConnectionContext } from '../src/ws/auth';
+import { ConnectionRegistry, type ConnectionContext } from '../src/ws/auth';
+import { createMessageDispatcher } from '../src/ws/dispatch';
+import { NearbyManager } from '../src/nearby/handler';
+import { ProposalLifecycle } from '../src/proposal/lifecycle';
 import { TEST_REDIS_URL } from './helpers/redis';
 
 const REDIS_URL = TEST_REDIS_URL;
@@ -287,5 +290,79 @@ describe('TrackingManager (L3-09)', () => {
       countAfterSubscribeSettled,
       'aucun minuteur ne doit apparaître après une désinscription reçue pendant que le subscribe() était encore en vol'
     );
+  });
+
+  // 14 novembre : « le client doit recevoir les positions dès que le serveur les reçoit ». Le
+  // minuteur (TRACKING_BROADCAST_INTERVAL_SECONDS) reste le filet ; chaque position acceptée part
+  // aussitôt. Intervalle d'une heure : toute diffusion au-delà de l'immédiate vient de l'ingestion.
+  test('14 novembre -- une position acceptée part aussitôt au client qui suit la course, sans attendre le minuteur', async () => {
+    const config = configWith({ TRACKING_BROADCAST_INTERVAL_SECONDS: '3600' });
+    const manager = new TrackingManager(config, redis);
+    const rideId = randomUUID();
+    const clientCtx = clientContext('push-client');
+    const origin = { latitude: 4.05, longitude: 9.7 };
+    const driverId = await positionedDriver('push-driver', { latitude: 4.0501, longitude: 9.7001 });
+    await startRideSession(redis, rideId, { clientUserId: clientCtx.userId, driverId, origin });
+
+    const { socket, messages } = fakeSocket();
+    await manager.subscribe(clientCtx, socket, { rideId });
+    const moved = { latitude: 4.0512, longitude: 9.7013 };
+    await storePosition(redis, driverId, { ...moved, accuracyMeters: 10, speedMetersPerSecond: 5, headingDegrees: 0, capturedAtMs: Date.now() }, 60);
+    await manager.onDriverPosition(driverId);
+    manager.unsubscribe(clientCtx);
+
+    const positions = positionMessages(messages);
+    assert.equal(positions.length, 2, "l'immédiate à l'abonnement, puis celle de la position reçue");
+    assert.deepEqual(positions[1]!.payload.position, moved);
+  });
+
+  test("14 novembre -- la position d'un autre chauffeur ne part à personne", async () => {
+    const config = configWith({ TRACKING_BROADCAST_INTERVAL_SECONDS: '3600' });
+    const manager = new TrackingManager(config, redis);
+    const rideId = randomUUID();
+    const clientCtx = clientContext('push-other-client');
+    const driverId = await positionedDriver('push-other-driver', { latitude: 4.0501, longitude: 9.7001 });
+    const otherDriverId = await positionedDriver('push-other-stranger', { latitude: 4.06, longitude: 9.71 });
+    await startRideSession(redis, rideId, { clientUserId: clientCtx.userId, driverId, origin: { latitude: 4.05, longitude: 9.7 } });
+
+    const { socket, messages } = fakeSocket();
+    await manager.subscribe(clientCtx, socket, { rideId });
+    await manager.onDriverPosition(otherDriverId);
+    manager.unsubscribe(clientCtx);
+
+    assert.equal(positionMessages(messages).length, 1);
+  });
+
+  test('14 novembre -- de bout en bout : position.update du chauffeur -> driver.position chez le client, dans la même réception', async () => {
+    const config = configWith({ TRACKING_BROADCAST_INTERVAL_SECONDS: '3600' });
+    const registry = new ConnectionRegistry();
+    const tracking = new TrackingManager(config, redis);
+    const dispatch = createMessageDispatcher(config, redis, new NearbyManager(config, redis), new ProposalLifecycle(config, redis, registry), tracking);
+    const rideId = randomUUID();
+    const clientCtx = clientContext('e2e-client');
+    const driverId = await positionedDriver('e2e-driver', { latitude: 4.0501, longitude: 9.7001 });
+    // Relevé précédent daté de 20 s : la nouvelle position doit passer la vitesse implicite (L3-02).
+    await storePosition(redis, driverId, { latitude: 4.0501, longitude: 9.7001, accuracyMeters: 10, speedMetersPerSecond: 5, headingDegrees: 0, capturedAtMs: Date.now() - 20_000 }, 60);
+    const driverCtx: ConnectionContext = Object.freeze({ userId: id('e2e-driver-user'), role: 'driver', driverId });
+    await startRideSession(redis, rideId, { clientUserId: clientCtx.userId, driverId, origin: { latitude: 4.05, longitude: 9.7 } });
+
+    const client = fakeSocket();
+    await tracking.subscribe(clientCtx, client.socket, { rideId });
+    const moved = { latitude: 4.0504, longitude: 9.7004 };
+    await dispatch(
+      driverCtx,
+      fakeSocket().socket,
+      JSON.stringify({
+        type: 'position.update',
+        id: randomUUID(),
+        emittedAt: new Date().toISOString(),
+        payload: { ...moved, accuracyMeters: 10, speedMetersPerSecond: 5, headingDegrees: 0, precedingSamples: [] },
+      })
+    );
+    tracking.unsubscribe(clientCtx);
+
+    const positions = positionMessages(client.messages);
+    assert.equal(positions.length, 2);
+    assert.deepEqual(positions[1]!.payload.position, moved);
   });
 });
