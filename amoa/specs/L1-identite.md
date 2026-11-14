@@ -2,6 +2,8 @@
 
 Décisions structurantes : D4 (Google Sign-In seul), D5 (chauffeurs salariés), D6 (motos de l'entreprise). Écarts É1 et É2.
 
+> **Dépassée en partie le 14 novembre 2026** (`01-architecture.md` §14) — La connexion Google (L1-01, D4) est remplacée par le numéro de téléphone et le code SMS (D77) ; L1-09 est livrée et devient la porte d'entrée unique.
+
 ---
 
 ## L1-01 — Contrôleur d'authentification Google

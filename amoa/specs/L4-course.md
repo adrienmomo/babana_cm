@@ -2,6 +2,8 @@
 
 Le cœur du domaine. Dépend de C-03, qui doit être terminé avant toute ligne de code de ce lot.
 
+> **Dépassée en partie le 14 novembre 2026** (`01-architecture.md` §14) — L4-09 : la notation est réciproque, le chauffeur note son client et peut corriger (D89). L4-07 : annulation motivée des deux côtés (D88).
+
 ---
 
 ## L4-01 — Modèle `babana.ride`

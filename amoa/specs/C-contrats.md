@@ -2,6 +2,8 @@
 
 Ces trois tâches ne produisent pas de fonctionnalité. Elles produisent les artefacts sans lesquels backend, temps réel et mobile ne peuvent pas avancer en parallèle sans produire du travail à jeter.
 
+> **Dépassée en partie le 14 novembre 2026** (`01-architecture.md` §14) — C-01 : la connexion passe par `/auth/otp/request` et `/auth/otp/verify` (D77) ; `select-driver` est retirée au profit de `POST /rides/{id}/dispatch` (D78). C-02 : `nearby.drivers` ne porte plus que position et distance (D80).
+
 **Elles passent avant tout code, y compris avant le socle technique.** C-03 en particulier n'a aucune dépendance : c'est de la conception, faisable immédiatement.
 
 ---
