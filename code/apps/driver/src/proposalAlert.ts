@@ -1,5 +1,7 @@
 import { AppState, Platform } from 'react-native';
 import PushNotification, { Importance } from 'react-native-push-notification';
+import { startProposalRingtone, stopProposalRingtone } from './ringtone';
+import { bringAppToFront } from './floatingBubble';
 
 /**
  * Alerte de proposition (L6-12, critère d'acceptation 1 -- réveille l'appareil, produit un
@@ -15,11 +17,13 @@ import PushNotification, { Importance } from 'react-native-push-notification';
  * que les composants strictement nécessaires au local (aucun récepteur Firebase).
  */
 
-const PROPOSAL_CHANNEL_ID = 'proposal-alert';
+// 15 novembre : canaux silencieux -- la sonnerie (`ringtone.ts`, en boucle, volume alarme) porte le
+// son et la vibration ; un canal Android garde le son de sa création, d'où de nouveaux identifiants.
+const PROPOSAL_CHANNEL_ID = 'proposal-alert-v2';
 // App déjà à l'écran : la proposition s'y affiche, la bannière système (heads-up) n'en masquerait
 // que le haut -- le prix (vu le 30 octobre). Même son, même vibration, sans bannière : importance
 // par défaut. Un canal Android garde l'importance de sa création, d'où un second canal.
-const PROPOSAL_FOREGROUND_CHANNEL_ID = 'proposal-alert-foreground';
+const PROPOSAL_FOREGROUND_CHANNEL_ID = 'proposal-alert-foreground-v2';
 // Identifiant fixe et réutilisé, jamais un nouvel identifiant par proposition -- une seule
 // notification peut exister à la fois (L6-12, critère 5 : deux propositions ne s'affichent
 // jamais simultanément côté écran, donc jamais deux alertes non plus). Poser la même la remplace
@@ -51,10 +55,9 @@ export function configureProposalAlerts(): void {
       channelId: PROPOSAL_CHANNEL_ID,
       channelName: 'Proposition de course',
       channelDescription: 'Alerte à la réception d’une nouvelle proposition de course',
-      playSound: true,
-      soundName: 'default',
+      playSound: false,
       importance: Importance.HIGH,
-      vibrate: true,
+      vibrate: false,
     },
     () => {
       // Le second argument (booléen "déjà existant") ne change rien ici -- createChannel est
@@ -66,11 +69,10 @@ export function configureProposalAlerts(): void {
     {
       channelId: PROPOSAL_FOREGROUND_CHANNEL_ID,
       channelName: 'Proposition de course (app ouverte)',
-      channelDescription: 'Son et vibration à la réception d’une proposition quand l’app est déjà à l’écran',
-      playSound: true,
-      soundName: 'default',
+      channelDescription: 'Bandeau discret à la réception d’une proposition quand l’app est déjà à l’écran',
+      playSound: false,
       importance: Importance.DEFAULT,
-      vibrate: true,
+      vibrate: false,
     },
     () => {}
   );
@@ -80,17 +82,18 @@ export function configureProposalAlerts(): void {
  * court et sans donnée sensible au-delà de ce que l'écran de verrouillage affiche déjà à
  * n'importe quelle notification (D20 -- pas de montant ni de point exact dans le texte système,
  * l'écran lui-même porte le détail une fois l'app ouverte). */
-export function alertIncomingProposal(): void {
+export function alertIncomingProposal(expiresAt?: string | null): void {
   const foreground = AppState.currentState === 'active';
+  startProposalRingtone(expiresAt);
+  // 15 novembre : app cachée, la proposition la ramène au premier plan (icône flottante, point 9).
+  if (!foreground) bringAppToFront();
   PushNotification.localNotification({
     id: PROPOSAL_NOTIFICATION_ID,
     channelId: foreground ? PROPOSAL_FOREGROUND_CHANNEL_ID : PROPOSAL_CHANNEL_ID,
     title: 'Nouvelle proposition de course',
     message: 'Une course vous est proposée -- ouvrez l’app pour répondre.',
-    playSound: true,
-    soundName: 'default',
-    vibrate: true,
-    vibration: 1000,
+    playSound: false,
+    vibrate: false,
     priority: foreground ? 'default' : 'high',
     importance: foreground ? 'default' : 'high',
   });
@@ -99,5 +102,6 @@ export function alertIncomingProposal(): void {
 /** Efface l'alerte -- acceptée, refusée, ou expirée : plus rien à signaler (appelé au démontage
  * de `ProposalScreen`, quelle que soit l'issue). */
 export function dismissProposalAlert(): void {
+  stopProposalRingtone();
   PushNotification.cancelLocalNotification(PROPOSAL_NOTIFICATION_ID);
 }

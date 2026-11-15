@@ -17,3 +17,8 @@ __pycache__/
 
 # État local de la mise en production (deploy.sh) -- propre à chaque hôte, jamais versionné.
 code/infra/production/.state/
+
+# Configuration Firebase des apps (15 novembre) : générée depuis le projet babana-cm
+# (code/docs/firebase.md), jamais versionnée.
+code/apps/*/android/app/google-services.json
+code/apps/*/ios/GoogleService-Info.plist

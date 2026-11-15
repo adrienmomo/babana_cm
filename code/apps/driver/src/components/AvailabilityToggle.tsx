@@ -8,6 +8,7 @@ import { apiClient } from '../auth';
 import { locationTracker } from '../location';
 import { realtimeClient } from '../realtime';
 import { takeSelfie } from '../selfie';
+import { askOverlayPermissionOnce } from '../floatingBubble';
 
 /**
  * Bascule en ligne / hors ligne (L6-11, D7). Un curseur à glisser sur toute la largeur (D20,
@@ -99,6 +100,8 @@ export function AvailabilityToggle({ inCourse, onNavigateToRemittance }: Availab
       // en retard (arrêt immédiat au passage hors ligne, spécification).
       locationTracker.setOnline(response.online);
       setOnline(response.online);
+      // 15 novembre : l'icône flottante a besoin d'une autorisation, demandée une seule fois.
+      if (response.online) askOverlayPermissionOnce();
     } catch (error) {
       if (error instanceof ApiError) {
         setRefusalError(error);

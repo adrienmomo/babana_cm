@@ -4,6 +4,7 @@ import { configureProposalAlerts } from './proposalAlert';
 import { locationTracker } from './location';
 import { startProposalWatch } from './proposalWatch';
 import { startSessionReplacedWatch } from './sessionReplaced';
+import { startFloatingBubble } from './floatingBubble';
 
 /**
  * Point d'accroche unique et nommé pour toute configuration à effectuer une seule fois, au tout
@@ -24,5 +25,6 @@ export function bootstrap(): void {
   locationTracker.start();
   startProposalWatch();
   startSessionReplacedWatch();
+  startFloatingBubble();
   bootstrapped = true;
 }

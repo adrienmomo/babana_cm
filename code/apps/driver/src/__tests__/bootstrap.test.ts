@@ -1,4 +1,6 @@
 const mockConfigureMapsProvider = jest.fn();
+jest.mock('../floatingBubble', () => ({ startFloatingBubble: jest.fn() }));
+jest.mock('../sessionReplaced', () => ({ startSessionReplacedWatch: jest.fn() }));
 jest.mock('@babana/maps', () => ({ configureMapsProvider: (...args: unknown[]) => mockConfigureMapsProvider(...args) }));
 jest.mock('../proposalAlert', () => ({ configureProposalAlerts: jest.fn() }));
 jest.mock('../location', () => ({ locationTracker: { start: jest.fn() } }));

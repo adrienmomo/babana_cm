@@ -17,6 +17,8 @@ class MainApplication : Application(), ReactApplication {
         PackageList(this).packages.apply {
           // Foreground service of an online driver (online/OnlineService.kt).
           add(OnlineServicePackage())
+          add(cm.babana.driver.ringtone.RingtonePackage())
+          add(cm.babana.driver.bubble.FloatingBubblePackage())
         },
     )
   }

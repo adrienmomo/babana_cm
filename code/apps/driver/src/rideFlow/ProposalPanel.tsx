@@ -186,10 +186,12 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
   // Réveille l'appareil, joue un son, vibre (critère 1) -- une seule fois au montage, effacée au
   // démontage quelle que soit l'issue (acceptée, refusée, ou expirée).
   useEffect(() => {
-    alertIncomingProposal();
+    alertIncomingProposal(params.expiresAt);
     return () => {
       dismissProposalAlert();
     };
+    // Une seule alerte, au montage : l'échéance de cette proposition ne change pas.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Mode notification : revalider auprès du serveur (L7-04). Une `session.resync` forcée -- même
