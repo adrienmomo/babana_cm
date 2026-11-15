@@ -415,6 +415,50 @@ describe('exemples valides — serveur vers client', () => {
       },
     });
     assert.equal(resumed.payload.activeRide?.pickupNote, 'Devant la pharmacie');
+    // 14 novembre : le client relancé en pleine course reçoit de quoi rouvrir son suivi.
+    const clientResumed = SessionSyncedMessageSchema.parse({
+      type: 'session.synced',
+      id: randomUUID(),
+      emittedAt: now,
+      payload: {
+        activeRideId: rideId,
+        activeRideState: 'in_progress',
+        clientRide: {
+          origin: { latitude: 4.05, longitude: 9.7, label: 'Carrefour Ndokoti' },
+          destination: { latitude: 4.06, longitude: 9.71, label: null },
+          driver: {
+            driverId: randomUUID(),
+            firstName: 'Emmanuel',
+            photoUrl: null,
+            motorcycleClass: 'standard',
+            licensePlate: 'LT 4821 AC',
+            phoneNumber: null,
+          },
+        },
+        activeProposal: null,
+        rideStateKnown: true,
+        driverOnline: null,
+        serverTime: now,
+      },
+    });
+    assert.equal(clientResumed.payload.clientRide?.driver.licensePlate, 'LT 4821 AC');
+    // La carte du chauffeur suit `ride.assigned` champ par champ : un champ en trop ou manquant est refusé.
+    assert.throws(() =>
+      SessionSyncedMessageSchema.parse({
+        type: 'session.synced',
+        id: randomUUID(),
+        emittedAt: now,
+        payload: {
+          activeRideId: rideId,
+          activeRideState: 'in_progress',
+          clientRide: { origin: { latitude: 4.05, longitude: 9.7, label: null }, destination: { latitude: 4.06, longitude: 9.71, label: null } },
+          activeProposal: null,
+          rideStateKnown: true,
+          driverOnline: null,
+          serverTime: now,
+        },
+      })
+    );
     // Incomplet : refusé, jamais complété par des valeurs inventées.
     assert.throws(() =>
       SessionSyncedMessageSchema.parse({

@@ -56,9 +56,12 @@ export function createMessageDispatcher(
     const message = result.data;
 
     switch (message.type) {
-      case 'position.update':
-        await ingestPosition(redis, context, message, plausibility, config.POSITION_TTL_SECONDS, Date.now(), accumulation);
+      case 'position.update': {
+        const outcome = await ingestPosition(redis, context, message, plausibility, config.POSITION_TTL_SECONDS, Date.now(), accumulation);
+        // 14 novembre : le client qui suit la course reçoit la position dès qu'elle est acceptée.
+        if (outcome.accepted && context.driverId) await tracking.onDriverPosition(context.driverId);
         return;
+      }
       case 'availability.set':
         // L'identité vient du contexte de connexion (invariant L3-01) : un client ne peut jamais
         // basculer la disponibilité d'un chauffeur, même en forgeant ce message.

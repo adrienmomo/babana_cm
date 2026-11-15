@@ -17,6 +17,12 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Chauffeur en ligne (online/OnlineService.kt, decision du 14 novembre) : service de premier
+         plan de type position, qui garde le processus, le GPS et le JavaScript actifs app fermee.
+         WAKE_LOCK : le service garde le processeur eveille pendant la tache JS (HeadlessJsTaskService). -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Alerte de proposition et notification de suivi (Android 13 et plus). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
@@ -50,6 +56,13 @@
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
       </activity>
+
+      <!-- stopWithTask false : balayer l'app des recentes ne met pas le chauffeur hors ligne. -->
+      <service
+        android:name=".online.OnlineService"
+        android:exported="false"
+        android:stopWithTask="false"
+        android:foregroundServiceType="location" />
 
       <!-- Strictement nécessaires pour une notification locale avec action au toucher —
            RNPushNotificationBootEventReceiver (rejeu après redémarrage) et

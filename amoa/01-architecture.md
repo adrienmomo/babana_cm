@@ -1,7 +1,7 @@
 # babana.cm — Document d'architecture
 
-**Version** 1.2 — 9 août 2026
-**Statut** À valider
+**Version** 1.3 — 14 novembre 2026
+**Statut** Décisions D1 à D76 arbitrées au fil des débriefs ; D77 à D91 ratifiées le 14 novembre 2026 : ce que l'application fait ce jour-là devient la décision en vigueur (§14)
 **Source** Cahier des charges « Application de transport en moto » (C. Mbong, 8 juillet 2026)
 
 Ce document fige les décisions d'architecture avant découpage en tâches techniques. Il ne décrit pas le *quoi* (le CDC s'en charge) mais le *comment*, et surtout les *pourquoi* — pour que chaque tâche technique en dérive sans réinterprétation.
@@ -15,17 +15,17 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D1 | Deux apps **React Native** distinctes (Client, Chauffeur), monorepo à code partagé | App unique bi-mode | Parcours, permissions et cycles de release trop différents |
 | D2 | **Odoo 18 Community auto-hébergé** comme backend métier et back-office | Odoo.sh, Odoo Online | Odoo Online interdit le code custom ; auto-hébergement requis pour cohabiter avec le service temps réel |
 | D3 | **Service temps réel dédié** (WebSocket + Redis) pour GPS et dispatch | Tout dans Odoo (`bus.bus`) | Odoo sature dès quelques centaines de chauffeurs actifs sur des écritures haute fréquence |
-| D4 | **Google Sign-In** comme unique moyen d'authentification | OTP SMS (prévu au CDC §VII.1) | Choix maître d'ouvrage : zéro coût SMS, zéro friction. Voir écart É1 |
+| D4 | **Google Sign-In** comme unique moyen d'authentification | OTP SMS (prévu au CDC §VII.1) | Choix maître d'ouvrage : zéro coût SMS, zéro friction. Voir écart É1 **Remplacée le 14 novembre 2026 par D77** (§14). |
 | D5 | **Chauffeurs salariés** en phase 1 | Commission par course, abonnement | Décision maître d'ouvrage. Commission et/ou abonnement en phase ultérieure |
 | D6 | **Motos propriété de l'entreprise**, affectation durable chauffeur–moto | Motos personnelles | Cohérent avec D5. Voir écart É2 |
 | D7 | Disponibilité chauffeur par **interrupteur en ligne / hors ligne** | Prise et fin de service, planning admin | Décision maître d'ouvrage. Impose la conséquence C1, traitée au §7 |
 | D8 | **Compte courant chauffeur** avec plafond d'encaisse bloquant | Remise liée à la fin de service | Conséquence de D7 : sans clôture de service, le contrôle doit être un plafond |
 | D9 | MVP pilote : boucle de course complète, **paiement espèces uniquement** | Mobile Money dès le MVP | Les agréments marchands MTN/Orange sont un délai administratif hors de notre contrôle |
-| D10 | **Le client choisit son chauffeur** en v1 (CDC §II.2) | Matching automatique par proximité (CDC §IV.2) | Décision maître d'ouvrage. Supprime le moteur de matching de la v1, introduit la conséquence C2 |
-| D11 | En cas de refus, **retour à la sélection manuelle**, sans attribution automatique | Bouton « prenez le plus proche » en repli | Décision maître d'ouvrage. Risque d'abandon à surveiller en pilote |
-| D12 | Navigation par **lien profond vers Google Maps** en v1, navigation assistée in-app prévue en v2 | Turn-by-turn embarqué dès la v1 | Coût et consommation batterie disproportionnés au MVP. Impose l'abstraction C3. **Réexaminée et maintenue le 3 septembre** — voir §4 bis |
-| D13 | **Google Maps** comme fournisseur de carte, derrière une abstraction interne | Mapbox | Couverture des points d'intérêt à Douala nettement supérieure ; plugin Navigation React Native officiel. Voir `02-comparatif-cartographie.md` |
-| D14 | Le client se voit proposer les **5 chauffeurs les plus proches** | Tous les chauffeurs du rayon | Décision maître d'ouvrage. Limite l'exposition de la flotte (C2b) et rend le choix praticable sur un petit écran |
+| D10 | **Le client choisit son chauffeur** en v1 (CDC §II.2) | Matching automatique par proximité (CDC §IV.2) | Décision maître d'ouvrage. Supprime le moteur de matching de la v1, introduit la conséquence C2 **Remplacée le 14 novembre 2026 par D78** (§14). |
+| D11 | En cas de refus, **retour à la sélection manuelle**, sans attribution automatique | Bouton « prenez le plus proche » en repli | Décision maître d'ouvrage. Risque d'abandon à surveiller en pilote **Remplacée le 14 novembre 2026 par D78** (§14). |
+| D12 | Navigation par **lien profond vers Google Maps** en v1, navigation assistée in-app prévue en v2 | Turn-by-turn embarqué dès la v1 | Coût et consommation batterie disproportionnés au MVP. Impose l'abstraction C3. **Réexaminée et maintenue le 3 septembre** — voir §4 bis **Remplacée le 14 novembre 2026 par D83** (§14). |
+| D13 | **Google Maps** comme fournisseur de carte, derrière une abstraction interne | Mapbox | Couverture des points d'intérêt à Douala nettement supérieure ; plugin Navigation React Native officiel. Voir `02-comparatif-cartographie.md` **Remplacée le 14 novembre 2026 par D82** (§14). |
+| D14 | Le client se voit proposer les **5 chauffeurs les plus proches** | Tous les chauffeurs du rayon | Décision maître d'ouvrage. Limite l'exposition de la flotte (C2b) et rend le choix praticable sur un petit écran **Remplacée le 14 novembre 2026 par D78 et D80** (§14). |
 | D15 | Tarif = **base + distance × prix au km**, majoré par un **coefficient de zone et d'heure de pointe**. **Pas de prix à la minute** | Facturation à la minute, prix ferme calculé sur le devis | Conséquence directe d'É8 : la durée disponible avant la course est une durée voiture. Le salariat (D5) retire au terme temps sa raison d'être. Voir écart É9 |
 | D23 | La **charge utile du jeton d'accès est un contrat partagé** (`AccessTokenClaimsSchema`, C-01), claims nommés d'après RFC 7519 : `sub`, `role`, `driverId`, `iat`, `exp`, `jti` | Chaque service déclare la forme qu'il attend | Deux implémentations lisent ce jeton sans jamais se parler. Elles ont divergé — `uid` contre `sub` — en restant vertes chacune de son côté. Voir §5 |
 | D24 | En cas d'indisponibilité de l'API de routage, **une entrée de cache périmée est servie** plutôt qu'une erreur, si elle existe pour la même clé | Erreur stricte dans tous les cas | Un itinéraire déjà calculé par la vraie API n'est pas une estimation dégradée. Sans ce repli, une panne du fournisseur arrête toute la plateforme |
@@ -70,7 +70,7 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D63 | **Le jeu de démonstration porte ce que l'écran affiche**, pas seulement les enregistrements qui le référencent | Semer les lignes, pas les fichiers | Cent chauffeurs semés, deux cents documents, zéro image téléversée : l'écran de validation d'un permis n'a jamais été vu. Un enregistrement qui pointe vers rien peuple une liste, pas un écran. Voir §9 septies |
 | D64 | **L'adresse qui sert à écrire n'est pas celle qui sert à signer une URL destinée à un navigateur.** Le stockage a un point d'entrée interne et un point d'entrée public, distincts | Un seul `S3_ENDPOINT` | L'URL signée renvoyée au navigateur portait `http://minio:9000`, injoignable hors du réseau Docker — en production comme en développement. La route publique n'expose que l'API S3, jamais la console. Voir §9 octies |
 | D65 | **Une variable est livrée à ce qui la consomme, et le contrôle le vérifie par service** | « livrée quelque part » | `BABANA_DOMAIN` était livrée à Caddy, jamais au conteneur qui exécute `share.py` : tous les liens de partage portaient `babana.cm` en dur, dans tous les environnements. Le contrôle des trois moments a laissé passer exactement le défaut qu'il existe pour attraper. Voir §9 nonies |
-| D66 | **Le pilote démarre sans vérification du numéro par SMS.** Le numéro du chauffeur est vérifié à l'embauche ; celui du client reste déclaré | Attendre la passerelle SMS | Sur des chauffeurs salariés recrutés en personne, l'OTP ne vérifie rien que l'employeur ne sache déjà. Attendre aurait décalé le pilote d'autant, sans contrepartie. Voir É1 |
+| D66 | **Le pilote démarre sans vérification du numéro par SMS.** Le numéro du chauffeur est vérifié à l'embauche ; celui du client reste déclaré | Attendre la passerelle SMS | Sur des chauffeurs salariés recrutés en personne, l'OTP ne vérifie rien que l'employeur ne sache déjà. Attendre aurait décalé le pilote d'autant, sans contrepartie. Voir É1 **Remplacée le 14 novembre 2026 par D77** (§14). |
 | D67 | **Le journal d'audit immuable (L8-09) entre au périmètre pilote** | Le différer avec le reste du lot L8 | Une donnée non journalisée pendant le pilote est perdue définitivement : on ne reconstitue pas un historique après coup. Sur un service en espèces, c'est la seule chose qu'on ne puisse pas rattraper. Voir §7 quater |
 | D68 | **L'échec d'un mécanisme se signale ailleurs que dans ce qu'il remplace** | `_logger.exception` pour un journal d'audit | Deux gardes justes — le journal ne lève jamais, l'écriture est interdite — composent un silence : si la traçabilité s'arrête, la seule trace est dans le journal applicatif que L8-09 existe précisément à remplacer. Voir §9 decies |
 | D69 | **Une assertion ne somme jamais toute la base : elle est bornée à son propre scénario** | `search([("account_id", "=", …)])` puis somme | Deux tests comptables du lot L5 mesuraient l'histoire de la base plutôt que leur scénario. Vrais sur une base vide, faux dès qu'elle contient des données — c'est-à-dire faux en pilote. Voir §9 undecies |
@@ -81,6 +81,21 @@ Ce document fige les décisions d'architecture avant découpage en tâches techn
 | D72 | **Réparer ce qui masque un défaut le rend d'abord plus visible.** Un symptôme qui s'aggrave après un correctif de masquage n'est pas une régression | Lire l'aggravation comme un retour en arrière | Le figement retiré, la défaillance de diffusion est passée d'une occurrence isolée à quatre sur trois fichiers. Elle était là depuis le début ; seule son observabilité a changé. Voir §9 quaterdecies |
 | D71 | **Tout appel sortant porte un délai.** Un rattrapage placé derrière un appel qui peut se taire ne s'exécute jamais | Compter sur l'échec ou la réponse | `callOdoo` **et `callOdooOnce`** étaient les deux seuls appels sortants sans délai du système — le second portant l'écriture d'acceptation, devant la file de rejeu. Un appel qui ne se termine pas n'atteint ni le réessai ni la file. Voir §9 terdecies |
 | D73 | **Un chauffeur peut être présent dans le vivier, jamais retiré, et ne jamais être projeté.** À égalité parfaite de position, le plafond des 5 plus proches (D14) départage par ordre lexicographique de l'identifiant, jamais par ordre d'arrivée | Chercher la cause dans l'entrée/la sortie du pool | Quatre fichiers de test indépendants amenaient chacun un chauffeur réel au même point exact (4.05, 9.70) ; `node --test` les exécute en processus concurrents, mesuré. Jusqu'à 7 chauffeurs réellement en ligne au même point, dont 2 systématiquement exclus des 5 projetés — pas par intermittence de la diffusion, par un rang structurellement perdant. Aucun invariant violé : le pool n'a qu'un écrivain, D14 borne bien à 5. Voir §9 quindecies |
+| D77 | **Connexion par numéro de téléphone et code SMS (OTP), dans les deux apps.** Le numéro vérifié est l'identité du compte ; passerelle SMS derrière une interface (`console` par défaut, Tidjani & Brothers en réel) | Google Sign-In (D4) ; pilote sans OTP (D66) | Exigence du CDC §VII.1, et la seule identité que tout le monde possède à Douala. Lève l'écart É1 |
+| D78 | **Le serveur affecte la course au chauffeur disponible le plus proche par la route** ; refus ou expiration → le suivant, jusqu'à `babana.dispatch_max_attempts` (3), puis « aucun chauffeur ». Le client ne choisit plus | Le client choisit parmi 5 (D10, D11, D14) | Demande maître d'ouvrage du 22 octobre. Odoo mesure, le service temps réel réserve en un seul script (`reserve-nearest`, invariant 4) ; repli à vol d'oiseau si le routage tombe. Lève É7 |
+| D79 | **La recherche s'élargit par cercles** — 2, 4 puis 6 km, à 5 s d'intervalle — avant de dire au client qu'il n'y a personne ; l'estimation regarde les mêmes cercles | Un seul rayon | Plus de chances pendant que le client attend (31 octobre). L'échéance est confiée à la file persistante du service temps réel (`dispatch-widen`), la décision reste dans Odoo |
+| D80 | **Avant l'affectation, les chauffeurs proches sont anonymes** : position et distance seulement. **Un chauffeur en course n'est visible que du client de cette course** (précisé par le maître d'ouvrage le 14 novembre au soir ; vérifié par `services/realtime/test/ride-privacy.test.ts`) | Prénom, photo, note, catégorie (C2b) | Le client ne choisit plus (D78) : il n'a plus de raison de connaître un chauffeur avant qu'il lui soit affecté. Durcit C2b |
+| D81 | **La prise en charge est facturée** sur la distance routière moyenne des chauffeurs disponibles (5 plus proches, premier cercle qui en compte), mesurée à l'estimation et gelée avec elle, à un prix au km d'approche jamais supérieur à celui de la course | Prise en charge forfaitaire ; approche du chauffeur finalement affecté | Le client paie ce qu'il a vu. Étend D15 ; toujours aucun terme temps (É9) |
+| D82 | **Carte OpenStreetMap** (Leaflet dans une WebView) dans les deux apps natives dès qu'une adresse de tuiles est configurée ; Google garde la recherche de lieu et le géocodage inverse ; itinéraires du chauffeur par un service de routage au format OSRM | Carte Google native partout (D13) | Aucune clé ni quota pour la carte elle-même. La carte Google native reste dans `@babana/maps` comme fournisseur de repli : D13 tient pour la recherche |
+| D83 | **Navigation dans l'app** : le chauffeur suit le tracé sur la carte Babana, qui le suit en permanence ; tracé recalculé hors route (80 m) ou toutes les 2 min, et partagé au client | Lien profond vers Google Maps (D12) | Le chauffeur ne quitte plus l'app pendant la course ; le client voit le même tracé. Remplace aussi le raisonnement du §4 bis |
+| D84 | **Un chauffeur en ligne reste joignable app fermée** : service de premier plan Android (type position) et tâche JS sans écran, du passage en ligne au passage hors ligne. Une proposition reçue sans écran sonne et est revalidée à la réouverture | Notification « ongoing » d'apparence seule (L6-05) | React Native suspend tous les minuteurs JS hors de l'écran : sans service, la capture et le WebSocket s'arrêtaient dès que l'écran s'éteignait |
+| D85 | **Une position toutes les 3 s en course, 5 s en mouvement, 15 s à l'arrêt**, chacune envoyée seule, sur un abonnement GPS continu ; datée sur l'horloge du serveur (2 s partout le matin du 14 novembre, 3 s le soir, puis cette cadence adaptative le même soir, sur le modèle des grandes apps du même type) | Cadence adaptative 20 / 15 / 5 s et lots de 5 (L6-05) | Le client voit la moto bouger, l'affectation lit une position fraîche. Valeurs paramétrables, à mesurer au pilote (batterie, données) |
+| D86 | **L'écran ne s'éteint jamais dans l'app Chauffeur ; dans l'app Client, il reste allumé tant qu'un écran carte a le focus** (accueil, attente, suivi) | Mise en veille normale | Le chauffeur lit une proposition d'un coup d'œil ; le client suit sa moto sans déverrouiller |
+| D87 | **Le déroulé de course se fait sur la carte du chauffeur** : proposition et course en panneaux, gestes glissés (Sur place, Commencer, Terminer) ; « Sur place » écrit une fois dans Odoo, attente partagée, « client absent » après `babana.no_show_grace_seconds` (300 s) ; messages rapides prédéfinis ; repère de prise en charge | Écrans successifs, appuis simples | Un geste glissé ne part pas par erreur dans une poche. « Sur place » est une décision humaine : une écriture (invariant 1) |
+| D88 | **Annuler, c'est dire pourquoi** : le chauffeur donne toujours un motif, à toute étape ; le client peut en donner un, et ne peut plus annuler une fois la course commencée ; chacun lit le motif de l'autre | Annulation sans motif | Un motif lu évite l'attente d'un chauffeur qui ne viendra pas ; le motif d'incident en course alerte le back-office |
+| D89 | **Notation réciproque** : le client note son chauffeur une fois, définitivement, sur une course encaissée ; le chauffeur note son client dès la fin du trajet et peut corriger depuis « Mes courses » ; « Nouveau » sous `babana.rating_min_count` (3) avis | Notation à sens unique (L4-09) | Demande du 2 novembre |
+| D90 | **Une app relancée reprend la course à son étape réelle** ; un chauffeur mis hors ligne par le serveur pendant une coupure revient « Hors ligne » ; une proposition expirée peut être reproposée au même chauffeur | Retour à l'accueil | Le réseau intermittent est le cas courant (CLAUDE.md) |
+| D91 | **Deux apps, deux noms : « Babana » (client), « Babana Pro » (chauffeur)** ; l'avatar ouvre « Mon profil », où se trouvent l'historique et la déconnexion ; l'écran « Ma caisse » montre la recette encaissée en barres par jour, semaine et mois | — | Conventions d'interface en vigueur le 14 novembre |
 
 ---
 
@@ -195,6 +210,8 @@ La règle générale : **dans un gestionnaire, lever est une façon d'annuler, p
 
 ## 3. Sélection du chauffeur par le client
 
+> **Section historique depuis le 14 novembre 2026.** Le client ne choisit plus : le serveur affecte le plus proche par la route (D78), les chauffeurs proches sont anonymes (D80). **C2a tient toujours** — la réservation reste une seule opération atomique (`reserve-nearest`, invariant 4). C2b est durci par D80 ; C2c et le taux d'abandon après refus perdent leur objet.
+
 D10 remplace le moteur de matching par une sélection manuelle. C'est un simplificateur majeur — plus de broadcast, plus de règle de priorité, plus de stratégie de repli — mais il introduit trois problèmes qui n'existent pas dans un système à attribution automatique.
 
 **C2a — La réservation du chauffeur est une section critique.**
@@ -269,6 +286,8 @@ Le partage d'un trajet avec un proche implique une **route publique non authenti
 ---
 
 ## 4 bis. D12 réexaminée, et maintenue (3 septembre)
+
+> **Dépassée le 14 novembre 2026.** Le chauffeur ne quitte plus l'app pour naviguer (D83), et la question de l'arrière-plan est réglée par un service de premier plan (D84) — l'issue « une bibliothèque de service de premier plan couvre les deux états » ci-dessous, écrite sans bibliothèque. La mesure batterie du pilote reste due, désormais à 3 s de cadence (D85).
 
 La capture GPS a été livrée sans service de premier plan Android : Android peut donc suspendre les minuteurs de l'application dès qu'elle passe en arrière-plan. Or D12 — la navigation par lien profond — l'y envoie **pendant toute la course**. L'arrière-plan n'est pas un cas limite du produit, c'est le chemin normal de chaque course, et si la capture s'y arrête, le suivi que le client regarde s'arrête avec elle.
 
@@ -455,7 +474,7 @@ La règle générale : **ce qu'un pilote ne peut pas rattraper passe devant ce q
 
 Ces écarts sont des décisions, pas des oublis. Ils doivent être validés par le maître d'ouvrage.
 
-**É1 — Authentification (CDC §VII.1, §X.3.a)**
+**É1 — Authentification (CDC §VII.1, §X.3.a)** — **levé le 14 novembre 2026 par D77** : connexion par numéro de téléphone et code SMS, comme le CDC le demande. Le texte ci-dessous est l'historique de l'écart.
 Le CDC impose inscription et connexion par numéro de téléphone avec OTP SMS. D4 retient Google Sign-In seul. Conséquence : numéro non vérifié, et exclusion des utilisateurs sans compte Google actif — population non négligeable sur la cible chauffeurs. À réévaluer si le taux d'échec d'inscription observé en pilote est élevé.
 
 **Étendu le 17 septembre (D66) : le pilote démarre sans OTP du tout.** L1-09 était la dernière tâche de périmètre pilote suspendue à une démarche externe, et cette démarche n'a pas avancé en dix jours pendant que le développement, lui, finissait. Attendre aurait décalé le pilote de la durée exacte de la contractualisation, sans rien produire entre-temps.
@@ -479,7 +498,7 @@ Le CDC recommande un backend sur mesure, PostgreSQL, et une infrastructure AWS o
 **É6 — Tableau de bord des revenus chauffeur (CDC §II.5, §IV.4)**
 Le CDC prévoit un suivi des « revenus journaliers, hebdomadaires et mensuels » et un export pour usage fiscal. Avec D5, un salarié n'a pas de revenu variable par course : ce qu'il voit n'est pas son revenu mais **la recette qu'il a encaissée pour le compte de l'entreprise**. Le libellé et la finalité de l'écran changent complètement — il devient un outil de suivi d'activité et de réconciliation de caisse, non un relevé de gains. L'export fiscal §IV.4 perd son objet.
 
-**É7 — Priorité par proximité (CDC §IV.2)**
+**É7 — Priorité par proximité (CDC §IV.2)** — **levé le 14 novembre 2026 par D78** : la course part au chauffeur disponible le plus proche par la route.
 Le CDC prévoit « un système de priorité pour les chauffeurs les plus proches ». Avec D10, c'est le client qui choisit : cette exigence devient sans objet en v1. Elle redeviendra pertinente si l'attribution automatique est réintroduite, ce que les indicateurs de §3 diront.
 
 **É8 — Itinéraire moto (CDC §I.3, §II.1, §III.2)**
@@ -866,7 +885,8 @@ Avec le garde-fou, qui est la moitié importante de la décision : **l'émetteur
 
 | Risque | Impact | Traitement proposé |
 |---|---|---|
-| Consommation batterie et données de l'émission GPS continue (CDC §VI.3) | Chauffeurs qui désinstallent l'app | Fréquence adaptative selon la vitesse, agrégation avant envoi, mesure obligatoire en pilote |
+| Consommation batterie et données de l'émission GPS continue (CDC §VI.3) | Chauffeurs qui désinstallent l'app | Depuis le 14 novembre : une position toutes les 3 s, écran toujours allumé, service de premier plan (D84 à D86) — le risque est plus élevé qu'avec la cadence adaptative d'origine. **Mesure obligatoire en pilote** ; les cadences et l'agrégation restent paramétrables pour revenir en arrière sans code |
+| Constructeurs qui tuent les applications en arrière-plan (Tecno, Infinix, Xiaomi…) | Chauffeur « en ligne » qui ne reçoit plus rien | Le service de premier plan (D84) ne protège pas de ces surcouches : à vérifier sur les terminaux réels du pilote ; le serveur met hors ligne après la période de grâce |
 | Coût du quota Google Maps à l'échelle | Coût variable non maîtrisé, croissant avec le volume de courses | Cache des itinéraires par paire de zones, plafonds de quota dans la console, abstraction C3 pour garder Mapbox atteignable |
 | Tarif « Navigation Request » de Google non public | Inconnue d'un facteur vingt sur le coût de la v2 | Obtenir un devis avant tout engagement sur la navigation in-app |
 | Itinéraires calculés sur un modèle voiture (É8) | ETA pessimiste, tarif temps surévalué, crédibilité entamée | Tarif sur distance et durée mesurée ; facteur de correction d'ETA calibré en pilote |
@@ -891,9 +911,9 @@ Le nombre de chauffeurs proposés est fixé (D14). Trois paramètres de dispatch
 
 | Paramètre | Valeur par défaut | Remarque |
 |---|---|---|
-| Délai d'acceptation par le chauffeur | 30 secondes | Assez pour qu'un chauffeur arrêté lise la course, assez court pour que le client ne décroche pas |
-| Rayon de recherche initial | À calibrer en pilote | Dépend de la densité de la flotte à Bonanjo |
-| Aucun chauffeur disponible | Élargir le rayon et proposer 5 autres chauffeurs | Garde le client dans le parcours sans réintroduire d'attribution automatique |
+| Délai d'acceptation par le chauffeur | 30 secondes (`babana.proposal_window_seconds`) | Assez pour qu'un chauffeur arrêté lise la course, assez court pour que le client ne décroche pas |
+| Rayon de recherche initial | 2 km, puis 4 et 6 km à 5 s d'intervalle (D79) | Réglages Babana › Recherche d'un chauffeur ; à calibrer en pilote |
+| Aucun chauffeur disponible | Chauffeur suivant après un refus, 3 essais au plus (D78) ; puis « Aucun chauffeur n'est disponible pour le moment » et « Réessayer » | Valeurs en vigueur au 14 novembre 2026 |
 
 **Non bloquants**
 
@@ -980,3 +1000,32 @@ l'affectation), seule ligne depuis la création du registre, a été portée ce 
 registre liste ce qui reste à faire, pas un historique.
 
 Une ligne qui reste ici plus de deux nuits est un signal, pas une note.
+
+---
+
+## 14. Ce que l'application fait au 14 novembre 2026 — ratifié
+
+**Décision du maître d'ouvrage, 14 novembre 2026 :** tout ce qui fonctionne dans l'application ce jour-là est la décision en vigueur. D77 à D91 (§1) consignent les changements faits depuis D76 (26 septembre), en séance de jour, sans débrief numéroté. Les décisions qu'ils remplacent (D4, D10, D11, D12, D13, D14, D66) restent dans le tableau, marquées, avec leur raisonnement : on ne réécrit pas l'histoire d'une décision.
+
+**D'où viennent-elles.** Les notes de séance qui les détaillent sont dans `questions/` : `PRODUIT-2026-10-26.md` (D78 par la route, D81), `DEMO-2026-10-30.md` (noms d'app, notation), `DISPATCH-2026-10-31.md` (D79), `NOTATION-2026-11-02.md` (D89), `PROFIL-2026-11-02.md` (D91), `RESILIENCE-2026-11-02.md`, `rapport-2026-11-06.md` (D88, D90), et `rapport-2026-11-14.md` (D84 à D86). Les messages de commit du 19 au 23 octobre portent D77, D78 (première version, au vol d'oiseau), D80, D82, D83 et D87.
+
+**Ce que chaque décision change dans les spécifications.** Les spécifications de tâche ne sont pas réécrites ; chaque fichier de lot concerné porte en tête la liste de ses passages dépassés :
+
+| Décision | Spécifications dépassées |
+|---|---|
+| D77 | L1-01 (contrôleur Google), L1-09 (désormais livrée), C-01 (routes `/auth/otp/*`) |
+| D78, D79, D80 | L3-05 (les 5 plus proches, avec profils), L6-07 (choix du chauffeur), L6-08 (refus puis nouvelle sélection), C-01 (`select-driver` retirée, `dispatch` ajoutée) |
+| D81 | L2-03, L2-04 (terme d'approche) |
+| D82, D83 | L6-01 (fournisseur), L6-13 (lien profond) |
+| D84, D85 | L6-05 (cadence adaptative, agrégation, notification sans service) |
+| D89 | L4-09 (notation à sens unique) |
+
+**Ce qui n'est pas tranché**, parce que l'application ne le fait pas encore — proposé en séance, jamais construit :
+
+- **Battement de cœur applicatif** (`ping`/`pong`, C-02) et **délai maximal sur les requêtes HTTP** des apps (`RESILIENCE-2026-11-02.md`). Sans lui, une connexion morte sans fermeture n'est pas détectée par le téléphone : D84 garde l'app vivante, pas la connexion.
+- **La note du client dès `completed`** (option B de `DEMO-2026-10-30.md`) : aujourd'hui, `settled` seulement.
+- **Distance à vide de la proposition** (D51) : toujours à vol d'oiseau, alors que l'affectation est routière.
+- **`GET /me` sans numéro de téléphone ni moto affectée**, et **suppression de compte** depuis l'app — exigée par Google Play avant toute publication (`PROFIL-2026-11-02.md`).
+- **Diffusion au client à l'ingestion** : depuis le soir du 14 novembre, chaque position acceptée part aussitôt au client qui suit la course, le minuteur de 10 s restant le filet. Fait, mais pas encore numéroté — proposition dans `rapport-2026-11-14.md` §6, à arbitrer au débrief (dépasse L3-09, critère 5).
+- **iOS** : ni service de premier plan ni écran allumé côté Client (aucun module natif iOS) ; l'app Chauffeur iOS garde seulement l'écran allumé.
+

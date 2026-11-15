@@ -11,6 +11,7 @@ import { formatMoney } from '../format';
 import { ensureRealtimeConnected, onRealtimeMessage, realtimeClient } from '../realtime';
 import type { ClientParamList } from '../navigation/types';
 import { CLIENT_CANCEL_REASONS } from '../cancelReasons';
+import { useKeepScreenAwake } from '../keepAwake';
 
 /**
  * Attente d'un chauffeur. La course part au chauffeur disponible le plus proche, choisi par le
@@ -74,6 +75,8 @@ function isSessionSynced(message: realtime.ServerToClientMessage): message is re
 }
 
 export function WaitingScreen({ route, navigation }: Props) {
+  // Décision du 14 novembre : l'écran ne s'éteint pas tant qu'une carte est ouverte.
+  useKeepScreenAwake(navigation);
   const { rideId, amount, origin, destination, requestedAt } = route.params;
   const [phase, setPhase] = useState<Phase>({ kind: 'searching' });
   const [cancelling, setCancelling] = useState(false);

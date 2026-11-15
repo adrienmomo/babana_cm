@@ -2,6 +2,8 @@
 
 Décisions structurantes : D3 (service dédié), D10 (le client choisit), D11 (refus sans attribution automatique), D14 (5 chauffeurs les plus proches), D16 (TypeScript).
 
+> **Dépassée en partie le 14 novembre 2026** (`01-architecture.md` §14) — D10, D11 et D14 sont remplacées : le serveur affecte le plus proche par la route (D78), la recherche s'élargit par cercles (D79), les chauffeurs proches sont anonymes (D80). L3-05 ne sert plus que la carte d'accueil, sans profils.
+
 **Invariant du lot** : le service ne possède aucune donnée durable et n'écrit jamais dans PostgreSQL. S'il tombe, on perd les positions de l'instant — jamais une course confirmée ni un franc.
 
 ---

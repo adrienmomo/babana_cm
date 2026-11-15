@@ -384,11 +384,31 @@ export const ActiveRideSnapshotSchema = z.object({
 });
 export type ActiveRideSnapshot = z.infer<typeof ActiveRideSnapshotSchema>;
 
+/** Un point de la course tel que le client l'a désigné : position et libellé (`null` si le
+ * point a été posé sur la carte sans nom). */
+export const ClientRidePointSchema = LatLngSchema.extend({ label: z.string().nullable() });
+
+/**
+ * Ce que le client suit de sa course après une relance de l'app (14 novembre) : ses deux points
+ * et la carte du chauffeur affecté -- exactement les champs de `ride.assigned` (D41, D42 : la
+ * même source, le cache des profils du service temps réel), sans le `rideId` déjà porté par
+ * `activeRideId`.
+ */
+export const ClientActiveRideSnapshotSchema = z.object({
+  origin: ClientRidePointSchema,
+  destination: ClientRidePointSchema,
+  driver: RideAssignedPayloadSchema.omit({ rideId: true }),
+});
+export type ClientActiveRideSnapshot = z.infer<typeof ClientActiveRideSnapshotSchema>;
+
 export const SessionSyncedPayloadSchema = z.object({
   activeRideId: RideIdSchema.nullable(),
   activeRideState: RideStateSchema.nullable(),
   /** Présent pour un chauffeur dont la course est `assigned` ou `in_progress`, absent sinon. */
   activeRide: ActiveRideSnapshotSchema.optional(),
+  /** Présent pour un client dont la course est `assigned` ou `in_progress` (14 novembre : l'app
+   * relancée rouvre le suivi au lieu de l'accueil), absent sinon. */
+  clientRide: ClientActiveRideSnapshotSchema.optional(),
   activeProposal: ActiveProposalSchema.nullable(),
   rideStateKnown: z.boolean(),
   driverOnline: z.boolean().nullable(),

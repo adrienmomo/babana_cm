@@ -2,6 +2,8 @@
 
 Décision structurante : **D15 — tarif = base + distance × prix au km, majoré par un coefficient de zone et d'heure de pointe. Pas de prix à la minute.** Écarts É8 (itinéraire calculé sur modèle voiture) et É9 (retrait du terme temps).
 
+> **Dépassée en partie le 14 novembre 2026** (`01-architecture.md` §14) — L2-03 et L2-04 : la formule gagne un terme de prise en charge, distance routière moyenne des chauffeurs disponibles, gelée avec l'estimation (D81).
+
 ---
 
 ## L2-01 — Modèle `babana.fare.rule`

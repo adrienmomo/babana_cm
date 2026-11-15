@@ -2,6 +2,7 @@ import { configureMapsProvider } from '@babana/maps';
 import { GOOGLE_MAPS_API_KEY, MAP_TILE_ATTRIBUTION, MAP_TILE_URL, ROUTING_URL } from '../config';
 import { configureProposalAlerts } from './proposalAlert';
 import { locationTracker } from './location';
+import { startProposalWatch } from './proposalWatch';
 
 /**
  * Point d'accroche unique et nommé pour toute configuration à effectuer une seule fois, au tout
@@ -20,5 +21,6 @@ export function bootstrap(): void {
   });
   configureProposalAlerts();
   locationTracker.start();
+  startProposalWatch();
   bootstrapped = true;
 }

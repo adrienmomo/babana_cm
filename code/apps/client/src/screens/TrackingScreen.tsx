@@ -14,6 +14,7 @@ import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMes
 import type { ClientParamList } from '../navigation/types';
 import { apiClient } from '../auth';
 import { CLIENT_CANCEL_REASONS } from '../cancelReasons';
+import { useKeepScreenAwake } from '../keepAwake';
 
 /**
  * Suivi de course (L6-09) : voir le chauffeur arriver, puis suivre le trajet jusqu'à la fin.
@@ -88,6 +89,8 @@ function secondsSince(at: number): number {
 }
 
 export function TrackingScreen({ route, navigation }: Props) {
+  // Décision du 14 novembre : l'écran ne s'éteint pas tant qu'une carte est ouverte.
+  useKeepScreenAwake(navigation);
   const { rideId, origin, destination, driver } = route.params;
 
   const [phase, setPhase] = useState<Phase>('approach');

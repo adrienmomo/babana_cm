@@ -5,6 +5,7 @@ import type { Details, Region } from 'react-native-maps';
 import type { LatLng, MapMarker, MapMarkerKind, MapRoute, MapViewProps } from '../../types';
 import { MAP_MARKER_COLORS } from '../../markerColors';
 import { RECENTER_EPSILON, createHeadingTracker } from '../../heading';
+import { glideDurationMs, useGlidingPosition } from '../../glide';
 
 /**
  * Seul fichier du paquet, avec `navigation.ts` et `places.ts`, qui importe `react-native-maps` --
@@ -83,10 +84,12 @@ function BabanaMarker({ marker, rotation }: { marker: MapMarker; rotation: numbe
   }, []);
   const isDriver = marker.kind === 'driver';
   const isPin = marker.kind === 'pickup' || marker.kind === 'dropoff';
+  // La moto glisse d'une position à la suivante (14 novembre, `glide.ts`) ; les épingles restent.
+  const coordinate = useGlidingPosition(marker.position, isDriver);
   return (
     <Marker
       identifier={marker.id}
-      coordinate={marker.position}
+      coordinate={coordinate}
       title={marker.label}
       anchor={isPin ? { x: 0.5, y: 1 } : { x: 0.5, y: 0.5 }}
       // La moto tourne avec la carte (vue de dessus) : `flat`, et le cap en degrés depuis le nord.
@@ -103,6 +106,7 @@ function BabanaMarker({ marker, rotation }: { marker: MapMarker; rotation: numbe
 export function GoogleMapView({ center, markers = [], route, onRegionChange, frameRoute = true, style }: MapViewProps) {
   const mapRef = useRef<RNMapView | null>(null);
   const lastCenter = useRef<LatLng>(center);
+  const lastCenterAt = useRef<number | null>(null);
   const routeKey = useRef<string | null>(null);
   const headingFor = useRef(createHeadingTracker()).current;
 
@@ -117,10 +121,15 @@ export function GoogleMapView({ center, markers = [], route, onRegionChange, fra
     }
     routeKey.current = key;
     const changed = !sameCenter(lastCenter.current, center);
+    const nowMs = Date.now();
+    // Une carte qui suit une moto glisse avec elle, sur la même durée (`glide.ts`) : la moto reste
+    // au centre au lieu de partir du bord à chaque position.
+    const glideMs = changed ? glideDurationMs(lastCenter.current, center, lastCenterAt.current, nowMs) : 0;
     lastCenter.current = center;
+    if (changed) lastCenterAt.current = nowMs;
     if (changed && !framed) {
       // Le centre seul : le zoom reste celui que le chauffeur ou le cadrage a choisi.
-      mapRef.current?.animateCamera({ center }, { duration: CAMERA_DURATION_MS });
+      mapRef.current?.animateCamera({ center }, { duration: glideMs > 0 ? glideMs : CAMERA_DURATION_MS });
     }
   }, [center, route, frameRoute]);
 

@@ -7,6 +7,7 @@ import type { ConnectionContext } from './auth';
 import type { ProposalLifecycle } from '../proposal/lifecycle';
 import { fetchActiveRide, type ActiveRide } from '../odoo/rides';
 import { isMarkedOnline } from '../driver/availability';
+import { getDriverProfiles } from '../redis/driver-profiles';
 
 /**
  * Réponse à `session.resync` (L3-11) : un état complet, jamais un différentiel (politique de
@@ -43,7 +44,7 @@ export async function handleSessionResync(
   socket: WebSocket,
   payload: realtime.SessionResyncMessage['payload']
 ): Promise<void> {
-  let active: ActiveRide = { rideId: null, state: null, ride: null };
+  let active: ActiveRide = { rideId: null, state: null, ride: null, clientRide: null };
   let rideStateKnown = true;
   try {
     active = await fetchActiveRide(config, context, payload.lastKnownRideId);
@@ -61,15 +62,44 @@ export async function handleSessionResync(
   const driverOnline =
     context.role === 'driver' && context.driverId ? await isMarkedOnline(redis, context.driverId) : null;
 
+  const clientRide = context.role === 'client' && active.clientRide ? await clientRideWithDriver(config, redis, active.clientRide) : null;
+
   if (socket.readyState !== socket.OPEN) return;
-  socket.send(JSON.stringify(buildSessionSyncedMessage(active, activeProposal, rideStateKnown, driverOnline)));
+  socket.send(JSON.stringify(buildSessionSyncedMessage(active, activeProposal, rideStateKnown, driverOnline, clientRide)));
+}
+
+/**
+ * La carte du chauffeur, depuis le même cache que `ride.assigned` (proposal/lifecycle.ts) : ce que
+ * le client relancé revoit est ce qu'il avait vu à l'affectation (D41, D42). Profil pas encore
+ * synchronisé : champs à `null`, jamais un blocage (D30).
+ */
+async function clientRideWithDriver(
+  config: Config,
+  redis: Redis,
+  ride: NonNullable<ActiveRide['clientRide']>
+): Promise<realtime.ClientActiveRideSnapshot> {
+  const profiles = await getDriverProfiles(config, redis, [ride.driverId]);
+  const profile = profiles.get(ride.driverId) ?? null;
+  return {
+    origin: ride.origin,
+    destination: ride.destination,
+    driver: {
+      driverId: ride.driverId,
+      firstName: profile?.firstName ?? null,
+      photoUrl: profile?.photoUrl ?? null,
+      motorcycleClass: profile?.motorcycleClass ?? null,
+      licensePlate: profile?.licensePlate ?? null,
+      phoneNumber: profile?.phoneNumber ?? null,
+    },
+  };
 }
 
 function buildSessionSyncedMessage(
   active: ActiveRide,
   activeProposal: realtime.ActiveProposal | null,
   rideStateKnown: boolean,
-  driverOnline: boolean | null
+  driverOnline: boolean | null,
+  clientRide: realtime.ClientActiveRideSnapshot | null = null
 ): realtime.SessionSyncedMessage {
   return {
     type: 'session.synced',
@@ -79,6 +109,7 @@ function buildSessionSyncedMessage(
       activeRideId: active.rideId,
       activeRideState: active.state,
       ...(active.ride ? { activeRide: active.ride } : {}),
+      ...(clientRide ? { clientRide } : {}),
       activeProposal,
       rideStateKnown,
       driverOnline,

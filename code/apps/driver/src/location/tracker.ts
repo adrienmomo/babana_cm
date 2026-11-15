@@ -17,6 +17,7 @@ import { captureIntervalFor, MovementDetector, type AdaptiveCaptureConfig, type 
 import { ensureBackgroundPermission, ensureForegroundPermission, type PermissionState } from './permissions';
 import { updateTrackingNotification, hideTrackingNotification, formatLastSentMessage } from './background';
 import { onRealtimeMessage, realtimeClient } from '../realtime';
+import { PositionWatcher, type RawFix } from './watcher';
 import { onSessionLost } from '../auth';
 
 /**
@@ -57,15 +58,11 @@ export interface LocationTrackerDeps {
    * (`capturedAt`), que le serveur valide contre sa propre horloge (L3-02) -- jamais l'heure du
    * téléphone, qui peut avoir des heures d'écart (30 octobre). Absente : `now`. */
   serverNow?: () => number;
+  /** Prévenu à chaque changement d'état (hors ligne, immobile, en mouvement, en course) : règle
+   * l'abonnement GPS continu (`watcher.ts`) sur la cadence de l'état, l'arrête hors ligne. */
+  onStateChange?: (state: DriverActivityState) => void;
 }
 
-interface RawFix {
-  latitude: number;
-  longitude: number;
-  accuracyMeters: number;
-  speedMetersPerSecond: number | null;
-  headingDegrees: number | null;
-}
 
 interface BufferedSample extends RawFix {
   capturedAtIso: string;
@@ -208,7 +205,12 @@ export class LocationTracker {
     // Session perdue (déconnexion, jeton de renouvellement révoqué) : un chauffeur qui n'est plus
     // authentifié ne doit plus capturer sa position, ni afficher une notification qui prétendrait
     // le contraire -- même raisonnement que l'arrêt immédiat au passage hors ligne.
-    this.deps.onSessionLost(() => this.setOnline(false));
+    this.deps.onSessionLost(() => {
+      // Plus personne n'est authentifié : rien ne part plus, course en cours ou non.
+      this.rideActive = false;
+      this.setOnline(false);
+      this.recomputeState();
+    });
   }
 
   /** Appelé explicitement par `AvailabilityToggle.tsx`, juste après l'autorisation d'Odoo --
@@ -237,21 +239,32 @@ export class LocationTracker {
     return this.state;
   }
 
+  /** La disponibilité du chauffeur, distincte de la capture : depuis le 14 novembre, une course en
+   * cours se suit même hors ligne -- « capture en cours » ne veut plus dire « en ligne ». */
+  isOnline(): boolean {
+    return this.online;
+  }
+
   getMetrics(): LocationMetricsSnapshot {
     return { ...this.metrics };
   }
 
   private recomputeState(): void {
-    const next: DriverActivityState = !this.online
-      ? 'offline'
-      : this.rideActive
-        ? 'in_ride'
+    // Une course en cours se suit toujours, que le serveur tienne le chauffeur « en ligne » ou non
+    // (14 novembre) : app tuée en pleine approche, période de grâce dépassée, session.synced rend la
+    // course ET driverOnline: false -- sans cette priorité, le client ne voyait plus la moto. Le
+    // serveur garde le chauffeur hors du vivier (pool-eligibility.lua), seule la course en profite.
+    const next: DriverActivityState = this.rideActive
+      ? 'in_ride'
+      : !this.online
+        ? 'offline'
         : this.movement.isMoving(null)
           ? 'online_moving'
           : 'online_idle';
 
     const wasOffline = this.state === 'offline';
     this.state = next;
+    this.deps.onStateChange?.(next);
 
     if (next === 'offline') {
       this.stopTimer();
@@ -353,7 +366,9 @@ export class LocationTracker {
       // -- ailleurs, la précision par défaut du terminal suffit et coûte moins de batterie.
       enableHighAccuracy: this.state === 'in_ride',
       timeout: Math.min(10_000, interval),
-      maximumAge: Math.floor(interval / 2),
+      // Le système livre une position par période (`watcher.ts`) : la dernière reçue a au plus une
+      // période d'âge -- au-delà, on attend la suivante plutôt que d'envoyer une position périmée.
+      maximumAge: interval,
     }).catch(() => null);
     this.metrics.gpsActiveMs += this.deps.now() - startedAtMs;
 
@@ -379,6 +394,7 @@ export class LocationTracker {
         const next: DriverActivityState = moving ? 'online_moving' : 'online_idle';
         if (next !== this.state) {
           this.state = next;
+          this.deps.onStateChange?.(next);
         }
       }
 
@@ -395,9 +411,13 @@ export class LocationTracker {
       }
     }
 
-    // À la cadence de l'état courant (potentiellement mise à jour ci-dessus) -- jamais 0, ce
-    // relevé vient de réussir, le suivant attend son tour normalement.
-    this.scheduleNextCapture();
+    // À la cadence de l'état courant (potentiellement mise à jour ci-dessus), comptée depuis le
+    // DÉBUT de ce relevé : un GPS qui met une seconde à répondre ne doit pas étirer la cadence de
+    // 3 s à 4 s (14 novembre). Jamais en dessous de zéro -- un GPS plus lent que la cadence
+    // enchaîne simplement le relevé suivant.
+    const nextInterval = captureIntervalFor(this.state, this.config);
+    if (nextInterval === null) return;
+    this.scheduleNextCapture(Math.max(0, nextInterval - (this.deps.now() - startedAtMs)));
   }
 
   private maybeFlush(): void {
@@ -439,23 +459,14 @@ export class LocationTracker {
   }
 }
 
-function defaultDeps(): LocationTrackerDeps {
+function defaultDeps(config: AdaptiveCaptureConfig): LocationTrackerDeps {
+  const watcher = new PositionWatcher(Geolocation, () => Date.now());
   return {
-    getPosition: (options) =>
-      new Promise((resolve) => {
-        Geolocation.getCurrentPosition(
-          (position) =>
-            resolve({
-              latitude: position.coords.latitude,
-              longitude: position.coords.longitude,
-              accuracyMeters: position.coords.accuracy ?? 0,
-              speedMetersPerSecond: position.coords.speed ?? null,
-              headingDegrees: position.coords.heading ?? null,
-            }),
-          () => resolve(null),
-          options
-        );
-      }),
+    getPosition: (options) => watcher.next(options),
+    onStateChange: (state) => {
+      const intervalMs = captureIntervalFor(state, config);
+      watcher.configure(intervalMs === null ? null : { intervalMs });
+    },
     ensureForegroundPermission,
     ensureBackgroundPermission,
     send: (payload) => realtimeClient.send('position.update', payload),
@@ -468,4 +479,5 @@ function defaultDeps(): LocationTrackerDeps {
   };
 }
 
-export const locationTracker = new LocationTracker(defaultDeps(), adaptiveConfigFromEnv());
+const captureConfig = adaptiveConfigFromEnv();
+export const locationTracker = new LocationTracker(defaultDeps(captureConfig), captureConfig);

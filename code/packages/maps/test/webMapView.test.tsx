@@ -30,6 +30,8 @@ class FakeMap {
 class FakeMarker {
   options: unknown;
   setMap = jest.fn();
+  setPosition = jest.fn();
+  setTitle = jest.fn();
   constructor(options: unknown) {
     this.options = options;
   }
@@ -183,4 +185,41 @@ describe('WebMapView (fournisseur web, L6-18)', () => {
       await Promise.resolve();
     });
   });
+
+  it('14 novembre -- la moto se déplace en glissant, sans être recréée à chaque position', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(0);
+    configureGoogleMapsProvider({ apiKey: 'test-maps-key' });
+    const { markerInstances } = installFakeGoogleMaps();
+    const driverAt = (latitude: number) => [{ id: 'driver-1', kind: 'driver' as const, position: { latitude, longitude: 9.7 } }];
+
+    let root!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      root = ReactTestRenderer.create(<WebMapView center={{ latitude: 4.05, longitude: 9.7 }} markers={driverAt(4.05)} />, {
+        createNodeMock: () => ({}),
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(markerInstances).toHaveLength(1);
+
+    await ReactTestRenderer.act(async () => {
+      jest.advanceTimersByTime(3_000);
+      root.update(<WebMapView center={{ latitude: 4.05, longitude: 9.7 }} markers={driverAt(4.051)} />);
+    });
+    await ReactTestRenderer.act(async () => {
+      jest.advanceTimersByTime(1_500);
+    });
+
+    expect(markerInstances).toHaveLength(1);
+    const last = markerInstances[0]!.setPosition.mock.calls.at(-1)![0] as { lat: number };
+    expect(last.lat).toBeCloseTo(4.0505, 4);
+
+    ReactTestRenderer.act(() => {
+      root.unmount();
+    });
+    jest.useRealTimers();
+  });
 });
+

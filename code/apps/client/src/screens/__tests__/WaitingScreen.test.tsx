@@ -62,7 +62,7 @@ const PROPOSED = {
 const WIDENING = { ...PROPOSED, state: 'requested', assignedDriverId: null, proposalExpiresAt: null, searching: true };
 
 function fakeNavigation() {
-  return { navigate: jest.fn(), replace: jest.fn(), reset: jest.fn() };
+  return { navigate: jest.fn(), replace: jest.fn(), reset: jest.fn(), isFocused: () => true, addListener: jest.fn(() => jest.fn()) };
 }
 
 const renderedRoots: ReactTestRenderer[] = [];

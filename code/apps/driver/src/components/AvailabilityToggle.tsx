@@ -44,7 +44,7 @@ export function AvailabilityToggle({ inCourse, onNavigateToRemittance }: Availab
   // Repart de l'état réellement appliqué (la capture GPS suit la disponibilité, L6-05), jamais
   // de « hors ligne » par défaut : l'accueil est remonté après l'encaissement, et un chauffeur
   // toujours en ligne se croyait alors hors service.
-  const [online, setOnline] = useState(() => locationTracker.getState() !== 'offline');
+  const [online, setOnline] = useState(() => locationTracker.isOnline());
   const [pending, setPending] = useState(false);
   const [refusalError, setRefusalError] = useState<ApiError | null>(null);
   const [networkError, setNetworkError] = useState(false);

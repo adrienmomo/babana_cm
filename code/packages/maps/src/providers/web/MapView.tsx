@@ -4,6 +4,7 @@ import type { MapMarker, MapViewProps } from '../../types';
 import { getGoogleMapsApiKey } from '../google/config';
 import { loadGoogleMaps } from './loadGoogleMaps';
 import { markerIconUrl } from './markerIcon';
+import { useGlidingPosition } from '../../glide';
 
 /**
  * Troisième fournisseur de carte (L6-18, D22) -- Google Maps JavaScript, chargé à la demande.
@@ -22,7 +23,6 @@ export function WebMapView({ center, markers = [], route, onRegionChange, style 
   // de type supplémentaire pour une seule ligne.
   const containerRef = useRef<any>(null);
   const mapRef = useRef<GoogleMap | null>(null);
-  const markerInstancesRef = useRef<GoogleMarker[]>([]);
   const polylineRef = useRef<GooglePolyline | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -79,29 +79,6 @@ export function WebMapView({ center, markers = [], route, onRegionChange, style 
     const maps = window.google?.maps;
     if (!maps) return undefined;
 
-    markerInstancesRef.current.forEach((marker) => marker.setMap(null));
-    markerInstancesRef.current = markers.map(
-      (marker: MapMarker) =>
-        new maps.Marker({
-          position: { lat: marker.position.latitude, lng: marker.position.longitude },
-          map,
-          title: marker.label,
-          icon: markerIconUrl(marker.kind),
-        })
-    );
-
-    return () => {
-      markerInstancesRef.current.forEach((marker) => marker.setMap(null));
-      markerInstancesRef.current = [];
-    };
-  }, [ready, markers]);
-
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!ready || !map || typeof window === 'undefined') return undefined;
-    const maps = window.google?.maps;
-    if (!maps) return undefined;
-
     polylineRef.current?.setMap(null);
     polylineRef.current = route
       ? new maps.Polyline({
@@ -117,7 +94,46 @@ export function WebMapView({ center, markers = [], route, onRegionChange, style 
     };
   }, [ready, route]);
 
-  return <View ref={containerRef} style={style ?? styles.fill} />;
+  // Un composant par repère, créé une fois et déplacé ensuite : la moto glisse d'une position à
+  // la suivante (14 novembre, `glide.ts`) au lieu d'être recréée à chaque mise à jour.
+  const map = ready ? mapRef.current : null;
+  return (
+    <View ref={containerRef} style={style ?? styles.fill}>
+      {map ? markers.map((marker) => <WebMarker key={marker.id} map={map} marker={marker} />) : null}
+    </View>
+  );
+}
+
+function WebMarker({ map, marker }: { map: GoogleMap; marker: MapMarker }) {
+  const instance = useRef<GoogleMarker | null>(null);
+  const position = useGlidingPosition(marker.position, marker.kind === 'driver');
+
+  useEffect(() => {
+    const maps = typeof window === 'undefined' ? undefined : window.google?.maps;
+    if (!maps) return undefined;
+    instance.current = new maps.Marker({
+      position: { lat: marker.position.latitude, lng: marker.position.longitude },
+      map,
+      title: marker.label,
+      icon: markerIconUrl(marker.kind),
+    });
+    return () => {
+      instance.current?.setMap(null);
+      instance.current = null;
+    };
+    // Recréé seulement si la carte ou le rôle changent ; position et libellé se mettent à jour en place.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, marker.kind]);
+
+  useEffect(() => {
+    instance.current?.setPosition({ lat: position.latitude, lng: position.longitude });
+  }, [position]);
+
+  useEffect(() => {
+    instance.current?.setTitle(marker.label ?? null);
+  }, [marker.label]);
+
+  return null;
 }
 
 const styles = StyleSheet.create({

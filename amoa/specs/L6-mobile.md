@@ -2,6 +2,8 @@
 
 Décisions : D1 (deux apps, monorepo), D10 et D14 (le client choisit parmi 5), D11 (refus sans repli automatique), D12 (lien profond en v1), D13 (Google Maps derrière une abstraction), D20 (interface générique au pilote), D22 (export web du Client seulement).
 
+> **Dépassée en partie le 14 novembre 2026** (`01-architecture.md` §14) — L6-05 : une position toutes les 2 s, chacune seule, et un vrai service de premier plan (D84, D85). L6-07 et L6-08 : le client ne choisit plus son chauffeur (D78). L6-01 et L6-13 : carte OpenStreetMap et navigation dans l'app, sans lien vers Google Maps (D82, D83). Écran allumé (D86).
+
 **Règle transverse du lot** : aucune règle métier dans les apps. Ni calcul de tarif, ni décision d'affectation, ni validation de solde. L'app affiche ce que le serveur décide.
 
 ---

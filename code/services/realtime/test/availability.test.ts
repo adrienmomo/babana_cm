@@ -16,6 +16,7 @@ import {
   DisconnectGraceTimers,
 } from '../src/driver/availability';
 import { isInPool, removeFromPool } from '../src/redis/geo-index';
+import { setEngaged, clearEngaged } from '../src/driver/engagement';
 import { addEligibleToPool } from '../src/redis/pool-eligibility';
 import { ingestPosition } from '../src/tracking/ingest';
 import type { PlausibilityConfig } from '../src/tracking/validation';
@@ -143,6 +144,21 @@ describe('DisconnectGraceTimers (L3-04, critère 3)', () => {
 
     assert.equal(await isInPool(redis, driverId), true, 'le chauffeur reconnecté reste dans le pool');
     await removeFromPool(redis, driverId);
+  });
+
+  test('14 novembre -- un chauffeur engagé dans une course reste en ligne à l\'échéance : la course continue', async () => {
+    // Décision du maître d'ouvrage : la période de grâce épargne un chauffeur en course. Sinon, une
+    // app tuée en pleine approche revenait « hors ligne » avec sa course, et Odoo le tenait en ligne.
+    const driverId = trackedId('grace-engaged');
+    await setOnline(redis, driverId);
+    await setEngaged(redis, driverId, randomUUID());
+
+    const timers = new DisconnectGraceTimers();
+    timers.schedule(redis, driverId, 0.05);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+
+    assert.equal(await isMarkedOnline(redis, driverId), true, 'toujours en ligne après la période de grâce');
+    await clearEngaged(redis, driverId);
   });
 
   test('cancel() est sans effet si aucun minuteur n\'est en attente', () => {

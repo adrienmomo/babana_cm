@@ -15,11 +15,12 @@ import type { ProposalLifecycle } from '../src/proposal/lifecycle';
 import { parseConfig, type Config } from '../src/config';
 import type { ConnectionContext } from '../src/ws/auth';
 import { setOffline, setOnline } from '../src/driver/availability';
+import { setDriverProfile } from '../src/redis/driver-profiles';
 import { TEST_REDIS_URL } from './helpers/redis';
 
 let odooServer: http.Server;
 let odooRequests: unknown[] = [];
-let odooResponse: { rideId: string | null; state: string | null; ride?: unknown } | 'error' = { rideId: null, state: null };
+let odooResponse: { rideId: string | null; state: string | null; ride?: unknown; clientRide?: unknown } | 'error' = { rideId: null, state: null };
 let config: Config;
 let redis: Redis;
 
@@ -152,6 +153,48 @@ describe('handleSessionResync (L3-11)', () => {
 
     const parsed = realtime.SessionSyncedMessageSchema.parse(messages[0]);
     assert.deepEqual(parsed.payload.activeRide, ride);
+  });
+
+  test("14 novembre : le client relancé en pleine course reçoit de quoi rouvrir son suivi, carte du chauffeur comprise", async () => {
+    const driverId = randomUUID();
+    await setDriverProfile(redis, driverId, {
+      firstName: 'Emmanuel',
+      photoUrl: null,
+      rating: null,
+      motorcycleClass: 'standard',
+      licensePlate: 'LT 4821 AC',
+      phoneNumber: '+237690110201',
+    });
+    const origin = { latitude: 4.05, longitude: 9.7, label: 'Carrefour Ndokoti' };
+    const destination = { latitude: 4.06, longitude: 9.71, label: null };
+    odooResponse = { rideId: '11111111-1111-4111-8111-111111111111', state: 'in_progress', clientRide: { origin, destination, driverId } };
+    const { socket, messages } = fakeSocket();
+
+    await handleSessionResync(config, redis, fakeProposals().proposals, clientContext(), socket, { lastKnownRideId: null });
+
+    const parsed = realtime.SessionSyncedMessageSchema.parse(messages[0]);
+    assert.deepEqual(parsed.payload.clientRide, {
+      origin,
+      destination,
+      driver: { driverId, firstName: 'Emmanuel', photoUrl: null, motorcycleClass: 'standard', licensePlate: 'LT 4821 AC', phoneNumber: '+237690110201' },
+    });
+    await redis.del(`babana:driver:profile:${driverId}`, `babana:driver:profile:fetched-at:${driverId}`);
+  });
+
+  test("14 novembre : jamais la course d'un client à un chauffeur, ni une course client mal formée", async () => {
+    odooResponse = { rideId: '11111111-1111-4111-8111-111111111111', state: 'assigned', clientRide: { origin: { latitude: 4.05 } } };
+    const client = fakeSocket();
+    await handleSessionResync(config, redis, fakeProposals().proposals, clientContext(), client.socket, { lastKnownRideId: null });
+    assert.equal(realtime.SessionSyncedMessageSchema.parse(client.messages[0]).payload.clientRide, undefined);
+
+    odooResponse = {
+      rideId: '11111111-1111-4111-8111-111111111111',
+      state: 'assigned',
+      clientRide: { origin: { latitude: 4.05, longitude: 9.7, label: null }, destination: { latitude: 4.06, longitude: 9.71, label: null }, driverId: randomUUID() },
+    };
+    const driver = fakeSocket();
+    await handleSessionResync(config, redis, fakeProposals().proposals, driverContext(), driver.socket, { lastKnownRideId: null });
+    assert.equal(realtime.SessionSyncedMessageSchema.parse(driver.messages[0]).payload.clientRide, undefined);
   });
 
   test("une course mal formée côté Odoo n'est jamais complétée : activeRide absent, l'état seul part", async () => {

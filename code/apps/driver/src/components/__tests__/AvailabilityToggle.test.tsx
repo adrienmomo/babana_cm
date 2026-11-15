@@ -18,11 +18,14 @@ jest.mock('../../realtime', () => ({
 // réellement LocationTracker, avec des dépendances injectées.
 const mockSetOnline = jest.fn();
 let mockTrackerState = 'offline';
+// `null` : déduit de l'état, comme avant le 14 novembre (tous les cas qui ne s'en soucient pas).
+let mockTrackerOnline: boolean | null = null;
 const mockOnlineListeners = new Set<(online: boolean) => void>();
 jest.mock('../../location', () => ({
   locationTracker: {
     setOnline: (...args: unknown[]) => mockSetOnline(...args),
     getState: () => mockTrackerState,
+    isOnline: () => mockTrackerOnline ?? mockTrackerState !== 'offline',
     subscribeOnline: (listener: (online: boolean) => void) => {
       mockOnlineListeners.add(listener);
       return () => mockOnlineListeners.delete(listener);
@@ -59,9 +62,20 @@ async function press(root: ReactTestRenderer) {
 beforeEach(() => {
   jest.clearAllMocks();
   mockTrackerState = 'offline';
+  mockTrackerOnline = null;
 });
 
 describe('AvailabilityToggle (L6-11, D7)', () => {
+  it('14 novembre -- course reprise alors que le serveur tient le chauffeur hors ligne : la bascule dit « Hors ligne »', async () => {
+    // La capture tourne (la course se suit toujours), mais le chauffeur n'est pas en ligne : à la
+    // fin de la course, il ne recevra rien tant qu'il ne repasse pas en ligne -- la bascule doit
+    // le dire, pas déduire « En ligne » de la capture en cours.
+    mockTrackerState = 'in_ride';
+    mockTrackerOnline = false;
+    const root = await renderToggle({ inCourse: true });
+    expect(texts(root)).toContain('Hors ligne');
+  });
+
   it('suit la disponibilité appliquée par le serveur : mis hors ligne pendant une déconnexion, la bascule revient à « Hors ligne »', async () => {
     mockTrackerState = 'online_idle';
     const root = await renderToggle();

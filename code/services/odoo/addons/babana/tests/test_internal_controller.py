@@ -321,6 +321,39 @@ class TestInternalController(HttpCase):
         self.assertEqual((body["rideId"], body["state"]), (ride.public_id, "assigned"))
         self.assertIn("ride", body)
 
+    def test_active_ride_for_client_carries_what_the_tracking_screen_needs(self):
+        # 14 novembre : une app Client relancée en pleine course revenait à l'accueil -- le client
+        # ne voyait plus sa moto. La reprise rouvre le suivi avec ce qu'il affichait : départ et
+        # arrivée (avec leur libellé) et le chauffeur affecté (D41, sa carte est complétée par le
+        # service temps réel, comme pour `ride.assigned`).
+        client = self._make_client_user("sub-resume-tracking-client")
+        _driver_user, driver = self._make_driver_user("sub-resume-tracking-driver")
+        vals = dict(self._base_vals(client.partner_id), pickup_label="Carrefour Ndokoti", dropoff_label="Marché Sandaga")
+        ride = self.env["babana.ride"].sudo().action_request(vals)
+        ride.sudo().action_propose(by_partner=client.partner_id, driver=driver)
+
+        def resume():
+            response = self._post(
+                "/session/active-ride",
+                {"userId": client.babana_public_id, "role": "client"},
+                secret=self._real_secret(),
+            )
+            self.assertEqual(response.status_code, 200)
+            return response.json()
+
+        # Proposée : pas encore de chauffeur affecté, rien à suivre.
+        self.assertNotIn("clientRide", resume())
+
+        ride.sudo().action_accept(by_driver=driver)
+        self.assertEqual(
+            resume()["clientRide"],
+            {
+                "origin": {"latitude": 4.05, "longitude": 9.70, "label": "Carrefour Ndokoti"},
+                "destination": {"latitude": 4.06, "longitude": 9.77, "label": "Marché Sandaga"},
+                "driverId": driver.public_id,
+            },
+        )
+
     def test_active_ride_for_driver_carries_what_the_app_needs_to_resume(self):
         # 6 novembre : un chauffeur dont l'app est relancée en pleine course retombait sur
         # l'accueil -- `session.synced` ne portait que l'état. L3-11 exige un état complet : le

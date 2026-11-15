@@ -511,4 +511,82 @@ describe('LocationTracker (L6-05)', () => {
     await jest.advanceTimersByTimeAsync(600_000);
     expect(deps.lastNotificationMessage).toBe('sentinelle');
   });
+
+  test('14 novembre -- la cadence se compte depuis le début du relevé : un GPS lent n’étire pas les 2 s', async () => {
+    const GPS_LATENCY_MS = 800;
+    const deps = fakeDeps();
+    deps.getPosition = () =>
+      new Promise((resolve) => {
+        deps.getPositionCalls += 1;
+        setTimeout(() => resolve({ ...AKWA, accuracyMeters: 10, speedMetersPerSecond: null, headingDegrees: null }), GPS_LATENCY_MS);
+      });
+    const config = { ...CONFIG, idleIntervalMs: 2_000, movingIntervalMs: 2_000, rideIntervalMs: 2_000, batchSize: 1 };
+    const tracker = new LocationTracker(deps, config);
+    tracker.start();
+    tracker.setOnline(true);
+
+    await jest.advanceTimersByTimeAsync(0);
+    expect(deps.getPositionCalls).toBe(1);
+    await jest.advanceTimersByTimeAsync(GPS_LATENCY_MS);
+    expect(deps.sent).toHaveLength(1);
+
+    // Deuxième relevé 2 s après le DÉBUT du premier, pas 2 s après sa réponse.
+    await jest.advanceTimersByTimeAsync(2_000 - GPS_LATENCY_MS - 1);
+    expect(deps.getPositionCalls).toBe(1);
+    await jest.advanceTimersByTimeAsync(1);
+    expect(deps.getPositionCalls).toBe(2);
+
+    // Dix secondes : cinq positions parties, une par relevé, aucune agrégée.
+    await jest.advanceTimersByTimeAsync(10_000);
+    expect(deps.sent.length).toBeGreaterThanOrEqual(5);
+    expect(deps.sent.every((payload) => payload.precedingSamples.length === 0)).toBe(true);
+  });
+
+  test('14 novembre -- course en cours, mais le serveur ne tient plus le chauffeur « en ligne » : la position part quand même', async () => {
+    // Vu sur émulateur : app tuée en pleine approche, période de grâce dépassée -- session.synced
+    // rend la course (assigned) ET driverOnline: false. Le suivi du client ne doit pas s'éteindre.
+    const deps = fakeDeps();
+    const tracker = new LocationTracker(deps, { ...CONFIG, batchSize: 1 });
+    tracker.start();
+    deps.emit(sessionSynced({ activeRideId: 'ride-1', activeRideState: 'assigned', driverOnline: false }));
+
+    expect(tracker.getState()).toBe('in_ride');
+    await jest.advanceTimersByTimeAsync(0);
+    expect(deps.sent).toHaveLength(1);
+    expect(deps.notificationShown).toBe(true);
+
+    // Fin de course, toujours hors ligne : tout s'arrête.
+    deps.emit(rideCompleted());
+    expect(tracker.getState()).toBe('offline');
+    expect(deps.notificationShown).toBe(false);
+  });
+
+  test('session perdue en pleine course : la capture s’arrête quand même', async () => {
+    let lost: () => void = () => undefined;
+    const deps = fakeDeps({
+      onSessionLost: (listener) => {
+        lost = listener;
+        return () => undefined;
+      },
+    });
+    const tracker = new LocationTracker(deps, CONFIG);
+    tracker.start();
+    tracker.setOnline(true);
+    deps.emit(proposalAccepted());
+    lost();
+    expect(tracker.getState()).toBe('offline');
+  });
+
+  test('14 novembre -- chaque changement d’état est signalé, pour régler l’abonnement GPS', async () => {
+    const states: string[] = [];
+    const deps = fakeDeps({ onStateChange: (state) => states.push(state) });
+    const tracker = new LocationTracker(deps, CONFIG);
+    tracker.start();
+    tracker.setOnline(true);
+    deps.emit(proposalAccepted());
+    deps.emit(rideCompleted());
+    tracker.setOnline(false);
+    expect(states).toEqual(['online_idle', 'in_ride', 'online_idle', 'offline']);
+  });
 });
+

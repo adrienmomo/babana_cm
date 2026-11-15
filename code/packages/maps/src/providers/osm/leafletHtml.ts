@@ -1,6 +1,7 @@
 import type { LatLng, MapMarker, MapRoute } from '../../types';
 import { MAP_MARKER_COLORS } from '../../markerColors';
 import { RECENTER_EPSILON } from '../../heading';
+import { GLIDE_JUMP_DEG, GLIDE_MAX_MS, GLIDE_MIN_MS } from '../../glide';
 
 /**
  * Page Leaflet servie à la WebView. Tout ce qui varie (centre, repères, tracé, adresse des tuiles)
@@ -156,21 +157,87 @@ html,body,#map{height:100%;margin:0;padding:0;background:#ebe7df}
   };
 
   var layer = L.layerGroup().addTo(map);
+  // Les motos ne sont jamais redessinées : chacune garde son repère, qui glisse d'une position à
+  // la suivante (14 novembre) au lieu de sauter. Durée du glissement = temps écoulé depuis la
+  // position précédente, borné : la moto arrive à peu près quand la suivante tombe, et le
+  // mouvement paraît continu à 3 s de cadence. Au-delà d'environ 500 m (reprise après coupure), elle
+  // saute : faire traverser la ville à une moto en glissant serait mentir sur son trajet.
+  var driverLayer = L.layerGroup().addTo(map);
+  var drivers = {};
+  // Mêmes règles que glide.ts (carte Google native et web), constantes reprises d'ici.
+  var ANIM_MIN_MS = ${GLIDE_MIN_MS}, ANIM_MAX_MS = ${GLIDE_MAX_MS}, TELEPORT_DEG = ${GLIDE_JUMP_DEG};
+  var clock = function () { return (window.performance && window.performance.now) ? window.performance.now() : Date.now(); };
+  var nextFrame = window.requestAnimationFrame
+    ? function (f) { window.requestAnimationFrame(f); }
+    : function (f) { setTimeout(f, 16); };
+  var glide = function (entry, to) {
+    var from = entry.marker.getLatLng();
+    var t0 = clock();
+    var gap = t0 - entry.lastAt;
+    entry.lastAt = t0;
+    var id = ++entry.animation;
+    var far = Math.abs(from.lat - to[0]) > TELEPORT_DEG || Math.abs(from.lng - to[1]) > TELEPORT_DEG;
+    if (far) { entry.marker.setLatLng(to); return 0; }
+    var duration = Math.max(ANIM_MIN_MS, Math.min(ANIM_MAX_MS, gap));
+    var step = function () {
+      if (entry.animation !== id) return; // une position plus récente a pris la main
+      var t = Math.min(1, (clock() - t0) / duration);
+      entry.marker.setLatLng([from.lat + (to[0] - from.lat) * t, from.lng + (to[1] - from.lng) * t]);
+      if (t < 1) nextFrame(step);
+    };
+    nextFrame(step);
+    return duration;
+  };
   var routeKey = null;
   var lastCenter = initial.center;
   var update = function (state) {
     layer.clearLayers();
+    var seen = {};
+    var glideMs = 0;
     (state.markers || []).forEach(function (m) {
       var isDriver = m.kind === 'driver';
-      var marker = L.marker([m.position.latitude, m.position.longitude], {
-        icon: iconFor(m.kind, state.colors[m.kind] || '#0A7D3D', isDriver ? headingFor(m) : 0),
+      var at = [m.position.latitude, m.position.longitude];
+      if (isDriver) {
+        seen[m.id] = true;
+        var bearing = headingFor(m);
+        var entry = drivers[m.id];
+        if (entry) {
+          glideMs = Math.max(glideMs, glide(entry, at));
+          // Rotation en place : redonner une icône recréerait l'élément et couperait la transition.
+          var element = entry.marker.getElement && entry.marker.getElement();
+          var moto = element && element.querySelector('.babana-moto');
+          if (moto) moto.style.transform = 'rotate(' + Math.round(bearing) + 'deg)';
+          if ((m.label || null) !== entry.label) {
+            entry.marker.unbindTooltip();
+            if (m.label) entry.marker.bindTooltip(m.label, { direction: 'top' });
+            entry.label = m.label || null;
+          }
+          return;
+        }
+        var driverMarker = L.marker(at, {
+          icon: iconFor(m.kind, state.colors[m.kind] || '#0A7D3D', bearing),
+          keyboard: false, interactive: !!m.label,
+          // Le chauffeur passe toujours au-dessus des épingles : arrivé, il est exactement sur la
+          // prise en charge, et c'est lui que l'on cherche des yeux.
+          zIndexOffset: 1000
+        });
+        if (m.label) driverMarker.bindTooltip(m.label, { direction: 'top' });
+        driverMarker.addTo(driverLayer);
+        drivers[m.id] = { marker: driverMarker, lastAt: clock(), animation: 0, label: m.label || null };
+        return;
+      }
+      var marker = L.marker(at, {
+        icon: iconFor(m.kind, state.colors[m.kind] || '#0A7D3D', 0),
         keyboard: false, interactive: !!m.label,
-        // Le chauffeur passe toujours au-dessus des épingles : arrivé, il est exactement sur la
-        // prise en charge, et c'est lui que l'on cherche des yeux.
-        zIndexOffset: isDriver ? 1000 : 0
+        zIndexOffset: 0
       });
       if (m.label) marker.bindTooltip(m.label, { direction: 'top' });
       marker.addTo(layer);
+    });
+    Object.keys(drivers).forEach(function (id) {
+      if (seen[id]) return;
+      driverLayer.removeLayer(drivers[id].marker);
+      delete drivers[id];
     });
     var framed = false;
     if (state.route && state.route.points && state.route.points.length) {
@@ -199,7 +266,15 @@ html,body,#map{height:100%;margin:0;padding:0;background:#ebe7df}
     var changed = Math.abs(lastCenter.latitude - state.center.latitude) > ${RECENTER_EPSILON} ||
       Math.abs(lastCenter.longitude - state.center.longitude) > ${RECENTER_EPSILON};
     lastCenter = state.center;
-    if (changed && !framed) map.setView([state.center.latitude, state.center.longitude], map.getZoom());
+    if (changed && !framed) {
+      // La carte qui suit une moto glisse avec elle, au même rythme : la moto reste au centre au
+      // lieu de partir du bord à chaque position.
+      if (glideMs > 0) {
+        map.panTo([state.center.latitude, state.center.longitude], { animate: true, duration: glideMs / 1000, easeLinearity: 1, noMoveStart: true });
+      } else {
+        map.setView([state.center.latitude, state.center.longitude], map.getZoom());
+      }
+    }
   };
   // Seul un geste du doigt (glisser, pincer) est une désignation : un recentrage programmé (prop
   // « centre », cadrage d'un tracé) ne doit jamais être relayé comme un choix de l'utilisateur --

@@ -12,7 +12,11 @@ import type { RideRouteRelay } from './route';
 
 interface Subscription {
   rideId: string;
+  /** Chauffeur de la course au moment de l'abonnement -- `null` si la course n'est pas celle de
+   * ce client : aucune position reçue ne lui sera alors poussée. */
+  driverId: string | null;
   timer: NodeJS.Timeout;
+  push: () => Promise<void>;
 }
 
 /**
@@ -26,6 +30,12 @@ interface Subscription {
  * l'abonnement lui-même. Une course qui se termine entre deux diffusions fait donc taire le
  * suivi au tick suivant, sans action explicite du client -- c'est cette relecture qui matérialise
  * le critère 4 ("le suivi cesse à la fin de la course").
+ *
+ * **Chaque position acceptée part aussitôt** (14 novembre, `onDriverPosition`) : le client reçoit
+ * la position dès que le serveur la reçoit, toutes les 3 s (D85), au lieu d'une sur cinq au rythme
+ * du minuteur. Le minuteur reste le filet -- un chauffeur dont la position ne change plus continue
+ * d'être diffusé, et c'est sa cadence qu'annonce `ride.track.ack` (D50, surveillance du silence).
+ * Dépasse le critère 5 de L3-09 (« fréquence de diffusion indépendante de l'ingestion »).
  */
 export class TrackingManager {
   private readonly subscriptions = new Map<string, Subscription>();
@@ -110,7 +120,24 @@ export class TrackingManager {
       });
     }, this.config.TRACKING_BROADCAST_INTERVAL_SECONDS * 1000);
     timer.unref();
-    this.subscriptions.set(context.userId, { rideId: payload.rideId, timer });
+    this.subscriptions.set(context.userId, { rideId: payload.rideId, driverId: owned?.driverId ?? null, timer, push });
+  }
+
+  /**
+   * Une position de ce chauffeur vient d'être acceptée (`ws/dispatch.ts`, après `ingestPosition`) :
+   * diffusée tout de suite au client qui suit sa course, par la même `push()` que le minuteur --
+   * donc avec la même relecture de la session à chaque envoi (critère 2 et 4). Parcours de tous les
+   * abonnements : un par client qui suit une course, quelques dizaines au pilote.
+   */
+  async onDriverPosition(driverId: string): Promise<void> {
+    const pushes = [...this.subscriptions.values()]
+      .filter((subscription) => subscription.driverId === driverId)
+      .map((subscription) =>
+        subscription.push().catch(() => {
+          // Même filet que le minuteur : une panne Redis passagère ne ferme rien.
+        })
+      );
+    await Promise.all(pushes);
   }
 
   unsubscribe(context: ConnectionContext): void {

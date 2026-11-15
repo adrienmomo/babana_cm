@@ -23,6 +23,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     window = UIWindow(frame: UIScreen.main.bounds)
 
+    // The driver app never lets the screen sleep (decision of 14 November).
+    application.isIdleTimerDisabled = true
+
     factory.startReactNative(
       withModuleName: "BabanaDriver",
       in: window,

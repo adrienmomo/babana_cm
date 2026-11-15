@@ -42,6 +42,7 @@ jest.mock('../../location', () => ({
   locationTracker: {
     setOnline: jest.fn(),
     getState: () => 'offline',
+    isOnline: () => false,
     subscribeOnline: () => () => {},
     subscribeFix: (listener: (fix: { latitude: number; longitude: number }) => void) => {
       fixListener = listener;

@@ -99,6 +99,29 @@ export interface ActiveRide {
   /** De quoi rouvrir la course côté chauffeur (L3-11, 6 novembre) ; `null` si Odoo n'en donne pas
    * -- ou en donne une forme invalide, jamais complétée ici. */
   ride: realtime.ActiveRideSnapshot | null;
+  /** De quoi rouvrir le suivi côté client (14 novembre) : ses deux points et le chauffeur
+   * affecté ; la carte du chauffeur est complétée par `ws/resync.ts`. `null` si Odoo n'en donne
+   * pas, ou une forme invalide. */
+  clientRide: OdooClientRide | null;
+}
+
+export interface OdooClientRide {
+  origin: realtime.ClientActiveRideSnapshot['origin'];
+  destination: realtime.ClientActiveRideSnapshot['destination'];
+  driverId: string;
+}
+
+function parseClientRide(raw: unknown): OdooClientRide | null {
+  if (raw === undefined || raw === null || typeof raw !== 'object') return null;
+  const body = raw as { origin?: unknown; destination?: unknown; driverId?: unknown };
+  const origin = realtime.ClientRidePointSchema.safeParse(body.origin);
+  const destination = realtime.ClientRidePointSchema.safeParse(body.destination);
+  const driverId = realtime.ClientActiveRideSnapshotSchema.shape.driver.shape.driverId.safeParse(body.driverId);
+  if (!origin.success || !destination.success || !driverId.success) {
+    console.error('[L3-11] course client mal formée renvoyée par Odoo -- non transmise');
+    return null;
+  }
+  return { origin: origin.data, destination: destination.data, driverId: driverId.data };
 }
 
 /**
@@ -117,7 +140,7 @@ export async function fetchActiveRide(
     role: context.role,
     lastKnownRideId,
   });
-  const body = result as { rideId?: unknown; state?: unknown; ride?: unknown };
+  const body = result as { rideId?: unknown; state?: unknown; ride?: unknown; clientRide?: unknown };
   const ride = body.ride === undefined ? null : realtime.ActiveRideSnapshotSchema.safeParse(body.ride);
   if (ride && !ride.success) {
     console.error('[L3-11] course active mal formée renvoyée par Odoo -- non transmise :', ride.error.issues);
@@ -126,5 +149,6 @@ export async function fetchActiveRide(
     rideId: typeof body.rideId === 'string' ? body.rideId : null,
     state: typeof body.state === 'string' ? (body.state as http.RideState) : null,
     ride: ride && ride.success ? ride.data : null,
+    clientRide: context.role === 'client' ? parseClientRide(body.clientRide) : null,
   };
 }
