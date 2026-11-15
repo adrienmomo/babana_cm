@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { StarRating } from '@babana/ui';
 import { ApiError, translateApiError } from '@babana/api-client';
@@ -7,7 +7,7 @@ import type { http } from '@babana/contracts';
 import { apiClient } from '../auth';
 import { offlineRunner } from '../offline';
 import { formatMoney, formatRideDate } from '../format';
-import { buttonLabels, buttons, colors, radius } from '../theme';
+import { buttonLabelsOf, buttonsOf, makeStyles, radius } from '../theme';
 import type { DriverParamList } from '../navigation/types';
 
 /**
@@ -30,6 +30,7 @@ export const DRIVER_STATUS_LABELS: Record<http.RideHistoryStatus, string> = {
 type LoadState = { status: 'loading' } | { status: 'error' } | { status: 'loaded' };
 
 export function RideHistoryScreen(_props: Props) {
+  const styles = useStyles();
   const [rides, setRides] = useState<http.DriverRideHistoryEntry[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [state, setState] = useState<LoadState>({ status: 'loading' });
@@ -154,8 +155,8 @@ export function RideHistoryScreen(_props: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.canvas },
+const useStyles = makeStyles((c) => ({
+  container: { flex: 1, backgroundColor: c.canvas },
   content: { padding: 16, gap: 12 },
   centered: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
   row: {
@@ -163,20 +164,20 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: radius.field,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: c.border,
+    backgroundColor: c.surface,
   },
   rowHeader: { flexDirection: 'row', justifyContent: 'space-between' },
-  date: { color: colors.muted, fontSize: 13 },
-  status: { color: colors.brandText, fontWeight: '600', fontSize: 13 },
-  statusCancelled: { color: colors.muted },
-  route: { color: colors.ink, fontSize: 15, fontWeight: '600' },
-  amount: { color: colors.ink, fontWeight: '700' },
-  rating: { gap: 2, paddingTop: 6, borderTopWidth: 1, borderColor: colors.border, marginTop: 4 },
-  ratingLabel: { color: colors.muted, fontSize: 13 },
-  error: { color: colors.dangerText },
-  muted: { color: colors.muted, textAlign: 'center' },
+  date: { color: c.muted, fontSize: 13 },
+  status: { color: c.brandText, fontWeight: '600', fontSize: 13 },
+  statusCancelled: { color: c.muted },
+  route: { color: c.ink, fontSize: 15, fontWeight: '600' },
+  amount: { color: c.ink, fontWeight: '700' },
+  rating: { gap: 2, paddingTop: 6, borderTopWidth: 1, borderColor: c.border, marginTop: 4 },
+  ratingLabel: { color: c.muted, fontSize: 13 },
+  error: { color: c.dangerText },
+  muted: { color: c.muted, textAlign: 'center' },
   footer: { paddingVertical: 16 },
-  retryButton: { ...buttons.base, ...buttons.md, ...buttons.secondary },
-  retryLabel: { ...buttonLabels.base, ...buttonLabels.secondary },
-});
+  retryButton: { ...buttonsOf(c).base, ...buttonsOf(c).md, ...buttonsOf(c).secondary },
+  retryLabel: { ...buttonLabelsOf(c).base, ...buttonLabelsOf(c).secondary },
+}));

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
+import { makeStyles } from './theme';
 
 /**
  * Messages rapides pendant une course (chauffeur <-> client) : une rangée de pastilles à toucher,
@@ -21,6 +22,7 @@ export interface QuickMessageChipsProps<Code extends string> {
 }
 
 export function QuickMessageChips<Code extends string>({ options, onSend, disabled = false, testID }: QuickMessageChipsProps<Code>) {
+  const styles = useStyles();
   return (
     // flexGrow: 0 -- dans une colonne, une ScrollView horizontale prend toute la hauteur libre et
     // étire chaque pastille en ovale géant (vu sur l'écran de suivi du client, 30 octobre).
@@ -58,6 +60,7 @@ export interface MessageBubbleProps {
 }
 
 export function MessageBubble({ author, text, onDismiss, testID }: MessageBubbleProps) {
+  const styles = useStyles();
   return (
     <View style={styles.bubble} testID={testID} accessibilityLiveRegion="polite">
       <View style={styles.bubbleBody}>
@@ -78,7 +81,7 @@ export function MessageBubble({ author, text, onDismiss, testID }: MessageBubble
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   scroller: {
     flexGrow: 0,
     flexShrink: 0,
@@ -94,13 +97,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#FFFFFF',
+    borderColor: c.border,
+    backgroundColor: c.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
   chipLabel: {
-    color: '#1F2937',
+    color: c.ink,
     fontSize: 14,
     fontWeight: '600',
   },
@@ -116,23 +119,23 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 12,
     borderRadius: 16,
-    backgroundColor: '#E8F6EE',
+    backgroundColor: c.brandSoft,
     borderWidth: 1,
-    borderColor: '#B8E2CB',
+    borderColor: c.brandBorder,
   },
   bubbleBody: {
     flex: 1,
     gap: 2,
   },
   author: {
-    color: '#137347',
+    color: c.brandText,
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 0.4,
   },
   text: {
-    color: '#1F2937',
+    color: c.ink,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -143,8 +146,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   closeLabel: {
-    color: '#6B7280',
+    color: c.muted,
     fontSize: 22,
     lineHeight: 24,
   },
-});
+}));

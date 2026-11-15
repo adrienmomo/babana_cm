@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Button } from '@babana/ui';
+import { Button, makeStyles } from '@babana/ui';
 import { asRideId } from '@babana/navigation';
 import { ApiError, translateApiError } from '@babana/api-client';
 import type { http } from '@babana/contracts';
@@ -26,6 +26,7 @@ export const STATUS_LABELS: Record<http.RideHistoryStatus, string> = {
 type LoadState = { status: 'loading' } | { status: 'error'; message: string } | { status: 'loaded' };
 
 export function HistoryScreen({ navigation }: Props) {
+  const styles = useStyles();
   const [rides, setRides] = useState<http.RideHistoryEntry[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [state, setState] = useState<LoadState>({ status: 'loading' });
@@ -126,7 +127,7 @@ export function HistoryScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: { flex: 1 },
   content: { padding: 16, gap: 12 },
   centered: { flexGrow: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
@@ -135,18 +136,18 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#FFFFFF',
+    borderColor: c.border,
+    backgroundColor: c.surface,
   },
   rowHeader: { flexDirection: 'row', justifyContent: 'space-between' },
-  date: { color: '#6B7280', fontSize: 13 },
-  status: { color: '#137347', fontWeight: '600', fontSize: 13 },
-  statusCancelled: { color: '#6B7280' },
-  route: { color: '#1F2937', fontSize: 15, fontWeight: '600' },
+  date: { color: c.muted, fontSize: 13 },
+  status: { color: c.brandText, fontWeight: '600', fontSize: 13 },
+  statusCancelled: { color: c.muted },
+  route: { color: c.ink, fontSize: 15, fontWeight: '600' },
   rowFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  amount: { color: '#1F2937', fontWeight: '700' },
-  invoiceLink: { color: '#137347', fontWeight: '600' },
-  empty: { color: '#6B7280' },
-  error: { color: '#B91C1C', textAlign: 'center' },
+  amount: { color: c.ink, fontWeight: '700' },
+  invoiceLink: { color: c.brandText, fontWeight: '600' },
+  empty: { color: c.muted },
+  error: { color: c.dangerText, textAlign: 'center' },
   footer: { marginVertical: 12 },
-});
+}));

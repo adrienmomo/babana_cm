@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import type { ConnectionState } from '@babana/api-client';
 import { onRealtimeConnectionStateChange, realtimeClient } from '../realtime';
+import { makeStyles } from '@babana/ui';
 
 /**
  * Indicateur de connexion permanent (L6-16, critère 1). Même composant que
@@ -16,6 +17,7 @@ const LABELS: Record<ConnectionState, string> = {
 };
 
 export function ConnectionBanner() {
+  const styles = useStyles();
   const [state, setState] = useState<ConnectionState>(() => realtimeClient.getState());
 
   useEffect(() => onRealtimeConnectionStateChange(setState), []);
@@ -37,7 +39,7 @@ export function ConnectionBanner() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     width: '100%',
   },
@@ -46,21 +48,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   connecting: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: c.warningSoft,
   },
   offline: {
-    backgroundColor: '#FEE2E2',
+    backgroundColor: c.dangerSoft,
   },
   text: {
     fontSize: 13,
     fontWeight: '600',
     textAlign: 'center',
-    color: '#111827',
+    color: c.ink,
   },
   // fontSize 1, pas 0 : Android (RN 0.86) lève « FontSize should be a positive value » sur une
   // taille nulle, et plante l'app dès que la connexion réussit. La hauteur nulle masque déjà.
   hidden: {
+    color: c.ink,
     height: 0,
     fontSize: 1,
   },
-});
+}));

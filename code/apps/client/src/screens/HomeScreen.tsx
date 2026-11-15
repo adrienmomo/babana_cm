@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MAP_MARKER_COLORS, MapView, reverseGeocode, type LatLng, type MapMarker } from '@babana/maps';
-import { Button } from '@babana/ui';
+import { Button, makeStyles, useTheme } from '@babana/ui';
 import type { http, realtime } from '@babana/contracts';
 import { StreamLivenessWatchdog } from '@babana/api-client';
 import { PlacePicker } from '../components/PlacePicker';
@@ -64,6 +64,8 @@ const LOCATION_ERROR_MESSAGES: Record<LocationFailureReason, string> = {
 };
 
 export function HomeScreen({ navigation }: Props) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   // Décision du 14 novembre : l'écran ne s'éteint pas tant qu'une carte est ouverte.
   useKeepScreenAwake(navigation);
   const [region, setRegion] = useState<LatLng>(DOUALA_DEFAULT_CENTER);
@@ -299,7 +301,7 @@ export function HomeScreen({ navigation }: Props) {
       {activeSlot === 'arrival' ? <RecentDestinations onSelect={handlePlaceSelected} /> : null}
 
       <View style={styles.mapWrap}>
-        <MapView center={region} markers={markers} onRegionChange={handleRegionChange} style={styles.map} />
+        <MapView appearance={colors.scheme} center={region} markers={markers} onRegionChange={handleRegionChange} style={styles.map} />
         {/* Réticule = l'épingle du point en cours de désignation, à la couleur de son rôle (même
             palette que les épingles de la carte) ; sa pointe marque le centre exact de la carte. */}
         <View style={styles.reticle} pointerEvents="none" testID="reticle">
@@ -353,6 +355,7 @@ function PointButton({
   active: boolean;
   onPress: () => void;
 }) {
+  const styles = useStyles();
   return (
     <Pressable
       testID={testID}
@@ -369,7 +372,7 @@ function PointButton({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     flex: 1,
     gap: 8,
@@ -382,32 +385,33 @@ const styles = StyleSheet.create({
   pointButton: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: c.borderStrong,
     borderRadius: 8,
     padding: 8,
   },
   pointButtonActive: {
-    borderColor: '#0A7D3D',
-    backgroundColor: '#ECFDF5',
+    borderColor: c.brand,
+    backgroundColor: c.brandSoft,
   },
   locationErrorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
-    backgroundColor: '#FEF3C7',
+    backgroundColor: c.warningSoft,
     borderRadius: 8,
     padding: 8,
   },
   locationErrorText: {
     flex: 1,
-    color: '#92400E',
+    color: c.warningText,
   },
   pointTitle: {
     fontSize: 12,
-    color: '#6B7280',
+    color: c.muted,
   },
   pointValue: {
+    color: c.ink,
     fontWeight: '600',
   },
   mapWrap: {
@@ -437,11 +441,11 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 14,
     borderBottomRightRadius: 0,
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: c.surface,
     alignItems: 'center',
     justifyContent: 'center',
     transform: [{ rotate: '45deg' }],
-    shadowColor: '#000000',
+    shadowColor: c.shadow,
     shadowOpacity: 0.3,
     shadowRadius: 2,
     shadowOffset: { width: 0, height: 1 },
@@ -451,7 +455,7 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: c.surface,
   },
   geocoding: {
     position: 'absolute',
@@ -469,12 +473,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 8,
-    backgroundColor: '#F7F7F7',
+    backgroundColor: c.surfaceMuted,
   },
   driversLabel: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#111827',
+    color: c.ink,
   },
   onlineBadge: {
     flexDirection: 'row',
@@ -495,6 +499,6 @@ const styles = StyleSheet.create({
   },
   noDriversText: {
     textAlign: 'center',
-    color: '#374151',
+    color: c.inkSoft,
   },
-});
+}));

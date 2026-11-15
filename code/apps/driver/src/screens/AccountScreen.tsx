@@ -1,13 +1,13 @@
 import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { AccountMenu, Avatar, formatRatingSummary } from '@babana/ui';
+import { AccountMenu, Avatar, ThemePicker, formatRatingSummary } from '@babana/ui';
 import type { http } from '@babana/contracts';
 import { apiClient, authClient } from '../auth';
 import { APP_NAME } from '../brand';
 import { formatDay } from '../format';
 import { signOutDriver } from '../signOut';
-import { colors } from '../theme';
+import { makeStyles } from '../theme';
 import { DOCUMENT_LABELS, DOCUMENT_STATUS_LABELS, documentSlots, type DocumentSlot } from './onboarding/state';
 import type { DriverParamList } from '../navigation/types';
 
@@ -34,6 +34,7 @@ async function signOutFromMenu(): Promise<string | null> {
 const renderAccountMenu = () => <AccountMenu appName={APP_NAME} onSignOut={signOutFromMenu} />;
 
 export function AccountScreen({ navigation }: Props) {
+  const styles = useStyles();
   const [user, setUser] = useState(() => authClient.getUser());
 
   // La session date du démarrage de l'app ; la note, elle, bouge après chaque course. Relue à
@@ -126,18 +127,23 @@ export function AccountScreen({ navigation }: Props) {
             ))
           : null}
       </View>
+
+      {/* 15 novembre : clair, sombre, noir ou celui du téléphone -- gardé sur ce téléphone. */}
+      <View style={styles.appearance}>
+        <ThemePicker />
+      </View>
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface },
+const useStyles = makeStyles((c) => ({
+  container: { flex: 1, backgroundColor: c.surface },
   content: { paddingBottom: 32 },
   identity: { alignItems: 'center', gap: 10, paddingTop: 28, paddingBottom: 24, paddingHorizontal: 16 },
-  name: { color: colors.ink, fontSize: 22, fontWeight: '700', textAlign: 'center' },
-  rating: { color: colors.ink, fontSize: 16, fontWeight: '600' },
-  status: { color: colors.brandText, fontSize: 14 },
-  list: { borderTopWidth: 1, borderColor: colors.border },
+  name: { color: c.ink, fontSize: 22, fontWeight: '700', textAlign: 'center' },
+  rating: { color: c.ink, fontSize: 16, fontWeight: '600' },
+  status: { color: c.brandText, fontSize: 14 },
+  list: { borderTopWidth: 1, borderColor: c.border },
   row: {
     minHeight: 56,
     flexDirection: 'row',
@@ -145,13 +151,17 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderColor: colors.border,
+    borderColor: c.border,
   },
-  pressed: { backgroundColor: colors.canvas },
-  rowLabel: { color: colors.ink, fontSize: 17, fontWeight: '600' },
-  chevron: { color: colors.subtle, fontSize: 24 },
+  pressed: { backgroundColor: c.canvas },
+  rowLabel: { color: c.ink, fontSize: 17, fontWeight: '600' },
+  chevron: { color: c.subtle, fontSize: 24 },
+  appearance: {
+    marginTop: 24,
+    paddingHorizontal: 20,
+  },
   sectionTitle: {
-    color: colors.muted,
+    color: c.muted,
     fontSize: 13,
     fontWeight: '600',
     textTransform: 'uppercase',
@@ -164,10 +174,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderColor: colors.border,
+    borderColor: c.border,
   },
-  documentStatus: { color: colors.inkSoft, fontSize: 15 },
-  rejected: { color: colors.dangerText },
-  muted: { color: colors.muted, flexShrink: 1 },
+  documentStatus: { color: c.inkSoft, fontSize: 15 },
+  rejected: { color: c.dangerText },
+  muted: { color: c.muted, flexShrink: 1 },
   loading: { paddingVertical: 18 },
-});
+}));

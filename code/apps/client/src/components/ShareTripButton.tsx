@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Pressable, Share, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Share, Text, View } from 'react-native';
 import { ApiError, translateApiError } from '@babana/api-client';
 import { apiClient } from '../auth';
+import { makeStyles } from '@babana/ui';
 
 /**
  * Partage de trajet (L8-03). Déclenché depuis l'écran de suivi (spécification). `Share.share`
@@ -18,6 +19,7 @@ export interface ShareTripButtonProps {
 }
 
 export function ShareTripButton({ rideId }: ShareTripButtonProps) {
+  const styles = useStyles();
   const [status, setStatus] = useState<Status>('idle');
   const [url, setUrl] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -90,7 +92,7 @@ export function ShareTripButton({ rideId }: ShareTripButtonProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     alignItems: 'center',
     gap: 4,
@@ -99,18 +101,18 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 24,
-    backgroundColor: '#2563EB',
+    backgroundColor: c.info,
     alignItems: 'center',
     justifyContent: 'center',
   },
   buttonLabel: {
-    color: '#FFFFFF',
+    color: c.onBrand,
     fontWeight: '700',
     fontSize: 12,
   },
   link: {
     fontSize: 11,
-    color: '#2563EB',
+    color: c.info,
     maxWidth: 200,
     textAlign: 'center',
   },
@@ -118,14 +120,14 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   stopLabel: {
-    color: '#DC2626',
+    color: c.danger,
     fontSize: 11,
     fontWeight: '600',
   },
   error: {
-    color: '#DC2626',
+    color: c.danger,
     fontSize: 11,
     maxWidth: 160,
     textAlign: 'center',
   },
-});
+}));

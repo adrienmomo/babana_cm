@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Button } from '@babana/ui';
+import { Button, TextField, makeStyles } from '@babana/ui';
 import { asRideId } from '@babana/navigation';
 import { ApiError, USER_MESSAGES, translateApiError, type ConnectionState } from '@babana/api-client';
 import { http } from '@babana/contracts';
@@ -40,6 +40,7 @@ function remainingSeconds(quote: http.QuoteResponse, receivedAt: number): number
 }
 
 export function QuoteScreen({ route, navigation }: Props) {
+  const styles = useStyles();
   const { origin, destination } = route.params;
   const [vehicleClass, setVehicleClass] = useState<http.VehicleClass>('standard');
   const [quote, setQuote] = useState<http.QuoteResponse | null>(null);
@@ -228,12 +229,11 @@ export function QuoteScreen({ route, navigation }: Props) {
       {quote && !loading && !expired ? (
         <View style={styles.noteBox}>
           <Text style={styles.noteLabel}>Un repère pour le chauffeur (facultatif)</Text>
-          <TextInput
+          <TextField
             testID="pickup-note-input"
             value={pickupNote}
             onChangeText={setPickupNote}
             placeholder="Ex. : devant la pharmacie du rond-point"
-            placeholderTextColor="#9CA3AF"
             maxLength={http.PICKUP_NOTE_MAX_LENGTH}
             style={styles.noteInput}
             returnKeyType="done"
@@ -254,7 +254,7 @@ export function QuoteScreen({ route, navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     flex: 1,
   },
@@ -266,7 +266,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   pointText: {
-    color: '#374151',
+    color: c.inkSoft,
   },
   classRow: {
     flexDirection: 'row',
@@ -276,9 +276,10 @@ const styles = StyleSheet.create({
     gap: 8,
     padding: 16,
     borderRadius: 12,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: c.surfaceMuted,
   },
   amount: {
+    color: c.ink,
     fontSize: 32,
     fontWeight: '700',
   },
@@ -290,57 +291,57 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   breakdownLabel: {
-    color: '#374151',
+    color: c.inkSoft,
   },
   breakdownValue: {
-    color: '#374151',
+    color: c.inkSoft,
     fontVariant: ['tabular-nums'],
   },
   payment: {
-    color: '#374151',
+    color: c.inkSoft,
     fontWeight: '600',
   },
   pickupEta: {
-    color: '#137347',
+    color: c.brandText,
     fontWeight: '700',
   },
   pickupEtaNone: {
-    color: '#8A5A00',
+    color: c.warningText,
   },
   tripMeta: {
-    color: '#6B7280',
+    color: c.muted,
   },
   validity: {
     fontSize: 12,
-    color: '#6B7280',
+    color: c.muted,
   },
   noteBox: {
     gap: 6,
   },
   noteLabel: {
-    color: '#374151',
+    color: c.inkSoft,
     fontWeight: '600',
   },
   noteInput: {
     minHeight: 48,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: c.border,
     borderRadius: 14,
     paddingHorizontal: 14,
     fontSize: 16,
-    color: '#1F2937',
-    backgroundColor: '#FFFFFF',
+    color: c.ink,
+    backgroundColor: c.surface,
   },
   errorBox: {
     gap: 8,
     alignItems: 'flex-start',
   },
   errorText: {
-    color: '#B91C1C',
+    color: c.dangerText,
   },
   dispatchHint: {
     fontSize: 12,
-    color: '#6B7280',
+    color: c.muted,
     textAlign: 'center',
   },
-});
+}));

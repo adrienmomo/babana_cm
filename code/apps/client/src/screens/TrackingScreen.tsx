@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Image, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Image, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MapView, type LatLng, type MapMarker } from '@babana/maps';
 import { ApiError, QUICK_MESSAGE_LABELS, StreamLivenessWatchdog, quickMessagesFor, translateApiError, type ConnectionState } from '@babana/api-client';
-import { Button, CancelRideSheet, MessageBubble, QuickMessageChips } from '@babana/ui';
+import { Button, CancelRideSheet, MessageBubble, QuickMessageChips, makeStyles, useTheme } from '@babana/ui';
 import type { http, realtime } from '@babana/contracts';
 import { GENERIC_AVATAR, classLabel } from '../components/driverFormatting';
 import { CallButton } from '../components/CallButton';
@@ -89,6 +89,8 @@ function secondsSince(at: number): number {
 }
 
 export function TrackingScreen({ route, navigation }: Props) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   // Décision du 14 novembre : l'écran ne s'éteint pas tant qu'une carte est ouverte.
   useKeepScreenAwake(navigation);
   const { rideId, origin, destination, driver } = route.params;
@@ -431,6 +433,7 @@ export function TrackingScreen({ route, navigation }: Props) {
       <View style={styles.mapWrap} testID="tracking-map">
         {mapCenter ? (
           <MapView
+            appearance={colors.scheme}
             center={mapCenter}
             markers={markers}
             route={mapRoute}
@@ -478,7 +481,7 @@ export function TrackingScreen({ route, navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     flex: 1,
     gap: 8,
@@ -492,46 +495,47 @@ const styles = StyleSheet.create({
   cancelledTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#111827',
+    color: c.ink,
     textAlign: 'center',
   },
   cancelledReason: {
     fontSize: 16,
-    color: '#374151',
+    color: c.inkSoft,
     textAlign: 'center',
   },
   phaseTitle: {
+    color: c.ink,
     fontSize: 18,
     fontWeight: '700',
   },
   connectionBanner: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: c.warningSoft,
     borderRadius: 8,
     padding: 8,
   },
   connectionText: {
-    color: '#92400E',
+    color: c.warningText,
   },
   arrivedBanner: {
-    backgroundColor: '#DCFCE7',
+    backgroundColor: c.brandSoft,
     borderRadius: 8,
     padding: 10,
   },
   arrivedText: {
-    color: '#166534',
+    color: c.brandText,
     fontWeight: '600',
   },
   arrivedWait: {
-    color: '#166534',
+    color: c.brandText,
     fontWeight: '700',
     marginTop: 4,
   },
   arrivedHint: {
-    color: '#166534',
+    color: c.brandText,
     fontSize: 13,
   },
   noShowWarning: {
-    color: '#8A5A00',
+    color: c.warningText,
     fontWeight: '600',
     marginTop: 2,
   },
@@ -542,30 +546,31 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#FFFFFF',
+    borderColor: c.border,
+    backgroundColor: c.surface,
   },
   avatar: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: c.border,
   },
   driverInfo: {
     flex: 1,
     gap: 2,
   },
   driverName: {
+    color: c.ink,
     fontWeight: '600',
   },
   driverMeta: {
     fontSize: 12,
-    color: '#6B7280',
+    color: c.muted,
   },
   eta: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#0A7D3D',
+    color: c.brand,
   },
   actionsRow: {
     flexDirection: 'row',
@@ -586,19 +591,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: c.surfaceMuted,
   },
   mapLoadingText: {
-    color: '#6B7280',
+    color: c.muted,
   },
   freshness: {
     fontSize: 12,
-    color: '#6B7280',
+    color: c.muted,
   },
   pointsSummary: {
     gap: 4,
   },
   pointText: {
-    color: '#374151',
+    color: c.inkSoft,
   },
-});
+}));

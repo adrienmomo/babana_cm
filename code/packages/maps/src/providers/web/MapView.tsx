@@ -5,6 +5,7 @@ import { getGoogleMapsApiKey } from '../google/config';
 import { loadGoogleMaps } from './loadGoogleMaps';
 import { markerIconUrl } from './markerIcon';
 import { useGlidingPosition } from '../../glide';
+import { GOOGLE_DARK_STYLE } from '../../googleDarkStyle';
 
 /**
  * Troisième fournisseur de carte (L6-18, D22) -- Google Maps JavaScript, chargé à la demande.
@@ -16,7 +17,7 @@ import { useGlidingPosition } from '../../glide';
  */
 const DEFAULT_ZOOM = 16;
 
-export function WebMapView({ center, markers = [], route, onRegionChange, style }: MapViewProps) {
+export function WebMapView({ center, markers = [], route, onRegionChange, appearance = 'light', style }: MapViewProps) {
   // `View` (react-native-web) transmet son ref au noeud DOM sous-jacent au moment du montage
   // réel dans un navigateur -- ce que les types de `react-native` (natif) ne modélisent pas
   // (aucun paquet `react-native-web` en dépendance de type ici) : `any` assumé, jamais un import
@@ -72,6 +73,12 @@ export function WebMapView({ center, markers = [], route, onRegionChange, style 
     // La position initiale est capturée une seule fois (initialCenterRef) -- volontairement hors
     // des dépendances, même règle que ci-dessus.
   }, []);
+
+  // Thème de l'app (15 novembre) : style sombre de Google, ou le style par défaut.
+  useEffect(() => {
+    if (!ready) return;
+    mapRef.current?.setOptions({ styles: appearance === 'light' ? null : GOOGLE_DARK_STYLE });
+  }, [ready, appearance]);
 
   useEffect(() => {
     const map = mapRef.current;

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { colors } from '../../theme';
+import { Text, View } from 'react-native';
+import { makeStyles } from '../../theme';
 import { Button } from '@babana/ui';
 import { DOCUMENT_LABELS, DOCUMENT_STATUS_LABELS, type DocumentSlot, type RequiredDocumentType } from './state';
 
@@ -18,6 +18,7 @@ export interface PendingScreenProps {
 }
 
 export function PendingScreen({ slots, onFix, onRefresh }: PendingScreenProps) {
+  const styles = useStyles();
   const [refreshing, setRefreshing] = useState(false);
   const needsAction = slots.some((slot) => slot.status === 'rejected' || slot.status === 'missing');
 
@@ -71,12 +72,12 @@ export function PendingScreen({ slots, onFix, onRefresh }: PendingScreenProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: { flex: 1, gap: 16, padding: 24 },
-  title: { fontSize: 22, fontWeight: '700' },
-  intro: { color: colors.inkSoft },
-  row: { gap: 6, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.border },
-  rowTitle: { fontSize: 16, fontWeight: '600' },
-  status: { color: colors.inkSoft },
-  reason: { color: colors.dangerText },
-});
+  title: { color: c.ink, fontSize: 22, fontWeight: '700' },
+  intro: { color: c.inkSoft },
+  row: { gap: 6, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: c.border },
+  rowTitle: { color: c.ink, fontSize: 16, fontWeight: '600' },
+  status: { color: c.inkSoft },
+  reason: { color: c.dangerText },
+}));

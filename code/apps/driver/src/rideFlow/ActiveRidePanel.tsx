@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { fetchRoute, reverseGeocode, type LatLng, type MapRoute } from '@babana/maps';
 import { ApiError, QUICK_MESSAGE_LABELS, quickMessagesFor, translateApiError } from '@babana/api-client';
 import { CancelRideSheet, MessageBubble, QuickMessageChips } from '@babana/ui';
@@ -15,7 +15,7 @@ import { onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } fr
 import { formatDistance } from '../format';
 import { distanceToRouteMeters, isWithinRadius, remainingRouteFraction } from './proximity';
 import type { ActiveRideParams } from '../navigation/types';
-import { buttonLabels, buttons, cards, colors } from '../theme';
+import { cardsOf, makeStyles, useButtonLabels, useButtons } from '../theme';
 
 /**
  * Course en cours, côté chauffeur (L6-13, D12) -- un panneau posé sur la carte de Home, qui ne la
@@ -145,6 +145,9 @@ function formatTripSummary(route: SharedRoute | null, position: LatLng | null): 
 }
 
 export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle, onEnded, resume }: ActiveRidePanelProps) {
+  const buttonLabels = useButtonLabels();
+  const buttons = useButtons();
+  const styles = useStyles();
   const { rideId, origin, destination, amount, clientPhoneNumber } = ride;
 
   const [stage, setStage] = useState<RideStage>(resume?.stage ?? 'approach');
@@ -685,7 +688,7 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   overlay: {
     position: 'absolute',
     top: 0,
@@ -701,12 +704,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   card: {
-    ...cards.floating,
+    ...cardsOf(c).floating,
     gap: 3,
     padding: 16,
   },
   messagesTray: {
-    ...cards.floating,
+    ...cardsOf(c).floating,
     position: 'absolute',
     left: 16,
     right: 16,
@@ -716,21 +719,21 @@ const styles = StyleSheet.create({
   phaseTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: colors.ink,
+    color: c.ink,
   },
   summary: {
-    color: colors.route,
+    color: c.route,
     fontWeight: '600',
   },
   pointText: {
-    color: colors.inkSoft,
+    color: c.inkSoft,
   },
   pickupNote: {
-    color: colors.ink,
+    color: c.ink,
     fontWeight: '600',
   },
   waiting: {
-    color: colors.warningText,
+    color: c.warningText,
     fontWeight: '700',
   },
   noShowRow: {
@@ -740,7 +743,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   error: {
-    color: colors.dangerText,
+    color: c.dangerText,
   },
   emergencyCorner: {
     position: 'absolute',
@@ -761,18 +764,18 @@ const styles = StyleSheet.create({
     bottom: 28,
   },
   finishQueued: {
-    ...cards.floating,
+    ...cardsOf(c).floating,
     gap: 8,
     alignItems: 'center',
-    backgroundColor: colors.warningSoft,
+    backgroundColor: c.warningSoft,
     padding: 14,
   },
   finishQueuedText: {
-    color: colors.warningText,
+    color: c.warningText,
     textAlign: 'center',
   },
   finishQueuedRetry: {
-    color: colors.warningText,
+    color: c.warningText,
     fontWeight: '700',
     textDecorationLine: 'underline',
   },
@@ -783,17 +786,17 @@ const styles = StyleSheet.create({
     right: 16,
   },
   endedBanner: {
-    backgroundColor: colors.warningSoft,
+    backgroundColor: c.warningSoft,
   },
   endedText: {
-    color: colors.warningText,
+    color: c.warningText,
     fontSize: 16,
     textAlign: 'center',
   },
   endedReason: {
     marginTop: 6,
     fontSize: 15,
-    color: '#374151',
+    color: c.inkSoft,
     textAlign: 'center',
   },
-});
+}));

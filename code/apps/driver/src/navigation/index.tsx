@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { AuthGate, PlaceholderScreen, type SessionState } from '@babana/navigation';
@@ -25,6 +25,8 @@ import { documentUploader } from '../onboarding';
 import { ONBOARDING_MAX_DOCUMENT_BYTES } from '../../config';
 import { navigationRef } from './ref';
 import type { AuthParamList, DriverParamList, DriverOnboardingParamList } from './types';
+import { makeStyles } from '../theme';
+import { useNavigationTheme } from '../appearance';
 
 // Réexporté d'ici : posé à l'origine dans ce module, `navigation/__tests__/AppNavigator.test.tsx`
 // et d'anciens imports le prennent encore ici. La définition vit dans `./ref` (voir ce fichier).
@@ -199,10 +201,12 @@ function DriverAppSwitch({ user }: { user: AuthUser }) {
 }
 
 export function AppNavigator() {
+  const styles = useStyles();
   const { session, handleSignedIn } = useSession();
+  const navigationTheme = useNavigationTheme();
 
   return (
-    <NavigationContainer ref={navigationRef}>
+    <NavigationContainer ref={navigationRef} theme={navigationTheme}>
       <AuthGate<AuthUser>
         session={session}
         renderLoading={() => <LoadingScreen />}
@@ -221,8 +225,8 @@ export function AppNavigator() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((_c) => ({
   signedInRoot: {
     flex: 1,
   },
-});
+}));

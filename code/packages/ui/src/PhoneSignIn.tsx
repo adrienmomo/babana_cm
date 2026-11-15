@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { Button } from './Button';
+import { makeStyles, TextField } from './theme';
 
 /**
  * Écran de connexion par numéro de téléphone et code SMS (OTP), partagé par les deux apps.
@@ -34,6 +35,7 @@ export function PhoneSignIn({
   verifyCode,
   describeError,
 }: PhoneSignInProps) {
+  const styles = useStyles();
   const [step, setStep] = useState<'phone' | 'code'>('phone');
   const [phone, setPhone] = useState('');
   const [code, setCode] = useState('');
@@ -71,7 +73,7 @@ export function PhoneSignIn({
           <Text style={styles.label}>Votre numéro de téléphone</Text>
           <View style={styles.row}>
             <Text style={styles.prefix}>{phonePrefix}</Text>
-            <TextInput
+            <TextField
               testID="phone-input"
               style={[styles.input, styles.grow]}
               value={phone}
@@ -93,7 +95,7 @@ export function PhoneSignIn({
       ) : (
         <>
           <Text style={styles.label}>Code reçu par SMS au {fullNumber}</Text>
-          <TextInput
+          <TextField
             testID="code-input"
             style={[styles.input, styles.code]}
             value={code}
@@ -128,14 +130,14 @@ export function PhoneSignIn({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: { flex: 1, justifyContent: 'center', gap: 16, padding: 24 },
-  title: { fontSize: 24, fontWeight: '700', textAlign: 'center' },
-  label: { textAlign: 'center' },
+  title: { color: c.ink, fontSize: 24, fontWeight: '700', textAlign: 'center' },
+  label: { color: c.ink, textAlign: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  prefix: { fontSize: 18, fontWeight: '600' },
-  input: { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 14, minHeight: 52, paddingHorizontal: 16, fontSize: 18 },
+  prefix: { color: c.ink, fontSize: 18, fontWeight: '600' },
+  input: { color: c.ink, borderWidth: 1, borderColor: c.border, borderRadius: 14, minHeight: 52, paddingHorizontal: 16, fontSize: 18 },
   grow: { flex: 1 },
-  code: { textAlign: 'center', letterSpacing: 8, fontSize: 24 },
-  error: { color: '#C2363B', textAlign: 'center' },
-});
+  code: { color: c.ink, textAlign: 'center', letterSpacing: 8, fontSize: 24 },
+  error: { color: c.dangerText, textAlign: 'center' },
+}));

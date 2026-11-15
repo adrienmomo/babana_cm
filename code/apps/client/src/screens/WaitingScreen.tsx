@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Animated, Easing, Text, View } from 'react-native';
 import { MAP_MARKER_COLORS, MapView, type MapMarker } from '@babana/maps';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Button, CancelRideSheet } from '@babana/ui';
+import { Button, CancelRideSheet, makeStyles, useTheme } from '@babana/ui';
 import { asDriverId } from '@babana/navigation';
 import { ApiError, USER_MESSAGES, reportMetric, translateApiError } from '@babana/api-client';
 import type { http, realtime } from '@babana/contracts';
@@ -75,6 +75,8 @@ function isSessionSynced(message: realtime.ServerToClientMessage): message is re
 }
 
 export function WaitingScreen({ route, navigation }: Props) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   // Décision du 14 novembre : l'écran ne s'éteint pas tant qu'une carte est ouverte.
   useKeepScreenAwake(navigation);
   const { rideId, amount, origin, destination, requestedAt } = route.params;
@@ -187,7 +189,7 @@ export function WaitingScreen({ route, navigation }: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.mapWrap}>
-        <MapView center={origin.position} markers={markers} style={styles.map} />
+        <MapView appearance={colors.scheme} center={origin.position} markers={markers} style={styles.map} />
         {/* La recherche se voit : un halo qui pulse autour du point de départ, au centre de la carte. */}
         {searching ? <SearchPulse /> : null}
       </View>
@@ -222,6 +224,7 @@ export function WaitingScreen({ route, navigation }: Props) {
 
 /** Halo qui s'agrandit et s'efface en boucle, centré sur la carte (donc sur le point de départ). */
 function SearchPulse() {
+  const styles = useStyles();
   const progress = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const loop = Animated.loop(
@@ -245,7 +248,7 @@ function SearchPulse() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     flex: 1,
   },
@@ -276,26 +279,28 @@ const styles = StyleSheet.create({
     padding: 20,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: c.surface,
   },
   route: {
-    color: '#6B7280',
+    color: c.muted,
   },
   payment: {
-    color: '#374151',
+    color: c.inkSoft,
     fontWeight: '600',
   },
   title: {
+    color: c.ink,
     fontSize: 20,
     fontWeight: '600',
     textAlign: 'center',
   },
   amount: {
+    color: c.ink,
     fontSize: 28,
     fontWeight: '700',
   },
   error: {
-    color: '#B91C1C',
+    color: c.dangerText,
     textAlign: 'center',
   },
-});
+}));

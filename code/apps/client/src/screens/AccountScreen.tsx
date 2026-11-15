@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { AccountMenu, Avatar, formatRatingSummary } from '@babana/ui';
+import { AccountMenu, Avatar, ThemePicker, formatRatingSummary, makeStyles } from '@babana/ui';
 import { apiClient, authClient, signOut } from '../auth';
 import { APP_NAME } from '../brand';
 import type { ClientParamList } from '../navigation/types';
@@ -24,6 +24,7 @@ async function signOutClient(): Promise<null> {
 const renderAccountMenu = () => <AccountMenu appName={APP_NAME} onSignOut={signOutClient} />;
 
 export function AccountScreen({ navigation }: Props) {
+  const styles = useStyles();
   const [user, setUser] = useState(() => authClient.getUser());
 
   // La session date du démarrage de l'app ; la note, elle, bouge après chaque course. Relue à
@@ -73,18 +74,27 @@ export function AccountScreen({ navigation }: Props) {
           <Text style={styles.rowValue}>Espèces</Text>
         </View>
       </View>
+
+      {/* 15 novembre : clair, sombre, noir ou celui du téléphone -- gardé sur ce téléphone. */}
+      <View style={styles.appearance}>
+        <ThemePicker />
+      </View>
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#FFFFFF' },
+const useStyles = makeStyles((c) => ({
+  appearance: {
+    marginTop: 24,
+    paddingHorizontal: 20,
+  },
+  container: { flex: 1, backgroundColor: c.surface },
   content: { paddingBottom: 32 },
   identity: { alignItems: 'center', gap: 10, paddingTop: 28, paddingBottom: 24, paddingHorizontal: 16 },
-  name: { color: '#1F2937', fontSize: 22, fontWeight: '700', textAlign: 'center' },
-  rating: { color: '#1F2937', fontSize: 16, fontWeight: '600' },
-  verified: { color: '#137347', fontSize: 14 },
-  list: { borderTopWidth: 1, borderColor: '#E5E7EB' },
+  name: { color: c.ink, fontSize: 22, fontWeight: '700', textAlign: 'center' },
+  rating: { color: c.ink, fontSize: 16, fontWeight: '600' },
+  verified: { color: c.brandText, fontSize: 14 },
+  list: { borderTopWidth: 1, borderColor: c.border },
   row: {
     minHeight: 56,
     flexDirection: 'row',
@@ -92,10 +102,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: c.border,
   },
-  pressed: { backgroundColor: '#F7F8FA' },
-  rowLabel: { color: '#1F2937', fontSize: 17, fontWeight: '600' },
-  rowValue: { color: '#6B7280', fontSize: 16 },
-  chevron: { color: '#9CA3AF', fontSize: 24 },
-});
+  pressed: { backgroundColor: c.canvas },
+  rowLabel: { color: c.ink, fontSize: 17, fontWeight: '600' },
+  rowValue: { color: c.muted, fontSize: 16 },
+  chevron: { color: c.subtle, fontSize: 24 },
+}));

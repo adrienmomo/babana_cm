@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { buttonLabels, buttons, colors } from '../theme';
+import { Pressable, Text, View } from 'react-native';
+import { buttonLabelsOf, buttonsOf, makeStyles } from '../theme';
 import { ApiError, translateApiError, flushPendingIncidentTriggers, type PendingIncidentTrigger } from '@babana/api-client';
 import { apiClient } from '../auth';
 import { pendingIncidentQueue } from '../incidentQueue';
@@ -33,6 +33,7 @@ export interface EmergencyButtonProps {
 }
 
 export function EmergencyButton({ rideId, getPosition }: EmergencyButtonProps) {
+  const styles = useStyles();
   const [status, setStatus] = useState<Status>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const mountedRef = useRef(true);
@@ -151,40 +152,40 @@ export function EmergencyButton({ rideId, getPosition }: EmergencyButtonProps) {
 
 // Teinte douce au repos (toujours lisible, jamais criarde) ; rouge plein pendant le maintien --
 // le geste se voit -- puis neutre une fois l'alerte partie.
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     alignItems: 'center',
     gap: 4,
   },
   button: {
-    ...buttons.base,
-    ...buttons.md,
-    ...buttons.dangerSoft,
-    ...buttons.floating,
+    ...buttonsOf(c).base,
+    ...buttonsOf(c).md,
+    ...buttonsOf(c).dangerSoft,
+    ...buttonsOf(c).floating,
     minWidth: 112,
   },
   buttonHolding: {
-    backgroundColor: colors.danger,
-    borderColor: colors.danger,
+    backgroundColor: c.danger,
+    borderColor: c.danger,
   },
   buttonSent: {
-    backgroundColor: colors.surface,
-    borderColor: colors.border,
+    backgroundColor: c.surface,
+    borderColor: c.border,
   },
   buttonLabel: {
-    ...buttonLabels.base,
-    color: colors.dangerText,
+    ...buttonLabelsOf(c).base,
+    color: c.dangerText,
   },
   buttonLabelHolding: {
-    color: '#FFFFFF',
+    color: c.onBrand,
   },
   buttonLabelSent: {
-    color: colors.muted,
+    color: c.muted,
   },
   error: {
-    color: colors.dangerText,
+    color: c.dangerText,
     fontSize: 11,
     maxWidth: 160,
     textAlign: 'center',
   },
-});
+}));

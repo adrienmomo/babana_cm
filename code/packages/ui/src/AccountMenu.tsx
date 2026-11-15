@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Modal, Pressable, Text, View } from 'react-native';
+import { makeStyles, useTheme } from './theme';
 
 /**
  * Le ⋮ de l'écran de profil, en haut à droite : aujourd'hui une seule entrée, « Se déconnecter »,
@@ -17,6 +18,8 @@ export interface AccountMenuProps {
 type MenuState = { open: false } | { open: true; confirming: boolean; busy: boolean; error: string | null };
 
 export function AccountMenu({ appName, onSignOut }: AccountMenuProps) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   const [menu, setMenu] = useState<MenuState>({ open: false });
 
   function close() {
@@ -73,7 +76,7 @@ export function AccountMenu({ appName, onSignOut }: AccountMenuProps) {
                       style={[styles.action, styles.actionDanger]}
                     >
                       {menu.busy ? (
-                        <ActivityIndicator color="#C2363B" />
+                        <ActivityIndicator color={colors.dangerText} />
                       ) : (
                         <Text style={styles.actionDangerLabel}>Se déconnecter</Text>
                       )}
@@ -107,7 +110,7 @@ export function AccountMenu({ appName, onSignOut }: AccountMenuProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   kebab: {
     width: 44,
     height: 44,
@@ -119,14 +122,14 @@ const styles = StyleSheet.create({
     width: 5,
     height: 5,
     borderRadius: 2.5,
-    backgroundColor: '#1F2937',
+    backgroundColor: c.ink,
   },
   pressed: {
     opacity: 0.6,
   },
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    backgroundColor: c.overlay,
     alignItems: 'flex-end',
     paddingTop: 56,
     paddingHorizontal: 12,
@@ -135,10 +138,10 @@ const styles = StyleSheet.create({
     width: 280,
     maxWidth: '100%',
     borderRadius: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: c.surface,
     paddingVertical: 4,
     elevation: 6,
-    shadowColor: '#000000',
+    shadowColor: c.shadow,
     shadowOpacity: 0.15,
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 4 },
@@ -149,7 +152,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   itemDanger: {
-    color: '#C2363B',
+    color: c.dangerText,
     fontSize: 16,
     fontWeight: '600',
   },
@@ -158,12 +161,12 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   question: {
-    color: '#1F2937',
+    color: c.ink,
     fontSize: 16,
     fontWeight: '600',
   },
   error: {
-    color: '#C2363B',
+    color: c.dangerText,
   },
   // Empilés pleine largeur : côte à côte, « Se déconnecter » se coupait en deux lignes.
   actions: {
@@ -178,19 +181,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   actionSecondary: {
-    backgroundColor: '#FFFFFF',
-    borderColor: '#E5E7EB',
+    backgroundColor: c.surface,
+    borderColor: c.border,
   },
   actionSecondaryLabel: {
-    color: '#1F2937',
+    color: c.ink,
     fontWeight: '600',
   },
   actionDanger: {
-    backgroundColor: '#FDEEEE',
-    borderColor: '#F5C6C7',
+    backgroundColor: c.dangerSoft,
+    borderColor: c.dangerBorder,
   },
   actionDangerLabel: {
-    color: '#C2363B',
+    color: c.dangerText,
     fontWeight: '600',
   },
-});
+}));

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Linking, Pressable, Text } from 'react-native';
-import { buttonLabels, buttons } from '../theme';
+import { useButtonLabels, useButtons } from '../theme';
 
 /**
  * Bouton d'appel du client (D42, L6-13) : « coordonnées du client accessibles pour l'appeler
@@ -16,6 +16,8 @@ export interface CallButtonProps {
 }
 
 export function CallButton({ clientPhoneNumber }: CallButtonProps) {
+  const buttonLabels = useButtonLabels();
+  const buttons = useButtons();
   if (!clientPhoneNumber) return null;
 
   return (

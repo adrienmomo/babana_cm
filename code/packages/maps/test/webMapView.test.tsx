@@ -25,6 +25,10 @@ class FakeMap {
   getCenter() {
     return { lat: () => this.options.center.lat, lng: () => this.options.center.lng };
   }
+  styles: unknown[] | null = null;
+  setOptions(options: { styles: unknown[] | null }) {
+    this.styles = options.styles;
+  }
 }
 
 class FakeMarker {
@@ -114,6 +118,28 @@ describe('WebMapView (fournisseur web, L6-18)', () => {
     expect(mapInstances[0]?.options.center).toEqual({ lat: 4.05, lng: 9.7 });
     expect(markerInstances).toHaveLength(1);
     expect(markerInstances[0]?.options).toMatchObject({ position: { lat: 4.051, lng: 9.701 } });
+
+    ReactTestRenderer.act(() => { root.unmount(); });
+  });
+
+  it('15 novembre : thème sombre de l’app, la carte prend le style sombre de Google, et le quitte en clair', async () => {
+    configureGoogleMapsProvider({ apiKey: 'test-maps-key' });
+    const { mapInstances } = installFakeGoogleMaps();
+    const center = { latitude: 4.05, longitude: 9.7 };
+
+    let root!: ReactTestRenderer.ReactTestRenderer;
+    await ReactTestRenderer.act(async () => {
+      root = ReactTestRenderer.create(<WebMapView center={center} appearance="dark" />, { createNodeMock: () => ({}) });
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(Array.isArray(mapInstances[0]?.styles) && mapInstances[0]!.styles!.length > 0).toBe(true);
+
+    await ReactTestRenderer.act(async () => {
+      root.update(<WebMapView center={center} appearance="light" />);
+    });
+    expect(mapInstances[0]?.styles).toBeNull();
 
     ReactTestRenderer.act(() => { root.unmount(); });
   });

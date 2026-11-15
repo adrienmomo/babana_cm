@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { Animated, PanResponder, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
-import { buttonLabels, buttons, colors, radius, shadow } from '../theme';
+import { Animated, PanResponder, Text, View, type LayoutChangeEvent } from 'react-native';
+import { makeStyles, radius, shadow, useButtonLabels, useButtons } from '../theme';
 
 /**
  * « Glisser pour … » : l'action principale d'une course (Sur place, Commencer, Terminer). Un
@@ -44,6 +44,9 @@ export function SwipeButton({
   accessibilityLabel,
   variant = 'primary',
 }: SwipeButtonProps) {
+  const buttonLabels = useButtonLabels();
+  const buttons = useButtons();
+  const styles = useStyles();
   const [trackWidth, setTrackWidth] = useState(0);
   const offset = useRef(new Animated.Value(0)).current;
   // Lus par le PanResponder, créé une seule fois.
@@ -116,7 +119,7 @@ export function SwipeButton({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   track: {
     alignSelf: 'stretch',
     paddingHorizontal: 0,
@@ -135,20 +138,20 @@ const styles = StyleSheet.create({
     width: KNOB_SIZE,
     height: KNOB_SIZE,
     borderRadius: radius.pill,
-    backgroundColor: colors.surface,
+    backgroundColor: c.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
   // Sur la piste pâle, le curseur blanc a besoin d'un contour et d'une ombre pour se détacher.
   knobSoft: {
     borderWidth: 1,
-    borderColor: colors.brandBorder,
+    borderColor: c.brandBorder,
     ...shadow,
   },
   chevron: {
-    color: colors.brand,
+    color: c.brand,
     fontSize: 30,
     fontWeight: '700',
     marginTop: -4,
   },
-});
+}));

@@ -1,6 +1,6 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { colors } from '../theme';
+import { Text, View } from 'react-native';
+import { makeStyles } from '../theme';
 
 /**
  * Compte à rebours visuel (L6-12) -- purement indicatif, comme le rappelle l'écran appelant : le
@@ -17,6 +17,7 @@ export interface CountdownRingProps {
 const URGENT_THRESHOLD_SECONDS = 10;
 
 export function CountdownRing({ remainingSeconds }: CountdownRingProps) {
+  const styles = useStyles();
   const clamped = Math.max(0, remainingSeconds);
   const urgent = clamped <= URGENT_THRESHOLD_SECONDS;
 
@@ -30,28 +31,28 @@ export function CountdownRing({ remainingSeconds }: CountdownRingProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   ring: {
     width: 84,
     height: 84,
     borderRadius: 42,
     borderWidth: 5,
-    borderColor: colors.brand,
-    backgroundColor: colors.brandSoft,
+    borderColor: c.brand,
+    backgroundColor: c.brandSoft,
     alignItems: 'center',
     justifyContent: 'center',
   },
   ringUrgent: {
-    borderColor: colors.danger,
-    backgroundColor: colors.dangerSoft,
+    borderColor: c.danger,
+    backgroundColor: c.dangerSoft,
   },
   value: {
     fontSize: 28,
     fontWeight: '700',
-    color: colors.ink,
+    color: c.ink,
   },
   unit: {
     fontSize: 12,
-    color: colors.muted,
+    color: c.muted,
   },
-});
+}));

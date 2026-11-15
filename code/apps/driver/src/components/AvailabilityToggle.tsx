@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { buttonLabels, buttons, colors, radius } from '../theme';
+import { Pressable, Text, View } from 'react-native';
+import { buttonLabelsOf, buttonsOf, makeStyles, radius } from '../theme';
 import { SwipeButton } from './SwipeButton';
 import { ApiError, translateApiError } from '@babana/api-client';
 import type { http } from '@babana/contracts';
@@ -41,6 +41,7 @@ export interface AvailabilityToggleProps {
 }
 
 export function AvailabilityToggle({ inCourse, onNavigateToRemittance }: AvailabilityToggleProps) {
+  const styles = useStyles();
   // Repart de l'état réellement appliqué (la capture GPS suit la disponibilité, L6-05), jamais
   // de « hors ligne » par défaut : l'accueil est remonté après l'encaissement, et un chauffeur
   // toujours en ligne se croyait alors hors service.
@@ -123,7 +124,7 @@ export function AvailabilityToggle({ inCourse, onNavigateToRemittance }: Availab
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   // Pleine largeur du panneau du bas (HomeScreen) : le curseur a toute la place pour glisser.
   container: {
     alignSelf: 'stretch',
@@ -132,8 +133,8 @@ const styles = StyleSheet.create({
   // Messages sous la bascule : un encart doux, jamais du texte nu.
   explanation: {
     borderRadius: radius.field,
-    color: colors.warningText,
-    backgroundColor: colors.warningSoft,
+    color: c.warningText,
+    backgroundColor: c.warningSoft,
     textAlign: 'center',
     paddingHorizontal: 12,
     paddingVertical: 8,
@@ -141,24 +142,24 @@ const styles = StyleSheet.create({
   },
   refusal: {
     borderRadius: radius.field,
-    backgroundColor: colors.dangerSoft,
+    backgroundColor: c.dangerSoft,
     alignItems: 'center',
     gap: 8,
     padding: 12,
   },
   refusalText: {
-    color: colors.dangerText,
+    color: c.dangerText,
     textAlign: 'center',
   },
   remittanceButton: {
-    ...buttons.base,
-    ...buttons.md,
-    ...buttons.primary,
-    ...buttons.floating,
+    ...buttonsOf(c).base,
+    ...buttonsOf(c).md,
+    ...buttonsOf(c).primary,
+    ...buttonsOf(c).floating,
     minWidth: 200,
   },
   remittanceButtonLabel: {
-    ...buttonLabels.base,
-    ...buttonLabels.primary,
+    ...buttonLabelsOf(c).base,
+    ...buttonLabelsOf(c).primary,
   },
-});
+}));

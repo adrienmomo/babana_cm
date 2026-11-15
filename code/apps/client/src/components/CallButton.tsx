@@ -1,5 +1,6 @@
 import React from 'react';
-import { Linking, Pressable, StyleSheet, Text } from 'react-native';
+import { Linking, Pressable, Text } from 'react-native';
+import { makeStyles } from '@babana/ui';
 
 /**
  * Bouton d'appel du chauffeur (D42, L6-09) : « coordonnées du chauffeur pour l'appeler » pendant
@@ -15,6 +16,7 @@ export interface CallButtonProps {
 }
 
 export function CallButton({ phoneNumber }: CallButtonProps) {
+  const styles = useStyles();
   if (!phoneNumber) return null;
 
   return (
@@ -35,12 +37,12 @@ export function CallButton({ phoneNumber }: CallButtonProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   button: {
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 24,
-    backgroundColor: '#0A7D3D',
+    backgroundColor: c.brand,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -48,8 +50,8 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   label: {
-    color: '#FFFFFF',
+    color: c.onBrand,
     fontWeight: '700',
     fontSize: 12,
   },
-});
+}));
