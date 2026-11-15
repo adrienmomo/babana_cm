@@ -613,6 +613,7 @@ class BabanaRideState(models.Model):
             "state": "cancelled",
             "cancel_reason": reason,
             "cancelled_at": fields.Datetime.now(),
+            "cancelled_by_role": actor_role,
         }
         if self.state == "rejected":
             # Abandon après refus (L4-07 corrigé le 11 août) : aucune réservation à libérer --

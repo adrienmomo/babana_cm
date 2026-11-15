@@ -287,6 +287,14 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     assert.equal(invoice.rideId, rig.ride.id);
   },
 
+  // 15 novembre : le client revenu sur son suivi relit l'issue de sa course.
+  rideOutcome: async () => {
+    const rig = await settledRide('ride-outcome');
+    const outcome = (await rig.client.request('rideOutcome', { pathParams: { id: rig.ride.id } })) as http.RideOutcomeResponse;
+    assert.equal(outcome.outcome, 'completed');
+    assert.equal(outcome.rideId, rig.ride.id);
+  },
+
   // Le commentaire est accepté mais jamais renvoyé : la réponse ne porte que la note (L4-09).
   rateRide: async () => {
     const rig = await settledRide('rate-ride');

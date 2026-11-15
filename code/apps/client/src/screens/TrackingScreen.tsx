@@ -1,10 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Image, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Image, StyleSheet, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MapView, type LatLng, type MapMarker } from '@babana/maps';
 import { ApiError, QUICK_MESSAGE_LABELS, StreamLivenessWatchdog, quickMessagesFor, translateApiError, type ConnectionState } from '@babana/api-client';
 import { Button, CancelRideSheet, MessageBubble, QuickMessageChips } from '@babana/ui';
-import type { realtime } from '@babana/contracts';
+import type { http, realtime } from '@babana/contracts';
 import { GENERIC_AVATAR, classLabel } from '../components/driverFormatting';
 import { CallButton } from '../components/CallButton';
 import { EmergencyButton } from '../components/EmergencyButton';
@@ -120,6 +120,46 @@ export function TrackingScreen({ route, navigation }: Props) {
   // Lu de façon synchrone dans le gestionnaire de `driver.position` -- `phase` (état React) y
   // serait périmé, l'effet ci-dessous ne s'exécutant qu'une fois (dépendances [rideId]).
   const phaseRef = useRef<Phase>('approach');
+  // La fin se montre une fois : le message et la relecture de l'issue peuvent arriver tous deux.
+  const finishedRef = useRef(false);
+
+  // Le résumé de fin affiche exactement ce que le serveur a écrit -- jamais une distance ou une
+  // durée reconstituée depuis les positions accumulées ci-dessous, qui ne sont qu'un affichage,
+  // pas une source de vérité (spécification, "ce qu'un client relira en cas de litige").
+  function showSummary(summary: Pick<realtime.RideCompletedMessage['payload'], 'distanceMeters' | 'durationSeconds' | 'amount' | 'breakdown'>) {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    navigation.replace('RideSummary', {
+      rideId,
+      distanceMeters: summary.distanceMeters,
+      durationSeconds: summary.durationSeconds,
+      amount: summary.amount,
+      breakdown: summary.breakdown,
+    });
+  }
+
+  // Issue relue au serveur (`GET /rides/{id}/outcome`) quand un message de fin a pu se perdre.
+  // Hors connexion : rien -- la prochaine connexion rétablie relira.
+  // Le retour au premier plan et la reconnexion arrivent souvent ensemble : une seule relecture.
+  const checkingRef = useRef(false);
+  async function checkOutcome() {
+    if (finishedRef.current || checkingRef.current) return;
+    checkingRef.current = true;
+    let outcome: http.RideOutcomeResponse;
+    try {
+      outcome = (await apiClient.request('rideOutcome', { pathParams: { id: rideId } })) as http.RideOutcomeResponse;
+    } catch {
+      return;
+    } finally {
+      checkingRef.current = false;
+    }
+    if (outcome.outcome === 'completed') {
+      showSummary(outcome);
+    } else if (outcome.outcome === 'cancelled') {
+      setCancelSheetOpen(false);
+      setCancelledNotice({ rideId: outcome.rideId, cancelledBy: outcome.cancelledBy, ...(outcome.reason ? { reason: outcome.reason } : {}) });
+    }
+  }
 
   useEffect(() => {
     ensureRealtimeConnected();
@@ -191,17 +231,12 @@ export function TrackingScreen({ route, navigation }: Props) {
         setCancelSheetOpen(false);
         setCancelledNotice(message.payload);
       } else if (isRideCompletedMessage(message) && message.payload.rideId === rideId) {
-        // Le résumé de fin affiche exactement ce que le serveur a écrit dans ce message -- jamais
-        // une distance ou une durée reconstituée depuis les positions accumulées ci-dessus, qui
-        // ne sont qu'un affichage, pas une source de vérité (spécification, "ce qu'un client
-        // relira en cas de litige").
-        navigation.replace('RideSummary', {
-          rideId,
-          distanceMeters: message.payload.distanceMeters,
-          durationSeconds: message.payload.durationSeconds,
-          amount: message.payload.amount,
-          breakdown: message.payload.breakdown,
-        });
+        showSummary(message.payload);
+      } else if (message.type === 'session.synced' && message.payload.activeRideId !== rideId) {
+        // Connexion rétablie, et le serveur ne compte plus cette course comme la nôtre en cours :
+        // terminée ou annulée pendant la coupure. Le message de fin, poussé une seule fois, est
+        // perdu -- l'issue se relit (15 novembre).
+        checkOutcome();
       }
     });
 
@@ -214,10 +249,18 @@ export function TrackingScreen({ route, navigation }: Props) {
       if (state === 'connected') subscribe();
     });
 
+    // App remise au premier plan (15 novembre) : la connexion a pu survivre à l'arrière-plan sans
+    // qu'aucun message n'y soit lu -- `ride.completed` compris. Sans coupure, pas de
+    // `session.synced` : l'issue se relit ici, une requête par retour, sans écriture.
+    const appState = AppState.addEventListener('change', (next) => {
+      if (next === 'active') checkOutcome();
+    });
+
     return () => {
       stopWatchdog();
       unsubscribeMessages();
       unsubscribeConnectionState();
+      appState.remove();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rideId]);
