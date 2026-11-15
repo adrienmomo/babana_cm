@@ -30,10 +30,6 @@ const DOUALA_DEFAULT_CENTER: LatLng = { latitude: 4.0511, longitude: 9.7679 };
 // large.
 const NEARBY_SUBSCRIBE_RADIUS_METERS = 5000;
 
-// En deçà de cet écart (degrés, ~2 m), une épingle est sous le réticule : elle serait masquée par
-// lui, on ne la dessine pas. Un seuil d'affichage, pas une règle métier.
-const RETICLE_OVERLAP_DEGREES = 0.00002;
-
 type ActiveSlot = 'departure' | 'arrival';
 
 type Props = NativeStackScreenProps<ClientParamList, 'Home'>;
@@ -228,6 +224,17 @@ export function HomeScreen({ navigation }: Props) {
     }
   }
 
+  // Toucher « Départ » ou « Arrivée » amène la carte sur ce point (15 novembre) : le réticule s'y
+  // pose, à sa couleur, et l'autre point garde son épingle. Avant, la carte restait où elle était
+  // et le réticule recouvrait l'autre point -- le moindre glissement l'écrasait. Un point pas encore
+  // désigné laisse la carte où elle est. Le recentrage est programmé : il n'est jamais relayé comme
+  // une désignation (`onRegionChange` ne remonte qu'un geste du doigt, @babana/maps).
+  function activateSlot(slot: ActiveSlot) {
+    setActiveSlot(slot);
+    const point = slot === 'departure' ? departure : arrival;
+    if (point) setRegion(point.position);
+  }
+
   function handlePlaceSelected(point: RidePoint) {
     setRegion(point.position);
     applyToActiveSlot(point);
@@ -244,17 +251,13 @@ export function HomeScreen({ navigation }: Props) {
 
   // Le point en cours de désignation est représenté par le réticule, pas par une épingle : il est
   // sous le réticule par construction, et les deux se superposaient (24 octobre). L'autre point
-  // garde son épingle -- sauf s'il est lui aussi exactement au centre (à l'ouverture, la carte est
-  // centrée sur le départ GPS pendant que le réticule désigne l'arrivée) : il réapparaît dès que
-  // la carte bouge.
-  const underReticle = (point: LatLng) =>
-    Math.abs(point.latitude - region.latitude) < RETICLE_OVERLAP_DEGREES &&
-    Math.abs(point.longitude - region.longitude) < RETICLE_OVERLAP_DEGREES;
+  // garde toujours son épingle, à sa couleur (15 novembre : le réticule ne la remplace plus, même
+  // quand la carte est encore centrée dessus).
   const markers: MapMarker[] = [
-    ...(departure && activeSlot !== 'departure' && !underReticle(departure.position)
+    ...(departure && activeSlot !== 'departure'
       ? [{ id: 'pickup', kind: 'pickup' as const, position: departure.position, label: 'Départ' }]
       : []),
-    ...(arrival && activeSlot !== 'arrival' && !underReticle(arrival.position)
+    ...(arrival && activeSlot !== 'arrival'
       ? [{ id: 'dropoff', kind: 'dropoff' as const, position: arrival.position, label: 'Arrivée' }]
       : []),
     // Anonymes : le serveur n'envoie qu'une position et une distance (ni identifiant, ni prénom)
@@ -274,14 +277,14 @@ export function HomeScreen({ navigation }: Props) {
           title="Départ"
           value={locating ? 'Localisation…' : (departure?.label ?? 'Glissez la carte ou recherchez')}
           active={activeSlot === 'departure'}
-          onPress={() => setActiveSlot('departure')}
+          onPress={() => activateSlot('departure')}
         />
         <PointButton
           testID="arrival-slot"
           title="Arrivée"
           value={arrival?.label ?? 'Où allez-vous ?'}
           active={activeSlot === 'arrival'}
-          onPress={() => setActiveSlot('arrival')}
+          onPress={() => activateSlot('arrival')}
         />
       </View>
 

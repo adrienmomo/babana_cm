@@ -7,14 +7,16 @@ import type { LocationResult } from '../../location.types';
 
 let capturedOnRegionChange: ((point: LatLng) => void) | null = null;
 let capturedMarkers: { id: string; kind: string; label?: string }[] = [];
+let capturedCenter: LatLng | null = null;
 const mockReverseGeocode = jest.fn<Promise<string | null>, [LatLng]>();
 const mockSearchPlace = jest.fn<Promise<PlaceResult[]>, [string]>();
 
 jest.mock('@babana/maps', () => {
   const { View } = jest.requireActual('react-native');
   return {
-    MapView: (props: { onRegionChange?: (point: LatLng) => void; markers?: { id: string; kind: string; label?: string }[] }) => {
+    MapView: (props: { center?: LatLng; onRegionChange?: (point: LatLng) => void; markers?: { id: string; kind: string; label?: string }[] }) => {
       capturedOnRegionChange = props.onRegionChange ?? null;
+      capturedCenter = props.center ?? null;
       capturedMarkers = props.markers ?? [];
       return <View testID="mock-map" />;
     },
@@ -190,21 +192,38 @@ describe('HomeScreen (L6-06)', () => {
     expect(capturedMarkers.map((m) => m.kind)).not.toContain('dropoff');
     expect(StyleSheet.flatten(root.root.findByProps({ testID: 'reticle-pin' }).props.style).backgroundColor).toBe('#E5484D');
 
-    // Retour au départ : le réticule devient bleu ; la carte est encore centrée sur l'arrivée,
-    // dont l'épingle reste masquée sous lui tant que la carte ne bouge pas (voir le test suivant).
+    // Retour au départ (15 novembre) : la carte revient sur le départ, le réticule devient bleu, et
+    // l'arrivée garde son épingle rouge -- le réticule ne la remplace plus.
     await act(async () => {
       root.root.findByProps({ testID: 'departure-slot' }).props.onPress();
     });
-    expect(capturedMarkers.map((m) => m.kind)).not.toContain('dropoff');
-    await act(async () => {
-      await capturedOnRegionChange?.(DOUALA);
-    });
+    expect(capturedCenter).toEqual(DOUALA);
     expect(capturedMarkers.map((m) => m.kind)).toContain('dropoff');
     expect(capturedMarkers.map((m) => m.kind)).not.toContain('pickup');
     expect(StyleSheet.flatten(root.root.findByProps({ testID: 'reticle-pin' }).props.style).backgroundColor).toBe('#3E7BFA');
   });
 
-  it('à l’ouverture, la carte est centrée sur le départ GPS et le réticule (arrivée) le recouvre : son épingle n’est pas dessinée dessous', async () => {
+  it('15 novembre : toucher « Arrivée » amène la carte sur l’arrivée, sans rien redésigner', async () => {
+    mockReverseGeocode.mockResolvedValueOnce('Akwa, Douala').mockResolvedValueOnce('Bonapriso, Douala');
+    const root = await renderHome();
+    await designate(root, 'departure-slot', DOUALA);
+    await designate(root, 'arrival-slot', ELSEWHERE);
+    await act(async () => {
+      root.root.findByProps({ testID: 'departure-slot' }).props.onPress();
+    });
+    await act(async () => {
+      root.root.findByProps({ testID: 'arrival-slot' }).props.onPress();
+    });
+
+    expect(capturedCenter).toEqual(ELSEWHERE);
+    expect(capturedMarkers.map((m) => m.kind)).toContain('pickup');
+    // Les deux points sont intacts : le recentrage n'est pas une désignation.
+    expect(texts(root)).toContain('vers Akwa');
+    expect(texts(root)).toContain('vers Bonapriso');
+    expect(mockReverseGeocode).toHaveBeenCalledTimes(2);
+  });
+
+  it('à l’ouverture, la carte est centrée sur le départ GPS : son épingle bleue reste dessinée sous le réticule de l’arrivée', async () => {
     mockGetCurrentPosition.mockResolvedValue({ status: 'success', position: CLIENT_GPS });
     mockReverseGeocode.mockResolvedValue('Bonamoussadi, Douala');
     const root = await renderHome();
@@ -214,13 +233,13 @@ describe('HomeScreen (L6-06)', () => {
       await Promise.resolve();
     });
     expect(StyleSheet.flatten(root.root.findByProps({ testID: 'reticle-pin' }).props.style).backgroundColor).toBe('#E5484D');
-    expect(capturedMarkers.map((m) => m.kind)).not.toContain('pickup');
-
-    // Dès que la carte quitte le départ (désignation de l'arrivée), son épingle réapparaît.
-    await act(async () => {
-      await capturedOnRegionChange?.(ELSEWHERE);
-    });
     expect(capturedMarkers.map((m) => m.kind)).toContain('pickup');
+
+    // Une arrivée pas encore désignée laisse la carte où elle est.
+    await act(async () => {
+      root.root.findByProps({ testID: 'arrival-slot' }).props.onPress();
+    });
+    expect(capturedCenter).toEqual(CLIENT_GPS);
   });
 
   it('« Suivant » reste désactivé tant que le départ et l’arrivée ne sont pas tous deux désignés', async () => {
