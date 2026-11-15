@@ -413,6 +413,26 @@ actif, réussit sans effet.
 
 ---
 
+## Selfie de contrôle — `selfie.ts` (15 novembre)
+
+### `GET /drivers/me/selfie`
+
+- Réponse : `{ due, lastState, rejectionReason, dueAt, intervalHours }` — `due` : un selfie est à
+  prendre avant le prochain passage en ligne (aucun, plus vieux que `intervalHours` —
+  `babana.selfie_interval_hours`, 24 —, ou le dernier refusé)
+
+### `POST /drivers/me/selfie`
+
+- Requête (multipart) : `file` (image JPEG ou PNG, appareil photo avant dans l'app), `contentType`
+- Réponse (201) : le nouvel état (`due: false`, `lastState: "pending"`) — un selfie en attente de
+  revue compte : le chauffeur travaille pendant la revue
+- Erreurs : `VALIDATION_ERROR` (pas une image), `DOCUMENT_TYPE_MISMATCH`
+
+Sans selfie à jour, `POST /drivers/me/availability` (en ligne) répond `SELFIE_REQUIRED` (403). Un
+selfie refusé au back-office met le chauffeur hors ligne — à la fin de sa course s'il en a une.
+
+---
+
 ## Historique et factures — `history.ts`
 
 ### `GET /rides`

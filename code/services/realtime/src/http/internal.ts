@@ -17,6 +17,8 @@ import { startAccumulation, getAccumulation, endAccumulation } from '../tracking
 import { recordDriverArrived } from '../tracking/route';
 import { scheduleOutboxWrite } from '../odoo/outbox';
 import { closeReplacedConnections, setDriverSession } from '../driver/session';
+import { setOffline } from '../driver/availability';
+import { handleSessionResync } from '../ws/resync';
 
 /**
  * Endpoint HTTP interne, sens Odoo -> temps réel (L3-17). Authentifié par `REALTIME_SHARED_SECRET`
@@ -43,6 +45,7 @@ import { closeReplacedConnections, setDriverSession } from '../driver/session';
  * - `POST /internal/reservations/release` : compensation quand la réservation a réussi mais que la
  *   transition Odoo qui devait suivre échoue (critère 4).
  * - `POST /internal/engagement/clear` : fin de course, efface le marqueur d'engagement (critère 6).
+ * - `POST /internal/drivers/offline` : hors ligne imposé par Odoo (15 novembre), l'app le voit aussitôt.
  * - `POST /internal/drivers/session` : nouvelle session d'un chauffeur (15 novembre, un appareil par
  *   chauffeur) -- ferme la connexion de l'appareil remplacé.
  * - `POST /internal/drivers/cash-blocked` : plafond d'encaisse franchi (D8, D28, L5-02), retire
@@ -141,6 +144,7 @@ const CashBlockedRequestSchema = z.object({ driverId: z.string().min(1) });
 const CashUnblockedRequestSchema = z.object({ driverId: z.string().min(1) });
 const DriverUnavailableRequestSchema = z.object({ driverId: z.string().min(1) });
 const DriverAvailableRequestSchema = z.object({ driverId: z.string().min(1) });
+const DriverOfflineRequestSchema = z.object({ driverId: z.string().min(1) });
 const DriverSessionRequestSchema = z.object({ driverId: z.string().min(1), sessionId: z.string().uuid() });
 
 // L3-19 : rideId/clientUserId/driverId transmis directement par Odoo, qui les connaît déjà
@@ -331,6 +335,27 @@ async function handleClearEngagement(deps: InternalRouterDeps, rawBody: unknown,
   sendJson(res, 200, { cleared: true });
 }
 
+/** 15 novembre : hors ligne imposé par Odoo (selfie refusé ou dû, solde épuisé, pièce expirée) --
+ * hors du vivier, et l'app le voit aussitôt : un `session.synced` frais (`driverOnline: false`) à
+ * chaque connexion ouverte de ce chauffeur, le même instantané qu'à une reconnexion. */
+async function handleDriverOffline(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
+  const parsed = DriverOfflineRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    sendJson(res, 400, { error: 'VALIDATION_ERROR', details: parsed.error.issues });
+    return;
+  }
+  const { driverId } = parsed.data;
+  await setOffline(deps.redis, driverId);
+  let notified = 0;
+  for (const socket of deps.registry.getByDriverId(driverId)) {
+    const context = deps.registry.contextOf(socket);
+    if (!context || socket.readyState !== socket.OPEN) continue;
+    await handleSessionResync(deps.config, deps.redis, deps.proposals, context, socket, { lastKnownRideId: null });
+    notified += 1;
+  }
+  sendJson(res, 200, { offline: true, notified });
+}
+
 /** 15 novembre, un appareil par chauffeur : nouvelle session (connexion sur un téléphone) -- la
  * retenir, puis fermer la connexion de l'appareil remplacé. Appelé après le commit d'Odoo (D32). */
 async function handleDriverSession(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
@@ -487,6 +512,9 @@ export function createInternalHandler(deps: InternalRouterDeps) {
         return;
       case '/internal/drivers/cash-blocked':
         await handleCashBlocked(deps, body, res);
+        return;
+      case '/internal/drivers/offline':
+        await handleDriverOffline(deps, body, res);
         return;
       case '/internal/drivers/session':
         await handleDriverSession(deps, body, res);

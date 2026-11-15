@@ -100,3 +100,52 @@ export function createDriverDocumentUploader(config: DriverDocumentUploaderConfi
     },
   };
 }
+
+/**
+ * Selfie de contrôle du chauffeur (15 novembre) : même corps multipart et même politique de
+ * renouvellement que les pièces, vers `POST /drivers/me/selfie`. Répond l'état du selfie
+ * (`due: false` une fois déposé).
+ */
+export interface DriverSelfieUploader {
+  upload(file: DriverDocumentFile): Promise<http.UploadDriverSelfieResponse>;
+}
+
+const SELFIE_ENDPOINT = http.HTTP_ENDPOINTS.uploadDriverSelfie;
+
+export function createDriverSelfieUploader(config: DriverDocumentUploaderConfig): DriverSelfieUploader {
+  const fetchImpl = config.fetchImpl ?? fetch;
+  const FormDataImpl = config.formDataImpl ?? FormData;
+  const url = `${config.baseUrl.replace(/\/$/, '')}${SELFIE_ENDPOINT.path}`;
+
+  async function attempt(file: DriverDocumentFile): Promise<http.UploadDriverSelfieResponse> {
+    const form = new FormDataImpl();
+    form.append('contentType', file.mimeType);
+    form.append('file', { uri: file.uri, name: file.name, type: file.mimeType } as unknown as Blob);
+    const token = await config.getAccessToken();
+    const headers: Record<string, string> = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const response = await fetchImpl(url, { method: 'POST', headers, body: form as unknown as RequestInit['body'] });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const parsed = http.ApiErrorSchema.safeParse(payload);
+      throw parsed.success
+        ? new ApiError(parsed.data.error.code, parsed.data.error.message, response.status, parsed.data.error.details)
+        : new ApiError('INTERNAL_ERROR', `Réponse d'erreur non reconnue (HTTP ${response.status})`, response.status, payload);
+    }
+    return SELFIE_ENDPOINT.responseSchema.parse(payload) as http.UploadDriverSelfieResponse;
+  }
+
+  return {
+    async upload(file) {
+      try {
+        return await attempt(file);
+      } catch (error) {
+        if (error instanceof ApiError && error.code === 'TOKEN_EXPIRED' && config.refreshAccessToken) {
+          await config.refreshAccessToken();
+          return attempt(file);
+        }
+        throw error;
+      }
+    },
+  };
+}

@@ -10,6 +10,18 @@
         <field name="active" eval="True"/>
     </record>
 
+    <!-- 15 novembre : une condition rompue en ligne (selfie dû, pièce expirée, solde épuisé) met le
+         chauffeur hors ligne, à la fin de sa course s'il en a une. Fréquence réglable ici. -->
+    <record id="ir_cron_babana_enforce_compliance" model="ir.cron">
+        <field name="name">Babana: conformité des chauffeurs en ligne (selfie, pièces, solde)</field>
+        <field name="model_id" ref="model_babana_driver"/>
+        <field name="state">code</field>
+        <field name="code">model._cron_enforce_compliance()</field>
+        <field name="interval_number">5</field>
+        <field name="interval_type">minutes</field>
+        <field name="active" eval="True"/>
+    </record>
+
     <record id="ir_cron_babana_purge_expired_replay_ciphertext" model="ir.cron">
         <field name="name">Babana: purge du jeton rejouable chiffré hors fenêtre de grâce (D37, L1-02)</field>
         <field name="model_id" ref="model_babana_token"/>

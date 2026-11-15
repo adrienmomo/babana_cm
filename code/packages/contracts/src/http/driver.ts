@@ -55,6 +55,7 @@ export const SetAvailabilityErrors = [
   'LICENSE_EXPIRED',
   'CASH_LIMIT_REACHED',
   'DRIVER_HAS_ACTIVE_RIDE',
+  'SELFIE_REQUIRED',
 ] as const;
 
 export const setAvailabilityRequestExample: SetAvailabilityRequest = {

@@ -481,6 +481,10 @@ class BabanaRideState(models.Model):
                 amount=round(final_amount),
                 breakdown=round_breakdown_for_wire(breakdown),
             )
+        # 15 novembre : un chauffeur retenu pendant sa course (selfie refusé, solde épuisé…) passe
+        # hors ligne maintenant qu'elle est finie -- jamais avant.
+        if self.driver_id.compliance_hold:
+            self.driver_id.sudo()._babana_enforce_compliance()
         return self
 
     # --- 8. completed -> settled ---------------------------------------------------------------
@@ -651,4 +655,8 @@ class BabanaRideState(models.Model):
                 notify_client_user_id=notify_client_user_id,
                 notify_driver_id=notify_driver_id,
             )
+        # 15 novembre : un chauffeur retenu pendant sa course (selfie refusé, solde épuisé…) passe
+        # hors ligne maintenant qu'elle est finie -- jamais avant.
+        if self.driver_id.compliance_hold:
+            self.driver_id.sudo()._babana_enforce_compliance()
         return self

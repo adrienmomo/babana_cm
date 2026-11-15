@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Selfies de contrôle (15 novembre) : un gestionnaire compare le selfie à la photo de profil
+     validée, puis le valide ou le refuse avec un motif. Les selfies à vérifier en premier. -->
+<odoo>
+    <record id="babana_driver_selfie_view_list" model="ir.ui.view">
+        <field name="name">babana.driver.selfie.list</field>
+        <field name="model">babana.driver.selfie</field>
+        <field name="arch" type="xml">
+            <list decoration-warning="state == 'pending'" decoration-danger="state == 'rejected'">
+                <field name="taken_at"/>
+                <field name="driver_id"/>
+                <field name="state"/>
+                <field name="reviewed_by_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="babana_driver_selfie_view_form" model="ir.ui.view">
+        <field name="name">babana.driver.selfie.form</field>
+        <field name="model">babana.driver.selfie</field>
+        <field name="arch" type="xml">
+            <form string="Selfie de contrôle">
+                <header>
+                    <button name="action_approve" type="object" string="Valider" class="btn-primary"
+                        invisible="state != 'pending'" groups="babana.group_babana_manager"/>
+                    <button name="action_open_reject_wizard" type="object" string="Refuser"
+                        invisible="state != 'pending'" groups="babana.group_babana_manager"/>
+                    <field name="state" widget="statusbar"/>
+                </header>
+                <sheet>
+                    <div class="oe_button_box" name="button_box">
+                        <button name="action_preview" type="object" string="Voir le selfie" icon="fa-camera"/>
+                        <button name="action_preview_profile_photo" type="object" string="Voir la photo de profil" icon="fa-user"/>
+                    </div>
+                    <group>
+                        <field name="driver_id"/>
+                        <field name="taken_at"/>
+                        <field name="rejection_reason" invisible="state != 'rejected'"/>
+                        <field name="reviewed_by_id" invisible="not reviewed_by_id"/>
+                        <field name="reviewed_at" invisible="not reviewed_at"/>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="babana_driver_selfie_reject_wizard_view_form" model="ir.ui.view">
+        <field name="name">babana.driver.selfie.reject.wizard.form</field>
+        <field name="model">babana.driver.selfie.reject.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Refuser le selfie">
+                <group>
+                    <field name="selfie_id" invisible="1"/>
+                    <field name="reason" placeholder="Ex. : visage non reconnaissable, ce n'est pas le chauffeur"/>
+                </group>
+                <footer>
+                    <button name="action_confirm" type="object" string="Refuser" class="btn-primary"/>
+                    <button string="Annuler" special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="babana_driver_selfie_view_search" model="ir.ui.view">
+        <field name="name">babana.driver.selfie.search</field>
+        <field name="model">babana.driver.selfie</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="driver_id"/>
+                <filter name="to_review" string="À vérifier" domain="[('state', '=', 'pending')]"/>
+                <filter name="rejected" string="Refusés" domain="[('state', '=', 'rejected')]"/>
+            </search>
+        </field>
+    </record>
+
+    <record id="babana_driver_selfie_action" model="ir.actions.act_window">
+        <field name="name">Selfies de contrôle</field>
+        <field name="res_model">babana.driver.selfie</field>
+        <field name="view_mode">list,form</field>
+        <field name="search_view_id" ref="babana_driver_selfie_view_search"/>
+        <field name="context">{'search_default_to_review': 1}</field>
+    </record>
+
+    <menuitem id="babana_menu_driver_selfie" name="Selfies de contrôle" parent="babana_menu_root"
+        action="babana_driver_selfie_action" sequence="16"/>
+</odoo>

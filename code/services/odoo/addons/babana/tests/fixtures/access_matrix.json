@@ -48,6 +48,8 @@
     "babana.route.cache":         { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.idempotency.record":  { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.fare.rule.version.wizard": { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.driver.selfie":       { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.driver.selfie.reject.wizard": { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.fare.simulator":      { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.audit.log":           { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.audit.log.health":    { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },

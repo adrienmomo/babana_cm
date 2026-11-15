@@ -70,6 +70,7 @@ export const USER_MESSAGES = {
   RIDE_NOT_ACTIVE: "Cette action n'est possible que pendant une course en cours.",
 
   CASH_LIMIT_REACHED: "Votre plafond d'encaisse est atteint. Faites une remise pour continuer.",
+  SELFIE_REQUIRED: 'Prenez un selfie pour passer en ligne.',
   SETTLEMENT_AMOUNT_MISMATCH: "Le montant ne correspond pas à ce qui est attendu.",
 
   LOCATION_REQUIRED: 'Votre position est nécessaire pour continuer.',
