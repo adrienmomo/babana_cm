@@ -99,6 +99,10 @@
                         string="Réactiver" class="oe_highlight"
                         invisible="state != 'suspended'"
                         groups="babana.group_babana_manager"/>
+                    <button name="action_open_wallet_topup" type="object"
+                        string="Recharger le solde"
+                        invisible="state != 'approved'"
+                        groups="babana.group_babana_manager"/>
                     <field name="state" widget="statusbar"
                         statusbar_visible="pending,approved,suspended"/>
                 </header>
@@ -135,6 +139,7 @@
                         <field name="cash_balance"/>
                         <field name="cash_limit"/>
                         <field name="cash_limit_reached"/>
+                        <field name="wallet_balance"/>
                     </group>
                     <notebook>
                         <page string="Documents" name="documents">
@@ -170,6 +175,20 @@
                                     <field name="pickup_label"/>
                                     <field name="dropoff_label"/>
                                     <field name="final_amount"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Solde prépayé" name="wallet">
+                            <field name="wallet_movement_ids" readonly="1">
+                                <list>
+                                    <field name="create_date" string="Date"/>
+                                    <field name="movement_type"/>
+                                    <field name="amount"/>
+                                    <field name="ride_id"/>
+                                    <field name="reference"/>
+                                    <field name="note"/>
+                                    <field name="recorded_by_id"/>
+                                    <field name="currency_id" column_invisible="1"/>
                                 </list>
                             </field>
                         </page>
@@ -220,6 +239,24 @@
                     <filter name="group_by_online" string="En ligne" context="{'group_by': 'is_online'}"/>
                 </group>
             </search>
+        </field>
+    </record>
+
+    <record id="babana_driver_wallet_topup_wizard_view_form" model="ir.ui.view">
+        <field name="name">babana.driver.wallet.topup.wizard.form</field>
+        <field name="model">babana.driver.wallet.topup.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Recharger le solde prépayé">
+                <group>
+                    <field name="driver_id" readonly="1"/>
+                    <field name="amount"/>
+                    <field name="reference" placeholder="Numéro du reçu remis au chauffeur"/>
+                </group>
+                <footer>
+                    <button name="action_confirm" type="object" string="Enregistrer la recharge" class="btn-primary"/>
+                    <button string="Annuler" special="cancel"/>
+                </footer>
+            </form>
         </field>
     </record>
 

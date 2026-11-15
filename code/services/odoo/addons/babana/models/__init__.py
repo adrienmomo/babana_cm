@@ -31,3 +31,4 @@ from . import babana_client_rating
 from . import babana_device_token
 from . import res_config_settings
 from . import babana_driver_selfie
+from . import babana_driver_wallet

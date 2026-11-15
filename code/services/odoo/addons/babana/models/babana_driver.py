@@ -168,6 +168,17 @@ class BabanaDriver(models.Model):
         "courant (babana.cash.movement). L'ajout ultérieur d'un solde de commission (É3) n'exige "
         "aucune migration : un champ calculé de plus, indépendant de celui-ci.",
     )
+    # Solde prépayé (15 novembre) : recharges à l'agence moins commissions de course. Même
+    # discipline que cash_balance : calculé depuis le journal, jamais écrit directement.
+    wallet_movement_ids = fields.One2many("babana.driver.wallet.movement", "driver_id", string="Mouvements du solde prépayé")
+    wallet_balance = fields.Monetary(
+        string="Solde prépayé",
+        currency_field="currency_id",
+        compute="_compute_wallet_balance",
+        inverse="_inverse_wallet_balance",
+        help="Recharges en espèces à l'agence moins commissions de course. À 0 FCFA ou moins "
+        "(babana.wallet_min_balance), le chauffeur ne peut plus passer en ligne.",
+    )
     cash_limit = fields.Monetary(
         string="Plafond d'encaisse",
         currency_field="currency_id",
@@ -479,6 +490,25 @@ class BabanaDriver(models.Model):
             "mouvements de compte courant (D8, L5-01)."
         )
 
+    @api.depends("wallet_movement_ids.amount")
+    def _compute_wallet_balance(self):
+        for record in self:
+            record.wallet_balance = sum(record.wallet_movement_ids.mapped("amount"))
+
+    def _inverse_wallet_balance(self):
+        raise UserError("Le solde prépayé ne s'écrit jamais directement : il se calcule depuis son journal (recharges, commissions).")
+
+    def action_open_wallet_topup(self):
+        self.ensure_one()
+        return {
+            "type": "ir.actions.act_window",
+            "name": "Recharger le solde",
+            "res_model": "babana.driver.wallet.topup.wizard",
+            "view_mode": "form",
+            "target": "new",
+            "context": {"default_driver_id": self.id},
+        }
+
     def _compute_cash_limit(self):
         # Même discipline que cash_balance : compute + inverse-qui-lève, pour qu'une écriture
         # directe échoue explicitement (D28 -- pas de plafond par chauffeur, un seul paramètre
@@ -646,6 +676,9 @@ class BabanaDriver(models.Model):
             return "LICENSE_EXPIRED", "Le permis a expiré."
         if self.cash_limit and self.cash_balance >= self.cash_limit:
             return "CASH_LIMIT_REACHED", "Le plafond d'encaisse est atteint."
+        # 15 novembre : solde prépayé épuisé (recharge en espèces à l'agence).
+        if self.wallet_balance <= self.env["babana.driver.wallet.movement"]._min_balance():
+            return "INSUFFICIENT_BALANCE", "Votre solde est épuisé : rechargez-le à l'agence."
         # 15 novembre : un selfie récent (en attente ou validé) ; le dernier refusé en exige un autre.
         if self.env["babana.driver.selfie"]._status_for(self)["due"]:
             return "SELFIE_REQUIRED", "Prenez un selfie pour passer en ligne."

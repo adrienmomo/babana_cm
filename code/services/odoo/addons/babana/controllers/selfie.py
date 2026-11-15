@@ -80,3 +80,42 @@ class DriverSelfieController(http.Controller):
         storage.upload(key, data, real)
         env["babana.driver.selfie"].sudo().create({"driver_id": driver.id, "storage_key": key, "mime_type": real})
         return _common.json_response(_status_payload(env, driver.sudo()), 201)
+
+
+class DriverWalletController(http.Controller):
+    """GET /api/v1/drivers/me/wallet (15 novembre) : le solde prépayé et ses derniers mouvements --
+    l'app affiche, ne calcule rien."""
+
+    @http.route("/api/v1/drivers/me/wallet", **_GET_ROUTE)
+    def wallet(self, **_kwargs):
+        try:
+            env, user = _common.authenticated_user()
+            driver = user._babana_driver()
+            if not driver:
+                raise _common.AuthenticationFailed("UNAUTHORIZED")
+            driver = driver.sudo()
+            Movement = env["babana.driver.wallet.movement"]
+            movements = Movement.sudo().search([("driver_id", "=", driver.id)], limit=20)
+            return _common.json_response(
+                {
+                    "balance": round(driver.wallet_balance),
+                    "minimumBalance": Movement._min_balance(),
+                    "commissionRatePercent": Movement._commission_rate(),
+                    "movements": [
+                        {
+                            "type": m.movement_type,
+                            "amount": round(m.amount),
+                            "at": _common.iso_datetime(m.create_date),
+                            "rideId": m.ride_id.public_id if m.ride_id else None,
+                            "reference": m.reference or None,
+                        }
+                        for m in movements
+                    ],
+                },
+                200,
+            )
+        except _common.AuthenticationFailed as exc:
+            return _common.error_response(exc.code, "authentification requise", exc.status)
+        except Exception:
+            _logger.exception("erreur interne dans GET /api/v1/drivers/me/wallet")
+            return _common.error_response("INTERNAL_ERROR", "erreur interne", 500)

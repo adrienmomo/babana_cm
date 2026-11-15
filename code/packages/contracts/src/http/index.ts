@@ -13,6 +13,7 @@ export * from './driver';
 export * from './documents';
 export * from './devices';
 export * from './selfie';
+export * from './wallet';
 export * from './incident';
 export * from './share';
 export * from './history';
@@ -27,6 +28,7 @@ import * as driver from './driver';
 import * as documents from './documents';
 import * as devices from './devices';
 import * as selfie from './selfie';
+import * as wallet from './wallet';
 import * as incident from './incident';
 import * as share from './share';
 import * as history from './history';
@@ -275,6 +277,16 @@ export const HTTP_ENDPOINTS = {
     // hors de ce registre générique qui suppose un corps JSON pur.
     requestExample: null,
     responseExample: documents.uploadDriverDocumentResponseExample,
+  },
+  driverWallet: {
+    method: 'GET',
+    path: '/api/v1/drivers/me/wallet',
+    requiresAuth: true,
+    requestSchema: null,
+    responseSchema: wallet.DriverWalletResponseSchema,
+    errors: wallet.DriverWalletErrors,
+    requestExample: null,
+    responseExample: wallet.driverWalletResponseExample,
   },
   driverSelfie: {
     method: 'GET',

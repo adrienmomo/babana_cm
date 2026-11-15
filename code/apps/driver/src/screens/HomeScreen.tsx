@@ -13,7 +13,7 @@ import { ProposalPanel } from '../rideFlow/ProposalPanel';
 import { ActiveRidePanel, type ActiveRideResume, type RideFlowSettings, type RideMapState } from '../rideFlow/ActiveRidePanel';
 import { replaceWithSettlement } from '../navigation/transitions';
 import { buttonLabelsOf, buttonsOf, cardsOf, makeStyles, radius, shadow, useColors } from '../theme';
-import { fetchCashSummary } from '../api/cash';
+import { fetchCashSummary, fetchWallet } from '../api/cash';
 import { authClient } from '../auth';
 import { formatMoney } from '../format';
 import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
@@ -126,6 +126,9 @@ export function HomeScreen({ navigation, route }: Props) {
   // « Encaissé aujourd'hui » : le chiffre d'Odoo (`collectedToday`), jamais recalculé ici
   // (invariant 3) -- `null` tant qu'il n'est pas connu, affiché « — » plutôt qu'un zéro inventé.
   const [collectedToday, setCollectedToday] = useState<number | null>(null);
+  // 15 novembre : le solde prépayé, même discipline -- le chiffre d'Odoo, jamais recalculé ici (la
+  // commission d'une course est débitée côté serveur, à la fin de la course).
+  const [walletBalance, setWalletBalance] = useState<number | null>(null);
 
   const changeFlow = useCallback((next: Flow) => {
     flowRef.current = next;
@@ -250,6 +253,12 @@ export function HomeScreen({ navigation, route }: Props) {
         },
         () => undefined // hors connexion : on garde le dernier chiffre connu
       );
+      fetchWallet().then(
+        (wallet) => {
+          if (!cancelled) setWalletBalance(wallet.balance);
+        },
+        () => undefined
+      );
     };
     load();
     const unsubscribeFocus = navigation.addListener('focus', load);
@@ -359,6 +368,11 @@ export function HomeScreen({ navigation, route }: Props) {
                 <Text style={styles.todayAmount} testID="home-today-amount">
                   {collectedToday === null ? '—' : formatMoney(collectedToday)}
                 </Text>
+                {walletBalance !== null ? (
+                  <Text style={[styles.walletLabel, walletBalance <= 0 ? styles.walletEmpty : null]} testID="home-wallet-balance">
+                    {`Solde prépayé : ${formatMoney(walletBalance)}`}
+                  </Text>
+                ) : null}
               </View>
             </View>
             <AvailabilityToggle inCourse={inCourse} onNavigateToRemittance={goToRemittance} />
@@ -461,6 +475,15 @@ const useStyles = makeStyles((c) => ({
   todayLabel: {
     color: c.muted,
     fontSize: 13,
+  },
+  walletLabel: {
+    color: c.muted,
+    fontSize: 13,
+    marginTop: 2,
+  },
+  walletEmpty: {
+    color: c.dangerText,
+    fontWeight: '600',
   },
   todayAmount: {
     color: c.ink,

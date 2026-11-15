@@ -179,6 +179,7 @@ class TestRemittanceValidation(TransactionCase):
         motorcycle.write({"driver_id": driver.id})
         # 15 novembre : un selfie récent, autre condition du passage en ligne, hors sujet ici.
         self.env["babana.driver.selfie"].create({"driver_id": driver.id, "storage_key": "test/selfie.jpg", "state": "approved"})
+        self.env["babana.driver.wallet.movement"].sudo().create({"driver_id": driver.id, "movement_type": "topup", "amount": 5000, "reference": "TEST"})
         self._movement(driver, "collection", 1200)
         driver.invalidate_recordset()
         self.assertEqual(driver._check_online_eligibility(), ("CASH_LIMIT_REACHED", "Le plafond d'encaisse est atteint."))
@@ -227,6 +228,7 @@ class TestRemittanceController(HttpCase):
                 vals["expires_on"] = "2030-01-01"
             self.env["babana.driver.document"].sudo().create(vals)
         self.env["babana.driver.selfie"].sudo().create({"driver_id": driver.id, "storage_key": "test/selfie.jpg", "state": "approved"})
+        self.env["babana.driver.wallet.movement"].sudo().create({"driver_id": driver.id, "movement_type": "topup", "amount": 5000, "reference": "TEST"})
         moto = self.env["babana.motorcycle"].sudo().create(
             {"license_plate": f"LT-{uuid.uuid4().hex[:4].upper()}-RM"}
         )

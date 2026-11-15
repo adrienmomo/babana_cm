@@ -452,6 +452,14 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     assert.equal(parsed.documentType, 'id_card');
   },
 
+  // 15 novembre : le solde prépayé (recharge posée par l'assistant de test).
+  driverWallet: async () => {
+    const { session } = await approvedDriverSession('wallet');
+    const wallet = (await clientFor(session.accessToken).request('driverWallet')) as http.DriverWalletResponse;
+    assert.ok(wallet.balance > 0);
+    assert.ok(wallet.movements.some((m) => m.type === 'topup'));
+  },
+
   // 15 novembre : selfie de contrôle -- l'état, puis le dépôt d'une image.
   driverSelfie: async () => {
     const { session } = await approvedDriverSession('selfie-status');

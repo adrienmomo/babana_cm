@@ -256,6 +256,8 @@ export async function approveDriver(session: Session, label: string): Promise<{ 
   }
   // 15 novembre : un selfie récent est une condition du passage en ligne.
   await execute('babana.driver.selfie', 'create', [{ driver_id: driverId, storage_key: `test/concurrency/${label}-selfie.jpg`, state: 'approved' }]);
+  // 15 novembre : et un solde prépayé positif.
+  await execute('babana.driver.wallet.movement', 'create', [{ driver_id: driverId, movement_type: 'topup', amount: 50000, reference: `test-${label}` }]);
 
   const plate = testLicensePlate();
   const [motorcycleId] = await execute<number[]>('babana.motorcycle', 'create', [[{ license_plate: plate }]]);

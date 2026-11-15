@@ -39,6 +39,8 @@ class TestDriverSelfie(HttpCase):
         moto.write({"driver_id": driver.id})
         driver.invalidate_recordset()
         driver.sudo().action_approve(new_employee_name="Chauffeur Selfie")
+        # Solde prépayé positif (15 novembre, point 6) : hors sujet ici, mais condition du passage en ligne.
+        self.env["babana.driver.wallet.movement"].sudo().create({"driver_id": driver.id, "movement_type": "topup", "amount": 5000, "reference": "TEST"})
         token, _ = _issue_access_token(user)
         return driver.sudo(), token
 

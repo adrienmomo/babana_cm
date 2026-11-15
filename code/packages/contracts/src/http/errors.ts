@@ -68,8 +68,9 @@ export const ErrorCode = z.enum([
   // Caisse
   'CASH_LIMIT_REACHED',
   'SETTLEMENT_AMOUNT_MISMATCH',
-  // Selfie de contrôle (15 novembre)
+  // Selfie de contrôle et solde prépayé (15 novembre)
   'SELFIE_REQUIRED',
+  'INSUFFICIENT_BALANCE',
 
   // Position et disponibilité
   'LOCATION_REQUIRED',
@@ -129,6 +130,7 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
   CASH_LIMIT_REACHED: 409,
   SETTLEMENT_AMOUNT_MISMATCH: 400,
   SELFIE_REQUIRED: 403,
+  INSUFFICIENT_BALANCE: 403,
 
   LOCATION_REQUIRED: 400,
 
@@ -184,6 +186,7 @@ export const ERROR_DESCRIPTION: Record<ErrorCode, string> = {
 
   CASH_LIMIT_REACHED: "Cet encaissement dépasserait le plafond de caisse du chauffeur (D8).",
   SELFIE_REQUIRED: "Un selfie de contrôle est à prendre avant de passer en ligne (15 novembre).",
+  INSUFFICIENT_BALANCE: "Le solde prépayé du chauffeur est épuisé : recharge en espèces à l'agence (15 novembre).",
   SETTLEMENT_AMOUNT_MISMATCH: "Le montant déclaré ne correspond pas au montant dû.",
 
   LOCATION_REQUIRED: "Une position (latitude, longitude) est requise pour cette requête.",

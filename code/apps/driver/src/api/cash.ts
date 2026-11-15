@@ -17,6 +17,11 @@ export async function fetchCashSummary(): Promise<http.DriverCashResponse> {
   return (await apiClient.request('driverCash')) as http.DriverCashResponse;
 }
 
+/** Solde prépayé (15 novembre) : recharges à l'agence moins commissions, tel qu'Odoo le tient. */
+export async function fetchWallet(): Promise<http.DriverWalletResponse> {
+  return (await apiClient.request('driverWallet')) as http.DriverWalletResponse;
+}
+
 /** Recette encaissée par jour, semaine et mois -- les trois vues en un seul appel. */
 export async function fetchActivity(): Promise<http.DriverActivityResponse> {
   return (await apiClient.request('driverActivity')) as http.DriverActivityResponse;

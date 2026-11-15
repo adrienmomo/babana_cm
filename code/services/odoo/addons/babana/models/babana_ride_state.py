@@ -454,6 +454,10 @@ class BabanaRideState(models.Model):
             "ride_completion", before_state="in_progress", measured=bool(measurement)
         )
 
+        # 15 novembre : commission de course sur le solde prépayé du chauffeur, dans la même
+        # transaction que la fin de course (une écriture de plus, pour la même décision).
+        self.env["babana.driver.wallet.movement"]._babana_charge_commission(self, final_amount)
+
         # L3-19 (D31, D32) : pousse ride.completed au client suivi et au chauffeur, avec le
         # détail décomposé GELÉ à la création (fare_rule_snapshot, D41) -- jamais recalculé, le
         # résumé de fin doit être ce que le serveur a réellement écrit. Aucun savepoint ici
@@ -481,9 +485,10 @@ class BabanaRideState(models.Model):
                 amount=round(final_amount),
                 breakdown=round_breakdown_for_wire(breakdown),
             )
-        # 15 novembre : un chauffeur retenu pendant sa course (selfie refusé, solde épuisé…) passe
-        # hors ligne maintenant qu'elle est finie -- jamais avant.
-        if self.driver_id.compliance_hold:
+        # 15 novembre : un chauffeur qui ne remplit plus une condition (selfie refusé ou dû, solde
+        # épuisé par la commission de cette course…) passe hors ligne maintenant qu'elle est finie --
+        # jamais avant. Sans effet sur un chauffeur en règle.
+        if self.driver_id:
             self.driver_id.sudo()._babana_enforce_compliance()
         return self
 
@@ -655,8 +660,9 @@ class BabanaRideState(models.Model):
                 notify_client_user_id=notify_client_user_id,
                 notify_driver_id=notify_driver_id,
             )
-        # 15 novembre : un chauffeur retenu pendant sa course (selfie refusé, solde épuisé…) passe
-        # hors ligne maintenant qu'elle est finie -- jamais avant.
-        if self.driver_id.compliance_hold:
+        # 15 novembre : un chauffeur qui ne remplit plus une condition (selfie refusé ou dû, solde
+        # épuisé par la commission de cette course…) passe hors ligne maintenant qu'elle est finie --
+        # jamais avant. Sans effet sur un chauffeur en règle.
+        if self.driver_id:
             self.driver_id.sudo()._babana_enforce_compliance()
         return self

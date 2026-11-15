@@ -56,6 +56,7 @@ export const SetAvailabilityErrors = [
   'CASH_LIMIT_REACHED',
   'DRIVER_HAS_ACTIVE_RIDE',
   'SELFIE_REQUIRED',
+  'INSUFFICIENT_BALANCE',
 ] as const;
 
 export const setAvailabilityRequestExample: SetAvailabilityRequest = {
