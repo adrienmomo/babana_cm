@@ -754,7 +754,8 @@ class BabanaDriver(models.Model):
     # donc un utilisateur sans ce droit échoue déjà à ce niveau (AccessError), avant même
     # d'atteindre la logique métier.
 
-    _REQUIRED_DOCUMENT_TYPES = ("license", "id_card")
+    # Photo de profil requise depuis le 15 novembre : le client voit son chauffeur avant de monter.
+    _REQUIRED_DOCUMENT_TYPES = ("license", "id_card", "profile_photo")
 
     def _required_documents_are_verified(self) -> bool:
         self.ensure_one()
@@ -777,8 +778,8 @@ class BabanaDriver(models.Model):
         self.ensure_one()
         if not self._required_documents_are_verified():
             raise UserError(
-                "Impossible d'approuver : le permis et la pièce d'identité doivent être "
-                "téléversés et vérifiés (L1-06, critère d'acceptation 1)."
+                "Impossible d'approuver : le permis, la pièce d'identité et la photo de profil "
+                "doivent être téléversés et vérifiés (L1-06, critère d'acceptation 1)."
             )
         if not self.motorcycle_id:
             raise UserError(

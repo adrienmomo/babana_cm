@@ -76,6 +76,9 @@ export type ClientParamList = {
 export interface AssignedDriverInfo {
   driverId: DriverId;
   firstName: string | null;
+  /** 15 novembre : le client voit le nom complet de son chauffeur (absent d'un profil ancien). */
+  lastName?: string | null;
+  /** Photo de profil validée au back-office, en URL signée à durée limitée. */
   photoUrl: string | null;
   motorcycleClass: http.VehicleClass | null;
   licensePlate: string | null;

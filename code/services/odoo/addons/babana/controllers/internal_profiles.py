@@ -12,6 +12,13 @@ from odoo import SUPERUSER_ID, http
 from odoo.http import request
 
 from . import _common
+from ..services import storage
+
+# Durée de vie de l'URL signée de la photo de profil (15 novembre). Le service temps réel relit les
+# profils toutes les 30 s (DRIVER_PROFILE_CACHE_TTL_SECONDS) ; une heure laisse au client le temps
+# de charger l'image même après une coupure, sans en faire une adresse durable.
+PHOTO_URL_TTL_SECONDS_PARAM = "babana.driver_photo_url_ttl_seconds"
+PHOTO_URL_TTL_SECONDS_DEFAULT = 3600
 
 # readonly implicite (pas de readonly=False) : cette route ne lit que.
 _ROUTE = {"type": "http", "auth": "none", "methods": ["POST"], "csrf": False}
@@ -48,6 +55,28 @@ class InternalDriverProfilesController(http.Controller):
         return {"profiles": {driver.public_id: self._project(driver) for driver in drivers}}, 200
 
     @staticmethod
+    def _photo_url(driver):
+        env = driver.env
+        photo = env["babana.driver.document"].sudo().search(
+            [
+                ("driver_id", "=", driver.id),
+                ("document_type", "=", "profile_photo"),
+                ("verification_status", "=", "verified"),
+            ],
+            order="create_date desc, id desc",
+            limit=1,
+        )
+        if not photo:
+            return None
+        ttl = int(
+            env["ir.config_parameter"].sudo().get_param(PHOTO_URL_TTL_SECONDS_PARAM, PHOTO_URL_TTL_SECONDS_DEFAULT)
+        )
+        try:
+            return storage.generate_signed_url(photo.storage_key, ttl_seconds=ttl)
+        except Exception:  # noqa: BLE001 -- un stockage indisponible dégrade l'affichage, jamais l'affectation (D30)
+            return None
+
+    @staticmethod
     def _project(driver) -> dict:
         """Liste blanche champ par champ (critère 4) : jamais driver.read(), jamais un champ
         ajouté ici sans décision explicite -- même discipline que
@@ -62,11 +91,14 @@ class InternalDriverProfilesController(http.Controller):
         toujours PAS ce champ à `nearby.drivers` -- seul `ride.assigned`
         (`proposal/lifecycle.ts::accept`) le lit, une fois le chauffeur choisi et affecté."""
         first_name = None
+        last_name = None
         if driver.employee_id and driver.employee_id.name:
-            # Seul le prénom est affiché (C2b) -- aucun champ prénom/nom séparé sur hr.employee
-            # dans ce lot (L1-06 ne rattache qu'un nom complet) : premier mot du nom complet,
-            # choix d'implémentation non spécifié, à corriger le jour où un prénom dédié existe.
-            first_name = driver.employee_id.name.split(" ")[0]
+            # Prénom et nom (15 novembre, réponse du maître d'ouvrage : le client voit le nom
+            # complet de son chauffeur). Aucun champ prénom/nom séparé sur hr.employee : premier mot
+            # du nom complet, puis le reste.
+            parts = driver.employee_id.name.split()
+            first_name = parts[0] if parts else None
+            last_name = " ".join(parts[1:]) or None
 
         # L4-09 : en dessous de babana.rating_min_count avis, la moyenne n'est pas significative --
         # `None`, que l'app affiche « nouveau », plutôt qu'une note qui condamnerait un chauffeur
@@ -85,10 +117,11 @@ class InternalDriverProfilesController(http.Controller):
 
         return {
             "firstName": first_name,
-            # Aucun document de type "photo de profil" dans ce lot (L1-05 ne connaît que permis
-            # et pièce d'identité, jamais servis en URL publique -- 01-architecture.md §9) :
-            # absence réelle, pas un oubli.
-            "photoUrl": None,
+            "lastName": last_name,
+            # La dernière photo de profil VALIDÉE au back-office (15 novembre), en URL signée à
+            # durée limitée -- jamais une adresse durable. Aucune photo validée : `None`, l'app
+            # affiche l'avatar générique.
+            "photoUrl": InternalDriverProfilesController._photo_url(driver),
             "rating": rating,
             "motorcycleClass": motorcycle_class,
             "licensePlate": license_plate,

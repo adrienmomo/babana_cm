@@ -154,7 +154,8 @@ function DocumentRow({
     }
     setBusy(true);
     try {
-      const picked = await imageSource.pick({ source, maxBytes });
+      // La photo de profil est un portrait : appareil photo avant.
+      const picked = await imageSource.pick({ source, maxBytes, ...(type === 'profile_photo' ? { cameraFacing: 'front' as const } : {}) });
       if (!picked) return; // annulé
       if (picked.sizeBytes > maxBytes) {
         setError('La photo est encore trop lourde. Reprenez-la de plus loin.');

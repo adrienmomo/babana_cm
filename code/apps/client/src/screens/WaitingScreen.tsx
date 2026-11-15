@@ -131,6 +131,7 @@ export function WaitingScreen({ route, navigation }: Props) {
             driver: {
               driverId: asDriverId(message.payload.driverId),
               firstName: message.payload.firstName,
+              lastName: message.payload.lastName ?? null,
               photoUrl: message.payload.photoUrl,
               motorcycleClass: message.payload.motorcycleClass,
               licensePlate: message.payload.licensePlate,

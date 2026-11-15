@@ -86,6 +86,7 @@ async function clientRideWithDriver(
     driver: {
       driverId: ride.driverId,
       firstName: profile?.firstName ?? null,
+      lastName: profile?.lastName ?? null,
       photoUrl: profile?.photoUrl ?? null,
       motorcycleClass: profile?.motorcycleClass ?? null,
       licensePlate: profile?.licensePlate ?? null,

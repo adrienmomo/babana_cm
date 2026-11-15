@@ -15,12 +15,14 @@ import type { http } from '@babana/contracts';
  * réessaie le MÊME fichier -- il ne reprend pas la photo.
  */
 
-export type RequiredDocumentType = 'license' | 'id_card';
-export const REQUIRED_DOCUMENT_TYPES: readonly RequiredDocumentType[] = ['license', 'id_card'];
+export type RequiredDocumentType = 'license' | 'id_card' | 'profile_photo';
+/** La photo de profil (15 novembre) est requise comme les deux pièces : le client voit son chauffeur. */
+export const REQUIRED_DOCUMENT_TYPES: readonly RequiredDocumentType[] = ['license', 'id_card', 'profile_photo'];
 
 export const DOCUMENT_LABELS: Record<RequiredDocumentType, string> = {
   license: 'Permis de conduire',
   id_card: "Pièce d'identité",
+  profile_photo: 'Photo de profil',
 };
 
 export type DocumentSlotStatus = 'missing' | 'pending' | 'verified' | 'rejected';

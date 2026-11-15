@@ -117,7 +117,7 @@ class TestRideController(HttpCase):
         user = self.env["res.users"].sudo().search([("babana_public_id", "=", public_user_id)])
         driver = user._babana_driver()
 
-        for document_type in ("license", "id_card"):
+        for document_type in ("license", "id_card", "profile_photo"):
             vals = {
                 "driver_id": driver.id,
                 "document_type": document_type,

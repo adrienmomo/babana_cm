@@ -14,6 +14,7 @@ from odoo.http import request
 
 from . import _common
 from ..services import storage
+from ..models.babana_driver_document import PROFILE_PHOTO_MIME_TYPES
 
 _logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ _URL_ROUTE = {"type": "http", "auth": "none", "methods": ["GET"], "csrf": False,
 _LIST_ROUTE = {"type": "http", "auth": "none", "methods": ["GET"], "csrf": False,
                "readonly": True}
 
-_DOCUMENT_TYPES = {"license", "id_card"}
+_DOCUMENT_TYPES = {"license", "id_card", "profile_photo"}
 
 
 class DriverDocumentsController(http.Controller):
@@ -113,7 +114,7 @@ class DriverDocumentsController(http.Controller):
         document_type = request.httprequest.form.get("documentType")
         if document_type not in _DOCUMENT_TYPES:
             return _common.error_response(
-                "VALIDATION_ERROR", "documentType doit valoir 'license' ou 'id_card'", 400
+                "VALIDATION_ERROR", "documentType doit valoir 'license', 'id_card' ou 'profile_photo'", 400
             )
 
         expires_on = request.httprequest.form.get("expiresOn") or None
@@ -145,6 +146,11 @@ class DriverDocumentsController(http.Controller):
                 "DOCUMENT_TYPE_MISMATCH",
                 "le type MIME réel du fichier ne correspond pas au type déclaré",
                 400,
+            )
+
+        if document_type == "profile_photo" and real_mime_type not in PROFILE_PHOTO_MIME_TYPES:
+            return _common.error_response(
+                "VALIDATION_ERROR", "la photo de profil doit être une image JPEG ou PNG", 400
             )
 
         key = storage.build_storage_key(driver.id, document_type, uploaded.filename)

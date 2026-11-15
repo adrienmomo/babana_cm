@@ -56,6 +56,7 @@ jest.mock('../../realtime', () => ({
 
 import { AppState, type AppStateStatus } from 'react-native';
 import { TrackingScreen } from '../TrackingScreen';
+import type { AssignedDriverInfo } from '../../navigation/types';
 
 let appStateListener: ((state: AppStateStatus) => void) | null = null;
 jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener: (state: AppStateStatus) => void) => {
@@ -90,7 +91,7 @@ afterEach(async () => {
 });
 
 async function renderTracking(
-  overrides: { origin?: typeof ORIGIN; destination?: typeof DESTINATION; driver?: typeof DRIVER } = {},
+  overrides: { origin?: typeof ORIGIN; destination?: typeof DESTINATION; driver?: AssignedDriverInfo } = {},
   navigation = fakeNavigation()
 ): Promise<{ root: ReactTestRenderer; navigation: ReturnType<typeof fakeNavigation> }> {
   const route = {
@@ -884,5 +885,20 @@ describe('15 novembre : le client revenu sur son suivi apprend que la course est
     });
     expect(navigation.replace).not.toHaveBeenCalled();
     expect(texts(root)).not.toContain('Votre chauffeur a annulé la course.');
+  });
+});
+
+describe('15 novembre : la fiche du chauffeur', () => {
+  it('prénom et nom, et sa photo validée', async () => {
+    const { root } = await renderTracking({ driver: { ...DRIVER, lastName: 'Ndoumbè', photoUrl: 'https://storage.example/photo.jpg?X-Amz-Expires=3600' } });
+    expect(root.root.findByProps({ testID: 'tracking-driver-name' }).props.children).toBe('Paul Ndoumbè');
+    const avatar = root.root.findByProps({ testID: 'tracking-driver-avatar' });
+    expect(avatar.props.photoUrl).toBe('https://storage.example/photo.jpg?X-Amz-Expires=3600');
+  });
+
+  it('sans photo validée : ses initiales ; sans nom connu : « Votre chauffeur »', async () => {
+    const { root } = await renderTracking({ driver: { ...DRIVER, firstName: null } });
+    expect(root.root.findByProps({ testID: 'tracking-driver-name' }).props.children).toBe('Votre chauffeur');
+    expect(root.root.findByProps({ testID: 'tracking-driver-avatar' }).props.photoUrl).toBeNull();
   });
 });

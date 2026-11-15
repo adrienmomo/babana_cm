@@ -12,7 +12,14 @@ from odoo.exceptions import UserError, ValidationError
 
 from ..services import storage
 
-DOCUMENT_TYPES = [("license", "Permis de conduire"), ("id_card", "Pièce d'identité")]
+DOCUMENT_TYPES = [
+    ("license", "Permis de conduire"),
+    ("id_card", "Pièce d'identité"),
+    # 15 novembre : la photo que le client voit sur la fiche de son chauffeur, validée au
+    # back-office comme les deux autres pièces. Une image seulement.
+    ("profile_photo", "Photo de profil"),
+]
+PROFILE_PHOTO_MIME_TYPES = ("image/jpeg", "image/png")
 VERIFICATION_STATUSES = [
     ("pending", "En attente"),
     ("verified", "Vérifié"),
@@ -69,6 +76,16 @@ class BabanaDriverDocument(models.Model):
                     "La date d'expiration est obligatoire pour un permis de conduire (L1-05, "
                     "critère d'acceptation 5)."
                 )
+
+    @api.constrains("document_type", "mime_type")
+    def _check_profile_photo_is_an_image(self):
+        for record in self:
+            if (
+                record.document_type == "profile_photo"
+                and record.mime_type
+                and record.mime_type not in PROFILE_PHOTO_MIME_TYPES
+            ):
+                raise ValidationError("La photo de profil doit être une image (JPEG ou PNG).")
 
     @api.constrains("verification_status", "rejection_reason")
     def _check_rejected_requires_reason(self):

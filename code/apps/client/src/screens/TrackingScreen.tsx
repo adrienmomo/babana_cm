@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Image, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MapView, type LatLng, type MapMarker } from '@babana/maps';
 import { ApiError, QUICK_MESSAGE_LABELS, StreamLivenessWatchdog, quickMessagesFor, translateApiError, type ConnectionState } from '@babana/api-client';
-import { Button, CancelRideSheet, MessageBubble, QuickMessageChips, makeStyles, useTheme } from '@babana/ui';
+import { Button, CancelRideSheet, MessageBubble, QuickMessageChips, makeStyles, useTheme, Avatar } from '@babana/ui';
 import type { http, realtime } from '@babana/contracts';
-import { GENERIC_AVATAR, classLabel } from '../components/driverFormatting';
+import { classLabel, driverDisplayName } from '../components/driverFormatting';
 import { CallButton } from '../components/CallButton';
 import { EmergencyButton } from '../components/EmergencyButton';
 import { ShareTripButton } from '../components/ShareTripButton';
@@ -388,9 +388,12 @@ export function TrackingScreen({ route, navigation }: Props) {
       ) : null}
 
       <View style={styles.driverCard} testID="tracking-driver-card">
-        <Image source={{ uri: driver.photoUrl ?? GENERIC_AVATAR }} style={styles.avatar} accessibilityIgnoresInvertColors />
+        {/* Photo validée au back-office ; sans elle, ses initiales (15 novembre). */}
+        <Avatar name={driverDisplayName(driver)} photoUrl={driver.photoUrl} size={48} testID="tracking-driver-avatar" />
         <View style={styles.driverInfo}>
-          <Text style={styles.driverName}>{driver.firstName ?? 'Votre chauffeur'}</Text>
+          <Text style={styles.driverName} testID="tracking-driver-name">
+            {driverDisplayName(driver)}
+          </Text>
           <Text style={styles.driverMeta} testID="tracking-plate">
             {gamme ? `${gamme} · ` : ''}
             {driver.licensePlate ?? 'Immatriculation indisponible'}
@@ -548,12 +551,6 @@ const useStyles = makeStyles((c) => ({
     borderWidth: 1,
     borderColor: c.border,
     backgroundColor: c.surface,
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: c.border,
   },
   driverInfo: {
     flex: 1,

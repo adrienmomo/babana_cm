@@ -159,6 +159,7 @@ describe('handleSessionResync (L3-11)', () => {
     const driverId = randomUUID();
     await setDriverProfile(redis, driverId, {
       firstName: 'Emmanuel',
+      lastName: 'Ndoumbè',
       photoUrl: null,
       rating: null,
       motorcycleClass: 'standard',
@@ -176,7 +177,7 @@ describe('handleSessionResync (L3-11)', () => {
     assert.deepEqual(parsed.payload.clientRide, {
       origin,
       destination,
-      driver: { driverId, firstName: 'Emmanuel', photoUrl: null, motorcycleClass: 'standard', licensePlate: 'LT 4821 AC', phoneNumber: '+237690110201' },
+      driver: { driverId, firstName: 'Emmanuel', lastName: 'Ndoumbè', photoUrl: null, motorcycleClass: 'standard', licensePlate: 'LT 4821 AC', phoneNumber: '+237690110201' },
     });
     await redis.del(`babana:driver:profile:${driverId}`, `babana:driver:profile:fetched-at:${driverId}`);
   });

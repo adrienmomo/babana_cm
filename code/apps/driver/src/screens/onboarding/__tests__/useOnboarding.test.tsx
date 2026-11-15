@@ -75,6 +75,7 @@ describe('useOnboarding (L6-15, critère 1 -- reprenable)', () => {
     mockFetchDriverDocuments.mockResolvedValue([
       doc({ documentType: 'license', verificationStatus: 'pending' }),
       doc({ documentType: 'id_card', verificationStatus: 'pending' }),
+      doc({ documentType: 'profile_photo', verificationStatus: 'pending' }),
     ]);
     const get = await mount();
     expect(get().initialRoute).toBe('Pending');
@@ -86,7 +87,7 @@ describe('useOnboarding (L6-15, critère 1 -- reprenable)', () => {
     const get = await mount();
     expect(get().status).toBe('ready');
     expect(get().initialRoute).toBe('Documents');
-    expect(get().slots.map((s) => s.status)).toEqual(['missing', 'missing']);
+    expect(get().slots.map((s) => s.status)).toEqual(['missing', 'missing', 'missing']);
   });
 
   it('refresh relit le serveur et met à jour les slots', async () => {
@@ -98,6 +99,7 @@ describe('useOnboarding (L6-15, critère 1 -- reprenable)', () => {
     mockFetchDriverDocuments.mockResolvedValueOnce([
       doc({ documentType: 'license', verificationStatus: 'pending' }),
       doc({ documentType: 'id_card', verificationStatus: 'pending' }),
+      doc({ documentType: 'profile_photo', verificationStatus: 'pending' }),
     ]);
     await act(async () => {
       await get().refresh();

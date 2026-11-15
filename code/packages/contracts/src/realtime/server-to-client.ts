@@ -210,6 +210,12 @@ export const RideAssignedPayloadSchema = z.object({
   rideId: RideIdSchema,
   driverId: DriverIdSchema,
   firstName: z.string().nullable(),
+  /**
+   * Nom de famille (15 novembre : le client voit le nom complet de son chauffeur, décision du
+   * maître d'ouvrage). Facultatif : un profil mis en cache avant ce changement ne le porte pas.
+   */
+  lastName: z.string().nullable().optional(),
+  /** Photo de profil validée au back-office, en URL signée à durée limitée (15 novembre). */
   photoUrl: z.string().url().nullable(),
   motorcycleClass: VehicleClassSchema.nullable(),
   licensePlate: z.string().nullable(),

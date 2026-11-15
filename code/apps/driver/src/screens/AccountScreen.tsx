@@ -9,6 +9,9 @@ import { formatDay } from '../format';
 import { signOutDriver } from '../signOut';
 import { makeStyles } from '../theme';
 import { DOCUMENT_LABELS, DOCUMENT_STATUS_LABELS, documentSlots, type DocumentSlot } from './onboarding/state';
+import { defaultImageSource } from './onboarding/imageSource';
+import { documentUploader } from '../onboarding';
+import { ONBOARDING_MAX_DOCUMENT_BYTES } from '../../config';
 import type { DriverParamList } from '../navigation/types';
 
 /**
@@ -71,6 +74,30 @@ export function AccountScreen({ navigation }: Props) {
     loadDocuments();
   }, [loadDocuments]);
 
+  // 15 novembre : un chauffeur approuvé avant que la photo de profil ne soit requise la dépose
+  // ici ; tout chauffeur la change ici. Appareil photo avant ; la nouvelle photo attend sa
+  // validation au back-office, l'ancienne reste celle que voient les clients jusque-là.
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const takeProfilePhoto = useCallback(async () => {
+    setPhotoError(null);
+    setPhotoBusy(true);
+    try {
+      const picked = await defaultImageSource.pick({ source: 'camera', cameraFacing: 'front', maxBytes: ONBOARDING_MAX_DOCUMENT_BYTES });
+      if (!picked) return;
+      if (picked.sizeBytes > ONBOARDING_MAX_DOCUMENT_BYTES) {
+        setPhotoError('La photo est trop lourde. Reprenez-la.');
+        return;
+      }
+      await documentUploader.upload({ documentType: 'profile_photo', file: { uri: picked.uri, name: picked.name, mimeType: picked.mimeType } });
+      await loadDocuments();
+    } catch {
+      setPhotoError("La photo n'a pas pu être envoyée. Réessayez.");
+    } finally {
+      setPhotoBusy(false);
+    }
+  }, [loadDocuments]);
+
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <View style={styles.identity}>
@@ -123,6 +150,26 @@ export function AccountScreen({ navigation }: Props) {
                     : DOCUMENT_STATUS_LABELS[slot.status]}
                 </Text>
                 {slot.rejectionReason ? <Text style={styles.rejected}>{slot.rejectionReason}</Text> : null}
+                {slot.type === 'profile_photo' ? (
+                  <Pressable
+                    testID="account-profile-photo"
+                    accessibilityRole="button"
+                    disabled={photoBusy}
+                    onPress={takeProfilePhoto}
+                    style={styles.photoButton}
+                  >
+                    {photoBusy ? (
+                      <ActivityIndicator />
+                    ) : (
+                      <Text style={styles.photoButtonLabel}>{slot.status === 'missing' ? 'Ajouter ma photo' : 'Changer ma photo'}</Text>
+                    )}
+                  </Pressable>
+                ) : null}
+                {slot.type === 'profile_photo' && photoError ? (
+                  <Text testID="account-profile-photo-error" style={styles.rejected}>
+                    {photoError}
+                  </Text>
+                ) : null}
               </View>
             ))
           : null}
@@ -156,6 +203,21 @@ const useStyles = makeStyles((c) => ({
   pressed: { backgroundColor: c.canvas },
   rowLabel: { color: c.ink, fontSize: 17, fontWeight: '600' },
   chevron: { color: c.subtle, fontSize: 24 },
+  photoButton: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: c.brandBorder,
+    backgroundColor: c.brandSoft,
+    justifyContent: 'center',
+  },
+  photoButtonLabel: {
+    color: c.brandText,
+    fontWeight: '600',
+  },
   appearance: {
     marginTop: 24,
     paddingHorizontal: 20,
