@@ -134,8 +134,8 @@ describe('cash-guard (L5-02)', () => {
     const tracking = new TrackingManager(config, redis);
     const dispatch = createMessageDispatcher(config, redis, nearby, proposals, tracking);
 
-    const driverContext: ConnectionContext = Object.freeze({ userId: id('driver-user'), role: 'driver', driverId });
-    const clientContext: ConnectionContext = Object.freeze({ userId: clientUserId, role: 'client', driverId: null });
+    const driverContext: ConnectionContext = Object.freeze({ userId: id('driver-user'), role: 'driver', driverId, sessionId: null });
+    const clientContext: ConnectionContext = Object.freeze({ userId: clientUserId, role: 'client', driverId: null, sessionId: null });
     const driverMessages: { type: string }[] = [];
     const clientMessages: { type: string }[] = [];
     const driverSocket = {

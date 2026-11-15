@@ -120,7 +120,14 @@ class TestPushDispatch(TransactionCase):
     def test_fcm_provider_without_credentials_fails_loudly_never_falls_back(self):
         # D43 : non configuré, on échoue -- jamais un repli silencieux sur le simulateur ni sur
         # un vrai envoi inattendu.
-        with patch.dict("os.environ", {"PUSH_PROVIDER": "fcm"}, clear=False):
+        # Les identifiants sont vidés ici même : le test pose lui-même la condition « non
+        # configuré », il ne dépend pas de l'environnement de la machine (15 novembre : la pile de
+        # développement porte désormais de vrais identifiants FCM dans son .env).
+        with patch.dict(
+            "os.environ",
+            {"PUSH_PROVIDER": "fcm", "FCM_PROJECT_ID": "", "FCM_CLIENT_EMAIL": "", "FCM_PRIVATE_KEY": ""},
+            clear=False,
+        ):
             push.reset_provider_cache()
             with self.assertRaises(RuntimeError):
                 push.get_provider()

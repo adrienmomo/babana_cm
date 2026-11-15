@@ -65,7 +65,7 @@ const AKWA = { latitude: 4.0483, longitude: 9.6934 };
 const NOW = Date.parse('2026-08-15T12:00:00.000Z');
 
 function driverContext(driverId: string): ConnectionContext {
-  return Object.freeze({ userId: `user-${driverId}`, role: 'driver', driverId });
+  return Object.freeze({ userId: `user-${driverId}`, role: 'driver', driverId, sessionId: null });
 }
 
 function positionMessage(overrides: Partial<{
@@ -282,6 +282,7 @@ describe('ingestPosition (L3-02)', () => {
       userId: 'user-client-1',
       role: 'client',
       driverId: null,
+      sessionId: null,
     });
     const outcome = await ingestPosition(redis, clientContext, positionMessage(), CONFIG, 60, NOW);
     assert.deepEqual(outcome, { accepted: false, reason: 'not_a_driver' });
