@@ -149,7 +149,7 @@ beforeEach(() => {
 });
 
 const lastMapProps = () => mockMapProps.mock.calls[mockMapProps.mock.calls.length - 1]?.[0] as
-  | { route?: { points: unknown[] }; markers: Array<{ id: string }> }
+  | { route?: { points: unknown[] }; center?: unknown; markers: Array<{ id: string; kind: string }> }
   | undefined;
 
 function emitRoute(phase: 'approach' | 'transit', points: Array<{ latitude: number; longitude: number }>, rideId: string = RIDE_ID) {
@@ -533,6 +533,32 @@ describe('itinéraire du chauffeur et « Sur place » (déroulé sur la carte du
       emitRoute('approach', APPROACH_POINTS.slice(1));
     });
     expect(lastMapProps()?.route).toEqual({ points: APPROACH_POINTS.slice(1) });
+  });
+
+  it('15 novembre -- « Sur place » : la carte passe au trajet (tracé du trajet, départ et arrivée), et ne suit plus la moto', async () => {
+    await renderTracking();
+    const arrived = () =>
+      realtimeListener?.({ type: 'driver.arrived', id: 'm3', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, arrivedAt: new Date().toISOString(), noShowGraceSeconds: 300 } });
+    await act(async () => {
+      emitRoute('approach', APPROACH_POINTS);
+      emitPosition({ latitude: 4.0503, longitude: 9.7 });
+    });
+    expect(lastMapProps()?.route).toEqual({ points: APPROACH_POINTS });
+
+    // Le chemin d'approche disparaît dès l'arrivée, même avant que le tracé du trajet n'arrive.
+    await act(async () => {
+      arrived();
+    });
+    expect(lastMapProps()?.route).toBeUndefined();
+
+    await act(async () => {
+      emitRoute('transit', TRANSIT_POINTS);
+      emitPosition({ latitude: 4.0504, longitude: 9.7001 });
+    });
+    const props = lastMapProps()!;
+    expect(props.route).toEqual({ points: TRANSIT_POINTS });
+    expect(props.center).toEqual(ORIGIN.position);
+    expect(props.markers.map((m) => m.kind)).toEqual(['pickup', 'dropoff', 'driver']);
   });
 
   it('« Sur place » : le client est prévenu que son chauffeur est arrivé', async () => {

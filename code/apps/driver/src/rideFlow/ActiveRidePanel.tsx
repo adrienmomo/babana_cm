@@ -192,7 +192,10 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
   const lastRouteFailureAtRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
 
-  const phase: 'approach' | 'transit' = stage === 'transit' ? 'transit' : 'approach';
+  // Tracé de la phase : vers le client à l'approche ; vers la destination dès « Sur place » (15
+  // novembre) -- le client voit le trajet qui l'attend pendant que le chauffeur l'attend, au lieu
+  // du chemin d'approche déjà parcouru.
+  const phase: 'approach' | 'transit' = stage === 'approach' ? 'approach' : 'transit';
 
   // `arrivedAtMs` est une heure de CE téléphone : jamais l'heure du serveur comparée à l'horloge
   // locale (deux horloges qui dérivent -- l'attente afficherait 0:00 ou un délai déjà écoulé).
@@ -255,24 +258,24 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
   );
 
   // Itinéraire de la phase courante : vers le client pendant l'approche (depuis la position du
-  // chauffeur, donc dès qu'elle est connue), vers la destination au trajet (depuis la position, ou
-  // à défaut le point de prise en charge). Recalculé quand le chauffeur s'écarte du tracé
-  // (`routeDeviationMeters`) ou que le tracé vieillit (`routeRefreshMs`) -- jamais en attente sur
-  // place. Un échec réessaie à la position suivante, après `routeRetryCooldownMs`.
+  // chauffeur, donc dès qu'elle est connue), vers la destination sur place (depuis le point de prise
+  // en charge) et au trajet (depuis la position, ou à défaut le point de prise en charge).
+  // Recalculé quand le chauffeur s'écarte du tracé (`routeDeviationMeters`) ou que le tracé
+  // vieillit (`routeRefreshMs`) -- jamais en attente sur place : un seul calcul à l'arrivée. Un
+  // échec réessaie à la position suivante, après `routeRetryCooldownMs`.
   useEffect(() => {
-    if (stage === 'arrived') return;
     if (inFlightPhaseRef.current === phase) return;
     const lastFailure = lastRouteFailureAtRef.current;
     if (lastFailure !== null && Date.now() - lastFailure < settings.routeRetryCooldownMs) return;
 
     const current = routeRef.current && routeRef.current.phase === phase ? routeRef.current : null;
     if (current) {
-      if (!position) return;
+      if (stage === 'arrived' || !position) return;
       const offRoute = distanceToRouteMeters(position, current.points) > settings.routeDeviationMeters;
       const stale = routeFetchedAtRef.current !== null && Date.now() - routeFetchedAtRef.current >= settings.routeRefreshMs;
       if (!offRoute && !stale) return;
     }
-    const start = phase === 'approach' ? position : (position ?? origin);
+    const start = phase === 'approach' ? position : stage === 'arrived' ? origin : (position ?? origin);
     if (!start) return;
 
     inFlightPhaseRef.current = phase;
@@ -285,7 +288,7 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
         return;
       }
       // Phase dépassée pendant l'attente (« Commencer » glissé entre-temps) : ce tracé est périmé.
-      const nowPhase = stageRef.current === 'transit' ? 'transit' : 'approach';
+      const nowPhase = stageRef.current === 'approach' ? 'approach' : 'transit';
       if (nowPhase !== phase) return;
       lastRouteFailureAtRef.current = null;
       const shared: SharedRoute = { phase, ...result };

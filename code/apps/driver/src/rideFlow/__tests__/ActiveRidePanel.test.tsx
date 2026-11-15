@@ -534,15 +534,34 @@ describe('itinéraire -- calculé par le chauffeur, affiché à l’identique ch
     expect(mockFetchRoute).toHaveBeenCalledTimes(1);
   });
 
-  it('« Commencer la course » charge tout seul l’itinéraire vers la destination et le partage', async () => {
+  it('« Commencer la course » garde l’itinéraire vers la destination calculé sur place (un seul calcul) et le partage', async () => {
     const { root, callbacks } = await renderActiveRide();
     mockSend.mockClear();
 
     await reachTransit(root);
 
-    expect(mockFetchRoute).toHaveBeenLastCalledWith(NEAR, DESTINATION);
+    // Calculé à « Sur place » depuis la prise en charge (15 novembre), pas recalculé au départ :
+    // le chauffeur est sur le tracé.
+    expect(mockFetchRoute).toHaveBeenLastCalledWith(ORIGIN, DESTINATION);
+    expect(mockFetchRoute).toHaveBeenCalledTimes(2);
     const last = callbacks.mapStates[callbacks.mapStates.length - 1];
     expect(last.stage).toBe('transit');
+    expect(last.route).toEqual({ points: TRANSIT_ROUTE.points });
+    expect(mockSend).toHaveBeenCalledWith(
+      'route.share',
+      expect.objectContaining({ rideId: RIDE_ID, phase: 'transit', points: TRANSIT_ROUTE.points })
+    );
+  });
+
+  it('15 novembre -- dès « Sur place », le trajet (prise en charge → destination) remplace l’approche, chez le chauffeur et chez le client', async () => {
+    const { root, callbacks } = await renderActiveRide();
+    mockSend.mockClear();
+
+    await press(root, 'active-ride-arrived');
+
+    expect(mockFetchRoute).toHaveBeenLastCalledWith(ORIGIN, DESTINATION);
+    const last = callbacks.mapStates[callbacks.mapStates.length - 1];
+    expect(last.stage).toBe('arrived');
     expect(last.route).toEqual({ points: TRANSIT_ROUTE.points });
     expect(mockSend).toHaveBeenCalledWith(
       'route.share',

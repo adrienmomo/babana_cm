@@ -211,6 +211,9 @@ export function TrackingScreen({ route, navigation }: Props) {
         if (message.payload.from === 'driver') setIncomingMessage(message.payload.code);
       } else if (isDriverArrivedMessage(message) && message.payload.rideId === rideId) {
         setDriverArrived(true);
+        // Le chemin d'approche est parcouru : la carte passe au trajet (15 novembre). Le tracé du
+        // trajet, calculé par le chauffeur dès « Sur place », a pu arriver avant ce message.
+        setSharedRoute((current) => (current && current.phase === 'transit' ? current : null));
         // Âge de l'arrivée mesuré entre deux heures du SERVEUR (émission du message, arrivée), puis
         // reporté sur l'horloge de ce téléphone -- jamais l'heure du serveur comparée à l'horloge
         // locale, qui peut dériver de plusieurs minutes.
@@ -284,7 +287,10 @@ export function TrackingScreen({ route, navigation }: Props) {
       : phase === 'course' && trace.length > 1
         ? { points: trace }
         : undefined;
-  const mapCenter: LatLng | null = driverPosition ?? sharedRoute?.points[0] ?? null;
+  // Chauffeur sur place : la carte montre le trajet qui attend le client (cadré sur le tracé dès
+  // qu'il arrive) et ne suit plus la moto, qui ne bouge plus guère -- la suivre décadrerait le trajet.
+  const mapCenter: LatLng | null =
+    driverArrived && phase === 'approach' ? origin.position : (driverPosition ?? sharedRoute?.points[0] ?? null);
 
   // La prise en charge n'a plus de sens une fois la course commencée -- et son épingle recouvrait
   // alors le chauffeur, qui est exactement là (24 octobre).
