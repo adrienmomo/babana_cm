@@ -194,7 +194,12 @@ def _issue_access_token(user) -> tuple[str, int]:
         # babana.driver.public_id, DISTINCT de "sub" (res.users.babana_public_id) -- confondre
         # les deux affecterait une connexion au mauvais chauffeur (D23). babana.driver existe
         # toujours ici : L1-03R crée la fiche dès le premier sign-in chauffeur.
-        claims["driverId"] = user._babana_driver().public_id
+        driver = user._babana_driver()
+        claims["driverId"] = driver.public_id
+        # Un appareil par chauffeur (15 novembre) : la session courante, que chaque requête
+        # compare (controllers/_common.py) -- absente tant qu'aucune connexion ne l'a ouverte.
+        if driver.sudo().active_session_id:
+            claims["sid"] = driver.sudo().active_session_id
     return jwt.encode(claims, jwt_secret, algorithm="HS256"), ACCESS_TOKEN_TTL_SECONDS
 
 

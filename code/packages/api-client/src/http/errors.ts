@@ -34,6 +34,7 @@ export const USER_MESSAGES = {
   INVALID_GOOGLE_TOKEN: 'La connexion avec Google a échoué. Réessayez.',
   TOKEN_EXPIRED: 'Votre session a expiré. Reconnectez-vous.',
   TOKEN_REVOKED: "Votre session n'est plus valide. Reconnectez-vous.",
+  SESSION_REPLACED: 'Votre compte a été connecté sur un autre téléphone.',
   UNAUTHORIZED: 'Vous devez être connecté pour continuer.',
   DRIVER_NOT_APPROVED: 'Votre dossier chauffeur est en cours de validation.',
 

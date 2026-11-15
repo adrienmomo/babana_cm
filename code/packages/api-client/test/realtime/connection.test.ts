@@ -275,6 +275,20 @@ describe('createRealtimeClient -- reconnexion (critère 1 ; L3-01)', () => {
     expect(config.wait).not.toHaveBeenCalled();
   });
 
+  it('15 novembre : session remplacée (compte connecté sur un autre téléphone), aucune reconnexion', async () => {
+    const { sockets, config } = baseConfig();
+    const client = createRealtimeClient(config);
+    await client.connect();
+    sockets[0].simulateOpen();
+
+    sockets[0].simulateClose(4409); // WS_CLOSE_SESSION_REPLACED
+
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(config.createWebSocket).toHaveBeenCalledTimes(1);
+    expect(config.wait).not.toHaveBeenCalled();
+  });
+
   it('disconnect() empêche toute reconnexion automatique après une fermeture demandée', async () => {
     const { sockets, config } = baseConfig();
     const client = createRealtimeClient(config);

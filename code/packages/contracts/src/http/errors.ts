@@ -15,6 +15,7 @@ export const ErrorCode = z.enum([
   'INVALID_GOOGLE_TOKEN',
   'TOKEN_EXPIRED',
   'TOKEN_REVOKED',
+  'SESSION_REPLACED',
   'UNAUTHORIZED',
   'DRIVER_NOT_APPROVED',
 
@@ -88,6 +89,7 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
   INVALID_GOOGLE_TOKEN: 401,
   TOKEN_EXPIRED: 401,
   TOKEN_REVOKED: 401,
+  SESSION_REPLACED: 401,
   UNAUTHORIZED: 401,
   DRIVER_NOT_APPROVED: 403,
 
@@ -141,6 +143,8 @@ export const ERROR_DESCRIPTION: Record<ErrorCode, string> = {
   INVALID_GOOGLE_TOKEN: "L'ID token Google est invalide, expiré, ou sa signature ne correspond à aucune clé publiée.",
   TOKEN_EXPIRED: "Le jeton applicatif a expiré ; utiliser /auth/refresh.",
   TOKEN_REVOKED: "Le jeton applicatif a été révoqué par /auth/logout.",
+  SESSION_REPLACED:
+    "Le compte chauffeur s'est connecté sur un autre téléphone : cette session-ci est fermée (un appareil par chauffeur, 15 novembre).",
   UNAUTHORIZED: "En-tête Authorization manquant ou malformé.",
   DRIVER_NOT_APPROVED: "Le compte chauffeur n'est pas encore validé par le back-office.",
 

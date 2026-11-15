@@ -12,6 +12,9 @@ import requests
 from odoo.tests.common import HttpCase, tagged
 from odoo.tests.common import _super_send
 
+from ..controllers.auth import _issue_access_token
+from ..services.access_token import verify_access_token
+
 
 def _mock_google_base_url() -> str:
     return os.environ.get("GOOGLE_MOCK_IDENTITY_URL", "http://mock-google-identity:4000")
@@ -335,3 +338,72 @@ class TestAuthRefreshAndLogout(HttpCase):
         response = self._post("/api/v1/auth/refresh", {})
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.json()["error"]["code"], "VALIDATION_ERROR")
+
+
+@tagged("post_install", "-at_install")
+class TestOneDevicePerDriver(HttpCase):
+    """15 novembre : un compte chauffeur n'est connecté que sur un téléphone à la fois. La
+    nouvelle connexion gagne ; l'ancien téléphone est refusé, même avec un jeton pas encore
+    expiré. Le client garde autant d'appareils qu'il veut."""
+
+    @classmethod
+    def _request_handler(cls, s, r, **kw):
+        if r.url.startswith(_mock_google_base_url()):
+            return _super_send(s, r, **kw)
+        return super()._request_handler(s, r, **kw)
+
+    def _login(self, sub, role):
+        token = _mint_google_token(sub=sub, email=f"{sub}@example.invalid")
+        return self.url_open(
+            "/api/v1/auth/google",
+            data=json.dumps({"idToken": token, "role": role}).encode(),
+            headers={"Content-Type": "application/json"},
+        ).json()
+
+    def _me(self, session):
+        return self.url_open("/api/v1/me", headers={"Authorization": f"Bearer {session['accessToken']}"})
+
+    def _refresh(self, session):
+        return self.url_open(
+            "/api/v1/auth/refresh",
+            data=json.dumps({"refreshToken": session["refreshToken"]}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+
+    def test_a_second_phone_signs_the_first_one_out(self):
+        first_phone = self._login("sub-one-device", "driver")
+        self.assertEqual(self._me(first_phone).status_code, 200)
+
+        second_phone = self._login("sub-one-device", "driver")
+
+        refused = self._me(first_phone)
+        self.assertEqual(refused.status_code, 401)
+        self.assertEqual(refused.json()["error"]["code"], "SESSION_REPLACED")
+        # Son renouvellement non plus : la famille est révoquée.
+        self.assertEqual(self._refresh(first_phone).json()["error"]["code"], "TOKEN_REVOKED")
+        # Le nouveau téléphone, lui, fonctionne -- et son renouvellement garde la session.
+        self.assertEqual(self._me(second_phone).status_code, 200)
+        renewed = self._refresh(second_phone).json()
+        self.assertEqual(self._me(renewed).status_code, 200)
+
+    def test_the_access_token_carries_the_current_session(self):
+        session = self._login("sub-one-device-sid", "driver")
+        claims = verify_access_token(session["accessToken"])
+        user = self.env["res.users"].sudo().search([("babana_public_id", "=", claims["sub"])])
+        self.assertEqual(claims["sid"], user._babana_driver().sudo().active_session_id)
+
+    def test_a_client_keeps_several_phones(self):
+        first_phone = self._login("sub-client-two-phones", "client")
+        second_phone = self._login("sub-client-two-phones", "client")
+        self.assertEqual(self._me(first_phone).status_code, 200)
+        self.assertEqual(self._me(second_phone).status_code, 200)
+        self.assertNotIn("sid", verify_access_token(first_phone["accessToken"]))
+
+    def test_a_driver_token_from_before_the_change_stays_valid_until_the_next_sign_in(self):
+        session = self._login("sub-one-device-legacy", "driver")
+        claims = verify_access_token(session["accessToken"])
+        driver = self.env["res.users"].sudo().search([("babana_public_id", "=", claims["sub"])])._babana_driver()
+        driver.sudo().write({"active_session_id": False})
+        legacy = _issue_access_token(driver.user_id)[0]
+        self.assertNotIn("sid", verify_access_token(legacy))
+        self.assertEqual(self._me({"accessToken": legacy}).status_code, 200)

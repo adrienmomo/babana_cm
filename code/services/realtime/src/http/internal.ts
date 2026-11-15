@@ -16,6 +16,7 @@ import { broadcastRideStarted, broadcastRideCompleted, broadcastRideCancelled, b
 import { startAccumulation, getAccumulation, endAccumulation } from '../tracking/accumulator';
 import { recordDriverArrived } from '../tracking/route';
 import { scheduleOutboxWrite } from '../odoo/outbox';
+import { closeReplacedConnections, setDriverSession } from '../driver/session';
 
 /**
  * Endpoint HTTP interne, sens Odoo -> temps réel (L3-17). Authentifié par `REALTIME_SHARED_SECRET`
@@ -42,6 +43,8 @@ import { scheduleOutboxWrite } from '../odoo/outbox';
  * - `POST /internal/reservations/release` : compensation quand la réservation a réussi mais que la
  *   transition Odoo qui devait suivre échoue (critère 4).
  * - `POST /internal/engagement/clear` : fin de course, efface le marqueur d'engagement (critère 6).
+ * - `POST /internal/drivers/session` : nouvelle session d'un chauffeur (15 novembre, un appareil par
+ *   chauffeur) -- ferme la connexion de l'appareil remplacé.
  * - `POST /internal/drivers/cash-blocked` : plafond d'encaisse franchi (D8, D28, L5-02), retire
  *   du pool et bloque toute acceptation en vol pour ce chauffeur.
  * - `POST /internal/drivers/cash-unblocked` : remise de caisse validée, le chauffeur repasse
@@ -138,6 +141,7 @@ const CashBlockedRequestSchema = z.object({ driverId: z.string().min(1) });
 const CashUnblockedRequestSchema = z.object({ driverId: z.string().min(1) });
 const DriverUnavailableRequestSchema = z.object({ driverId: z.string().min(1) });
 const DriverAvailableRequestSchema = z.object({ driverId: z.string().min(1) });
+const DriverSessionRequestSchema = z.object({ driverId: z.string().min(1), sessionId: z.string().uuid() });
 
 // L3-19 : rideId/clientUserId/driverId transmis directement par Odoo, qui les connaît déjà
 // (babana.ride.client_id/driver_id) -- pas une lecture de tracking/session.ts, qui introduirait
@@ -327,6 +331,20 @@ async function handleClearEngagement(deps: InternalRouterDeps, rawBody: unknown,
   sendJson(res, 200, { cleared: true });
 }
 
+/** 15 novembre, un appareil par chauffeur : nouvelle session (connexion sur un téléphone) -- la
+ * retenir, puis fermer la connexion de l'appareil remplacé. Appelé après le commit d'Odoo (D32). */
+async function handleDriverSession(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
+  const parsed = DriverSessionRequestSchema.safeParse(rawBody);
+  if (!parsed.success) {
+    sendJson(res, 400, { error: 'VALIDATION_ERROR', details: parsed.error.issues });
+    return;
+  }
+  const { driverId, sessionId } = parsed.data;
+  await setDriverSession(deps.redis, driverId, sessionId);
+  const closed = closeReplacedConnections(deps.registry, driverId, sessionId);
+  sendJson(res, 200, { closed });
+}
+
 async function handleCashBlocked(deps: InternalRouterDeps, rawBody: unknown, res: ServerResponse): Promise<void> {
   const parsed = CashBlockedRequestSchema.safeParse(rawBody);
   if (!parsed.success) {
@@ -469,6 +487,9 @@ export function createInternalHandler(deps: InternalRouterDeps) {
         return;
       case '/internal/drivers/cash-blocked':
         await handleCashBlocked(deps, body, res);
+        return;
+      case '/internal/drivers/session':
+        await handleDriverSession(deps, body, res);
         return;
       case '/internal/drivers/cash-unblocked':
         await handleCashUnblocked(deps, body, res);

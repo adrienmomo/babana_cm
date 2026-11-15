@@ -15,3 +15,6 @@
  */
 export const WS_CLOSE_UNAUTHENTICATED = 4401;
 export const WS_CLOSE_TOKEN_EXPIRED = 4402;
+
+/** 15 novembre : le chauffeur s'est connecté sur un autre téléphone ; `session.replaced` précède la fermeture. */
+export const WS_CLOSE_SESSION_REPLACED = 4409;

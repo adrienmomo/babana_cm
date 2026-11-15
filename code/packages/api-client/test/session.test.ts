@@ -214,3 +214,29 @@ describe('AuthClient.requestOtp / verifyOtp (connexion par SMS)', () => {
     expect(client.getAccessToken()).toBeNull();
   });
 });
+
+describe('15 novembre : un appareil par chauffeur', () => {
+  it('SESSION_REPLACED : la session locale est oubliée, sans /auth/logout ni renouvellement, et la raison est donnée', async () => {
+    const httpRequest = jest.fn().mockResolvedValue(SESSION_RESPONSE);
+    const storage = fakeStorage();
+    const onSessionLost = jest.fn();
+    const auth = new AuthClient({ httpClient: { request: httpRequest }, storage, onSessionLost });
+    await auth.establishSession(SESSION_RESPONSE);
+    httpRequest.mockClear();
+    const base: HttpClient = { request: jest.fn().mockRejectedValue(new ApiError('SESSION_REPLACED', 'ailleurs', 401)) };
+
+    await expect(withTransparentRefresh(base, auth).request('driverCash', {})).rejects.toMatchObject({ code: 'SESSION_REPLACED' });
+
+    expect(onSessionLost).toHaveBeenCalledWith('replaced');
+    expect(auth.getAccessToken()).toBeNull();
+    expect(storage.peek()).toBeNull();
+    expect(httpRequest).not.toHaveBeenCalled(); // ni authRefresh, ni authLogout
+  });
+
+  it('oublier une session déjà oubliée ne prévient personne une seconde fois', async () => {
+    const onSessionLost = jest.fn();
+    const auth = new AuthClient({ httpClient: { request: jest.fn() }, storage: fakeStorage(), onSessionLost });
+    await auth.forgetSession('replaced');
+    expect(onSessionLost).not.toHaveBeenCalled();
+  });
+});

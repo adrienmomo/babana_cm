@@ -99,6 +99,11 @@ class BabanaDriver(models.Model):
         "l'identifiant Odoo interne. Même idée que res.users.babana_public_id (L1-01) et "
         "babana.ride.public_id (L4-03).",
     )
+    # Un appareil par chauffeur (15 novembre) : la famille de jetons ouverte par la dernière
+    # connexion. Un jeton d'accès d'une autre session est refusé (SESSION_REPLACED). Vide tant que
+    # le chauffeur ne s'est pas reconnecté depuis ce changement : ses jetons restent acceptés.
+    active_session_id = fields.Char(readonly=True, copy=False, groups="base.group_system")
+
     state = fields.Selection(
         [
             ("pending", "En attente"),
@@ -819,6 +824,13 @@ class BabanaDriver(models.Model):
         self.write({"state": "rejected", "rejection_reason": reason})
         self.message_post(body=f"Dossier rejeté : {reason}")
         return self
+
+    def _babana_start_session(self, session_id):
+        """Nouvelle session courante (15 novembre) : retenue ici, puis annoncée au service temps
+        réel après le commit, qui ferme la connexion de l'appareil précédent."""
+        self.ensure_one()
+        self.sudo().write({"active_session_id": session_id})
+        realtime_client.notify_driver_session(self.env, driver_public_id=self.public_id, session_id=session_id)
 
     def action_suspend(self, *, reason):
         """is_online passe à faux mécaniquement (write() ci-dessus force is_online=False dès

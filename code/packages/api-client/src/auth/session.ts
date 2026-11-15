@@ -22,8 +22,11 @@ export interface AuthClientConfig {
   /** Appelé après une déconnexion propre déclenchée par un échec de renouvellement (critère
    * d'acceptation 3) -- c'est à l'app de réagir (retour à l'écran de connexion), pas à ce client
    * de connaître la navigation. */
-  onSessionLost?: () => void;
+  onSessionLost?: (reason?: SessionLossReason) => void;
 }
+
+/** `replaced` (15 novembre) : le compte chauffeur s'est connecté sur un autre téléphone. */
+export type SessionLossReason = 'replaced';
 
 function toAuthState(session: http.AuthSession, expiresAt: number): AuthState {
   return {
@@ -128,6 +131,18 @@ export class AuthClient {
     this.config.onSessionLost?.();
   }
 
+  /**
+   * Session fermée par le serveur parce que le compte s'est connecté ailleurs (15 novembre, un
+   * appareil par chauffeur) : effacement local seulement -- ni `/auth/logout` (la famille est déjà
+   * révoquée), ni passage hors ligne (le chauffeur continue sur l'autre téléphone).
+   */
+  async forgetSession(reason: SessionLossReason): Promise<void> {
+    if (!this.state) return;
+    this.state = null;
+    await this.config.storage.clear();
+    this.config.onSessionLost?.(reason);
+  }
+
   /** Déconnexion propre : révocation best-effort côté serveur (un réseau tombé ne doit pas
    * empêcher l'utilisateur de se déconnecter localement), puis effacement local systématique. */
   async logout(): Promise<void> {
@@ -180,6 +195,11 @@ export function withTransparentRefresh(base: HttpClient, auth: AuthClient): Http
       try {
         return await base.request(name, options);
       } catch (error) {
+        if (error instanceof ApiError && error.code === 'SESSION_REPLACED') {
+          // 15 novembre : rien à renouveler, le compte est connecté ailleurs.
+          await auth.forgetSession('replaced');
+          throw error;
+        }
         if (!(error instanceof ApiError) || error.code !== 'TOKEN_EXPIRED') {
           throw error;
         }

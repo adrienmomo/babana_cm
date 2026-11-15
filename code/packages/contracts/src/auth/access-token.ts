@@ -24,6 +24,13 @@ export const AccessTokenClaimsSchema = z
     iat: z.number().int().nonnegative(),
     exp: z.number().int().nonnegative(),
     jti: z.string().uuid(),
+    /**
+     * Session (15 novembre, un appareil par chauffeur) : la famille de jetons de renouvellement
+     * ouverte à la connexion. Un chauffeur n'a qu'une session courante ; un jeton d'une session
+     * remplacée est refusé (`SESSION_REPLACED`). Absent d'un jeton émis avant ce changement, et
+     * d'un jeton client.
+     */
+    sid: z.string().uuid().optional(),
   })
   .refine((claims) => (claims.role === 'driver') === (claims.driverId !== undefined), {
     message: "driverId doit être présent si et seulement si role vaut 'driver'",

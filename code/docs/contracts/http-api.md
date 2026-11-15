@@ -464,6 +464,7 @@ Généré depuis `errors.ts` dans `dist/json-schema/errors.json`. Reproduit ici 
 | `INVALID_GOOGLE_TOKEN` | 401 | ID token Google invalide |
 | `TOKEN_EXPIRED` | 401 | Jeton applicatif expiré |
 | `TOKEN_REVOKED` | 401 | Jeton applicatif révoqué |
+| `SESSION_REPLACED` | 401 | Compte chauffeur connecté sur un autre téléphone : la session de ce téléphone est fermée (15 novembre, un appareil par chauffeur). L'app oublie sa session sans passer hors ligne |
 | `UNAUTHORIZED` | 401 | En-tête Authorization manquant ou malformé |
 | `DRIVER_NOT_APPROVED` | 403 | Compte chauffeur non validé |
 | `PHONE_ALREADY_VERIFIED` | 409 | Numéro déjà rattaché et vérifié |

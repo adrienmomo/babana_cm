@@ -423,6 +423,16 @@ export const SessionSyncedPayloadSchema = z.object({
 export const SessionSyncedMessageSchema = envelopeSchema('session.synced', SessionSyncedPayloadSchema);
 export type SessionSyncedMessage = z.infer<typeof SessionSyncedMessageSchema>;
 
+/**
+ * Destinataire : chauffeur (15 novembre, un appareil par chauffeur). Son compte vient de se
+ * connecter sur un autre téléphone : cette connexion se ferme juste après
+ * (`WS_CLOSE_SESSION_REPLACED`). L'app oublie sa session sans passer hors ligne -- le chauffeur
+ * continue sur l'autre téléphone, course comprise.
+ */
+export const SessionReplacedPayloadSchema = z.object({});
+export const SessionReplacedMessageSchema = envelopeSchema('session.replaced', SessionReplacedPayloadSchema);
+export type SessionReplacedMessage = z.infer<typeof SessionReplacedMessageSchema>;
+
 export const ServerToClientMessageSchema = z.discriminatedUnion('type', [
   ProposalNewMessageSchema,
   ProposalExpiredMessageSchema,
@@ -442,5 +452,6 @@ export const ServerToClientMessageSchema = z.discriminatedUnion('type', [
   RideStartedMessageSchema,
   RideCompletedMessageSchema,
   SessionSyncedMessageSchema,
+  SessionReplacedMessageSchema,
 ]);
 export type ServerToClientMessage = z.infer<typeof ServerToClientMessageSchema>;
