@@ -54,7 +54,14 @@ jest.mock('../../realtime', () => ({
   },
 }));
 
+import { AppState, type AppStateStatus } from 'react-native';
 import { TrackingScreen } from '../TrackingScreen';
+
+let appStateListener: ((state: AppStateStatus) => void) | null = null;
+jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener: (state: AppStateStatus) => void) => {
+  appStateListener = listener;
+  return { remove: () => (appStateListener = null) } as ReturnType<typeof AppState.addEventListener>;
+});
 
 const RIDE_ID = asRideId('ride-1');
 const DRIVER_ID = asDriverId('driver-1');
@@ -736,5 +743,120 @@ describe('6 novembre : annuler avec un motif, et apprendre celui du chauffeur', 
       root.root.findByProps({ testID: 'tracking-cancelled-home' }).props.onPress();
     });
     expect(navigation.reset).toHaveBeenCalledWith({ index: 0, routes: [{ name: 'Home' }] });
+  });
+});
+
+describe('15 novembre : le client revenu sur son suivi apprend que la course est finie', () => {
+  const BREAKDOWN = {
+    baseFare: 200,
+    approachFare: 0,
+    distanceFare: 1000,
+    surgeAmount: 0,
+    discountAmount: 0,
+    floorAmount: 0,
+    roundingAmount: 0,
+    minimumFareApplied: false,
+  };
+
+  beforeEach(() => mockRequest.mockReset());
+
+  it('app remise au premier plan, course terminée pendant l’arrière-plan : le résumé s’ouvre', async () => {
+    mockRequest.mockResolvedValue({
+      outcome: 'completed',
+      rideId: RIDE_ID,
+      distanceMeters: 4200,
+      durationSeconds: 780,
+      measured: true,
+      amount: 1200,
+      breakdown: BREAKDOWN,
+    });
+    const { navigation } = await renderTracking();
+
+    await act(async () => {
+      appStateListener?.('active');
+    });
+
+    expect(mockRequest).toHaveBeenCalledWith('rideOutcome', { pathParams: { id: RIDE_ID } });
+    expect(navigation.replace).toHaveBeenCalledWith('RideSummary', {
+      rideId: RIDE_ID,
+      distanceMeters: 4200,
+      durationSeconds: 780,
+      amount: 1200,
+      breakdown: BREAKDOWN,
+    });
+  });
+
+  it('connexion rétablie, le serveur ne compte plus cette course : l’issue est relue', async () => {
+    mockRequest.mockResolvedValue({ outcome: 'cancelled', rideId: RIDE_ID, cancelledBy: 'driver', reason: 'Panne de moto' });
+    const { root } = await renderTracking();
+
+    await act(async () => {
+      realtimeListener?.({
+        type: 'session.synced',
+        id: 's1',
+        emittedAt: new Date().toISOString(),
+        payload: { activeRideId: null, activeRideState: null, activeProposal: null, rideStateKnown: true, driverOnline: null, serverTime: new Date().toISOString() },
+      });
+    });
+
+    expect(texts(root)).toContain('Votre chauffeur a annulé la course.');
+    expect(texts(root)).toContain('Panne de moto');
+  });
+
+  it('course toujours en cours : rien ne change', async () => {
+    mockRequest.mockResolvedValue({ outcome: 'ongoing', rideId: RIDE_ID, state: 'in_progress' });
+    const { navigation } = await renderTracking();
+    await act(async () => {
+      appStateListener?.('active');
+    });
+    expect(navigation.replace).not.toHaveBeenCalled();
+  });
+
+  it('le message de fin et la relecture arrivent tous deux : un seul résumé', async () => {
+    mockRequest.mockResolvedValue({
+      outcome: 'completed',
+      rideId: RIDE_ID,
+      distanceMeters: null,
+      durationSeconds: null,
+      measured: false,
+      amount: 1200,
+      breakdown: BREAKDOWN,
+    });
+    const { navigation } = await renderTracking();
+    await act(async () => {
+      realtimeListener?.({
+        type: 'ride.completed',
+        id: 'm3',
+        emittedAt: new Date().toISOString(),
+        payload: { rideId: RIDE_ID, distanceMeters: null, durationSeconds: null, measured: false, amount: 1200, breakdown: BREAKDOWN },
+      });
+      appStateListener?.('active');
+    });
+    expect(navigation.replace).toHaveBeenCalledTimes(1);
+  });
+
+  it('retour au premier plan et reconnexion ensemble : une seule relecture', async () => {
+    mockRequest.mockResolvedValue({ outcome: 'ongoing', rideId: RIDE_ID, state: 'in_progress' });
+    await renderTracking();
+    await act(async () => {
+      appStateListener?.('active');
+      realtimeListener?.({
+        type: 'session.synced',
+        id: 's2',
+        emittedAt: new Date().toISOString(),
+        payload: { activeRideId: null, activeRideState: null, activeProposal: null, rideStateKnown: true, driverOnline: null, serverTime: new Date().toISOString() },
+      });
+    });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
+  });
+
+  it('hors connexion : la relecture échoue sans bruit, le suivi reste affiché', async () => {
+    mockRequest.mockRejectedValue(new Error('network'));
+    const { navigation, root } = await renderTracking();
+    await act(async () => {
+      appStateListener?.('active');
+    });
+    expect(navigation.replace).not.toHaveBeenCalled();
+    expect(texts(root)).not.toContain('Votre chauffeur a annulé la course.');
   });
 });

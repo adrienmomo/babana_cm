@@ -206,3 +206,52 @@ class TestRideHistoryController(HttpCase):
         self.assertEqual(response.status_code, 409)
         self.assertEqual(response.json()["error"]["code"], "CLIENT_EMAIL_MISSING")
         send.assert_not_called()
+
+    # --- GET /rides/{id}/outcome (15 novembre) ---------------------------------------------------
+    # Un client en arrière-plan quand le chauffeur termine manquait `ride.completed`, poussé une
+    # seule fois, et restait sur « Course en cours ». Son suivi relit l'issue ici.
+
+    def test_outcome_of_a_finished_ride_is_what_ride_completed_carried(self):
+        token, client = self._client("sub-outcome-completed")
+        ride = self._ride(client, until="completed")
+
+        body = self._get(f"/api/v1/rides/{ride.public_id}/outcome", token).json()
+
+        self.assertEqual(body["outcome"], "completed")
+        self.assertEqual(body["rideId"], ride.public_id)
+        self.assertEqual(body["amount"], 700)
+        # Rien relevé : `null`, jamais la distance de référence (même règle que ride.completed).
+        self.assertEqual((body["measured"], body["distanceMeters"], body["durationSeconds"]), (False, None, None))
+        self.assertEqual(body["breakdown"]["distanceFare"], 420)
+
+    def test_outcome_of_a_settled_ride_is_still_completed(self):
+        token, client = self._client("sub-outcome-settled")
+        ride = self._ride(client)
+        self.assertEqual(self._get(f"/api/v1/rides/{ride.public_id}/outcome", token).json()["outcome"], "completed")
+
+    def test_outcome_of_a_ride_cancelled_by_the_driver_says_who_and_why(self):
+        token, client = self._client("sub-outcome-cancelled")
+        ride = self._ride(client, until="in_progress")
+        ride.action_cancel(actor_role="driver", actor_record=ride.driver_id, reason="Panne de moto")
+
+        body = self._get(f"/api/v1/rides/{ride.public_id}/outcome", token).json()
+
+        self.assertEqual(body, {"outcome": "cancelled", "rideId": ride.public_id, "cancelledBy": "driver", "reason": "Panne de moto"})
+
+    def test_outcome_of_a_ride_still_running_is_ongoing(self):
+        token, client = self._client("sub-outcome-ongoing")
+        ride = self._ride(client, until="in_progress")
+
+        body = self._get(f"/api/v1/rides/{ride.public_id}/outcome", token).json()
+
+        self.assertEqual(body, {"outcome": "ongoing", "rideId": ride.public_id, "state": "in_progress"})
+
+    def test_outcome_of_someone_elses_ride_is_not_found(self):
+        _token, client = self._client("sub-outcome-owner")
+        ride = self._ride(client, until="completed")
+        stranger_token, _stranger = self._client("sub-outcome-stranger")
+
+        response = self._get(f"/api/v1/rides/{ride.public_id}/outcome", stranger_token)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.json()["error"]["code"], "RIDE_NOT_FOUND")

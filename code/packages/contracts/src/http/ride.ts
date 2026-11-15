@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { LatLngSchema, MoneyAmountSchema, RideIdSchema, DriverIdSchema, IsoDateTimeSchema } from './common';
+import { FareBreakdownSchema } from './quote';
 
 /**
  * Cycle de vie de la course. Chaque endpoint correspond à une ou plusieurs transitions de
@@ -305,4 +306,55 @@ export const rateClientRequestExample: RateClientRequest = { rating: 4 };
 export const rateClientResponseExample: RateClientResponse = {
   rideId: '11111111-2222-4333-8444-555555555555',
   rating: 4,
+};
+
+/**
+ * GET /rides/{id}/outcome (15 novembre)
+ * Où en est la course, relu par le client qui revient sur son suivi (app remise au premier plan,
+ * connexion rétablie). `ride.completed` et `ride.cancelled` ne sont poussés qu'une fois : un
+ * client en arrière-plan à ce moment-là restait sur « Course en cours ». Lecture seule.
+ *
+ * `completed` porte exactement ce que `ride.completed` aurait porté (même relevé, même détail
+ * gelé) ; `cancelled`, ce que `ride.cancelled` aurait porté. `ongoing` : rien de terminal, le
+ * suivi continue. Visible du seul client de la course.
+ */
+export const RideOutcomeResponseSchema = z.discriminatedUnion('outcome', [
+  z.object({ outcome: z.literal('ongoing'), rideId: RideIdSchema, state: RideStateSchema }),
+  z.object({
+    outcome: z.literal('completed'),
+    rideId: RideIdSchema,
+    distanceMeters: z.number().int().nonnegative().nullable(),
+    durationSeconds: z.number().int().nonnegative().nullable(),
+    measured: z.boolean(),
+    amount: MoneyAmountSchema,
+    breakdown: FareBreakdownSchema,
+  }),
+  z.object({
+    outcome: z.literal('cancelled'),
+    rideId: RideIdSchema,
+    cancelledBy: z.enum(['client', 'driver', 'supervisor']),
+    reason: z.string().max(280).optional(),
+  }),
+]);
+export type RideOutcomeResponse = z.infer<typeof RideOutcomeResponseSchema>;
+
+export const RideOutcomeErrors = ['RIDE_NOT_FOUND'] as const;
+
+export const rideOutcomeResponseExample: RideOutcomeResponse = {
+  outcome: 'completed',
+  rideId: '11111111-2222-4333-8444-555555555555',
+  distanceMeters: 4200,
+  durationSeconds: 840,
+  measured: true,
+  amount: 1200,
+  breakdown: {
+    baseFare: 300,
+    approachFare: 100,
+    distanceFare: 800,
+    surgeAmount: 0,
+    discountAmount: 0,
+    floorAmount: 0,
+    roundingAmount: 0,
+    minimumFareApplied: false,
+  },
 };

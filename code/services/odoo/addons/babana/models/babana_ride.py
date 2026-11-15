@@ -199,6 +199,14 @@ class BabanaRide(models.Model):
     cancelled_at = fields.Datetime()
     cancel_reason = fields.Text()
     cancelled_by_user_id = fields.Many2one("res.users", copy=False, ondelete="set null")
+    # Qui a annulé (15 novembre) : relu par `GET /rides/{id}/outcome`, pour qu'un client revenu
+    # sur son suivi lise le même « annulée par le chauffeur » que `ride.cancelled` lui aurait dit.
+    # Écrit par la transition d'annulation, jamais ailleurs (invariant 2).
+    cancelled_by_role = fields.Selection(
+        [("client", "Client"), ("driver", "Chauffeur"), ("supervisor", "Superviseur")],
+        copy=False,
+        readonly=True,
+    )
 
     # --- Refus ---------------------------------------------------------------------------------
     rejection_ids = fields.One2many("babana.ride.rejection", "ride_id", string="Refus")

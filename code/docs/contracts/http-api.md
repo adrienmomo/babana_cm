@@ -434,6 +434,19 @@ Le détail est celui gelé à la commande, jamais recalculé depuis la grille ac
 
 Même chemin d'envoi que l'envoi automatique à l'encaissement et le bouton du back-office (D57).
 
+### `GET /rides/{id}/outcome`
+
+- Réponse, selon `outcome` :
+  - `{ outcome: "ongoing", rideId, state }` — rien de terminal, le suivi continue
+  - `{ outcome: "completed", rideId, distanceMeters, durationSeconds, measured, amount, breakdown }` —
+    exactement ce que `ride.completed` a porté (`completed` ou `settled`)
+  - `{ outcome: "cancelled", rideId, cancelledBy, reason? }` — ce que `ride.cancelled` a porté
+- Erreurs : `RIDE_NOT_FOUND` (course inconnue, ou pas celle de ce client)
+
+Lecture seule (15 novembre). `ride.completed` et `ride.cancelled` ne sont poussés qu'une fois ; un
+client en arrière-plan à ce moment-là restait sur « Course en cours ». L'écran de suivi relit cette
+route quand l'app revient au premier plan et à chaque connexion rétablie.
+
 ---
 
 ## Catalogue d'erreurs

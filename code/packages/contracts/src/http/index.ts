@@ -344,6 +344,16 @@ export const HTTP_ENDPOINTS = {
     requestExample: history.driverRideHistoryRequestExample,
     responseExample: history.driverRideHistoryResponseExample,
   },
+  rideOutcome: {
+    method: 'GET',
+    path: '/api/v1/rides/{id}/outcome',
+    requiresAuth: true,
+    requestSchema: null,
+    responseSchema: ride.RideOutcomeResponseSchema,
+    errors: ride.RideOutcomeErrors,
+    requestExample: null,
+    responseExample: ride.rideOutcomeResponseExample,
+  },
   rideInvoice: {
     method: 'GET',
     path: '/api/v1/rides/{id}/invoice',

@@ -170,6 +170,50 @@ class RideHistoryController(http.Controller):
             "nextCursor": next_cursor,
         }, 200
 
+    # --- GET /rides/{id}/outcome (rideOutcome, 15 novembre) ----------------------------------
+
+    @http.route("/api/v1/rides/<string:ride_id>/outcome", **_GET_ROUTE)
+    def ride_outcome(self, ride_id, **_kwargs):
+        return self._run("GET /api/v1/rides/{id}/outcome", self._ride_outcome, ride_id)
+
+    def _ride_outcome(self, ride_id):
+        """Où en est la course, pour le client qui revient sur son suivi. `ride.completed` et
+        `ride.cancelled` ne sont poussés qu'une fois : relu ici, le même contenu, depuis ce
+        qu'Odoo a écrit -- jamais recalculé. Lecture seule."""
+        env, user = _common.authenticated_user()
+        ride = env["babana.ride"].with_user(user).search(
+            [("public_id", "=", ride_id), ("client_id", "=", user.partner_id.id)], limit=1
+        )
+        if not ride:
+            return _common.error_payload("RIDE_NOT_FOUND", "course inconnue"), 404
+        # sudo() ciblé : l'appartenance vient d'être établie au nom du client.
+        ride = ride.sudo()
+        if ride.state in ("completed", "settled"):
+            measured = bool(ride.trip_measured)
+            return {
+                "outcome": "completed",
+                "rideId": ride.public_id,
+                # Même règle que `ride.completed` : `null` quand rien n'a été relevé, jamais la
+                # distance de référence (J24).
+                "distanceMeters": round(ride.actual_distance_km * 1000) if measured else None,
+                "durationSeconds": round(ride.actual_duration_minutes * 60) if measured else None,
+                "measured": measured,
+                "amount": _amount(ride),
+                "breakdown": _wire_breakdown(ride),
+            }, 200
+        if ride.state == "cancelled":
+            payload = {
+                "outcome": "cancelled",
+                "rideId": ride.public_id,
+                # Course annulée avant que la transition n'enregistre son auteur : le superviseur
+                # est le seul acteur qui ne soit ni l'un ni l'autre des deux participants.
+                "cancelledBy": ride.cancelled_by_role or "supervisor",
+            }
+            if ride.cancel_reason:
+                payload["reason"] = ride.cancel_reason[:280]
+            return payload, 200
+        return {"outcome": "ongoing", "rideId": ride.public_id, "state": ride.state}, 200
+
     # --- GET /rides/{id}/invoice (rideInvoice) -------------------------------------------------
 
     def _invoiced_ride(self, env, user, ride_id):
