@@ -61,16 +61,17 @@ réel en commentaire au-dessus de son schéma.
 | `availability.set` | Chauffeur | `{ online }` | Bascule en ligne / hors ligne (D7) |
 | `proposal.accept` | Chauffeur | `{ rideId }` | Transition `proposed → assigned` |
 | `proposal.reject` | Chauffeur | `{ rideId, reason? }` | Transition `proposed → rejected` |
-| `nearby.subscribe` | Client | `{ position, radiusMeters, excludeDriverIds }` | S'abonne à `nearby.drivers` |
+| `nearby.subscribe` | Client | `{ position, radiusMeters?, excludeDriverIds }` | S'abonne à `nearby.drivers` |
 | `nearby.unsubscribe` | Client | `{}` | Se désabonne |
 | `route.share` | Chauffeur | `{ rideId, phase, points, distanceMeters, durationSeconds }` | Partage le tracé affiché sur la carte du chauffeur. Aucune écriture Odoo ; ignoré si l'émetteur n'est pas le chauffeur engagé sur `rideId` |
 | `chat.send` | Chauffeur ou client de la course | `{ rideId, code }` | Message rapide (`QuickMessageCode`, préfixe `driver_`/`client_` conforme au rôle). Aucune écriture Odoo, jamais mis en file, jamais rejoué |
 | `ride.track` | Client | `{ rideId }` | S'abonne au suivi d'une course affectée ou en cours |
 | `session.resync` | Client ou chauffeur | `{ lastKnownRideId }` | Voir « Politique de reconnexion » |
 
-`radiusMeters` de `nearby.subscribe` est borné à 50 km dans le schéma — un garde-fou anti-abus
-au niveau du contrat, pas la valeur métier du rayon de recherche réel, qui reste configurable
-côté service temps réel (invariant 5).
+`radiusMeters` de `nearby.subscribe` est facultatif depuis le 15 novembre : l'app Client ne
+l'envoie plus, et le serveur applique son rayon, `NEARBY_MAX_RADIUS_METERS` (3 km par défaut, 5 km
+avant). Un rayon envoyé reste borné par cette même valeur, et à 50 km dans le schéma — un garde-fou
+anti-abus au niveau du contrat. Au plus 5 chauffeurs, anonymes (D80).
 
 `excludeDriverIds` (défaut `[]`, L3-08, 24 août) porte les chauffeurs déjà refusés sur la course
 en cours, au sens où le client les a déjà vus refuser via un `ride.rejected` précédent — pas une

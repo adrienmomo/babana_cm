@@ -175,7 +175,11 @@ export type ChatSendMessage = z.infer<typeof ChatSendMessageSchema>;
  */
 export const NearbySubscribePayloadSchema = z.object({
   position: LatLngSchema,
-  radiusMeters: z.number().positive().max(50_000),
+  /**
+   * Absent (15 novembre, ce que l'app Client envoie désormais) : le rayon du serveur
+   * (`NEARBY_MAX_RADIUS_METERS`, 3 km). Présent : borné par ce même rayon -- jamais élargi.
+   */
+  radiusMeters: z.number().positive().max(50_000).optional(),
   excludeDriverIds: z.array(DriverIdSchema).max(50).default([]),
 });
 export const NearbySubscribeMessageSchema = envelopeSchema('nearby.subscribe', NearbySubscribePayloadSchema);

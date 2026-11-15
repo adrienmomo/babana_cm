@@ -273,6 +273,8 @@ describe('HomeScreen (L6-06)', () => {
     const root = await renderHome();
     expect(mockEnsureConnected).toHaveBeenCalled();
     expect(mockSend).toHaveBeenCalledWith('nearby.subscribe', expect.objectContaining({ position: DOUALA }));
+    // 15 novembre : le rayon est celui du serveur, l'app n'en choisit plus.
+    expect(mockSend.mock.calls.find(([type]) => type === 'nearby.subscribe')![1]).not.toHaveProperty('radiusMeters');
 
     await act(async () => {
       emitNearbyDrivers([driver({ position: { latitude: 4.061, longitude: 9.711 } })]);

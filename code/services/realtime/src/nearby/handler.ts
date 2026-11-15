@@ -80,7 +80,7 @@ export class NearbyManager {
     // Rayon plafonné (critère 1), quelle que soit la valeur demandée -- C2b. Le schéma C-02
     // borne déjà radiusMeters à 50 km (garde-fou anti-abus au niveau du contrat) ; celui-ci est
     // la valeur métier réelle, configurable côté service (invariant 5).
-    const radiusMeters = Math.min(payload.radiusMeters, this.config.NEARBY_MAX_RADIUS_METERS);
+    const radiusMeters = Math.min(payload.radiusMeters ?? this.config.NEARBY_MAX_RADIUS_METERS, this.config.NEARBY_MAX_RADIUS_METERS);
     const origin = payload.position;
     // Refusants de cette course (L3-08, 24 août) : le client les rappelle depuis les
     // ride.rejected déjà reçus (L6-08) -- vide sur un abonnement de simple découverte.

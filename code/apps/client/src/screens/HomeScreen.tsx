@@ -24,12 +24,6 @@ import { useKeepScreenAwake } from '../keepAwake';
 // nearbyDriversQueryExample (@babana/contracts), pas une valeur inventée pour cet écran.
 const DOUALA_DEFAULT_CENTER: LatLng = { latitude: 4.0511, longitude: 9.7679 };
 
-// Rayon de la première demande de chauffeurs proches -- le serveur le plafonne de toute façon
-// (L3-05, critère 1) ; valeur choisie pour une ville comme Douala, pas une constante du contrat.
-// Choix d'implémentation non spécifié, à ajuster si L6-17 (mesure batterie/données) le juge trop
-// large.
-const NEARBY_SUBSCRIBE_RADIUS_METERS = 5000;
-
 type ActiveSlot = 'departure' | 'arrival';
 
 type Props = NativeStackScreenProps<ClientParamList, 'Home'>;
@@ -133,7 +127,7 @@ export function HomeScreen({ navigation }: Props) {
     // donc aucun refusant -- une liste vide est aussi le signal qui garde cette découverte libre
     // strictement bornée par NEARBY_MAX_RADIUS_METERS côté service, jamais élargie (C2b).
     const subscribe = () =>
-      realtimeClient.send('nearby.subscribe', { position: center, radiusMeters: NEARBY_SUBSCRIBE_RADIUS_METERS, excludeDriverIds: [] });
+      realtimeClient.send('nearby.subscribe', { position: center, excludeDriverIds: [] });
     subscribe();
 
     // Surveillance de silence (L3-20) : par abonnement, pas par connexion (D47) -- un battement
