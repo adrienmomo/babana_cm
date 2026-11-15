@@ -59,3 +59,4 @@ from . import test_rating
 from . import test_client_rating
 from . import test_driver_selfie
 from . import test_driver_wallet
+from . import test_client_push

@@ -1,6 +1,6 @@
 COMPOSE = docker compose -f infra/compose.yaml -f infra/compose.dev.yaml --env-file infra/env/.env
 
-.PHONY: up down logs reset seed seed-drivers client client-app client-web driver test lint typecheck verify secrets-scan
+.PHONY: up down logs reset seed seed-drivers client client-app client-web driver test lint typecheck verify secrets-scan firebase-config
 
 up:              ## Démarre tous les services et attend qu'ils soient sains
 	@test -f infra/env/.env || cp infra/env/.env.example infra/env/.env
@@ -139,6 +139,9 @@ typecheck:       ## tsc --noEmit sur tout l'arbre (définition de fini, CLAUDE.m
 
 verify:          ## Vérifications d'infrastructure après `make up` (L0-01, critères 2/5/6)
 	sh infra/smoke-test.sh
+
+firebase-config: ## Génère les google-services.json des deux apps depuis le projet Firebase (code/docs/firebase.md)
+	sh infra/scripts/firebase-config.sh
 
 secrets-scan:    ## Recherche automatisée de secrets (L0-01, critère 4 ; invariant 5)
 	sh tools/secret-scan/scan.sh

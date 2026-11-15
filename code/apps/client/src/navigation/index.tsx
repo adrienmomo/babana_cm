@@ -23,6 +23,7 @@ import { flushPendingResume, startRideResume, type ResumeNavigation } from '../r
 import type { AuthParamList, ClientParamList } from './types';
 import { SCREEN_TITLES } from './titles';
 import { useNavigationTheme } from '../appearance';
+import { pushRegistrar } from '../push';
 
 const AuthStack = createNativeStackNavigator<AuthParamList>();
 const ClientStack = createNativeStackNavigator<ClientParamList>();
@@ -57,6 +58,12 @@ export const navigationRef = createNavigationContainerRef<ClientParamList>();
  */
 function useSession() {
   const [session, setSession] = useState<SessionState<AuthUser>>({ status: 'loading' });
+
+  // 15 novembre : le jeton d'appareil Firebase est enregistré à chaque session établie (restaurée
+  // ou nouvelle) -- notifications push, code/docs/firebase.md. Ne bloque jamais l'écran.
+  useEffect(() => {
+    if (session.status === 'authenticated') pushRegistrar.register().catch(() => undefined);
+  }, [session.status]);
 
   useEffect(() => {
     bootstrap();

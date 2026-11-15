@@ -27,6 +27,7 @@ import { navigationRef } from './ref';
 import type { AuthParamList, DriverParamList, DriverOnboardingParamList } from './types';
 import { makeStyles } from '../theme';
 import { useNavigationTheme } from '../appearance';
+import { pushRegistrar } from '../push/firebase';
 
 // Réexporté d'ici : posé à l'origine dans ce module, `navigation/__tests__/AppNavigator.test.tsx`
 // et d'anciens imports le prennent encore ici. La définition vit dans `./ref` (voir ce fichier).
@@ -44,6 +45,12 @@ const OnboardingStack = createNativeStackNavigator<DriverOnboardingParamList>();
  */
 function useSession() {
   const [session, setSession] = useState<SessionState<AuthUser>>({ status: 'loading' });
+
+  // 15 novembre : le jeton d'appareil Firebase est enregistré à chaque session établie (restaurée
+  // ou nouvelle) -- notifications push, code/docs/firebase.md. Ne bloque jamais l'écran.
+  useEffect(() => {
+    if (session.status === 'authenticated') pushRegistrar.register().catch(() => undefined);
+  }, [session.status]);
 
   useEffect(() => {
     bootstrap();

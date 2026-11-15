@@ -15,6 +15,9 @@ buildscript {
         classpath("com.android.tools.build:gradle")
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin")
+        // Notifications push (15 novembre) : lit app/google-services.json, généré par
+        // `make firebase-config` (code/docs/firebase.md), jamais versionné.
+        classpath("com.google.gms:google-services:4.4.2")
     }
 }
 

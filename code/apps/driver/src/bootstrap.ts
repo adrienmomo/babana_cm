@@ -5,6 +5,7 @@ import { locationTracker } from './location';
 import { startProposalWatch } from './proposalWatch';
 import { startSessionReplacedWatch } from './sessionReplaced';
 import { startFloatingBubble } from './floatingBubble';
+import { routeOpenedNotifications } from './push/firebase';
 
 /**
  * Point d'accroche unique et nommé pour toute configuration à effectuer une seule fois, au tout
@@ -26,5 +27,6 @@ export function bootstrap(): void {
   startProposalWatch();
   startSessionReplacedWatch();
   startFloatingBubble();
+  routeOpenedNotifications();
   bootstrapped = true;
 }
