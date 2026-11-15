@@ -45,7 +45,7 @@ after(async () => {
   redis.disconnect();
 });
 
-const driverContext: ConnectionContext = Object.freeze({ userId: `privacy-user-${RUN_ID}`, role: 'driver', driverId });
+const driverContext: ConnectionContext = Object.freeze({ userId: `privacy-user-${RUN_ID}`, role: 'driver', driverId, sessionId: null });
 
 let step = 0;
 async function sendPosition(): Promise<void> {
@@ -85,8 +85,8 @@ describe('Un chauffeur en course n’est visible que du client de sa course (14 
     assert.equal(await visibleOnHomeMaps(), true, 'disponible et positionné : visible');
 
     const rideId = randomUUID();
-    const owner: ConnectionContext = Object.freeze({ userId: `privacy-owner-${RUN_ID}`, role: 'client', driverId: null });
-    const stranger: ConnectionContext = Object.freeze({ userId: `privacy-stranger-${RUN_ID}`, role: 'client', driverId: null });
+    const owner: ConnectionContext = Object.freeze({ userId: `privacy-owner-${RUN_ID}`, role: 'client', driverId: null, sessionId: null });
+    const stranger: ConnectionContext = Object.freeze({ userId: `privacy-stranger-${RUN_ID}`, role: 'client', driverId: null, sessionId: null });
     assert.equal((await reserveDriver(redis, driverId, 30)).reserved, true);
     await startRideSession(redis, rideId, { clientUserId: owner.userId, driverId, origin: SPOT });
 

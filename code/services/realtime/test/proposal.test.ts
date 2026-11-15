@@ -75,11 +75,11 @@ async function availableDriver(label: string): Promise<string> {
 }
 
 function driverContext(driverId: string): ConnectionContext {
-  return Object.freeze({ userId: `user-${driverId}`, role: 'driver', driverId });
+  return Object.freeze({ userId: `user-${driverId}`, role: 'driver', driverId, sessionId: null });
 }
 
 function clientContext(userId: string): ConnectionContext {
-  return Object.freeze({ userId, role: 'client', driverId: null });
+  return Object.freeze({ userId, role: 'client', driverId: null, sessionId: null });
 }
 
 /** Faux WebSocket : ProposalLifecycle ne lit que `readyState`/`OPEN` et écrit via `send`, aucune
