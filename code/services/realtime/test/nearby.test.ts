@@ -101,7 +101,7 @@ function isAt(driver: WireDriver, driverId: string): boolean {
 }
 
 function clientContext(label: string): ConnectionContext {
-  return Object.freeze({ userId: id(label), role: 'client', driverId: null });
+  return Object.freeze({ userId: id(label), role: 'client', driverId: null, sessionId: null });
 }
 
 type FakeMessage =
