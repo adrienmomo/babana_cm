@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Button } from '@babana/ui';
+import { Button, makeStyles, TextField } from '@babana/ui';
 import { ApiError, translateApiError } from '@babana/api-client';
 import { offlineRunner } from '../offline';
 import { visibleFareLines } from '../components/fareBreakdown';
@@ -49,6 +49,7 @@ function formatTripMeta(distanceMeters: number | null, durationSeconds: number |
 }
 
 export function RideSummaryScreen({ route, navigation }: Props) {
+  const styles = useStyles();
   const { rideId, distanceMeters, durationSeconds, amount, breakdown } = route.params;
 
   const [rating, setRating] = useState<number | null>(null);
@@ -149,7 +150,7 @@ export function RideSummaryScreen({ route, navigation }: Props) {
           </View>
         ) : (
           <>
-            <TextInput
+            <TextField
               testID="rating-comment"
               style={styles.commentInput}
               placeholder="Un commentaire (optionnel)"
@@ -177,7 +178,7 @@ export function RideSummaryScreen({ route, navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     flex: 1,
   },
@@ -189,13 +190,14 @@ const styles = StyleSheet.create({
     gap: 8,
     padding: 16,
     borderRadius: 12,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: c.surfaceMuted,
   },
   payment: {
-    color: '#374151',
+    color: c.inkSoft,
     fontWeight: '600',
   },
   amount: {
+    color: c.ink,
     fontSize: 32,
     fontWeight: '700',
   },
@@ -207,23 +209,24 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   breakdownLabel: {
-    color: '#374151',
+    color: c.inkSoft,
   },
   breakdownValue: {
-    color: '#374151',
+    color: c.inkSoft,
     fontVariant: ['tabular-nums'],
   },
   tripMeta: {
-    color: '#6B7280',
+    color: c.muted,
   },
   ratingBox: {
     gap: 12,
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: c.border,
   },
   ratingTitle: {
+    color: c.ink,
     fontWeight: '600',
   },
   stars: {
@@ -232,28 +235,28 @@ const styles = StyleSheet.create({
   },
   star: {
     fontSize: 32,
-    color: '#D1D5DB',
+    color: c.borderStrong,
   },
   starFilled: {
-    color: '#F59E0B',
+    color: c.warning,
   },
   commentInput: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: c.borderStrong,
     borderRadius: 8,
     padding: 8,
     minHeight: 60,
     textAlignVertical: 'top',
   },
   errorText: {
-    color: '#B91C1C',
+    color: c.dangerText,
   },
   thanksText: {
-    color: '#0A7D3D',
+    color: c.brand,
     fontWeight: '600',
   },
   queuedText: {
-    color: '#92400E',
+    color: c.warningText,
     marginBottom: 8,
   },
-});
+}));

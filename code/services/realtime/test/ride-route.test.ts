@@ -68,8 +68,8 @@ async function engagedRide(label: string) {
   await startRideSession(redis, rideId, { clientUserId, driverId, origin: ORIGIN });
 
   const registry = new ConnectionRegistry();
-  const driverContext: ConnectionContext = Object.freeze({ userId: id(`${label}-driver-user`), role: 'driver', driverId });
-  const clientContext: ConnectionContext = Object.freeze({ userId: clientUserId, role: 'client', driverId: null });
+  const driverContext: ConnectionContext = Object.freeze({ userId: id(`${label}-driver-user`), role: 'driver', driverId, sessionId: null });
+  const clientContext: ConnectionContext = Object.freeze({ userId: clientUserId, role: 'client', driverId: null, sessionId: null });
   const driver = fakeSocket();
   const client = fakeSocket();
   registry.add(driverContext, driver.socket);
@@ -92,7 +92,7 @@ describe('route.share -- le tracé du chauffeur arrive au client, à l’identiq
 
   test('un chauffeur qui n’est pas celui de la course est ignoré (rideId forgé)', async () => {
     const ride = await engagedRide('forged');
-    const other: ConnectionContext = Object.freeze({ userId: id('forged-other-user'), role: 'driver', driverId: id('forged-other') });
+    const other: ConnectionContext = Object.freeze({ userId: id('forged-other-user'), role: 'driver', driverId: id('forged-other'), sessionId: null });
     await ride.relay.share(other, routePayload(ride.rideId));
     assert.equal(ride.client.messages.length, 0);
     assert.equal(await redis.get(`babana:ride:route:${ride.rideId}`), null);
@@ -183,9 +183,9 @@ describe('chat.send -- messages rapides entre les deux participants', () => {
 
   test('un tiers (ni le chauffeur ni le client de la course) est ignoré', async () => {
     const ride = await engagedRide('chat-third');
-    const stranger: ConnectionContext = Object.freeze({ userId: id('chat-stranger'), role: 'client', driverId: null });
+    const stranger: ConnectionContext = Object.freeze({ userId: id('chat-stranger'), role: 'client', driverId: null, sessionId: null });
     await ride.relay.chat(stranger, { rideId: ride.rideId, code: 'client_coming' });
-    const otherDriver: ConnectionContext = Object.freeze({ userId: id('chat-od-user'), role: 'driver', driverId: id('chat-od') });
+    const otherDriver: ConnectionContext = Object.freeze({ userId: id('chat-od-user'), role: 'driver', driverId: id('chat-od'), sessionId: null });
     await ride.relay.chat(otherDriver, { rideId: ride.rideId, code: 'driver_outside' });
     assert.equal(ride.driver.messages.length, 0);
     assert.equal(ride.client.messages.length, 0);

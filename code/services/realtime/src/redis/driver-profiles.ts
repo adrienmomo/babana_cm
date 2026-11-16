@@ -20,6 +20,9 @@ import { fetchDriverProfiles } from '../odoo/driver-profiles';
 
 export interface DriverProfile {
   firstName: string | null;
+  /** 15 novembre : absent d'un profil mis en cache avant ce changement. Jamais lu par
+   * `nearby/projection.ts` (C2b) -- seulement par `ride.assigned` et la reprise du client. */
+  lastName?: string | null;
   photoUrl: string | null;
   rating: number | null;
   motorcycleClass: 'standard' | 'premium' | null;

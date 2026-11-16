@@ -5,7 +5,10 @@ import type { realtime } from '@babana/contracts';
  * chauffeurs à choisir : avant l'affectation, les chauffeurs proches ne sont que des points.
  */
 
-export const GENERIC_AVATAR = 'https://storage.babana.cm/static/driver-avatar-generic.png';
+/** « Emmanuel Ndoumbè » : prénom et nom (15 novembre) ; à défaut, ce qui est connu. */
+export function driverDisplayName(driver: { firstName: string | null; lastName?: string | null }): string {
+  return [driver.firstName, driver.lastName].filter((part): part is string => Boolean(part)).join(' ') || 'Votre chauffeur';
+}
 
 export function classLabel(motorcycleClass: realtime.RideAssignedMessage['payload']['motorcycleClass']): string | null {
   if (motorcycleClass === null) return null;

@@ -25,6 +25,7 @@ interface GoogleMap {
   getCenter(): { lat(): number; lng(): number } | undefined;
   addListener(eventName: string, handler: () => void): GoogleMapsEventListener;
   setCenter(position: GoogleLatLngLiteral): void;
+  setOptions(options: { styles: unknown[] | null }): void;
 }
 
 interface GoogleMarkerOptions {

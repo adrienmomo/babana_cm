@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { fetchRoute, reverseGeocode, type LatLng, type MapRoute } from '@babana/maps';
 import { ApiError, QUICK_MESSAGE_LABELS, quickMessagesFor, translateApiError } from '@babana/api-client';
 import { CancelRideSheet, MessageBubble, QuickMessageChips } from '@babana/ui';
@@ -15,7 +15,7 @@ import { onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } fr
 import { formatDistance } from '../format';
 import { distanceToRouteMeters, isWithinRadius, remainingRouteFraction } from './proximity';
 import type { ActiveRideParams } from '../navigation/types';
-import { buttonLabels, buttons, cards, colors } from '../theme';
+import { cardsOf, makeStyles, useButtonLabels, useButtons } from '../theme';
 
 /**
  * Course en cours, côté chauffeur (L6-13, D12) -- un panneau posé sur la carte de Home, qui ne la
@@ -145,6 +145,9 @@ function formatTripSummary(route: SharedRoute | null, position: LatLng | null): 
 }
 
 export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle, onEnded, resume }: ActiveRidePanelProps) {
+  const buttonLabels = useButtonLabels();
+  const buttons = useButtons();
+  const styles = useStyles();
   const { rideId, origin, destination, amount, clientPhoneNumber } = ride;
 
   const [stage, setStage] = useState<RideStage>(resume?.stage ?? 'approach');
@@ -192,7 +195,10 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
   const lastRouteFailureAtRef = useRef<number | null>(null);
   const mountedRef = useRef(true);
 
-  const phase: 'approach' | 'transit' = stage === 'transit' ? 'transit' : 'approach';
+  // Tracé de la phase : vers le client à l'approche ; vers la destination dès « Sur place » (15
+  // novembre) -- le client voit le trajet qui l'attend pendant que le chauffeur l'attend, au lieu
+  // du chemin d'approche déjà parcouru.
+  const phase: 'approach' | 'transit' = stage === 'approach' ? 'approach' : 'transit';
 
   // `arrivedAtMs` est une heure de CE téléphone : jamais l'heure du serveur comparée à l'horloge
   // locale (deux horloges qui dérivent -- l'attente afficherait 0:00 ou un délai déjà écoulé).
@@ -255,24 +261,24 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
   );
 
   // Itinéraire de la phase courante : vers le client pendant l'approche (depuis la position du
-  // chauffeur, donc dès qu'elle est connue), vers la destination au trajet (depuis la position, ou
-  // à défaut le point de prise en charge). Recalculé quand le chauffeur s'écarte du tracé
-  // (`routeDeviationMeters`) ou que le tracé vieillit (`routeRefreshMs`) -- jamais en attente sur
-  // place. Un échec réessaie à la position suivante, après `routeRetryCooldownMs`.
+  // chauffeur, donc dès qu'elle est connue), vers la destination sur place (depuis le point de prise
+  // en charge) et au trajet (depuis la position, ou à défaut le point de prise en charge).
+  // Recalculé quand le chauffeur s'écarte du tracé (`routeDeviationMeters`) ou que le tracé
+  // vieillit (`routeRefreshMs`) -- jamais en attente sur place : un seul calcul à l'arrivée. Un
+  // échec réessaie à la position suivante, après `routeRetryCooldownMs`.
   useEffect(() => {
-    if (stage === 'arrived') return;
     if (inFlightPhaseRef.current === phase) return;
     const lastFailure = lastRouteFailureAtRef.current;
     if (lastFailure !== null && Date.now() - lastFailure < settings.routeRetryCooldownMs) return;
 
     const current = routeRef.current && routeRef.current.phase === phase ? routeRef.current : null;
     if (current) {
-      if (!position) return;
+      if (stage === 'arrived' || !position) return;
       const offRoute = distanceToRouteMeters(position, current.points) > settings.routeDeviationMeters;
       const stale = routeFetchedAtRef.current !== null && Date.now() - routeFetchedAtRef.current >= settings.routeRefreshMs;
       if (!offRoute && !stale) return;
     }
-    const start = phase === 'approach' ? position : (position ?? origin);
+    const start = phase === 'approach' ? position : stage === 'arrived' ? origin : (position ?? origin);
     if (!start) return;
 
     inFlightPhaseRef.current = phase;
@@ -285,7 +291,7 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
         return;
       }
       // Phase dépassée pendant l'attente (« Commencer » glissé entre-temps) : ce tracé est périmé.
-      const nowPhase = stageRef.current === 'transit' ? 'transit' : 'approach';
+      const nowPhase = stageRef.current === 'approach' ? 'approach' : 'transit';
       if (nowPhase !== phase) return;
       lastRouteFailureAtRef.current = null;
       const shared: SharedRoute = { phase, ...result };
@@ -682,7 +688,7 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   overlay: {
     position: 'absolute',
     top: 0,
@@ -698,12 +704,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   card: {
-    ...cards.floating,
+    ...cardsOf(c).floating,
     gap: 3,
     padding: 16,
   },
   messagesTray: {
-    ...cards.floating,
+    ...cardsOf(c).floating,
     position: 'absolute',
     left: 16,
     right: 16,
@@ -713,21 +719,21 @@ const styles = StyleSheet.create({
   phaseTitle: {
     fontSize: 18,
     fontWeight: '700',
-    color: colors.ink,
+    color: c.ink,
   },
   summary: {
-    color: colors.route,
+    color: c.route,
     fontWeight: '600',
   },
   pointText: {
-    color: colors.inkSoft,
+    color: c.inkSoft,
   },
   pickupNote: {
-    color: colors.ink,
+    color: c.ink,
     fontWeight: '600',
   },
   waiting: {
-    color: colors.warningText,
+    color: c.warningText,
     fontWeight: '700',
   },
   noShowRow: {
@@ -737,7 +743,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   error: {
-    color: colors.dangerText,
+    color: c.dangerText,
   },
   emergencyCorner: {
     position: 'absolute',
@@ -758,18 +764,18 @@ const styles = StyleSheet.create({
     bottom: 28,
   },
   finishQueued: {
-    ...cards.floating,
+    ...cardsOf(c).floating,
     gap: 8,
     alignItems: 'center',
-    backgroundColor: colors.warningSoft,
+    backgroundColor: c.warningSoft,
     padding: 14,
   },
   finishQueuedText: {
-    color: colors.warningText,
+    color: c.warningText,
     textAlign: 'center',
   },
   finishQueuedRetry: {
-    color: colors.warningText,
+    color: c.warningText,
     fontWeight: '700',
     textDecorationLine: 'underline',
   },
@@ -780,17 +786,17 @@ const styles = StyleSheet.create({
     right: 16,
   },
   endedBanner: {
-    backgroundColor: colors.warningSoft,
+    backgroundColor: c.warningSoft,
   },
   endedText: {
-    color: colors.warningText,
+    color: c.warningText,
     fontSize: 16,
     textAlign: 'center',
   },
   endedReason: {
     marginTop: 6,
     fontSize: 15,
-    color: '#374151',
+    color: c.inkSoft,
     textAlign: 'center',
   },
-});
+}));

@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Modal, Pressable, Text, View } from 'react-native';
+import { makeStyles, TextField } from './theme';
 
 /**
  * Annuler une course en disant pourquoi (demande du 6 novembre ; motifs : L4-07, L4-12) -- les
@@ -43,6 +44,7 @@ export function CancelRideSheet({
   onDismiss,
   testID = 'cancel-sheet',
 }: CancelRideSheetProps) {
+  const styles = useStyles();
   const [selected, setSelected] = useState<string | null>(null);
   const [otherText, setOtherText] = useState('');
 
@@ -84,7 +86,7 @@ export function CancelRideSheet({
           })}
 
           {selected === OTHER ? (
-            <TextInput
+            <TextField
               testID={`${testID}-other-text`}
               value={otherText}
               onChangeText={setOtherText}
@@ -123,10 +125,10 @@ export function CancelRideSheet({
   );
 }
 
-const styles = StyleSheet.create({
-  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(17, 24, 39, 0.45)' },
+const useStyles = makeStyles((c) => ({
+  backdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: c.overlay },
   sheet: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: c.surface,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     paddingHorizontal: 20,
@@ -134,8 +136,8 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
     gap: 8,
   },
-  title: { fontSize: 20, fontWeight: '700', color: '#111827' },
-  subtitle: { fontSize: 14, color: '#6B7280', marginBottom: 4 },
+  title: { fontSize: 20, fontWeight: '700', color: c.ink },
+  subtitle: { fontSize: 14, color: c.muted, marginBottom: 4 },
   option: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -144,28 +146,28 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: c.border,
   },
-  optionActive: { borderColor: '#B91C1C', backgroundColor: '#FEF2F2' },
-  radio: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: '#9CA3AF' },
-  radioActive: { borderColor: '#B91C1C', backgroundColor: '#B91C1C' },
-  optionLabel: { fontSize: 16, color: '#1F2937', flexShrink: 1 },
+  optionActive: { borderColor: c.dangerText, backgroundColor: c.dangerSoft },
+  radio: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: c.subtle },
+  radioActive: { borderColor: c.dangerText, backgroundColor: c.dangerText },
+  optionLabel: { fontSize: 16, color: c.ink, flexShrink: 1 },
   input: {
     minHeight: 64,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: c.border,
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 10,
     fontSize: 16,
-    color: '#111827',
+    color: c.ink,
     textAlignVertical: 'top',
   },
-  error: { color: '#B91C1C', fontSize: 14 },
-  confirm: { marginTop: 8, borderRadius: 999, paddingVertical: 16, alignItems: 'center', backgroundColor: '#B91C1C' },
-  confirmLabel: { color: '#FFFFFF', fontSize: 17, fontWeight: '700' },
-  dismiss: { borderRadius: 999, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: '#E5E7EB' },
-  dismissLabel: { color: '#1F2937', fontSize: 16, fontWeight: '600' },
+  error: { color: c.dangerText, fontSize: 14 },
+  confirm: { marginTop: 8, borderRadius: 999, paddingVertical: 16, alignItems: 'center', backgroundColor: c.dangerText },
+  confirmLabel: { color: c.onBrand, fontSize: 17, fontWeight: '700' },
+  dismiss: { borderRadius: 999, paddingVertical: 14, alignItems: 'center', borderWidth: 1, borderColor: c.border },
+  dismissLabel: { color: c.ink, fontSize: 16, fontWeight: '600' },
   disabled: { opacity: 0.4 },
   pressed: { opacity: 0.8 },
-});
+}));

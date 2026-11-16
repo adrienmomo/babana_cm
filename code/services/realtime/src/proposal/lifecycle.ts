@@ -300,6 +300,7 @@ export class ProposalLifecycle {
           rideId: record.rideId,
           driverId,
           firstName: profile?.firstName ?? null,
+          lastName: profile?.lastName ?? null,
           photoUrl: profile?.photoUrl ?? null,
           motorcycleClass: profile?.motorcycleClass ?? null,
           licensePlate: profile?.licensePlate ?? null,

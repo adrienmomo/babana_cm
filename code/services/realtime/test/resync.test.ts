@@ -67,11 +67,11 @@ after(() => {
 });
 
 function clientContext(): ConnectionContext {
-  return Object.freeze({ userId: 'user-1', role: 'client', driverId: null });
+  return Object.freeze({ userId: 'user-1', role: 'client', driverId: null, sessionId: null });
 }
 
 function driverContext(): ConnectionContext {
-  return Object.freeze({ userId: 'user-2', role: 'driver', driverId: 'driver-1' });
+  return Object.freeze({ userId: 'user-2', role: 'driver', driverId: 'driver-1', sessionId: null });
 }
 
 /**
@@ -159,6 +159,7 @@ describe('handleSessionResync (L3-11)', () => {
     const driverId = randomUUID();
     await setDriverProfile(redis, driverId, {
       firstName: 'Emmanuel',
+      lastName: 'Ndoumbè',
       photoUrl: null,
       rating: null,
       motorcycleClass: 'standard',
@@ -176,7 +177,7 @@ describe('handleSessionResync (L3-11)', () => {
     assert.deepEqual(parsed.payload.clientRide, {
       origin,
       destination,
-      driver: { driverId, firstName: 'Emmanuel', photoUrl: null, motorcycleClass: 'standard', licensePlate: 'LT 4821 AC', phoneNumber: '+237690110201' },
+      driver: { driverId, firstName: 'Emmanuel', lastName: 'Ndoumbè', photoUrl: null, motorcycleClass: 'standard', licensePlate: 'LT 4821 AC', phoneNumber: '+237690110201' },
     });
     await redis.del(`babana:driver:profile:${driverId}`, `babana:driver:profile:fetched-at:${driverId}`);
   });
@@ -328,7 +329,7 @@ describe('handleSessionResync (L3-11)', () => {
 
 describe('session.synced porte la disponibilité appliquée par le serveur (22 octobre)', () => {
   function driverWithId(driverId: string): ConnectionContext {
-    return Object.freeze({ userId: `user-${driverId}`, role: 'driver', driverId });
+    return Object.freeze({ userId: `user-${driverId}`, role: 'driver', driverId, sessionId: null });
   }
 
   test('un chauffeur mis hors ligne par le serveur (période de grâce écoulée) l’apprend à la reconnexion', async () => {

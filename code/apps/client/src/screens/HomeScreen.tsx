@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MAP_MARKER_COLORS, MapView, reverseGeocode, type LatLng, type MapMarker } from '@babana/maps';
-import { Button } from '@babana/ui';
+import { Button, makeStyles, useTheme } from '@babana/ui';
 import type { http, realtime } from '@babana/contracts';
 import { StreamLivenessWatchdog } from '@babana/api-client';
 import { PlacePicker } from '../components/PlacePicker';
@@ -23,16 +23,6 @@ import { useKeepScreenAwake } from '../keepAwake';
 // Douala, aucune permission de localisation nécessaire pour l'afficher -- même point que
 // nearbyDriversQueryExample (@babana/contracts), pas une valeur inventée pour cet écran.
 const DOUALA_DEFAULT_CENTER: LatLng = { latitude: 4.0511, longitude: 9.7679 };
-
-// Rayon de la première demande de chauffeurs proches -- le serveur le plafonne de toute façon
-// (L3-05, critère 1) ; valeur choisie pour une ville comme Douala, pas une constante du contrat.
-// Choix d'implémentation non spécifié, à ajuster si L6-17 (mesure batterie/données) le juge trop
-// large.
-const NEARBY_SUBSCRIBE_RADIUS_METERS = 5000;
-
-// En deçà de cet écart (degrés, ~2 m), une épingle est sous le réticule : elle serait masquée par
-// lui, on ne la dessine pas. Un seuil d'affichage, pas une règle métier.
-const RETICLE_OVERLAP_DEGREES = 0.00002;
 
 type ActiveSlot = 'departure' | 'arrival';
 
@@ -74,6 +64,8 @@ const LOCATION_ERROR_MESSAGES: Record<LocationFailureReason, string> = {
 };
 
 export function HomeScreen({ navigation }: Props) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   // Décision du 14 novembre : l'écran ne s'éteint pas tant qu'une carte est ouverte.
   useKeepScreenAwake(navigation);
   const [region, setRegion] = useState<LatLng>(DOUALA_DEFAULT_CENTER);
@@ -137,7 +129,7 @@ export function HomeScreen({ navigation }: Props) {
     // donc aucun refusant -- une liste vide est aussi le signal qui garde cette découverte libre
     // strictement bornée par NEARBY_MAX_RADIUS_METERS côté service, jamais élargie (C2b).
     const subscribe = () =>
-      realtimeClient.send('nearby.subscribe', { position: center, radiusMeters: NEARBY_SUBSCRIBE_RADIUS_METERS, excludeDriverIds: [] });
+      realtimeClient.send('nearby.subscribe', { position: center, excludeDriverIds: [] });
     subscribe();
 
     // Surveillance de silence (L3-20) : par abonnement, pas par connexion (D47) -- un battement
@@ -228,6 +220,17 @@ export function HomeScreen({ navigation }: Props) {
     }
   }
 
+  // Toucher « Départ » ou « Arrivée » amène la carte sur ce point (15 novembre) : le réticule s'y
+  // pose, à sa couleur, et l'autre point garde son épingle. Avant, la carte restait où elle était
+  // et le réticule recouvrait l'autre point -- le moindre glissement l'écrasait. Un point pas encore
+  // désigné laisse la carte où elle est. Le recentrage est programmé : il n'est jamais relayé comme
+  // une désignation (`onRegionChange` ne remonte qu'un geste du doigt, @babana/maps).
+  function activateSlot(slot: ActiveSlot) {
+    setActiveSlot(slot);
+    const point = slot === 'departure' ? departure : arrival;
+    if (point) setRegion(point.position);
+  }
+
   function handlePlaceSelected(point: RidePoint) {
     setRegion(point.position);
     applyToActiveSlot(point);
@@ -244,17 +247,13 @@ export function HomeScreen({ navigation }: Props) {
 
   // Le point en cours de désignation est représenté par le réticule, pas par une épingle : il est
   // sous le réticule par construction, et les deux se superposaient (24 octobre). L'autre point
-  // garde son épingle -- sauf s'il est lui aussi exactement au centre (à l'ouverture, la carte est
-  // centrée sur le départ GPS pendant que le réticule désigne l'arrivée) : il réapparaît dès que
-  // la carte bouge.
-  const underReticle = (point: LatLng) =>
-    Math.abs(point.latitude - region.latitude) < RETICLE_OVERLAP_DEGREES &&
-    Math.abs(point.longitude - region.longitude) < RETICLE_OVERLAP_DEGREES;
+  // garde toujours son épingle, à sa couleur (15 novembre : le réticule ne la remplace plus, même
+  // quand la carte est encore centrée dessus).
   const markers: MapMarker[] = [
-    ...(departure && activeSlot !== 'departure' && !underReticle(departure.position)
+    ...(departure && activeSlot !== 'departure'
       ? [{ id: 'pickup', kind: 'pickup' as const, position: departure.position, label: 'Départ' }]
       : []),
-    ...(arrival && activeSlot !== 'arrival' && !underReticle(arrival.position)
+    ...(arrival && activeSlot !== 'arrival'
       ? [{ id: 'dropoff', kind: 'dropoff' as const, position: arrival.position, label: 'Arrivée' }]
       : []),
     // Anonymes : le serveur n'envoie qu'une position et une distance (ni identifiant, ni prénom)
@@ -274,14 +273,14 @@ export function HomeScreen({ navigation }: Props) {
           title="Départ"
           value={locating ? 'Localisation…' : (departure?.label ?? 'Glissez la carte ou recherchez')}
           active={activeSlot === 'departure'}
-          onPress={() => setActiveSlot('departure')}
+          onPress={() => activateSlot('departure')}
         />
         <PointButton
           testID="arrival-slot"
           title="Arrivée"
           value={arrival?.label ?? 'Où allez-vous ?'}
           active={activeSlot === 'arrival'}
-          onPress={() => setActiveSlot('arrival')}
+          onPress={() => activateSlot('arrival')}
         />
       </View>
 
@@ -302,7 +301,7 @@ export function HomeScreen({ navigation }: Props) {
       {activeSlot === 'arrival' ? <RecentDestinations onSelect={handlePlaceSelected} /> : null}
 
       <View style={styles.mapWrap}>
-        <MapView center={region} markers={markers} onRegionChange={handleRegionChange} style={styles.map} />
+        <MapView appearance={colors.scheme} center={region} markers={markers} onRegionChange={handleRegionChange} style={styles.map} />
         {/* Réticule = l'épingle du point en cours de désignation, à la couleur de son rôle (même
             palette que les épingles de la carte) ; sa pointe marque le centre exact de la carte. */}
         <View style={styles.reticle} pointerEvents="none" testID="reticle">
@@ -356,6 +355,7 @@ function PointButton({
   active: boolean;
   onPress: () => void;
 }) {
+  const styles = useStyles();
   return (
     <Pressable
       testID={testID}
@@ -372,7 +372,7 @@ function PointButton({
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     flex: 1,
     gap: 8,
@@ -385,32 +385,33 @@ const styles = StyleSheet.create({
   pointButton: {
     flex: 1,
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: c.borderStrong,
     borderRadius: 8,
     padding: 8,
   },
   pointButtonActive: {
-    borderColor: '#0A7D3D',
-    backgroundColor: '#ECFDF5',
+    borderColor: c.brand,
+    backgroundColor: c.brandSoft,
   },
   locationErrorBanner: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
-    backgroundColor: '#FEF3C7',
+    backgroundColor: c.warningSoft,
     borderRadius: 8,
     padding: 8,
   },
   locationErrorText: {
     flex: 1,
-    color: '#92400E',
+    color: c.warningText,
   },
   pointTitle: {
     fontSize: 12,
-    color: '#6B7280',
+    color: c.muted,
   },
   pointValue: {
+    color: c.ink,
     fontWeight: '600',
   },
   mapWrap: {
@@ -440,11 +441,11 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 14,
     borderBottomRightRadius: 0,
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: c.surface,
     alignItems: 'center',
     justifyContent: 'center',
     transform: [{ rotate: '45deg' }],
-    shadowColor: '#000000',
+    shadowColor: c.shadow,
     shadowOpacity: 0.3,
     shadowRadius: 2,
     shadowOffset: { width: 0, height: 1 },
@@ -454,7 +455,7 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: c.surface,
   },
   geocoding: {
     position: 'absolute',
@@ -472,12 +473,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderRadius: 8,
-    backgroundColor: '#F7F7F7',
+    backgroundColor: c.surfaceMuted,
   },
   driversLabel: {
     fontSize: 17,
     fontWeight: '700',
-    color: '#111827',
+    color: c.ink,
   },
   onlineBadge: {
     flexDirection: 'row',
@@ -498,6 +499,6 @@ const styles = StyleSheet.create({
   },
   noDriversText: {
     textAlign: 'center',
-    color: '#374151',
+    color: c.inkSoft,
   },
-});
+}));

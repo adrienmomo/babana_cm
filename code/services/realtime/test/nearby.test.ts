@@ -101,7 +101,7 @@ function isAt(driver: WireDriver, driverId: string): boolean {
 }
 
 function clientContext(label: string): ConnectionContext {
-  return Object.freeze({ userId: id(label), role: 'client', driverId: null });
+  return Object.freeze({ userId: id(label), role: 'client', driverId: null, sessionId: null });
 }
 
 type FakeMessage =
@@ -250,6 +250,26 @@ describe('NearbyManager (L3-05, D14)', () => {
       false,
       'exclu malgré le rayon demandé : au-delà du plafond configuré côté service'
     );
+  });
+
+  test('15 novembre -- sans rayon demandé (app Client), le rayon du serveur s’applique : 3 km par défaut', async () => {
+    const origin = { latitude: 4.3, longitude: 9.5 };
+    const config = configWith();
+    assert.equal(config.NEARBY_MAX_RADIUS_METERS, 3_000);
+    const manager = new NearbyManager(config, redis);
+    const context = clientContext('r3-client');
+    const { socket, messages } = fakeSocket();
+
+    // ~2,2 km et ~3,9 km à l'est du centre.
+    const insideId = await freshDriver('r3-inside', { latitude: origin.latitude, longitude: origin.longitude + 0.02 });
+    const outsideId = await freshDriver('r3-outside', { latitude: origin.latitude, longitude: origin.longitude + 0.035 });
+
+    await manager.subscribe(context, socket, { position: origin, excludeDriverIds: [] });
+    manager.unsubscribe(context);
+
+    const [driversMessage] = driverListMessages(messages);
+    assert.equal(driversMessage!.payload.drivers.some((d) => isAt(d, insideId)), true, 'dans les 3 km');
+    assert.equal(driversMessage!.payload.drivers.some((d) => isAt(d, outsideId)), false, 'au-delà des 3 km');
   });
 
   test('critère 5 -- un second abonnement du même client remplace le premier', async () => {

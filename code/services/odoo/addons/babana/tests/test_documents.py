@@ -306,6 +306,24 @@ class TestDriverDocumentsController(HttpCase):
 
     # --- Critère 5 : la date d'expiration du permis est obligatoire (API) ----------------------
 
+    # --- 15 novembre : photo de profil, une image seulement ---------------------------------------
+
+    def test_profile_photo_upload_accepts_an_image(self):
+        token = self._sign_in_as_driver("sub-doc-photo-ok")
+        response = self._upload(token, document_type="profile_photo", content_type="image/jpeg", data=_A_JPEG)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.json()["documentType"], "profile_photo")
+        self.assertEqual(response.json()["verificationStatus"], "pending")
+
+    def test_profile_photo_upload_refuses_a_pdf(self):
+        token = self._sign_in_as_driver("sub-doc-photo-pdf")
+        response = self._upload(
+            token, document_type="profile_photo", content_type="application/pdf", data=_A_PDF, filename="photo.pdf"
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"]["code"], "VALIDATION_ERROR")
+        self.assertFalse(self.env["babana.driver.document"].sudo().search([("document_type", "=", "profile_photo"), ("mime_type", "=", "application/pdf")]))
+
     def test_license_upload_without_expires_on_is_a_validation_error(self):
         token = self._sign_in_as_driver("sub-doc-license-no-expiry")
 

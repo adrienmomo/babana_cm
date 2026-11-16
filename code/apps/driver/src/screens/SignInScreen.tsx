@@ -1,7 +1,7 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { PhoneSignIn } from '@babana/ui';
 import { ApiError, translateApiError, type AuthState } from '@babana/api-client';
-import { authClient } from '../auth';
+import { authClient, takeSessionLossNotice } from '../auth';
 import { APP_NAME } from '../brand';
 
 /**
@@ -24,10 +24,13 @@ export function describeSignInError(cause: unknown): string {
 
 export function SignInScreen({ onSignedIn }: SignInScreenProps) {
   const verificationId = useRef<string | null>(null);
+  // Lu une fois, à l'arrivée sur l'écran : pourquoi la session s'est fermée (15 novembre).
+  const [notice] = useState(() => takeSessionLossNotice());
 
   return (
     <PhoneSignIn
       title={APP_NAME}
+      notice={notice}
       describeError={describeSignInError}
       requestCode={async (phoneNumber) => {
         const response = await authClient.requestOtp(phoneNumber, 'driver');

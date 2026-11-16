@@ -16,7 +16,7 @@ class TestDriverAvailability(TransactionCase):
         return self.env["babana.motorcycle"].create({"license_plate": f"LT-AV{n:04d}-BC"})
 
     def _verify_required_documents(self, driver, *, license_expires_on="2030-01-01"):
-        for document_type in ("license", "id_card"):
+        for document_type in ("license", "id_card", "profile_photo"):
             vals = {
                 "driver_id": driver.id,
                 "document_type": document_type,

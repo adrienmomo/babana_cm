@@ -244,7 +244,7 @@ export async function approveDriver(session: Session, label: string): Promise<{ 
   const driverIds = await execute<number[]>('babana.driver', 'search', [[['user_id', '=', userId]]]);
   const driverId = driverIds[0]!;
 
-  for (const documentType of ['license', 'id_card']) {
+  for (const documentType of ['license', 'id_card', 'profile_photo']) {
     const vals: Record<string, unknown> = {
       driver_id: driverId,
       document_type: documentType,

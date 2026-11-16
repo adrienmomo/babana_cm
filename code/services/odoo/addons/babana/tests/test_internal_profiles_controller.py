@@ -91,13 +91,15 @@ class TestInternalProfilesController(HttpCase):
         profile = response.json()["profiles"][driver.public_id]
         self.assertEqual(
             set(profile.keys()),
-            {"firstName", "photoUrl", "rating", "motorcycleClass", "licensePlate", "phoneNumber"},
+            {"firstName", "lastName", "photoUrl", "rating", "motorcycleClass", "licensePlate", "phoneNumber"},
         )
         serialized = json.dumps(profile)
         # "phone" seul n'est plus un motif valide (D42 l'introduit légitimement dans le nom du
         # champ "phoneNumber") -- la forme snake_case (jamais celle du contrat, D17) reste un bon
         # indicateur de fuite de l'enregistrement brut, comme license_plate/employee_id.
-        for forbidden in ("Confidentiel", "license_plate", "employee_id", "mobile_phone"):
+        # Le nom (« Confidentiel ») est servi depuis le 15 novembre (lastName, décision du maître
+        # d'ouvrage) : il n'est plus un indicateur de fuite.
+        for forbidden in ("license_plate", "employee_id", "mobile_phone"):
             self.assertNotIn(forbidden, serialized)
 
     # --- Chauffeur inconnu : jamais inventé ---------------------------------------------------
@@ -113,3 +115,46 @@ class TestInternalProfilesController(HttpCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["profiles"], {})
+
+    # --- 15 novembre : nom complet et photo de profil validée ------------------------------------
+
+    def test_first_and_last_name_are_both_served(self):
+        driver = self._make_approved_driver("Emmanuel Ndoumbè Ekwalla")
+        profile = self._post({"driverIds": [driver.public_id]}, secret=self._real_secret()).json()["profiles"][driver.public_id]
+        self.assertEqual((profile["firstName"], profile["lastName"]), ("Emmanuel", "Ndoumbè Ekwalla"))
+
+    def test_a_single_word_name_has_no_last_name(self):
+        driver = self._make_approved_driver("Emmanuel")
+        profile = self._post({"driverIds": [driver.public_id]}, secret=self._real_secret()).json()["profiles"][driver.public_id]
+        self.assertIsNone(profile["lastName"])
+
+    def _photo(self, driver, status, key):
+        vals = {
+            "driver_id": driver.id,
+            "document_type": "profile_photo",
+            "storage_key": key,
+            "mime_type": "image/jpeg",
+            "verification_status": status,
+        }
+        if status == "rejected":
+            vals["rejection_reason"] = "Visage flou"
+        return self.env["babana.driver.document"].sudo().create(vals)
+
+    def test_the_photo_is_the_latest_verified_one_as_a_signed_url(self):
+        driver = self._make_approved_driver("Paul Photo")
+        self._photo(driver, "verified", "seed/paul/ancienne.jpg")
+        self._photo(driver, "verified", "seed/paul/actuelle.jpg")
+        self._photo(driver, "pending", "seed/paul/en-attente.jpg")
+
+        profile = self._post({"driverIds": [driver.public_id]}, secret=self._real_secret()).json()["profiles"][driver.public_id]
+
+        self.assertIn("actuelle.jpg", profile["photoUrl"])
+        # URL signée à durée limitée, jamais la clé brute.
+        self.assertIn("X-Amz-Expires=3600", profile["photoUrl"])
+
+    def test_a_photo_not_yet_verified_is_never_shown(self):
+        driver = self._make_approved_driver("Paul Attente")
+        self._photo(driver, "pending", "seed/paul/attente.jpg")
+        self._photo(driver, "rejected", "seed/paul/rejet.jpg")
+        profile = self._post({"driverIds": [driver.public_id]}, secret=self._real_secret()).json()["profiles"][driver.public_id]
+        self.assertIsNone(profile["photoUrl"])

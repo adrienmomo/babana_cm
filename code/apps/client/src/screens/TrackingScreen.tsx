@@ -1,11 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, AppState, Image, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, AppState, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { MapView, type LatLng, type MapMarker } from '@babana/maps';
 import { ApiError, QUICK_MESSAGE_LABELS, StreamLivenessWatchdog, quickMessagesFor, translateApiError, type ConnectionState } from '@babana/api-client';
-import { Button, CancelRideSheet, MessageBubble, QuickMessageChips } from '@babana/ui';
+import { Button, CancelRideSheet, MessageBubble, QuickMessageChips, makeStyles, useTheme, Avatar } from '@babana/ui';
 import type { http, realtime } from '@babana/contracts';
-import { GENERIC_AVATAR, classLabel } from '../components/driverFormatting';
+import { classLabel, driverDisplayName } from '../components/driverFormatting';
 import { CallButton } from '../components/CallButton';
 import { EmergencyButton } from '../components/EmergencyButton';
 import { ShareTripButton } from '../components/ShareTripButton';
@@ -89,6 +89,8 @@ function secondsSince(at: number): number {
 }
 
 export function TrackingScreen({ route, navigation }: Props) {
+  const styles = useStyles();
+  const { colors } = useTheme();
   // Décision du 14 novembre : l'écran ne s'éteint pas tant qu'une carte est ouverte.
   useKeepScreenAwake(navigation);
   const { rideId, origin, destination, driver } = route.params;
@@ -211,6 +213,9 @@ export function TrackingScreen({ route, navigation }: Props) {
         if (message.payload.from === 'driver') setIncomingMessage(message.payload.code);
       } else if (isDriverArrivedMessage(message) && message.payload.rideId === rideId) {
         setDriverArrived(true);
+        // Le chemin d'approche est parcouru : la carte passe au trajet (15 novembre). Le tracé du
+        // trajet, calculé par le chauffeur dès « Sur place », a pu arriver avant ce message.
+        setSharedRoute((current) => (current && current.phase === 'transit' ? current : null));
         // Âge de l'arrivée mesuré entre deux heures du SERVEUR (émission du message, arrivée), puis
         // reporté sur l'horloge de ce téléphone -- jamais l'heure du serveur comparée à l'horloge
         // locale, qui peut dériver de plusieurs minutes.
@@ -284,7 +289,10 @@ export function TrackingScreen({ route, navigation }: Props) {
       : phase === 'course' && trace.length > 1
         ? { points: trace }
         : undefined;
-  const mapCenter: LatLng | null = driverPosition ?? sharedRoute?.points[0] ?? null;
+  // Chauffeur sur place : la carte montre le trajet qui attend le client (cadré sur le tracé dès
+  // qu'il arrive) et ne suit plus la moto, qui ne bouge plus guère -- la suivre décadrerait le trajet.
+  const mapCenter: LatLng | null =
+    driverArrived && phase === 'approach' ? origin.position : (driverPosition ?? sharedRoute?.points[0] ?? null);
 
   // La prise en charge n'a plus de sens une fois la course commencée -- et son épingle recouvrait
   // alors le chauffeur, qui est exactement là (24 octobre).
@@ -380,9 +388,12 @@ export function TrackingScreen({ route, navigation }: Props) {
       ) : null}
 
       <View style={styles.driverCard} testID="tracking-driver-card">
-        <Image source={{ uri: driver.photoUrl ?? GENERIC_AVATAR }} style={styles.avatar} accessibilityIgnoresInvertColors />
+        {/* Photo validée au back-office ; sans elle, ses initiales (15 novembre). */}
+        <Avatar name={driverDisplayName(driver)} photoUrl={driver.photoUrl} size={48} testID="tracking-driver-avatar" />
         <View style={styles.driverInfo}>
-          <Text style={styles.driverName}>{driver.firstName ?? 'Votre chauffeur'}</Text>
+          <Text style={styles.driverName} testID="tracking-driver-name">
+            {driverDisplayName(driver)}
+          </Text>
           <Text style={styles.driverMeta} testID="tracking-plate">
             {gamme ? `${gamme} · ` : ''}
             {driver.licensePlate ?? 'Immatriculation indisponible'}
@@ -425,6 +436,7 @@ export function TrackingScreen({ route, navigation }: Props) {
       <View style={styles.mapWrap} testID="tracking-map">
         {mapCenter ? (
           <MapView
+            appearance={colors.scheme}
             center={mapCenter}
             markers={markers}
             route={mapRoute}
@@ -472,7 +484,7 @@ export function TrackingScreen({ route, navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     flex: 1,
     gap: 8,
@@ -486,46 +498,47 @@ const styles = StyleSheet.create({
   cancelledTitle: {
     fontSize: 20,
     fontWeight: '700',
-    color: '#111827',
+    color: c.ink,
     textAlign: 'center',
   },
   cancelledReason: {
     fontSize: 16,
-    color: '#374151',
+    color: c.inkSoft,
     textAlign: 'center',
   },
   phaseTitle: {
+    color: c.ink,
     fontSize: 18,
     fontWeight: '700',
   },
   connectionBanner: {
-    backgroundColor: '#FEF3C7',
+    backgroundColor: c.warningSoft,
     borderRadius: 8,
     padding: 8,
   },
   connectionText: {
-    color: '#92400E',
+    color: c.warningText,
   },
   arrivedBanner: {
-    backgroundColor: '#DCFCE7',
+    backgroundColor: c.brandSoft,
     borderRadius: 8,
     padding: 10,
   },
   arrivedText: {
-    color: '#166534',
+    color: c.brandText,
     fontWeight: '600',
   },
   arrivedWait: {
-    color: '#166534',
+    color: c.brandText,
     fontWeight: '700',
     marginTop: 4,
   },
   arrivedHint: {
-    color: '#166534',
+    color: c.brandText,
     fontSize: 13,
   },
   noShowWarning: {
-    color: '#8A5A00',
+    color: c.warningText,
     fontWeight: '600',
     marginTop: 2,
   },
@@ -536,30 +549,25 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#FFFFFF',
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: '#E5E7EB',
+    borderColor: c.border,
+    backgroundColor: c.surface,
   },
   driverInfo: {
     flex: 1,
     gap: 2,
   },
   driverName: {
+    color: c.ink,
     fontWeight: '600',
   },
   driverMeta: {
     fontSize: 12,
-    color: '#6B7280',
+    color: c.muted,
   },
   eta: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#0A7D3D',
+    color: c.brand,
   },
   actionsRow: {
     flexDirection: 'row',
@@ -580,19 +588,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: c.surfaceMuted,
   },
   mapLoadingText: {
-    color: '#6B7280',
+    color: c.muted,
   },
   freshness: {
     fontSize: 12,
-    color: '#6B7280',
+    color: c.muted,
   },
   pointsSummary: {
     gap: 4,
   },
   pointText: {
-    color: '#374151',
+    color: c.inkSoft,
   },
-});
+}));

@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text } from 'react-native';
+import { Pressable, ScrollView, Text } from 'react-native';
 import { fetchRecentDestinations } from '../recentDestinations';
 import type { RidePoint } from '../navigation/types';
+import { makeStyles } from '@babana/ui';
 
 /**
  * Raccourcis « destinations récentes » sous la recherche de l'accueil. Chargés une fois ; un échec
  * (hors connexion, serveur) n'affiche simplement rien -- la recherche et la carte restent là.
  */
 export function RecentDestinations({ onSelect }: { onSelect: (point: RidePoint) => void }) {
+  const styles = useStyles();
   const [points, setPoints] = useState<RidePoint[]>([]);
 
   useEffect(() => {
@@ -52,7 +54,7 @@ export function RecentDestinations({ onSelect }: { onSelect: (point: RidePoint) 
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   scroller: { flexGrow: 0, flexShrink: 0 },
   row: { gap: 8, alignItems: 'center' },
   chip: {
@@ -60,10 +62,10 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 999,
     borderWidth: 1,
-    borderColor: '#B8E2CB',
-    backgroundColor: '#E8F6EE',
+    borderColor: c.brandBorder,
+    backgroundColor: c.brandSoft,
     maxWidth: 220,
     alignSelf: 'center',
   },
-  chipText: { color: '#137347', fontWeight: '600' },
-});
+  chipText: { color: c.brandText, fontWeight: '600' },
+}));

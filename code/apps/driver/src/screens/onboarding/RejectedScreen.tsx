@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
-import { colors } from '../../theme';
+import { Text, View } from 'react-native';
+import { makeStyles } from '../../theme';
 import { Button } from '@babana/ui';
 
 /**
@@ -23,6 +23,7 @@ export interface RejectedScreenProps {
 }
 
 export function RejectedScreen({ status, reason, onResubmit }: RejectedScreenProps) {
+  const styles = useStyles();
   const [busy, setBusy] = useState(false);
   // Garde synchrone : deux appuis rapprochés (avant le re-rendu qui désactive le bouton) ne
   // doivent pas naviguer deux fois vers l'écran des documents.
@@ -66,11 +67,11 @@ export function RejectedScreen({ status, reason, onResubmit }: RejectedScreenPro
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: { flex: 1, gap: 16, padding: 24, justifyContent: 'center' },
-  title: { fontSize: 22, fontWeight: '700' },
-  reasonBox: { gap: 6, padding: 16, borderRadius: 8, borderWidth: 1, borderColor: colors.dangerBorder, backgroundColor: colors.dangerSoft },
-  reasonLabel: { fontSize: 12, fontWeight: '700', color: colors.dangerText, textTransform: 'uppercase' },
-  reason: { color: colors.dangerText, fontSize: 16 },
-  help: { color: colors.inkSoft },
-});
+  title: { color: c.ink, fontSize: 22, fontWeight: '700' },
+  reasonBox: { gap: 6, padding: 16, borderRadius: 8, borderWidth: 1, borderColor: c.dangerBorder, backgroundColor: c.dangerSoft },
+  reasonLabel: { fontSize: 12, fontWeight: '700', color: c.dangerText, textTransform: 'uppercase' },
+  reason: { color: c.dangerText, fontSize: 16 },
+  help: { color: c.inkSoft },
+}));

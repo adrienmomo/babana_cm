@@ -15,6 +15,8 @@ import { NearbyManager } from '../nearby/handler';
 import { ProposalLifecycle } from '../proposal/lifecycle';
 import { TrackingManager } from '../tracking/broadcast';
 import { installLivenessHeartbeat } from './liveness';
+import { realtime } from '@babana/contracts';
+import { buildSessionReplacedMessage, isCurrentSession } from '../driver/session';
 
 // Réexportés pour compatibilité : posés ici par L0-04, avant que ws/auth.ts (L3-01) n'existe.
 // test/ws.test.ts importe encore WS_CLOSE_UNAUTHENTICATED depuis ce module.
@@ -74,6 +76,22 @@ export function createConnectionHandler(config: Config, redis: Redis): Connectio
     const { context, expiresAtMs } = auth;
     registry.add(context, socket);
 
+    // Un appareil par chauffeur (15 novembre) : la connexion d'une session remplacée -- le compte
+    // s'est connecté sur un autre téléphone -- est prévenue puis fermée. Aucun de ses messages
+    // n'est traité avant la vérification (`sessionChecked`, attendu par le gestionnaire plus bas,
+    // dans l'ordre d'arrivée).
+    const sessionChecked = isCurrentSession(redis, context).then(
+      (current) => {
+        if (!current && socket.readyState === socket.OPEN) {
+          socket.send(JSON.stringify(buildSessionReplacedMessage()));
+          socket.close(realtime.WS_CLOSE_SESSION_REPLACED, 'compte connecté sur un autre téléphone');
+        }
+        return current;
+      },
+      // Redis indisponible : jamais un refus sur une absence d'information.
+      () => true
+    );
+
     // Une reconnexion avant l'échéance de la période de grâce (L3-04, critère 3) annule la
     // sortie du pool programmée par la déconnexion précédente -- sans ça, un chauffeur qui
     // retrouve du réseau juste à temps sortirait quand même du pool par la faute d'un minuteur
@@ -108,7 +126,10 @@ export function createConnectionHandler(config: Config, redis: Redis): Connectio
       // Critère d'acceptation 3 : une déconnexion réseau ne met pas hors ligne immédiatement --
       // période de grâce configurable, puis sortie du pool (L3-04). Rien à faire pour un client :
       // seuls les chauffeurs ont une disponibilité à gérer.
-      if (context.role === 'driver' && context.driverId) {
+      // 15 novembre : seulement si plus aucune connexion de ce chauffeur ne reste ouverte -- la
+      // fermeture de l'ancien téléphone (session remplacée) ne doit pas mettre hors ligne le
+      // chauffeur qui travaille déjà sur le nouveau.
+      if (context.role === 'driver' && context.driverId && registry.getByDriverId(context.driverId).size === 0) {
         disconnectGrace.schedule(redis, context.driverId, config.AVAILABILITY_DISCONNECT_GRACE_SECONDS);
       }
     });
@@ -116,7 +137,9 @@ export function createConnectionHandler(config: Config, redis: Redis): Connectio
     // Le contexte posé à l'authentification est la seule source d'autorisation consultée par le
     // dispatcher -- aucun message entrant ne peut redéfinir qui l'envoie (L3-01, critère 3).
     socket.on('message', (data) => {
-      dispatch(context, socket, data.toString()).catch(() => {
+      sessionChecked
+        .then((current) => (current ? dispatch(context, socket, data.toString()) : undefined))
+        .catch(() => {
         // ingestPosition/dispatch ne devraient pas lever (erreurs métier renvoyées en valeur) --
         // filet défensif : une position perdue ne doit jamais fermer la connexion.
       });

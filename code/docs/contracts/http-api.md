@@ -315,9 +315,12 @@ Seul endpoint du contrat dont le corps n'est pas JSON : `multipart/form-data`, p
 requête généré comme les autres — voir `UploadDriverDocumentFieldsSchema` dans `documents.ts`
 pour la forme des champs.
 
-- Requête (multipart) : champ `file` (le document), plus les champs `documentType` (`'license'`
-  ou `'id_card'`), `contentType` (type MIME déclaré par l'app), `expiresOn` (date ISO,
-  **obligatoire si `documentType` vaut `'license'`**, critère d'acceptation 5)
+- Requête (multipart) : champ `file` (le document), plus les champs `documentType` (`'license'`,
+  `'id_card'` ou `'profile_photo'`), `contentType` (type MIME déclaré par l'app), `expiresOn`
+  (date ISO, **obligatoire si `documentType` vaut `'license'`**, critère d'acceptation 5)
+- `profile_photo` (15 novembre) : une image JPEG ou PNG seulement (`VALIDATION_ERROR` sinon) ;
+  requise pour l'approbation du dossier comme les deux pièces ; la dernière validée est la photo
+  que le client voit à l'affectation (URL signée, `babana.driver_photo_url_ttl_seconds`, 3600 s)
 - Réponse : `{ id, documentType, verificationStatus }`
 - Erreurs : `VALIDATION_ERROR` (champ manquant, `expiresOn` absent pour un permis, fichier trop
   volumineux), `DOCUMENT_TYPE_MISMATCH` (le type MIME réel du fichier, détecté par signature,
@@ -461,6 +464,7 @@ Généré depuis `errors.ts` dans `dist/json-schema/errors.json`. Reproduit ici 
 | `INVALID_GOOGLE_TOKEN` | 401 | ID token Google invalide |
 | `TOKEN_EXPIRED` | 401 | Jeton applicatif expiré |
 | `TOKEN_REVOKED` | 401 | Jeton applicatif révoqué |
+| `SESSION_REPLACED` | 401 | Compte chauffeur connecté sur un autre téléphone : la session de ce téléphone est fermée (15 novembre, un appareil par chauffeur). L'app oublie sa session sans passer hors ligne |
 | `UNAUTHORIZED` | 401 | En-tête Authorization manquant ou malformé |
 | `DRIVER_NOT_APPROVED` | 403 | Compte chauffeur non validé |
 | `PHONE_ALREADY_VERIFIED` | 409 | Numéro déjà rattaché et vérifié |

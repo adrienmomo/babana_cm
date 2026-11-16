@@ -99,6 +99,11 @@ class BabanaDriver(models.Model):
         "l'identifiant Odoo interne. Même idée que res.users.babana_public_id (L1-01) et "
         "babana.ride.public_id (L4-03).",
     )
+    # Un appareil par chauffeur (15 novembre) : la famille de jetons ouverte par la dernière
+    # connexion. Un jeton d'accès d'une autre session est refusé (SESSION_REPLACED). Vide tant que
+    # le chauffeur ne s'est pas reconnecté depuis ce changement : ses jetons restent acceptés.
+    active_session_id = fields.Char(readonly=True, copy=False, groups="base.group_system")
+
     state = fields.Selection(
         [
             ("pending", "En attente"),
@@ -754,7 +759,8 @@ class BabanaDriver(models.Model):
     # donc un utilisateur sans ce droit échoue déjà à ce niveau (AccessError), avant même
     # d'atteindre la logique métier.
 
-    _REQUIRED_DOCUMENT_TYPES = ("license", "id_card")
+    # Photo de profil requise depuis le 15 novembre : le client voit son chauffeur avant de monter.
+    _REQUIRED_DOCUMENT_TYPES = ("license", "id_card", "profile_photo")
 
     def _required_documents_are_verified(self) -> bool:
         self.ensure_one()
@@ -777,8 +783,8 @@ class BabanaDriver(models.Model):
         self.ensure_one()
         if not self._required_documents_are_verified():
             raise UserError(
-                "Impossible d'approuver : le permis et la pièce d'identité doivent être "
-                "téléversés et vérifiés (L1-06, critère d'acceptation 1)."
+                "Impossible d'approuver : le permis, la pièce d'identité et la photo de profil "
+                "doivent être téléversés et vérifiés (L1-06, critère d'acceptation 1)."
             )
         if not self.motorcycle_id:
             raise UserError(
@@ -818,6 +824,13 @@ class BabanaDriver(models.Model):
         self.write({"state": "rejected", "rejection_reason": reason})
         self.message_post(body=f"Dossier rejeté : {reason}")
         return self
+
+    def _babana_start_session(self, session_id):
+        """Nouvelle session courante (15 novembre) : retenue ici, puis annoncée au service temps
+        réel après le commit, qui ferme la connexion de l'appareil précédent."""
+        self.ensure_one()
+        self.sudo().write({"active_session_id": session_id})
+        realtime_client.notify_driver_session(self.env, driver_public_id=self.public_id, session_id=session_id)
 
     def action_suspend(self, *, reason):
         """is_online passe à faux mécaniquement (write() ci-dessus force is_online=False dès

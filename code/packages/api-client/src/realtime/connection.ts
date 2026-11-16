@@ -203,6 +203,11 @@ export function createRealtimeClient(config: RealtimeClientConfig) {
         void scheduleReconnect(); // relira un jeton frais via getAccessToken() au prochain essai
         return;
       }
+      if (event.code === realtime.WS_CLOSE_SESSION_REPLACED) {
+        // 15 novembre : le compte s'est connecté sur un autre téléphone -- `session.replaced`
+        // l'a dit juste avant ; se reconnecter serait refusé à chaque essai.
+        return;
+      }
       if (event.code === realtime.WS_CLOSE_UNAUTHENTICATED) {
         config.onUnauthenticated?.(); // aucune reconnexion automatique -- rejouer le même jeton ne peut pas réussir
         return;

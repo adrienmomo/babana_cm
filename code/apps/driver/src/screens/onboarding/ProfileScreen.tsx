@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
-import { colors } from '../../theme';
+import { Image, Text, View } from 'react-native';
+import { makeStyles } from '../../theme';
 import { Button } from '@babana/ui';
 
 /**
@@ -18,6 +18,7 @@ export interface ProfileScreenProps {
 }
 
 export function ProfileScreen({ user, onContinue }: ProfileScreenProps) {
+  const styles = useStyles();
   const [busy, setBusy] = useState(false);
 
   async function handleContinue() {
@@ -54,10 +55,10 @@ export function ProfileScreen({ user, onContinue }: ProfileScreenProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 16, padding: 24 },
-  title: { fontSize: 22, fontWeight: '700' },
-  intro: { textAlign: 'center', color: colors.inkSoft },
+  title: { color: c.ink, fontSize: 22, fontWeight: '700' },
+  intro: { textAlign: 'center', color: c.inkSoft },
   avatar: { width: 72, height: 72, borderRadius: 36 },
-  name: { fontSize: 18, fontWeight: '600' },
-});
+  name: { color: c.ink, fontSize: 18, fontWeight: '600' },
+}));

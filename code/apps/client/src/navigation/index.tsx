@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, View } from 'react-native';
 import { createNavigationContainerRef, NavigationContainer, useNavigation } from '@react-navigation/native';
 import { createNativeStackNavigator, type NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { AuthGate, PlaceholderScreen, type SessionState } from '@babana/navigation';
-import { Avatar } from '@babana/ui';
+import { Avatar, makeStyles } from '@babana/ui';
 import { ApiError, type AuthState, type AuthUser } from '@babana/api-client';
 import { apiClient, authClient, onSessionLost } from '../auth';
 import { APP_NAME } from '../brand';
@@ -22,6 +22,7 @@ import { InvoiceScreen } from '../screens/InvoiceScreen';
 import { flushPendingResume, startRideResume, type ResumeNavigation } from '../rideResume';
 import type { AuthParamList, ClientParamList } from './types';
 import { SCREEN_TITLES } from './titles';
+import { useNavigationTheme } from '../appearance';
 
 const AuthStack = createNativeStackNavigator<AuthParamList>();
 const ClientStack = createNativeStackNavigator<ClientParamList>();
@@ -165,8 +166,10 @@ const resumeNavigation: ResumeNavigation = {
 };
 
 export function AppNavigator() {
+  const styles = useStyles();
   const { session, handleSignedIn } = useSession();
   useEffect(() => startRideResume(resumeNavigation), []);
+  const navigationTheme = useNavigationTheme();
 
   return (
     <View style={styles.root}>
@@ -174,7 +177,7 @@ export function AppNavigator() {
           persistée" (D39) doit se comprendre avant que quelqu'un ne ferme l'onglet et s'étonne
           d'être déconnecté au retour. No-op hors web (WebDemoBanner). */}
       <WebDemoBanner />
-      <NavigationContainer ref={navigationRef} onReady={() => flushPendingResume(resumeNavigation)}>
+      <NavigationContainer ref={navigationRef} theme={navigationTheme} onReady={() => flushPendingResume(resumeNavigation)}>
         <AuthGate<AuthUser>
           session={session}
           renderLoading={() => <LoadingScreen />}
@@ -194,11 +197,11 @@ export function AppNavigator() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((_c) => ({
   root: {
     flex: 1,
   },
   signedInRoot: {
     flex: 1,
   },
-});
+}));

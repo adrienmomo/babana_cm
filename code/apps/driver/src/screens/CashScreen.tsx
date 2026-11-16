@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
-import { colors } from '../theme';
+import { ScrollView, Text, View } from 'react-native';
+import { makeStyles } from '../theme';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Button } from '@babana/ui';
 import type { http } from '@babana/contracts';
@@ -56,6 +56,7 @@ function formatDeclaredAt(iso: string): string {
 }
 
 export function CashScreen({ navigation }: Props) {
+  const styles = useStyles();
   const [state, setState] = useState<LoadState>({ status: 'loading' });
 
   const load = useCallback(async () => {
@@ -127,7 +128,7 @@ export function CashScreen({ navigation }: Props) {
       </View>
 
       <View
-        style={[styles.marginBlock, MARGIN_LEVEL_STYLE[level]]}
+        style={[styles.marginBlock, styles[MARGIN_LEVEL_STYLE_KEY[level]]]}
         testID="cash-margin-block"
       >
         <Text style={styles.label}>Marge avant plafond</Text>
@@ -177,10 +178,10 @@ export function CashScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: c.surface,
   },
   content: {
     padding: 24,
@@ -190,13 +191,13 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   label: {
-    color: colors.muted,
+    color: c.muted,
     fontSize: 13,
   },
   amount: {
     fontSize: 28,
     fontWeight: '800',
-    color: colors.ink,
+    color: c.ink,
   },
   marginBlock: {
     gap: 4,
@@ -204,20 +205,20 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   marginSafe: {
-    backgroundColor: colors.brandSoft,
+    backgroundColor: c.brandSoft,
   },
   marginWarningLevel: {
-    backgroundColor: colors.warningSoft,
+    backgroundColor: c.warningSoft,
   },
   marginDanger: {
-    backgroundColor: colors.dangerSoft,
+    backgroundColor: c.dangerSoft,
   },
   marginHint: {
-    color: colors.muted,
+    color: c.muted,
     fontSize: 12,
   },
   marginWarning: {
-    color: colors.dangerText,
+    color: c.dangerText,
     fontWeight: '600',
     marginTop: 4,
   },
@@ -225,11 +226,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   historyTitle: {
+    color: c.ink,
     fontSize: 16,
     fontWeight: '700',
   },
   historyEmpty: {
-    color: colors.muted,
+    color: c.muted,
   },
   historyRow: {
     flexDirection: 'row',
@@ -238,28 +240,28 @@ const styles = StyleSheet.create({
     padding: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: c.border,
   },
   historyDate: {
-    color: colors.inkSoft,
+    color: c.inkSoft,
   },
   historyAmount: {
     fontWeight: '700',
-    color: colors.ink,
+    color: c.ink,
   },
   historyStatus: {
-    color: colors.inkSoft,
+    color: c.inkSoft,
   },
   historySupervisor: {
-    color: colors.muted,
+    color: c.muted,
   },
   error: {
-    color: colors.dangerText,
+    color: c.dangerText,
   },
-});
+}));
 
-const MARGIN_LEVEL_STYLE: Record<'safe' | 'warning' | 'danger', object> = {
-  safe: styles.marginSafe,
-  warning: styles.marginWarningLevel,
-  danger: styles.marginDanger,
-};
+const MARGIN_LEVEL_STYLE_KEY = {
+  safe: 'marginSafe',
+  warning: 'marginWarningLevel',
+  danger: 'marginDanger',
+} as const;

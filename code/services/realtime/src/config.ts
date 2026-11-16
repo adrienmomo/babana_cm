@@ -53,8 +53,10 @@ const ConfigSchema = z.object({
   /** ~140 km/h : au-delà, un déplacement implicite est un artefact GPS, pas une moto (L3-02). */
   POSITION_MAX_IMPLIED_SPEED_MPS: z.coerce.number().positive().default(38.9),
 
-  /** Rayon maximal d'une requête de chauffeurs proches, quel que soit le rayon demandé (L3-03). */
-  NEARBY_MAX_RADIUS_METERS: z.coerce.number().positive().default(5_000),
+  /** Rayon des chauffeurs proches montrés au client (L3-03) : celui d'une demande sans rayon (ce
+   * que l'app Client envoie depuis le 15 novembre), et le plafond d'une demande qui en porte un.
+   * 3 km par décision du maître d'ouvrage du 15 novembre (5 km avant). */
+  NEARBY_MAX_RADIUS_METERS: z.coerce.number().positive().default(3_000),
 
   /** Élargissement du rayon (L3-08), quand aucun chauffeur ne reste après exclusion des
    * refusants sur cette course -- ou qu'aucun n'était disponible dans le rayon initial. Palier

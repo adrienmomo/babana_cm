@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { reverseGeocode } from '@babana/maps';
 import type { LatLng } from '@babana/maps';
 import type { realtime } from '@babana/contracts';
@@ -10,7 +10,7 @@ import { alertIncomingProposal, dismissProposalAlert } from '../proposalAlert';
 import { onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { markProposalHandled, forgetProposal } from '../proposalDedup';
 import type { ActiveRideParams, ProposalParams } from '../navigation/types';
-import { buttonLabels, buttons, cards, colors } from '../theme';
+import { cardsOf, makeStyles, useButtonLabels, useButtons } from '../theme';
 
 /**
  * Réception de proposition (L6-12) : un panneau posé sur la carte de Home (`rideFlow/`) -- la
@@ -142,6 +142,9 @@ function detailsFromActiveProposal(active: realtime.ActiveProposal): ProposalDis
 }
 
 export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelProps) {
+  const buttonLabels = useButtonLabels();
+  const buttons = useButtons();
+  const styles = useStyles();
   const rideId = params.rideId;
   const fromNotification = params.source === 'notification';
 
@@ -499,7 +502,7 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   overlay: {
     position: 'absolute',
     top: 0,
@@ -508,7 +511,7 @@ const styles = StyleSheet.create({
     bottom: 0,
   },
   card: {
-    ...cards.floating,
+    ...cardsOf(c).floating,
     position: 'absolute',
     top: 12,
     left: 16,
@@ -520,7 +523,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 14,
     fontWeight: '600',
-    color: colors.muted,
+    color: c.muted,
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
@@ -529,29 +532,29 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   pointText: {
-    color: colors.inkSoft,
+    color: c.inkSoft,
     maxWidth: 320,
   },
   amount: {
     fontSize: 30,
     fontWeight: '800',
-    color: colors.ink,
+    color: c.ink,
   },
   distance: {
-    color: colors.muted,
+    color: c.muted,
   },
   pickupNote: {
-    color: colors.ink,
+    color: c.ink,
     fontStyle: 'italic',
     textAlign: 'center',
     maxWidth: 320,
   },
   approachDistance: {
-    color: colors.brandText,
+    color: c.brandText,
     fontWeight: '600',
   },
   revalidating: {
-    color: colors.muted,
+    color: c.muted,
   },
   // D20 -- cibles tactiles larges, le chauffeur est sur sa moto, parfois avec des gants (L6-12).
   cornerButton: {
@@ -566,21 +569,21 @@ const styles = StyleSheet.create({
     right: 16,
   },
   pending: {
-    color: colors.muted,
+    color: c.muted,
   },
   resolutionBanner: {
     marginTop: 4,
-    backgroundColor: colors.warningSoft,
+    backgroundColor: c.warningSoft,
     borderRadius: 12,
     padding: 12,
     maxWidth: 320,
   },
   resolutionText: {
-    color: colors.warningText,
+    color: c.warningText,
     textAlign: 'center',
   },
   offlineBlockedText: {
-    color: colors.warningText,
+    color: c.warningText,
     textAlign: 'center',
   },
-});
+}));

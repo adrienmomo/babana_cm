@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, TextInput, View } from 'react-native';
-import { colors } from '../../theme';
-import { Button } from '@babana/ui';
+import { Text, View } from 'react-native';
+import { makeStyles } from '../../theme';
+import { Button, TextField } from '@babana/ui';
 import { ApiError, translateApiError, type DriverDocumentUploader } from '@babana/api-client';
 import {
   DOCUMENT_LABELS,
@@ -53,6 +53,7 @@ export function DocumentsScreen({
   onRefresh,
   onAllSubmitted,
 }: DocumentsScreenProps) {
+  const styles = useStyles();
   const submittedRef = useRef(false);
 
   useEffect(() => {
@@ -112,6 +113,7 @@ function DocumentRow({
   onClearPending,
   onRefresh,
 }: DocumentRowProps) {
+  const styles = useStyles();
   const { type } = slot;
   const [expiresOn, setExpiresOn] = useState('');
   const [busy, setBusy] = useState(false);
@@ -152,7 +154,8 @@ function DocumentRow({
     }
     setBusy(true);
     try {
-      const picked = await imageSource.pick({ source, maxBytes });
+      // La photo de profil est un portrait : appareil photo avant.
+      const picked = await imageSource.pick({ source, maxBytes, ...(type === 'profile_photo' ? { cameraFacing: 'front' as const } : {}) });
       if (!picked) return; // annulé
       if (picked.sizeBytes > maxBytes) {
         setError('La photo est encore trop lourde. Reprenez-la de plus loin.');
@@ -198,7 +201,7 @@ function DocumentRow({
       ) : null}
 
       {type === 'license' ? (
-        <TextInput
+        <TextField
           testID="doc-license-expiry"
           style={styles.input}
           placeholder="Date d'expiration (AAAA-MM-JJ)"
@@ -250,16 +253,16 @@ function statusLabel(slot: DocumentSlot): string {
   }
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: { flex: 1, gap: 16, padding: 24 },
-  title: { fontSize: 22, fontWeight: '700' },
-  intro: { color: colors.inkSoft },
-  row: { gap: 8, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: colors.border },
-  rowHighlighted: { borderColor: colors.brand, borderWidth: 2 },
-  rowTitle: { fontSize: 16, fontWeight: '600' },
-  status: { color: colors.inkSoft },
-  reason: { color: colors.dangerText },
-  input: { borderWidth: 1, borderColor: colors.border, borderRadius: 6, padding: 8 },
-  error: { color: colors.dangerText },
+  title: { color: c.ink, fontSize: 22, fontWeight: '700' },
+  intro: { color: c.inkSoft },
+  row: { gap: 8, padding: 12, borderRadius: 8, borderWidth: 1, borderColor: c.border },
+  rowHighlighted: { borderColor: c.brand, borderWidth: 2 },
+  rowTitle: { color: c.ink, fontSize: 16, fontWeight: '600' },
+  status: { color: c.inkSoft },
+  reason: { color: c.dangerText },
+  input: { borderWidth: 1, borderColor: c.border, borderRadius: 6, padding: 8 },
+  error: { color: c.dangerText },
   actions: { flexDirection: 'row', gap: 8 },
-});
+}));

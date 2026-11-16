@@ -1,14 +1,17 @@
 import React, { useCallback, useEffect, useLayoutEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { AccountMenu, Avatar, formatRatingSummary } from '@babana/ui';
+import { AccountMenu, Avatar, ThemePicker, formatRatingSummary } from '@babana/ui';
 import type { http } from '@babana/contracts';
 import { apiClient, authClient } from '../auth';
 import { APP_NAME } from '../brand';
 import { formatDay } from '../format';
 import { signOutDriver } from '../signOut';
-import { colors } from '../theme';
+import { makeStyles } from '../theme';
 import { DOCUMENT_LABELS, DOCUMENT_STATUS_LABELS, documentSlots, type DocumentSlot } from './onboarding/state';
+import { defaultImageSource } from './onboarding/imageSource';
+import { documentUploader } from '../onboarding';
+import { ONBOARDING_MAX_DOCUMENT_BYTES } from '../../config';
 import type { DriverParamList } from '../navigation/types';
 
 /**
@@ -34,6 +37,7 @@ async function signOutFromMenu(): Promise<string | null> {
 const renderAccountMenu = () => <AccountMenu appName={APP_NAME} onSignOut={signOutFromMenu} />;
 
 export function AccountScreen({ navigation }: Props) {
+  const styles = useStyles();
   const [user, setUser] = useState(() => authClient.getUser());
 
   // La session date du démarrage de l'app ; la note, elle, bouge après chaque course. Relue à
@@ -68,6 +72,30 @@ export function AccountScreen({ navigation }: Props) {
 
   useEffect(() => {
     loadDocuments();
+  }, [loadDocuments]);
+
+  // 15 novembre : un chauffeur approuvé avant que la photo de profil ne soit requise la dépose
+  // ici ; tout chauffeur la change ici. Appareil photo avant ; la nouvelle photo attend sa
+  // validation au back-office, l'ancienne reste celle que voient les clients jusque-là.
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const takeProfilePhoto = useCallback(async () => {
+    setPhotoError(null);
+    setPhotoBusy(true);
+    try {
+      const picked = await defaultImageSource.pick({ source: 'camera', cameraFacing: 'front', maxBytes: ONBOARDING_MAX_DOCUMENT_BYTES });
+      if (!picked) return;
+      if (picked.sizeBytes > ONBOARDING_MAX_DOCUMENT_BYTES) {
+        setPhotoError('La photo est trop lourde. Reprenez-la.');
+        return;
+      }
+      await documentUploader.upload({ documentType: 'profile_photo', file: { uri: picked.uri, name: picked.name, mimeType: picked.mimeType } });
+      await loadDocuments();
+    } catch {
+      setPhotoError("La photo n'a pas pu être envoyée. Réessayez.");
+    } finally {
+      setPhotoBusy(false);
+    }
   }, [loadDocuments]);
 
   return (
@@ -122,22 +150,47 @@ export function AccountScreen({ navigation }: Props) {
                     : DOCUMENT_STATUS_LABELS[slot.status]}
                 </Text>
                 {slot.rejectionReason ? <Text style={styles.rejected}>{slot.rejectionReason}</Text> : null}
+                {slot.type === 'profile_photo' ? (
+                  <Pressable
+                    testID="account-profile-photo"
+                    accessibilityRole="button"
+                    disabled={photoBusy}
+                    onPress={takeProfilePhoto}
+                    style={styles.photoButton}
+                  >
+                    {photoBusy ? (
+                      <ActivityIndicator />
+                    ) : (
+                      <Text style={styles.photoButtonLabel}>{slot.status === 'missing' ? 'Ajouter ma photo' : 'Changer ma photo'}</Text>
+                    )}
+                  </Pressable>
+                ) : null}
+                {slot.type === 'profile_photo' && photoError ? (
+                  <Text testID="account-profile-photo-error" style={styles.rejected}>
+                    {photoError}
+                  </Text>
+                ) : null}
               </View>
             ))
           : null}
+      </View>
+
+      {/* 15 novembre : clair, sombre, noir ou celui du téléphone -- gardé sur ce téléphone. */}
+      <View style={styles.appearance}>
+        <ThemePicker />
       </View>
     </ScrollView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.surface },
+const useStyles = makeStyles((c) => ({
+  container: { flex: 1, backgroundColor: c.surface },
   content: { paddingBottom: 32 },
   identity: { alignItems: 'center', gap: 10, paddingTop: 28, paddingBottom: 24, paddingHorizontal: 16 },
-  name: { color: colors.ink, fontSize: 22, fontWeight: '700', textAlign: 'center' },
-  rating: { color: colors.ink, fontSize: 16, fontWeight: '600' },
-  status: { color: colors.brandText, fontSize: 14 },
-  list: { borderTopWidth: 1, borderColor: colors.border },
+  name: { color: c.ink, fontSize: 22, fontWeight: '700', textAlign: 'center' },
+  rating: { color: c.ink, fontSize: 16, fontWeight: '600' },
+  status: { color: c.brandText, fontSize: 14 },
+  list: { borderTopWidth: 1, borderColor: c.border },
   row: {
     minHeight: 56,
     flexDirection: 'row',
@@ -145,13 +198,32 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 20,
     borderBottomWidth: 1,
-    borderColor: colors.border,
+    borderColor: c.border,
   },
-  pressed: { backgroundColor: colors.canvas },
-  rowLabel: { color: colors.ink, fontSize: 17, fontWeight: '600' },
-  chevron: { color: colors.subtle, fontSize: 24 },
+  pressed: { backgroundColor: c.canvas },
+  rowLabel: { color: c.ink, fontSize: 17, fontWeight: '600' },
+  chevron: { color: c.subtle, fontSize: 24 },
+  photoButton: {
+    marginTop: 10,
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    paddingHorizontal: 16,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: c.brandBorder,
+    backgroundColor: c.brandSoft,
+    justifyContent: 'center',
+  },
+  photoButtonLabel: {
+    color: c.brandText,
+    fontWeight: '600',
+  },
+  appearance: {
+    marginTop: 24,
+    paddingHorizontal: 20,
+  },
   sectionTitle: {
-    color: colors.muted,
+    color: c.muted,
     fontSize: 13,
     fontWeight: '600',
     textTransform: 'uppercase',
@@ -164,10 +236,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    borderColor: colors.border,
+    borderColor: c.border,
   },
-  documentStatus: { color: colors.inkSoft, fontSize: 15 },
-  rejected: { color: colors.dangerText },
-  muted: { color: colors.muted, flexShrink: 1 },
+  documentStatus: { color: c.inkSoft, fontSize: 15 },
+  rejected: { color: c.dangerText },
+  muted: { color: c.muted, flexShrink: 1 },
   loading: { paddingVertical: 18 },
-});
+}));

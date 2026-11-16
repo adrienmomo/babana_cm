@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, ScrollView, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Button } from '@babana/ui';
+import { Button, makeStyles } from '@babana/ui';
 import { ApiError, translateApiError } from '@babana/api-client';
 import type { http } from '@babana/contracts';
 import { apiClient } from '../auth';
@@ -29,6 +29,7 @@ function errorMessage(cause: unknown, fallback: string): string {
 }
 
 export function InvoiceScreen({ route }: Props) {
+  const styles = useStyles();
   const { rideId } = route.params;
   const [state, setState] = useState<LoadState>({ status: 'loading' });
   const [send, setSend] = useState<SendState>({ status: 'idle' });
@@ -138,22 +139,22 @@ export function InvoiceScreen({ route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: { flex: 1 },
   content: { padding: 16, gap: 16 },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
   header: { gap: 4 },
-  number: { fontSize: 20, fontWeight: '700', color: '#1F2937' },
-  meta: { color: '#6B7280' },
+  number: { fontSize: 20, fontWeight: '700', color: c.ink },
+  meta: { color: c.muted },
   block: { gap: 4 },
-  line: { color: '#374151' },
-  breakdown: { gap: 4, padding: 16, borderRadius: 12, backgroundColor: '#F9FAFB' },
+  line: { color: c.inkSoft },
+  breakdown: { gap: 4, padding: 16, borderRadius: 12, backgroundColor: c.surfaceMuted },
   breakdownRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  breakdownLabel: { color: '#374151' },
-  breakdownValue: { color: '#374151', fontVariant: ['tabular-nums'] },
-  totalRow: { marginTop: 6, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#E5E7EB' },
-  total: { fontSize: 18, fontWeight: '700', color: '#1F2937' },
-  payment: { marginTop: 4, color: '#374151', fontWeight: '600' },
-  success: { color: '#137347', fontWeight: '600' },
-  error: { color: '#B91C1C', textAlign: 'center' },
-});
+  breakdownLabel: { color: c.inkSoft },
+  breakdownValue: { color: c.inkSoft, fontVariant: ['tabular-nums'] },
+  totalRow: { marginTop: 6, paddingTop: 8, borderTopWidth: 1, borderTopColor: c.border },
+  total: { fontSize: 18, fontWeight: '700', color: c.ink },
+  payment: { marginTop: 4, color: c.inkSoft, fontWeight: '600' },
+  success: { color: c.brandText, fontWeight: '600' },
+  error: { color: c.dangerText, textAlign: 'center' },
+}));

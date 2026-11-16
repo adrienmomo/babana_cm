@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { asRideId } from '@babana/navigation';
 import { Avatar } from '@babana/ui';
@@ -12,7 +12,7 @@ import { ARRIVAL_RADIUS_METERS, ROUTE_DEVIATION_METERS, ROUTE_REFRESH_MS, ROUTE_
 import { ProposalPanel } from '../rideFlow/ProposalPanel';
 import { ActiveRidePanel, type ActiveRideResume, type RideFlowSettings, type RideMapState } from '../rideFlow/ActiveRidePanel';
 import { replaceWithSettlement } from '../navigation/transitions';
-import { buttonLabels, buttons, cards, colors, radius, shadow } from '../theme';
+import { buttonLabelsOf, buttonsOf, cardsOf, makeStyles, radius, shadow, useColors } from '../theme';
 import { fetchCashSummary } from '../api/cash';
 import { authClient } from '../auth';
 import { formatMoney } from '../format';
@@ -105,6 +105,8 @@ const RIDE_SETTINGS: RideFlowSettings = {
 };
 
 export function HomeScreen({ navigation, route }: Props) {
+  const styles = useStyles();
+  const colors = useColors();
   const user = authClient.getUser();
   const [connectionState, setConnectionState] = useState<ConnectionState>(() => realtimeClient.getState());
   // Lu depuis session.synced (activeRideState), jamais deviné (invariant 3) -- session.resync est
@@ -307,6 +309,7 @@ export function HomeScreen({ navigation, route }: Props) {
   return (
     <View style={styles.container}>
       <MapView
+        appearance={colors.scheme}
         center={center}
         frameRoute={false}
         markers={markers}
@@ -389,7 +392,7 @@ export function HomeScreen({ navigation, route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     flex: 1,
   },
@@ -406,14 +409,14 @@ const styles = StyleSheet.create({
     right: 12,
     borderRadius: radius.pill,
     borderWidth: 2,
-    borderColor: colors.surface,
+    borderColor: c.surface,
     ...shadow,
   },
   profileButtonPressed: {
     opacity: 0.85,
   },
   statusChip: {
-    ...cards.floating,
+    ...cardsOf(c).floating,
     position: 'absolute',
     top: 12,
     alignSelf: 'center',
@@ -421,7 +424,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   connectionState: {
-    color: colors.inkSoft,
+    color: c.inkSoft,
     fontWeight: '600',
   },
   // Feuille du bas : pleine largeur, coins du haut arrondis seulement -- elle sort du bord de
@@ -431,7 +434,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: colors.surface,
+    backgroundColor: c.surface,
     borderTopLeftRadius: radius.card,
     borderTopRightRadius: radius.card,
     paddingHorizontal: 16,
@@ -447,25 +450,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cashButton: {
-    ...buttons.base,
-    ...buttons.md,
-    ...buttons.secondary,
+    ...buttonsOf(c).base,
+    ...buttonsOf(c).md,
+    ...buttonsOf(c).secondary,
     minWidth: 112,
   },
   todayTotal: {
     alignItems: 'flex-end',
   },
   todayLabel: {
-    color: colors.muted,
+    color: c.muted,
     fontSize: 13,
   },
   todayAmount: {
-    color: colors.ink,
+    color: c.ink,
     fontSize: 20,
     fontWeight: '700',
   },
   cashLinkLabel: {
-    ...buttonLabels.base,
-    ...buttonLabels.secondary,
+    ...buttonLabelsOf(c).base,
+    ...buttonLabelsOf(c).secondary,
   },
-});
+}));

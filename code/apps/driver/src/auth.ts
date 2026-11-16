@@ -1,4 +1,4 @@
-import { AuthClient, createHttpClient, secureTokenStorage, withTransparentRefresh } from '@babana/api-client';
+import { AuthClient, createHttpClient, secureTokenStorage, withTransparentRefresh, type SessionLossReason } from '@babana/api-client';
 import { API_BASE_URL } from '../config';
 
 /**
@@ -8,6 +8,18 @@ import { API_BASE_URL } from '../config';
  * client HTTP authentifié par app.
  */
 const sessionLostListeners = new Set<() => void>();
+
+/** Pourquoi la dernière session s'est fermée, lu une fois par l'écran de connexion (15 novembre). */
+let lastSessionLossReason: SessionLossReason | null = null;
+
+export const SESSION_REPLACED_NOTICE = 'Votre compte a été connecté sur un autre téléphone.';
+
+/** Le message à montrer sur l'écran de connexion après une session fermée par le serveur, une fois. */
+export function takeSessionLossNotice(): string | null {
+  const reason = lastSessionLossReason;
+  lastSessionLossReason = null;
+  return reason === 'replaced' ? SESSION_REPLACED_NOTICE : null;
+}
 
 /** `onSessionLost` (L6-02) diffusé aux abonnés -- la garde d'authentification (L6-00,
  * `src/navigation/index.tsx`) s'y abonne pour démonter les écrans métier et remonter la
@@ -25,7 +37,10 @@ const baseHttpClient = createHttpClient({
 export const authClient = new AuthClient({
   httpClient: baseHttpClient,
   storage: secureTokenStorage,
-  onSessionLost: () => sessionLostListeners.forEach((listener) => listener()),
+  onSessionLost: (reason) => {
+    lastSessionLossReason = reason ?? null;
+    sessionLostListeners.forEach((listener) => listener());
+  },
 });
 
 /** Client HTTP à utiliser pour tout appel authentifié -- le renouvellement transparent (critères

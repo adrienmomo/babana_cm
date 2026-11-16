@@ -56,6 +56,7 @@ jest.mock('../../realtime', () => ({
 
 import { AppState, type AppStateStatus } from 'react-native';
 import { TrackingScreen } from '../TrackingScreen';
+import type { AssignedDriverInfo } from '../../navigation/types';
 
 let appStateListener: ((state: AppStateStatus) => void) | null = null;
 jest.spyOn(AppState, 'addEventListener').mockImplementation((_type, listener: (state: AppStateStatus) => void) => {
@@ -90,7 +91,7 @@ afterEach(async () => {
 });
 
 async function renderTracking(
-  overrides: { origin?: typeof ORIGIN; destination?: typeof DESTINATION; driver?: typeof DRIVER } = {},
+  overrides: { origin?: typeof ORIGIN; destination?: typeof DESTINATION; driver?: AssignedDriverInfo } = {},
   navigation = fakeNavigation()
 ): Promise<{ root: ReactTestRenderer; navigation: ReturnType<typeof fakeNavigation> }> {
   const route = {
@@ -149,7 +150,7 @@ beforeEach(() => {
 });
 
 const lastMapProps = () => mockMapProps.mock.calls[mockMapProps.mock.calls.length - 1]?.[0] as
-  | { route?: { points: unknown[] }; markers: Array<{ id: string }> }
+  | { route?: { points: unknown[] }; center?: unknown; markers: Array<{ id: string; kind: string }> }
   | undefined;
 
 function emitRoute(phase: 'approach' | 'transit', points: Array<{ latitude: number; longitude: number }>, rideId: string = RIDE_ID) {
@@ -535,6 +536,32 @@ describe('itinéraire du chauffeur et « Sur place » (déroulé sur la carte du
     expect(lastMapProps()?.route).toEqual({ points: APPROACH_POINTS.slice(1) });
   });
 
+  it('15 novembre -- « Sur place » : la carte passe au trajet (tracé du trajet, départ et arrivée), et ne suit plus la moto', async () => {
+    await renderTracking();
+    const arrived = () =>
+      realtimeListener?.({ type: 'driver.arrived', id: 'm3', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, arrivedAt: new Date().toISOString(), noShowGraceSeconds: 300 } });
+    await act(async () => {
+      emitRoute('approach', APPROACH_POINTS);
+      emitPosition({ latitude: 4.0503, longitude: 9.7 });
+    });
+    expect(lastMapProps()?.route).toEqual({ points: APPROACH_POINTS });
+
+    // Le chemin d'approche disparaît dès l'arrivée, même avant que le tracé du trajet n'arrive.
+    await act(async () => {
+      arrived();
+    });
+    expect(lastMapProps()?.route).toBeUndefined();
+
+    await act(async () => {
+      emitRoute('transit', TRANSIT_POINTS);
+      emitPosition({ latitude: 4.0504, longitude: 9.7001 });
+    });
+    const props = lastMapProps()!;
+    expect(props.route).toEqual({ points: TRANSIT_POINTS });
+    expect(props.center).toEqual(ORIGIN.position);
+    expect(props.markers.map((m) => m.kind)).toEqual(['pickup', 'dropoff', 'driver']);
+  });
+
   it('« Sur place » : le client est prévenu que son chauffeur est arrivé', async () => {
     const { root } = await renderTracking();
     expect(root.root.findAllByProps({ testID: 'tracking-arrived' })).toHaveLength(0);
@@ -858,5 +885,20 @@ describe('15 novembre : le client revenu sur son suivi apprend que la course est
     });
     expect(navigation.replace).not.toHaveBeenCalled();
     expect(texts(root)).not.toContain('Votre chauffeur a annulé la course.');
+  });
+});
+
+describe('15 novembre : la fiche du chauffeur', () => {
+  it('prénom et nom, et sa photo validée', async () => {
+    const { root } = await renderTracking({ driver: { ...DRIVER, lastName: 'Ndoumbè', photoUrl: 'https://storage.example/photo.jpg?X-Amz-Expires=3600' } });
+    expect(root.root.findByProps({ testID: 'tracking-driver-name' }).props.children).toBe('Paul Ndoumbè');
+    const avatar = root.root.findByProps({ testID: 'tracking-driver-avatar' });
+    expect(avatar.props.photoUrl).toBe('https://storage.example/photo.jpg?X-Amz-Expires=3600');
+  });
+
+  it('sans photo validée : ses initiales ; sans nom connu : « Votre chauffeur »', async () => {
+    const { root } = await renderTracking({ driver: { ...DRIVER, firstName: null } });
+    expect(root.root.findByProps({ testID: 'tracking-driver-name' }).props.children).toBe('Votre chauffeur');
+    expect(root.root.findByProps({ testID: 'tracking-driver-avatar' }).props.photoUrl).toBeNull();
   });
 });

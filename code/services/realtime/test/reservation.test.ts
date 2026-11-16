@@ -55,7 +55,7 @@ const PLAUSIBILITY: PlausibilityConfig = {
 };
 
 function driverContext(driverId: string): ConnectionContext {
-  return Object.freeze({ userId: `user-${driverId}`, role: 'driver', driverId });
+  return Object.freeze({ userId: `user-${driverId}`, role: 'driver', driverId, sessionId: null });
 }
 
 function positionMessage(latitude: number, longitude: number) {

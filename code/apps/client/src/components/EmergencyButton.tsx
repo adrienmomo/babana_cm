@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { ApiError, translateApiError, flushPendingIncidentTriggers, type PendingIncidentTrigger } from '@babana/api-client';
 import { apiClient } from '../auth';
 import { getCurrentPosition } from '../location';
 import { pendingIncidentQueue } from '../incidentQueue';
+import { makeStyles } from '@babana/ui';
 
 /**
  * Bouton d'urgence (L8-04). Atteignable en un geste depuis l'écran de suivi (critère 1) --
@@ -29,6 +30,7 @@ export interface EmergencyButtonProps {
 }
 
 export function EmergencyButton({ rideId }: EmergencyButtonProps) {
+  const styles = useStyles();
   const [status, setStatus] = useState<Status>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const mountedRef = useRef(true);
@@ -142,7 +144,7 @@ export function EmergencyButton({ rideId }: EmergencyButtonProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     alignItems: 'center',
     gap: 4,
@@ -152,25 +154,25 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 16,
     borderRadius: 24,
-    backgroundColor: '#DC2626',
+    backgroundColor: c.danger,
     alignItems: 'center',
     justifyContent: 'center',
   },
   buttonHolding: {
-    backgroundColor: '#991B1B',
+    backgroundColor: c.dangerText,
   },
   buttonSent: {
-    backgroundColor: '#6B7280',
+    backgroundColor: c.muted,
   },
   buttonLabel: {
-    color: '#FFFFFF',
+    color: c.onBrand,
     fontWeight: '700',
     fontSize: 12,
   },
   error: {
-    color: '#DC2626',
+    color: c.danger,
     fontSize: 11,
     maxWidth: 160,
     textAlign: 'center',
   },
-});
+}));

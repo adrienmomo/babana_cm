@@ -13,7 +13,8 @@ import { IsoDateTimeSchema } from './common';
  * supposent tous deux un corps JSON pur pour ce champ-là.
  */
 
-export const DriverDocumentTypeSchema = z.enum(['license', 'id_card']);
+/** `profile_photo` (15 novembre) : la photo que le client voit, validée au back-office. Image seulement. */
+export const DriverDocumentTypeSchema = z.enum(['license', 'id_card', 'profile_photo']);
 export type DriverDocumentType = z.infer<typeof DriverDocumentTypeSchema>;
 
 export const DriverDocumentVerificationStatusSchema = z.enum(['pending', 'verified', 'rejected']);

@@ -1,4 +1,4 @@
-import type { LatLng, MapMarker, MapRoute } from '../../types';
+import type { LatLng, MapAppearance, MapMarker, MapRoute } from '../../types';
 import { MAP_MARKER_COLORS } from '../../markerColors';
 import { RECENTER_EPSILON } from '../../heading';
 import { GLIDE_JUMP_DEG, GLIDE_MAX_MS, GLIDE_MIN_MS } from '../../glide';
@@ -37,6 +37,7 @@ export interface LeafletState {
   route?: MapRoute;
   /** `false` : ne jamais cadrer le tracé (`MapViewProps.frameRoute`). */
   frameRoute?: boolean;
+  appearance?: MapAppearance;
 }
 
 /** JSON sûr à l'intérieur d'une balise <script> et d'une chaîne injectée. */
@@ -69,6 +70,13 @@ html,body,#map{height:100%;margin:0;padding:0;background:#ebe7df}
 .babana-dot{position:relative;display:block;width:14px;height:14px;border-radius:50%;border:2px solid #fff;background:currentColor;box-shadow:0 1px 3px rgba(0,0,0,.4)}
 .babana-dot::after{content:'';position:absolute;left:-2px;top:-2px;width:18px;height:18px;border-radius:50%;background:currentColor;opacity:.45;animation:babana-pulse 2s ease-out infinite}
 .babana-marker--reticle .babana-dot::after{display:none}
+/* Thème sombre ou noir de l'app : tuiles inversées puis remises dans leurs teintes (l'eau reste
+   bleue, la végétation verte), sans autre fournisseur de tuiles. Les repères ne sont pas filtrés. */
+html.appearance-dark,html.appearance-dark body,html.appearance-dark #map{background:#1b1d21}
+html.appearance-black,html.appearance-black body,html.appearance-black #map{background:#000}
+html.appearance-dark .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.95) contrast(.9)}
+html.appearance-black .leaflet-tile-pane{filter:invert(1) hue-rotate(180deg) brightness(.75) contrast(.95)}
+html.appearance-dark .leaflet-control-attribution,html.appearance-black .leaflet-control-attribution{color:#9CA3AF;background:rgba(0,0,0,.5)!important}
 @keyframes babana-pulse{from{transform:scale(1);opacity:.45}to{transform:scale(3.2);opacity:0}}
 </style>
 </head>
@@ -191,6 +199,7 @@ html,body,#map{height:100%;margin:0;padding:0;background:#ebe7df}
   var routeKey = null;
   var lastCenter = initial.center;
   var update = function (state) {
+    document.documentElement.className = 'appearance-' + (state.appearance || 'light');
     layer.clearLayers();
     var seen = {};
     var glideMs = 0;

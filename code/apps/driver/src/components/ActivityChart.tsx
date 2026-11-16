@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import type { http } from '@babana/contracts';
-import { colors, radius } from '../theme';
+import { makeStyles, radius } from '../theme';
 import { formatMoney } from '../format';
 
 /**
@@ -69,6 +69,7 @@ function ridesLabel(rides: number): string {
 }
 
 export function ActivityChart({ activity }: { activity: http.DriverActivityResponse }) {
+  const styles = useStyles();
   const [view, setView] = useState<ActivityView>('day');
   const buckets = activity[view];
   const [selected, setSelected] = useState(buckets.length - 1);
@@ -148,25 +149,25 @@ export function ActivityChart({ activity }: { activity: http.DriverActivityRespo
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   card: {
     gap: 12,
     padding: 16,
     borderRadius: radius.card,
     borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderColor: c.border,
+    backgroundColor: c.surface,
   },
   title: {
     fontSize: 16,
     fontWeight: '700',
-    color: colors.ink,
+    color: c.ink,
   },
   switcher: {
     flexDirection: 'row',
     padding: 3,
     borderRadius: radius.pill,
-    backgroundColor: colors.canvas,
+    backgroundColor: c.canvas,
   },
   switch: {
     flex: 1,
@@ -175,31 +176,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   switchActive: {
-    backgroundColor: colors.surface,
+    backgroundColor: c.surface,
     borderWidth: 1,
-    borderColor: colors.brandBorder,
+    borderColor: c.brandBorder,
   },
   switchText: {
-    color: colors.muted,
+    color: c.muted,
     fontWeight: '600',
   },
   switchTextActive: {
-    color: colors.brandText,
+    color: c.brandText,
   },
   summary: {
     gap: 2,
   },
   summaryPeriod: {
-    color: colors.muted,
+    color: c.muted,
     fontSize: 13,
   },
   summaryAmount: {
     fontSize: 22,
     fontWeight: '800',
-    color: colors.ink,
+    color: c.ink,
   },
   summaryRides: {
-    color: colors.muted,
+    color: c.muted,
     fontSize: 12,
   },
   chart: {
@@ -221,17 +222,17 @@ const styles = StyleSheet.create({
     width: '100%',
     borderTopLeftRadius: 6,
     borderTopRightRadius: 6,
-    backgroundColor: colors.brandBorder,
+    backgroundColor: c.brandBorder,
   },
   barSelected: {
-    backgroundColor: colors.brand,
+    backgroundColor: c.brand,
   },
   barLabel: {
     fontSize: 11,
-    color: colors.muted,
+    color: c.muted,
   },
   barLabelSelected: {
-    color: colors.brandText,
+    color: c.brandText,
     fontWeight: '700',
   },
-});
+}));

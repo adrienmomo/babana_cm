@@ -178,6 +178,33 @@ def _pdf_content_stream(lines):
     return b"\n".join(parts)
 
 
+def build_demo_profile_photo(driver_name):
+    """Photo de profil de démonstration (15 novembre) : un portrait stylisé aux initiales, en JPEG
+    -- D63, l'écran du client affiche une image réelle, pas une ligne qui pointe vers rien."""
+    import io
+
+    from PIL import Image, ImageDraw, ImageFont
+
+    palette = [(26, 158, 92), (62, 123, 250), (229, 72, 77), (245, 158, 11), (124, 58, 237)]
+    color = palette[sum(map(ord, driver_name)) % len(palette)]
+    size = 512
+    image = Image.new("RGB", (size, size), color)
+    draw = ImageDraw.Draw(image)
+    # Buste et tête, en clair sur le fond : on reconnaît un portrait même sans visage.
+    draw.ellipse((156, 96, 356, 296), fill=(245, 245, 245))
+    draw.ellipse((86, 320, 426, 660), fill=(245, 245, 245))
+    initials = "".join(part[0] for part in driver_name.split()[:2]).upper()
+    try:
+        font = ImageFont.load_default(size=96)
+    except TypeError:  # Pillow < 10.1
+        font = ImageFont.load_default()
+    box = draw.textbbox((0, 0), initials, font=font)
+    draw.text(((size - (box[2] - box[0])) / 2, 150 + (100 - (box[3] - box[1])) / 2), initials, fill=color, font=font)
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=85)
+    return buffer.getvalue()
+
+
 def build_demo_document_pdf(driver_name, document_label):
     """PDF minimal, valide (xref explicite), une page, deux polices standard (aucune police à
     embarquer -- Helvetica/Helvetica-Bold font partie du jeu de 14 polices que tout lecteur PDF
@@ -360,6 +387,23 @@ def ensure_fleet():
         if user.partner_id:
             user.partner_id.sudo().write({"phone": phone})
             verify_phone(user.partner_id, phone)
+
+        # a bis. photo de profil validée (15 novembre), y compris pour un chauffeur déjà approuvé
+        #    par un seed antérieur : c'est elle que le client voit sur la fiche de son chauffeur.
+        if not env["babana.driver.document"].sudo().search_count(
+            [("driver_id", "=", driver.id), ("document_type", "=", "profile_photo")]
+        ):
+            key = "seed/%s/profile_photo.jpg" % sub
+            storage.upload(key, build_demo_profile_photo(name), "image/jpeg")
+            env["babana.driver.document"].sudo().create(
+                {
+                    "driver_id": driver.id,
+                    "document_type": "profile_photo",
+                    "storage_key": key,
+                    "mime_type": "image/jpeg",
+                    "verification_status": "verified",
+                }
+            )
 
         if driver.state != "approved":
             # a. documents vérifiés (permis daté, pièce d'identité), avec un fichier réel

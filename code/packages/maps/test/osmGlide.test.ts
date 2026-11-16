@@ -73,7 +73,8 @@ function runPage() {
     markers: [],
   });
   const script = html.split('<script>\n')[1]!.split('</script>')[0]!;
-  vm.runInNewContext(script, { window, L, Date, Math, JSON, setTimeout });
+  const document = { documentElement: { className: '' } };
+  vm.runInNewContext(script, { window, document, L, Date, Math, JSON, setTimeout });
 
   const babana = window.babana as { update: (state: unknown) => void };
   const update = (at: { latitude: number; longitude: number }) =>
@@ -92,6 +93,8 @@ function runPage() {
     pans,
     setViews,
     remove: () => babana.update({ center: { latitude: 4.05, longitude: 9.7 }, markers: [], colors: {} }),
+    document,
+    updateState: (state: Record<string, unknown>) => babana.update(state),
   };
 }
 
@@ -151,4 +154,21 @@ test('une moto qui disparaît des repères est retirée de la carte', () => {
   page.update({ latitude: 4.05, longitude: 9.7 });
   page.remove();
   expect(page.markers[0]!.removed).toBe(true);
+});
+
+test('15 novembre : thème sombre ou noir de l’app, la page assombrit ses tuiles (classe sur la racine)', () => {
+  const page = runPage();
+  const at = { latitude: 4.05, longitude: 9.7 };
+  page.updateState({ center: at, markers: [], colors: {}, appearance: 'dark' });
+  expect(page.document.documentElement.className).toBe('appearance-dark');
+  page.updateState({ center: at, markers: [], colors: {}, appearance: 'black' });
+  expect(page.document.documentElement.className).toBe('appearance-black');
+  page.updateState({ center: at, markers: [], colors: {} });
+  expect(page.document.documentElement.className).toBe('appearance-light');
+});
+
+test('la feuille de style de la page porte les filtres sombre et noir', () => {
+  const html = buildLeafletHtml({ tileUrlTemplate: 'https://t/{z}/{x}/{y}.png', tileAttribution: '©', center: { latitude: 4, longitude: 9 }, markers: [] });
+  expect(html).toContain('html.appearance-dark .leaflet-tile-pane{filter:invert(1)');
+  expect(html).toContain('html.appearance-black .leaflet-tile-pane{filter:invert(1)');
 });

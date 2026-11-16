@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
-import { buttonLabels, buttons, colors, radius } from '../theme';
+import { Pressable, Text, View } from 'react-native';
+import { buttonLabelsOf, buttonsOf, makeStyles, radius } from '../theme';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ApiError, translateApiError } from '@babana/api-client';
-import { Button } from '@babana/ui';
+import { Button, TextField } from '@babana/ui';
 import { declareRemittance } from '../api/cash';
 import { offlineRunner } from '../offline';
 import { formatMoney } from '../format';
@@ -28,6 +28,7 @@ type Props = NativeStackScreenProps<DriverParamList, 'Remittance'>;
 type Phase = 'idle' | 'declaring' | 'declared' | 'queued' | 'error';
 
 export function RemittanceScreen({ navigation }: Props) {
+  const styles = useStyles();
   const [amountText, setAmountText] = useState('');
   const [phase, setPhase] = useState<Phase>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -90,7 +91,7 @@ export function RemittanceScreen({ navigation }: Props) {
       ) : (
         <>
           <Text style={styles.label}>Montant remis (FCFA)</Text>
-          <TextInput
+          <TextField
             testID="remittance-amount-input"
             style={styles.input}
             keyboardType="numeric"
@@ -128,27 +129,29 @@ export function RemittanceScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     flex: 1,
     padding: 24,
     gap: 16,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: c.surface,
   },
   title: {
+    color: c.ink,
     fontSize: 22,
     fontWeight: '700',
   },
   intro: {
-    color: colors.inkSoft,
+    color: c.inkSoft,
   },
   label: {
-    color: colors.muted,
+    color: c.muted,
     fontSize: 13,
   },
   input: {
+    color: c.ink,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: c.border,
     borderRadius: radius.field,
     minHeight: 56,
     paddingHorizontal: 16,
@@ -160,22 +163,22 @@ const styles = StyleSheet.create({
   resultLine: {
     fontSize: 18,
     fontWeight: '700',
-    color: colors.ink,
+    color: c.ink,
   },
   resultHint: {
-    color: colors.muted,
+    color: c.muted,
   },
   error: {
-    color: colors.dangerText,
+    color: c.dangerText,
   },
   primaryButton: {
-    ...buttons.base,
-    ...buttons.lg,
-    ...buttons.primary,
+    ...buttonsOf(c).base,
+    ...buttonsOf(c).lg,
+    ...buttonsOf(c).primary,
   },
   primaryLabel: {
-    ...buttonLabels.lg,
-    ...buttonLabels.primary,
+    ...buttonLabelsOf(c).lg,
+    ...buttonLabelsOf(c).primary,
   },
   disabled: {
     opacity: 0.5,
@@ -183,4 +186,4 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.85,
   },
-});
+}));

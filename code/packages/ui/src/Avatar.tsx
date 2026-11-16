@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import { Image, Text, View } from 'react-native';
+import { makeStyles } from './theme';
 
 /**
  * Pastille de profil : la photo du compte Google quand elle charge, sinon les initiales, sinon une
@@ -26,6 +27,7 @@ export function initialsOf(name: string): string {
 }
 
 export function Avatar({ name, photoUrl, size, testID }: AvatarProps) {
+  const styles = useStyles();
   const [photoFailed, setPhotoFailed] = useState(false);
   useEffect(() => setPhotoFailed(false), [photoUrl]);
 
@@ -61,19 +63,19 @@ export function Avatar({ name, photoUrl, size, testID }: AvatarProps) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   base: {
     overflow: 'hidden',
-    backgroundColor: '#E8F6EE',
+    backgroundColor: c.brandSoft,
   },
   fallback: {
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#B8E2CB',
+    borderColor: c.brandBorder,
   },
   initials: {
-    color: '#137347',
+    color: c.brandText,
     fontWeight: '700',
   },
   silhouette: {
@@ -83,9 +85,9 @@ const styles = StyleSheet.create({
     marginTop: '20%',
   },
   head: {
-    backgroundColor: '#1A9E5C',
+    backgroundColor: c.brand,
   },
   shoulders: {
-    backgroundColor: '#1A9E5C',
+    backgroundColor: c.brand,
   },
-});
+}));

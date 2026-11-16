@@ -33,7 +33,7 @@ class TestDriverBackoffice(TransactionCase):
         return self.env["babana.motorcycle"].create({"license_plate": f"LT-{n:04d}-BF"})
 
     def _approve(self, driver):
-        for document_type in ("license", "id_card"):
+        for document_type in ("license", "id_card", "profile_photo"):
             vals = {
                 "driver_id": driver.id,
                 "document_type": document_type,
@@ -183,7 +183,7 @@ class TestDriverBackoffice(TransactionCase):
 
     def test_decision_wizard_approves_with_a_new_employee(self):
         driver = self._driver()
-        for document_type in ("license", "id_card"):
+        for document_type in ("license", "id_card", "profile_photo"):
             vals = {
                 "driver_id": driver.id,
                 "document_type": document_type,
@@ -226,6 +226,14 @@ class TestDriverBackoffice(TransactionCase):
                 "driver_id": driver.id,
                 "document_type": "id_card",
                 "storage_key": "test/id-%s.jpg" % uuid.uuid4().hex,
+                "verification_status": "verified",
+            }
+        )
+        self.env["babana.driver.document"].create(
+            {
+                "driver_id": driver.id,
+                "document_type": "profile_photo",
+                "storage_key": "test/photo-%s.jpg" % uuid.uuid4().hex,
                 "verification_status": "verified",
             }
         )

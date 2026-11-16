@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { StarRating } from '@babana/ui';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { buttonLabels, buttons, colors, radius } from '../theme';
+import { Pressable, Text, View } from 'react-native';
+import { buttonLabelsOf, buttonsOf, makeStyles, radius } from '../theme';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ApiError, translateApiError } from '@babana/api-client';
 import type { http } from '@babana/contracts';
@@ -46,6 +46,7 @@ interface CashState {
 }
 
 export function SettlementScreen({ route, navigation }: Props) {
+  const styles = useStyles();
   const { rideId, amount } = route.params;
 
   const [phase, setPhase] = useState<Phase>('idle');
@@ -209,14 +210,15 @@ export function SettlementScreen({ route, navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     flex: 1,
     padding: 24,
     gap: 20,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: c.surface,
   },
   title: {
+    color: c.ink,
     fontSize: 22,
     fontWeight: '700',
   },
@@ -226,14 +228,15 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
   },
   amountLabel: {
-    color: colors.muted,
+    color: c.muted,
   },
   amount: {
+    color: c.ink,
     fontSize: 34,
     fontWeight: '800',
   },
   amountHint: {
-    color: colors.muted,
+    color: c.muted,
     fontSize: 12,
     textAlign: 'center',
   },
@@ -242,25 +245,25 @@ const styles = StyleSheet.create({
   },
   resultLine: {
     fontSize: 16,
-    color: colors.ink,
+    color: c.ink,
   },
   capBanner: {
     gap: 10,
-    backgroundColor: colors.warningSoft,
+    backgroundColor: c.warningSoft,
     borderRadius: radius.field,
     padding: 14,
   },
   capText: {
-    color: colors.warningText,
+    color: c.warningText,
   },
   pending: {
     gap: 12,
   },
   pendingText: {
-    color: colors.warningText,
+    color: c.warningText,
   },
   error: {
-    color: colors.dangerText,
+    color: c.dangerText,
   },
   ratingCard: {
     gap: 6,
@@ -268,39 +271,39 @@ const styles = StyleSheet.create({
     padding: 12,
     borderRadius: radius.field,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: c.border,
   },
   ratingTitle: {
     fontWeight: '600',
-    color: colors.ink,
+    color: c.ink,
   },
   ratingHint: {
-    color: colors.muted,
+    color: c.muted,
     textAlign: 'center',
   },
   ratingQueued: {
-    color: colors.warningText,
+    color: c.warningText,
     textAlign: 'center',
   },
   primaryButton: {
-    ...buttons.base,
-    ...buttons.lg,
-    ...buttons.primary,
+    ...buttonsOf(c).base,
+    ...buttonsOf(c).lg,
+    ...buttonsOf(c).primary,
   },
   primaryLabel: {
-    ...buttonLabels.lg,
-    ...buttonLabels.primary,
+    ...buttonLabelsOf(c).lg,
+    ...buttonLabelsOf(c).primary,
   },
   secondaryButton: {
-    ...buttons.base,
-    ...buttons.md,
-    ...buttons.secondary,
+    ...buttonsOf(c).base,
+    ...buttonsOf(c).md,
+    ...buttonsOf(c).secondary,
   },
   secondaryLabel: {
-    ...buttonLabels.base,
-    ...buttonLabels.secondary,
+    ...buttonLabelsOf(c).base,
+    ...buttonLabelsOf(c).secondary,
   },
   pressed: {
     opacity: 0.85,
   },
-});
+}));

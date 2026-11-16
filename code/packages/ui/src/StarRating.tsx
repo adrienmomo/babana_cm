@@ -1,5 +1,6 @@
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
+import { makeStyles, useTheme } from './theme';
 
 /**
  * Cinq étoiles : affichage seul, ou saisie quand `onChange` est fourni. Chaque étoile fait 44 dp
@@ -17,16 +18,16 @@ export interface StarRatingProps {
 const VALUES = [1, 2, 3, 4, 5] as const;
 
 export const STAR_FILLED = '#F59E0B';
-export const STAR_EMPTY = '#D1D5DB';
-
 export function StarRating({ value, onChange, disabled = false, size = 32, testIDPrefix }: StarRatingProps) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <View style={styles.row}>
       {VALUES.map((star) => {
         const glyph = (
           <Text
             testID={testIDPrefix ? `${testIDPrefix}-star-${star}-glyph` : undefined}
-            style={{ fontSize: size, color: value !== null && star <= value ? STAR_FILLED : STAR_EMPTY }}
+            style={{ fontSize: size, color: value !== null && star <= value ? STAR_FILLED : colors.borderStrong }}
           >
             ★
           </Text>
@@ -63,7 +64,7 @@ export function formatRatingSummary(summary: { average: number | null; count: nu
   return `★ ${summary.average.toLocaleString('fr-FR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })} · ${reviews}`;
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -78,4 +79,4 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.6,
   },
-});
+}));

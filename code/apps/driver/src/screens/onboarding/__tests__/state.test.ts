@@ -33,6 +33,8 @@ describe('documentSlots (L6-15, critère 5 -- l’état de chaque document)', ()
     expect(slots.map((s) => [s.type, s.status])).toEqual([
       ['license', 'verified'],
       ['id_card', 'missing'],
+      // 15 novembre : la photo de profil est une pièce du dossier.
+      ['profile_photo', 'missing'],
     ]);
   });
 
@@ -56,6 +58,7 @@ describe('resolveOnboardingRoute (L6-15, critère 1 -- reprenable)', () => {
   const bothPending = documentSlots([
     doc({ documentType: 'license', verificationStatus: 'pending' }),
     doc({ documentType: 'id_card', verificationStatus: 'pending' }),
+    doc({ documentType: 'profile_photo', verificationStatus: 'pending' }),
   ]);
 
   it('profil non confirmé -> Profile, quel que soit l’état des documents', () => {
@@ -72,6 +75,15 @@ describe('resolveOnboardingRoute (L6-15, critère 1 -- reprenable)', () => {
       doc({ documentType: 'id_card', verificationStatus: 'verified' }),
     ]);
     expect(resolveOnboardingRoute(slots, true)).toBe('Documents');
+  });
+
+  it('15 novembre : profil confirmé, la photo de profil manque -> Documents', () => {
+    const slots = documentSlots([
+      doc({ documentType: 'license', verificationStatus: 'pending' }),
+      doc({ documentType: 'id_card', verificationStatus: 'pending' }),
+    ]);
+    expect(resolveOnboardingRoute(slots, true)).toBe('Documents');
+    expect(allDocumentsSubmitted(slots)).toBe(false);
   });
 
   it('profil confirmé, tout déposé -> Pending', () => {

@@ -1,4 +1,5 @@
 import { StyleSheet } from 'react-native';
+import { PALETTES, makeStyles, useTheme, type ColorScheme, type Palette } from '@babana/ui';
 
 /**
  * Palette et formes de l'app Chauffeur -- un seul endroit, pour que chaque bouton et chaque carte
@@ -7,34 +8,17 @@ import { StyleSheet } from 'react-native';
  * Règle d'usage : **l'action principale d'un moment est toujours `primary`** (vert plein) -- une
  * seule par écran ; tout le reste est `secondary` (blanc, bordure fine). Le rouge est réservé à
  * l'urgence et aux erreurs, en teinte douce (`dangerSoft`) plutôt qu'en aplat.
+ *
+ * Les couleurs sont celles du thème choisi (15 novembre : clair, sombre, noir ou celui du
+ * téléphone -- `ThemeProvider` de @babana/ui). Dans un composant : `useColors()` ; dans des styles :
+ * `makeStyles((c) => …)`. `colors` reste la palette claire, pour les tests qui comparent une teinte.
  */
-export const colors = {
-  brand: '#1A9E5C',
-  brandPressed: '#15854D',
-  brandSoft: '#E8F6EE',
-  brandBorder: '#B8E2CB',
-  brandText: '#137347',
+export const colors = PALETTES.light;
+export { makeStyles };
 
-  danger: '#E5484D',
-  dangerSoft: '#FDEEEE',
-  dangerBorder: '#F5C6C7',
-  dangerText: '#C2363B',
-
-  warningSoft: '#FFF6E3',
-  warningBorder: '#F6DFAE',
-  warningText: '#8A5A00',
-
-  route: '#3E7BFA',
-
-  ink: '#1F2937',
-  inkSoft: '#374151',
-  muted: '#6B7280',
-  subtle: '#9CA3AF',
-  border: '#E5E7EB',
-  surface: '#FFFFFF',
-  surfaceGlass: 'rgba(255, 255, 255, 0.96)',
-  canvas: '#F7F8FA',
-} as const;
+export function useColors(): Palette {
+  return useTheme().colors;
+}
 
 export const radius = {
   card: 20,
@@ -55,7 +39,8 @@ export const shadow = {
  * Boutons : une base + une taille + une variante, composées dans `style`. Tailles : `md` = 48 dp
  * (cible tactile minimale, D20 -- gants, moto), `lg` = 56 dp pour l'action principale.
  */
-export const buttons = StyleSheet.create({
+function buttonsFactory(c: Palette) {
+  return StyleSheet.create({
   base: {
     borderRadius: radius.pill,
     alignItems: 'center',
@@ -67,29 +52,73 @@ export const buttons = StyleSheet.create({
   },
   md: { minHeight: 48 },
   lg: { minHeight: 56 },
-  primary: { backgroundColor: colors.brand, borderColor: colors.brand },
-  secondary: { backgroundColor: colors.surface, borderColor: colors.border },
-  brandSoft: { backgroundColor: colors.brandSoft, borderColor: colors.brandBorder },
-  dangerSoft: { backgroundColor: colors.dangerSoft, borderColor: colors.dangerBorder },
+  primary: { backgroundColor: c.brand, borderColor: c.brand },
+  secondary: { backgroundColor: c.surface, borderColor: c.border },
+  brandSoft: { backgroundColor: c.brandSoft, borderColor: c.brandBorder },
+  dangerSoft: { backgroundColor: c.dangerSoft, borderColor: c.dangerBorder },
   pressed: { opacity: 0.85 },
   disabled: { opacity: 0.5 },
   floating: { ...shadow },
 });
+}
+const buttonsCache = new Map<ColorScheme, ReturnType<typeof buttonsFactory>>();
+/** Pour composer dans `makeStyles((c) => ({ ...buttonsOf(c).x }))`. */
+export function buttonsOf(c: Palette): ReturnType<typeof buttonsFactory> {
+  let styles = buttonsCache.get(c.scheme);
+  if (!styles) {
+    styles = buttonsFactory(c);
+    buttonsCache.set(c.scheme, styles);
+  }
+  return styles;
+}
+export function useButtons(): ReturnType<typeof buttonsFactory> {
+  return buttonsOf(useColors());
+}
 
-export const buttonLabels = StyleSheet.create({
+function buttonLabelsFactory(c: Palette) {
+  return StyleSheet.create({
   base: { fontSize: 16, fontWeight: '600' },
   lg: { fontSize: 17, fontWeight: '700' },
-  primary: { color: '#FFFFFF' },
-  secondary: { color: colors.ink },
-  brand: { color: colors.brandText },
-  danger: { color: colors.dangerText },
+  primary: { color: c.onBrand },
+  secondary: { color: c.ink },
+  brand: { color: c.brandText },
+  danger: { color: c.dangerText },
 });
+}
+const buttonLabelsCache = new Map<ColorScheme, ReturnType<typeof buttonLabelsFactory>>();
+/** Pour composer dans `makeStyles((c) => ({ ...buttonLabelsOf(c).x }))`. */
+export function buttonLabelsOf(c: Palette): ReturnType<typeof buttonLabelsFactory> {
+  let styles = buttonLabelsCache.get(c.scheme);
+  if (!styles) {
+    styles = buttonLabelsFactory(c);
+    buttonLabelsCache.set(c.scheme, styles);
+  }
+  return styles;
+}
+export function useButtonLabels(): ReturnType<typeof buttonLabelsFactory> {
+  return buttonLabelsOf(useColors());
+}
 
 /** Carte flottante au-dessus de la carte (proposition, course en cours). */
-export const cards = StyleSheet.create({
+function cardsFactory(c: Palette) {
+  return StyleSheet.create({
   floating: {
     borderRadius: radius.card,
-    backgroundColor: colors.surfaceGlass,
+    backgroundColor: c.surfaceGlass,
     ...shadow,
   },
 });
+}
+const cardsCache = new Map<ColorScheme, ReturnType<typeof cardsFactory>>();
+/** Pour composer dans `makeStyles((c) => ({ ...cardsOf(c).x }))`. */
+export function cardsOf(c: Palette): ReturnType<typeof cardsFactory> {
+  let styles = cardsCache.get(c.scheme);
+  if (!styles) {
+    styles = cardsFactory(c);
+    cardsCache.set(c.scheme, styles);
+  }
+  return styles;
+}
+export function useCards(): ReturnType<typeof cardsFactory> {
+  return cardsOf(useColors());
+}

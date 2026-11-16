@@ -75,11 +75,11 @@ async function availableDriver(label: string): Promise<string> {
 }
 
 function driverContext(driverId: string): ConnectionContext {
-  return Object.freeze({ userId: `user-${driverId}`, role: 'driver', driverId });
+  return Object.freeze({ userId: `user-${driverId}`, role: 'driver', driverId, sessionId: null });
 }
 
 function clientContext(userId: string): ConnectionContext {
-  return Object.freeze({ userId, role: 'client', driverId: null });
+  return Object.freeze({ userId, role: 'client', driverId: null, sessionId: null });
 }
 
 /** Faux WebSocket : ProposalLifecycle ne lit que `readyState`/`OPEN` et écrit via `send`, aucune
@@ -122,6 +122,7 @@ describe('ProposalLifecycle (L3-07)', () => {
     // nearby.test.ts, pour ne pas dépendre d'un Odoo réellement joignable dans ce test unitaire.
     const profile: DriverProfile = {
       firstName: 'Paul',
+      lastName: 'Ekwalla',
       photoUrl: 'https://storage.babana.cm/mock/drivers/paul.jpg',
       rating: 4.8,
       motorcycleClass: 'standard',
@@ -165,6 +166,8 @@ describe('ProposalLifecycle (L3-07)', () => {
       rideId,
       driverId,
       firstName: profile.firstName,
+      // 15 novembre : le nom complet du chauffeur, à l'affectation seulement.
+      lastName: profile.lastName,
       photoUrl: profile.photoUrl,
       motorcycleClass: profile.motorcycleClass,
       licensePlate: profile.licensePlate,
@@ -195,6 +198,7 @@ describe('ProposalLifecycle (L3-07)', () => {
       rideId,
       driverId,
       firstName: null,
+      lastName: null,
       photoUrl: null,
       motorcycleClass: null,
       licensePlate: null,

@@ -6,6 +6,7 @@ import type { LatLng, MapMarker, MapMarkerKind, MapRoute, MapViewProps } from '.
 import { MAP_MARKER_COLORS } from '../../markerColors';
 import { RECENTER_EPSILON, createHeadingTracker } from '../../heading';
 import { glideDurationMs, useGlidingPosition } from '../../glide';
+import { GOOGLE_DARK_STYLE } from '../../googleDarkStyle';
 
 /**
  * Seul fichier du paquet, avec `navigation.ts` et `places.ts`, qui importe `react-native-maps` --
@@ -103,7 +104,7 @@ function BabanaMarker({ marker, rotation }: { marker: MapMarker; rotation: numbe
   );
 }
 
-export function GoogleMapView({ center, markers = [], route, onRegionChange, frameRoute = true, style }: MapViewProps) {
+export function GoogleMapView({ center, markers = [], route, onRegionChange, frameRoute = true, appearance = 'light', style }: MapViewProps) {
   const mapRef = useRef<RNMapView | null>(null);
   const lastCenter = useRef<LatLng>(center);
   const lastCenterAt = useRef<number | null>(null);
@@ -138,6 +139,8 @@ export function GoogleMapView({ center, markers = [], route, onRegionChange, fra
       ref={mapRef}
       provider={PROVIDER_GOOGLE}
       style={style ?? styles.fill}
+      customMapStyle={appearance === 'light' ? undefined : GOOGLE_DARK_STYLE}
+      userInterfaceStyle={appearance === 'light' ? 'light' : 'dark'}
       initialRegion={{
         latitude: center.latitude,
         longitude: center.longitude,

@@ -172,6 +172,13 @@
       "consumer": "Chauffeur : apps/driver/src/screens/HomeScreen.tsx rouvre la course à son étape réelle (activeRide, 6 novembre) et la proposition active (activeProposal, L7-04) ; apps/driver/src/location/tracker.ts applique driverOnline et l'état de course (garde rideStateKnown) ; apps/driver/src/proposalWatch.ts sonne une proposition retrouvée app fermée. Client : apps/client/src/rideResume.ts rouvre le suivi (TrackingScreen) d'une course affectée ou en cours après une relance de l'app (clientRide, 14 novembre) ; WaitingScreen lit activeRideState 'rejected'. Tests : apps/client/src/__tests__/rideResume.test.ts, services/realtime/test/resync.test.ts."
     },
     {
+      "name": "session.replaced",
+      "direction": "server-to-client",
+      "status": "wired",
+      "emitter": "services/realtime/src/http/internal.ts (POST /internal/drivers/session, appelé après le commit par realtime_client.py::notify_driver_session quand le chauffeur se connecte sur un autre téléphone) et ws/connection.ts (connexion d'une session remplacée), puis fermeture WS_CLOSE_SESSION_REPLACED (15 novembre). services/realtime/test/session-replaced.test.ts.",
+      "consumer": "apps/driver/src/sessionReplaced.ts -- oublie la session locale sans passer hors ligne, l'écran de connexion dit « Votre compte a été connecté sur un autre téléphone ». apps/driver/src/__tests__/sessionReplaced.test.ts."
+    },
+    {
       "name": "route.share",
       "direction": "client-to-server",
       "status": "wired",

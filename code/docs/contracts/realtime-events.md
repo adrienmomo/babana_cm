@@ -61,16 +61,17 @@ réel en commentaire au-dessus de son schéma.
 | `availability.set` | Chauffeur | `{ online }` | Bascule en ligne / hors ligne (D7) |
 | `proposal.accept` | Chauffeur | `{ rideId }` | Transition `proposed → assigned` |
 | `proposal.reject` | Chauffeur | `{ rideId, reason? }` | Transition `proposed → rejected` |
-| `nearby.subscribe` | Client | `{ position, radiusMeters, excludeDriverIds }` | S'abonne à `nearby.drivers` |
+| `nearby.subscribe` | Client | `{ position, radiusMeters?, excludeDriverIds }` | S'abonne à `nearby.drivers` |
 | `nearby.unsubscribe` | Client | `{}` | Se désabonne |
 | `route.share` | Chauffeur | `{ rideId, phase, points, distanceMeters, durationSeconds }` | Partage le tracé affiché sur la carte du chauffeur. Aucune écriture Odoo ; ignoré si l'émetteur n'est pas le chauffeur engagé sur `rideId` |
 | `chat.send` | Chauffeur ou client de la course | `{ rideId, code }` | Message rapide (`QuickMessageCode`, préfixe `driver_`/`client_` conforme au rôle). Aucune écriture Odoo, jamais mis en file, jamais rejoué |
 | `ride.track` | Client | `{ rideId }` | S'abonne au suivi d'une course affectée ou en cours |
 | `session.resync` | Client ou chauffeur | `{ lastKnownRideId }` | Voir « Politique de reconnexion » |
 
-`radiusMeters` de `nearby.subscribe` est borné à 50 km dans le schéma — un garde-fou anti-abus
-au niveau du contrat, pas la valeur métier du rayon de recherche réel, qui reste configurable
-côté service temps réel (invariant 5).
+`radiusMeters` de `nearby.subscribe` est facultatif depuis le 15 novembre : l'app Client ne
+l'envoie plus, et le serveur applique son rayon, `NEARBY_MAX_RADIUS_METERS` (3 km par défaut, 5 km
+avant). Un rayon envoyé reste borné par cette même valeur, et à 50 km dans le schéma — un garde-fou
+anti-abus au niveau du contrat. Au plus 5 chauffeurs, anonymes (D80).
 
 `excludeDriverIds` (défaut `[]`, L3-08, 24 août) porte les chauffeurs déjà refusés sur la course
 en cours, au sens où le client les a déjà vus refuser via un `ride.rejected` précédent — pas une
@@ -109,7 +110,7 @@ au-dessus de 1 réactive l'agrégation sans rien changer côté serveur.
 | `nearby.subscribe.ack` | Client | `{ accepted: true, broadcastIntervalMs }` ou `{ accepted: false, retryAfterMs }` | Accusé de réception de `nearby.subscribe` — `broadcastIntervalMs` = cadence réelle de `nearby.drivers` (D50) |
 | `ride.track.ack` | Client | `{ broadcastIntervalMs }` | Accusé de réception de `ride.track` — cadence du minuteur de `driver.position` (D50) : la cadence **minimale**, chaque position acceptée part aussi aussitôt (14 novembre) |
 | `ride.proposed` | Client | `{ rideId, driverId, proposalExpiresAt }` | Le chauffeur choisi a été réservé (redondant pour l'appareil qui a fait la demande, gardé pour un second appareil du même client — `amoa/questions/REPONSES-2026-08-28.md` §1) |
-| `ride.assigned` | Client | `{ rideId, driverId, firstName, photoUrl, motorcycleClass, licensePlate, phoneNumber }` | Le chauffeur a accepté |
+| `ride.assigned` | Client | `{ rideId, driverId, firstName, lastName?, photoUrl, motorcycleClass, licensePlate, phoneNumber }` | Le chauffeur a accepté. `lastName` (15 novembre) : nom complet montré au client ; `photoUrl` : dernière photo de profil validée, URL signée à durée limitée |
 | `ride.rejected` | Client | `{ rideId, driverId, reason }` | Le chauffeur a refusé ou le délai a expiré -- le serveur sollicite déjà le suivant le plus proche, le client n'a rien à choisir |
 | `ride.unmatched` | Client | `{ rideId }` | Plus aucun chauffeur à solliciter (vivier épuisé ou `babana.dispatch_max_attempts` atteint) : la course reste `rejected`, le client choisit « Réessayer » (`POST /rides/{id}/dispatch`) ou « Annuler ». Au commit d'Odoo (D32) |
 | `driver.position` | Client | `{ rideId, position, etaSeconds }` | Suivi pendant une course affectée ou en cours — envoyé dès qu'une position du chauffeur est acceptée (14 novembre), et au rythme du minuteur |
@@ -119,6 +120,7 @@ au-dessus de 1 réactive l'agrégation sans rien changer côté serveur.
 | `ride.started` | Client | `{ rideId }` | Transition `→ in_progress` |
 | `ride.completed` | Client | `{ rideId, distanceMeters, durationSeconds, measured, amount, breakdown }` | Transition `→ completed` — `distanceMeters` / `durationSeconds` à `null` quand `measured` est faux (course terminée sans accumulation temps réel, L3-10 / `amoa/questions/L6-13.md`) |
 | `session.synced` | Client ou chauffeur | `{ activeRideId, activeRideState, activeRide?, clientRide?, activeProposal, rideStateKnown, driverOnline, serverTime }` | Voir « Politique de reconnexion ». `clientRide` (14 novembre) : pour un client dont la course est affectée ou en cours, ses deux points (avec libellé) et la carte du chauffeur -- l'app relancée rouvre le suivi |
+| `session.replaced` | Chauffeur | `{}` | 15 novembre : son compte vient de se connecter sur un autre téléphone ; la connexion se ferme ensuite (code 4409). L'app oublie sa session sans passer hors ligne |
 
 `ride.cancelled` a un seul émetteur (le serveur) mais deux destinataires possibles selon qui est
 concerné par la course — le critère d'acceptation 1 de C-02 porte sur l'émetteur, pas sur le

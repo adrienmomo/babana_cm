@@ -142,6 +142,7 @@ describe('WaitingScreen -- la course part au chauffeur le plus proche, choisi pa
         rideId: RIDE_ID,
         driverId: DRIVER_ID,
         firstName: 'Paul',
+        lastName: 'Ekwalla',
         photoUrl: null,
         motorcycleClass: 'standard',
         licensePlate: 'LT-1234-AB',
@@ -156,6 +157,8 @@ describe('WaitingScreen -- la course part au chauffeur le plus proche, choisi pa
       driver: {
         driverId: DRIVER_ID,
         firstName: 'Paul',
+        // 15 novembre : le nom complet du chauffeur suit jusqu'au suivi.
+        lastName: 'Ekwalla',
         photoUrl: null,
         motorcycleClass: 'standard',
         licensePlate: 'LT-1234-AB',

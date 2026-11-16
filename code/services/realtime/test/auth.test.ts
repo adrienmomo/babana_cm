@@ -178,6 +178,7 @@ describe('matchesConnectionIdentity (L3-01, critère 3)', () => {
     userId: 'user-driver-1',
     role: 'driver',
     driverId: 'driver-public-1',
+    sessionId: null,
   });
 
   test("un identifiant absent du message est toujours accepté (rien à contredire)", () => {
@@ -199,6 +200,7 @@ describe('ConnectionRegistry (L3-01, émission ciblée)', () => {
     const registry = new ConnectionRegistry();
     const context: ConnectionContext = Object.freeze({
       userId: 'user-driver-1', role: 'driver', driverId: 'driver-public-1',
+      sessionId: null,
     });
     const socketA = {} as unknown as WebSocket;
     const socketB = {} as unknown as WebSocket;
@@ -215,6 +217,7 @@ describe('ConnectionRegistry (L3-01, émission ciblée)', () => {
     const registry = new ConnectionRegistry();
     const context: ConnectionContext = Object.freeze({
       userId: 'user-client-1', role: 'client', driverId: null,
+      sessionId: null,
     });
     const socket = {} as unknown as WebSocket;
 

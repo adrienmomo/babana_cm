@@ -14,6 +14,15 @@ jest.mock('../../auth', () => ({
   apiClient: { request: (...args: unknown[]) => mockRequest(...args) },
 }));
 
+const mockUpload = jest.fn();
+jest.mock('../../onboarding', () => ({
+  documentUploader: { upload: (...args: unknown[]) => mockUpload(...args) },
+}));
+const mockPick = jest.fn();
+jest.mock('../onboarding/imageSource', () => ({
+  defaultImageSource: { pick: (...args: unknown[]) => mockPick(...args) },
+}));
+
 const mockSignOutDriver = jest.fn();
 jest.mock('../../signOut', () => ({
   signOutDriver: () => mockSignOutDriver(),
@@ -64,6 +73,8 @@ afterEach(async () => {
   mockSignOutDriver.mockReset();
   mockUser = null;
   mockRefreshUser.mockReset();
+  mockPick.mockReset();
+  mockUpload.mockReset();
 });
 
 async function renderAccount(user: AuthUser | null = EMMANUEL, fresh: AuthUser | null = user) {
@@ -144,6 +155,36 @@ describe('AccountScreen -- profil du chauffeur', () => {
     expect(textsOf(idCard)).toContain("Pièce d'identité");
     expect(textsOf(idCard)).toContain('Validé');
     expect(textsOf(idCard)).not.toContain('expire');
+  });
+
+  it('15 novembre : approuvé avant la photo de profil, il l’ajoute ici (appareil photo avant), et la liste se relit', async () => {
+    mockRequest.mockResolvedValue({ documents: [doc({}), doc({ id: 2, documentType: 'id_card', expiresOn: null })] });
+    mockPick.mockResolvedValue({ uri: 'file:///moi.jpg', name: 'moi.jpg', mimeType: 'image/jpeg', sizeBytes: 120_000 });
+    mockUpload.mockResolvedValue({ id: 3, documentType: 'profile_photo', verificationStatus: 'pending' });
+    const { root } = await renderAccount();
+
+    const button = root.root.findByProps({ testID: 'account-profile-photo' });
+    expect(button.findAllByType(Text).map((n) => n.props.children)).toContain('Ajouter ma photo');
+    await act(async () => {
+      button.props.onPress();
+    });
+
+    expect(mockPick).toHaveBeenCalledWith(expect.objectContaining({ source: 'camera', cameraFacing: 'front' }));
+    expect(mockUpload).toHaveBeenCalledWith({ documentType: 'profile_photo', file: { uri: 'file:///moi.jpg', name: 'moi.jpg', mimeType: 'image/jpeg' } });
+    expect(mockRequest).toHaveBeenCalledTimes(2);
+  });
+
+  it('un envoi de photo raté le dit, sans rien perdre de la liste', async () => {
+    mockRequest.mockResolvedValue({ documents: [doc({ documentType: 'profile_photo', expiresOn: null })] });
+    mockPick.mockResolvedValue({ uri: 'file:///moi.jpg', name: 'moi.jpg', mimeType: 'image/jpeg', sizeBytes: 120_000 });
+    mockUpload.mockRejectedValue(new TypeError('Network request failed'));
+    const { root } = await renderAccount();
+    const button = root.root.findByProps({ testID: 'account-profile-photo' });
+    expect(button.findAllByType(Text).map((n) => n.props.children)).toContain('Changer ma photo');
+    await act(async () => {
+      button.props.onPress();
+    });
+    expect(root.root.findByProps({ testID: 'account-profile-photo-error' }).props.children).toBe("La photo n'a pas pu être envoyée. Réessayez.");
   });
 
   it('un document refusé dit son motif', async () => {

@@ -54,8 +54,15 @@ export interface MapViewProps {
    * recalculé dès qu'il s'en écarte : chaque recadrage le rejetait au bord de l'écran.
    */
   frameRoute?: boolean;
+  /**
+   * Thème de l'app (15 novembre) : `dark` et `black` assombrissent la carte -- tuiles OSM filtrées,
+   * style sombre pour Google. Les repères gardent leurs couleurs. Défaut : `light`.
+   */
+  appearance?: MapAppearance;
   style?: StyleProp<ViewStyle>;
 }
+
+export type MapAppearance = 'light' | 'dark' | 'black';
 
 export interface PlaceResult {
   label: string;

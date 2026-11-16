@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Pressable, Text, View } from 'react-native';
 import { searchPlace, type PlaceResult } from '@babana/maps';
 import type { RidePoint } from '../navigation/types';
+import { makeStyles, TextField } from '@babana/ui';
 
 /**
  * Recherche de lieu par texte (L6-06, second des deux moyens de désignation -- complément du
@@ -26,6 +27,7 @@ function defaultWait(ms: number): Promise<void> {
 }
 
 export function PlacePicker({ placeholder, onSelect, wait = defaultWait }: PlacePickerProps) {
+  const styles = useStyles();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<PlaceResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -86,7 +88,7 @@ export function PlacePicker({ placeholder, onSelect, wait = defaultWait }: Place
 
   return (
     <View style={styles.container}>
-      <TextInput
+      <TextField
         style={styles.input}
         placeholder={placeholder}
         value={query}
@@ -121,17 +123,17 @@ export function PlacePicker({ placeholder, onSelect, wait = defaultWait }: Place
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     position: 'relative',
   },
   input: {
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: c.borderStrong,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: c.surface,
   },
   spinner: {
     position: 'absolute',
@@ -140,9 +142,9 @@ const styles = StyleSheet.create({
   },
   results: {
     maxHeight: 180,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: c.surface,
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: c.borderStrong,
     borderTopWidth: 0,
     borderBottomLeftRadius: 8,
     borderBottomRightRadius: 8,
@@ -150,12 +152,12 @@ const styles = StyleSheet.create({
   notice: {
     paddingHorizontal: 12,
     paddingVertical: 8,
-    color: '#6B7280',
+    color: c.muted,
   },
   resultRow: {
     paddingHorizontal: 12,
     paddingVertical: 10,
     borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
+    borderTopColor: c.border,
   },
-});
+}));

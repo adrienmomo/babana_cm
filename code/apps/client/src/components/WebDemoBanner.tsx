@@ -1,5 +1,6 @@
 import React from 'react';
-import { Platform, StyleSheet, Text, View } from 'react-native';
+import { Platform, Text, View } from 'react-native';
+import { makeStyles } from '@babana/ui';
 
 /**
  * Dégradations signalées, jamais masquées (L6-18, spécification -- "un bandeau discret précisant
@@ -21,6 +22,7 @@ import { Platform, StyleSheet, Text, View } from 'react-native';
  * plateforme qui la justifie.
  */
 export function WebDemoBanner() {
+  const styles = useStyles();
   if (Platform.OS !== 'web') return null;
 
   return (
@@ -33,18 +35,18 @@ export function WebDemoBanner() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((c) => ({
   container: {
     width: '100%',
-    backgroundColor: '#EFF6FF',
+    backgroundColor: c.infoSoft,
     borderBottomWidth: 1,
-    borderBottomColor: '#BFDBFE',
+    borderBottomColor: c.border,
   },
   text: {
     paddingVertical: 6,
     paddingHorizontal: 12,
     fontSize: 12,
     textAlign: 'center',
-    color: '#1E3A8A',
+    color: c.infoText,
   },
-});
+}));

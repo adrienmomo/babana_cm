@@ -214,7 +214,7 @@ class TestRemittanceController(HttpCase):
             sub=sub, email=f"{sub}@example.invalid", name=f"Chauffeur {sub}", role="driver"
         )
         driver = user._babana_driver()
-        for document_type in ("license", "id_card"):
+        for document_type in ("license", "id_card", "profile_photo"):
             vals = {
                 "driver_id": driver.id,
                 "document_type": document_type,

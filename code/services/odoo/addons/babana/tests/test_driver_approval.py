@@ -21,7 +21,7 @@ class TestDriverApproval(TransactionCase):
         return self.env["babana.motorcycle"].create({"license_plate": f"LT-{n:04d}-BC"})
 
     def _verify_required_documents(self, driver):
-        for document_type in ("license", "id_card"):
+        for document_type in ("license", "id_card", "profile_photo"):
             vals = {
                 "driver_id": driver.id,
                 "document_type": document_type,
@@ -48,6 +48,19 @@ class TestDriverApproval(TransactionCase):
 
         with self.assertRaises(UserError):
             driver.action_approve(new_employee_name="Chauffeur")
+
+    def test_approving_without_a_verified_profile_photo_fails(self):
+        # 15 novembre : la photo que le client voit est une pièce du dossier comme les autres.
+        driver = self._make_candidate()
+        for document_type in ("license", "id_card"):
+            vals = {"driver_id": driver.id, "document_type": document_type, "storage_key": f"test/{document_type}.jpg", "verification_status": "verified"}
+            if document_type == "license":
+                vals["expires_on"] = "2030-01-01"
+            self.env["babana.driver.document"].create(vals)
+        self._make_motorcycle().write({"driver_id": driver.id})
+        driver.invalidate_recordset()
+        with self.assertRaises(UserError):
+            driver.action_approve(new_employee_name="Sans Photo")
 
     def test_approving_with_unverified_document_fails(self):
         driver = self._make_candidate()
