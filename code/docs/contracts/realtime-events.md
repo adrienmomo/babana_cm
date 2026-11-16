@@ -120,6 +120,7 @@ au-dessus de 1 réactive l'agrégation sans rien changer côté serveur.
 | `ride.started` | Client | `{ rideId }` | Transition `→ in_progress` |
 | `ride.completed` | Client | `{ rideId, distanceMeters, durationSeconds, measured, amount, breakdown }` | Transition `→ completed` — `distanceMeters` / `durationSeconds` à `null` quand `measured` est faux (course terminée sans accumulation temps réel, L3-10 / `amoa/questions/L6-13.md`) |
 | `session.synced` | Client ou chauffeur | `{ activeRideId, activeRideState, activeRide?, clientRide?, activeProposal, rideStateKnown, driverOnline, serverTime }` | Voir « Politique de reconnexion ». `clientRide` (14 novembre) : pour un client dont la course est affectée ou en cours, ses deux points (avec libellé) et la carte du chauffeur -- l'app relancée rouvre le suivi |
+| `session.replaced` | Chauffeur | `{}` | 15 novembre : son compte vient de se connecter sur un autre téléphone ; la connexion se ferme ensuite (code 4409). L'app oublie sa session sans passer hors ligne |
 
 `ride.cancelled` a un seul émetteur (le serveur) mais deux destinataires possibles selon qui est
 concerné par la course — le critère d'acceptation 1 de C-02 porte sur l'émetteur, pas sur le

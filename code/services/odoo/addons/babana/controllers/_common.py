@@ -57,6 +57,13 @@ def authenticated_user():
         # code que tout autre défaut d'authentification -- ne pas distinguer, même raison
         # qu'InvalidAccessToken (services/access_token.py).
         raise AuthenticationFailed("UNAUTHORIZED")
+    # Un appareil par chauffeur (15 novembre) : un jeton d'une session remplacée -- le compte
+    # s'est connecté sur un autre téléphone -- est refusé, même avant son expiration.
+    if claims.get("role") == "driver":
+        driver = user._babana_driver()
+        current = driver.sudo().active_session_id if driver else False
+        if current and claims.get("sid") != current:
+            raise AuthenticationFailed("SESSION_REPLACED")
     return env, user
 
 

@@ -24,10 +24,13 @@ export interface PhoneSignInProps {
   /** Vérifie le code. Rejette en cas d'échec ; en cas de succès, l'appelant navigue. */
   verifyCode: (code: string) => Promise<void>;
   describeError: (error: unknown) => string;
+  /** Pourquoi l'utilisateur est ici (15 novembre : « compte connecté sur un autre téléphone »). */
+  notice?: string | null;
 }
 
 export function PhoneSignIn({
   title,
+  notice = null,
   phonePrefix = '+237',
   phoneDigits = 9,
   codeLength = 6,
@@ -68,6 +71,11 @@ export function PhoneSignIn({
   return (
     <View style={styles.container}>
       <Text style={styles.title}>{title}</Text>
+      {notice ? (
+        <Text testID="sign-in-notice" style={styles.notice}>
+          {notice}
+        </Text>
+      ) : null}
       {step === 'phone' ? (
         <>
           <Text style={styles.label}>Votre numéro de téléphone</Text>
@@ -131,6 +139,16 @@ export function PhoneSignIn({
 }
 
 const useStyles = makeStyles((c) => ({
+  notice: {
+    color: c.warningText,
+    backgroundColor: c.warningSoft,
+    borderColor: c.warningBorder,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
   container: { flex: 1, justifyContent: 'center', gap: 16, padding: 24 },
   title: { color: c.ink, fontSize: 24, fontWeight: '700', textAlign: 'center' },
   label: { color: c.ink, textAlign: 'center' },

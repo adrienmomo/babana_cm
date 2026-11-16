@@ -1,9 +1,11 @@
 import React from 'react';
 import { Text } from 'react-native';
-import { act, create } from 'react-test-renderer';
+import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
+const mockTakeSessionLossNotice = jest.fn((): string | null => null);
 jest.mock('../../auth', () => ({
   authClient: { requestOtp: jest.fn(), verifyOtp: jest.fn() },
+  takeSessionLossNotice: () => mockTakeSessionLossNotice(),
 }));
 
 import { ApiError } from '@babana/api-client';
@@ -113,5 +115,17 @@ describe('SignInScreen (app Driver) -- connexion par OTP', () => {
 
     expect(mockRequest).toHaveBeenCalledTimes(2);
     expect(mockVerify).toHaveBeenCalledWith('v-2', '111111');
+  });
+});
+
+describe('15 novembre : un appareil par chauffeur', () => {
+  it('ramené ici parce que le compte s’est connecté ailleurs : l’écran le dit', async () => {
+    mockTakeSessionLossNotice.mockReturnValueOnce('Votre compte a été connecté sur un autre téléphone.');
+    let root!: ReactTestRenderer;
+    await act(async () => {
+      root = create(<SignInScreen onSignedIn={jest.fn()} />);
+    });
+    expect(root.root.findByProps({ testID: 'sign-in-notice' }).props.children).toBe('Votre compte a été connecté sur un autre téléphone.');
+    root.unmount();
   });
 });

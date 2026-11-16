@@ -199,6 +199,22 @@ def clear_engagement(env, *, driver_public_id: str) -> None:
     env.cr.postcommit.add(lambda: _clear_engagement_now(driver_public_id=driver_public_id))
 
 
+def _notify_driver_session_now(driver_public_id: str, session_id: str) -> None:
+    try:
+        _post("/internal/drivers/session", {"driverId": driver_public_id, "sessionId": session_id})
+    except RealtimeUnavailable:
+        # Best-effort : le téléphone remplacé est de toute façon refusé par Odoo à sa prochaine
+        # requête (SESSION_REPLACED) et au prochain renouvellement (famille révoquée).
+        _logger.warning("échec de la notification de nouvelle session du chauffeur %s", driver_public_id)
+
+
+def notify_driver_session(env, *, driver_public_id: str, session_id: str) -> None:
+    """Un appareil par chauffeur (15 novembre) : le service temps réel retient la session courante
+    et ferme la connexion de l'ancien téléphone (`session.replaced`). Au COMMIT (D32), jamais
+    pendant : une connexion annulée ne doit fermer aucune connexion."""
+    env.cr.postcommit.add(lambda: _notify_driver_session_now(driver_public_id, session_id))
+
+
 def notify_cancellation_async(env, driver_public_id: str) -> None:
     """Annulation (L3-17, D32) : relâche la réservation ET efface l'engagement, en tâche de fond
     -- déclenchée au COMMIT de la transaction Odoo, jamais pendant.

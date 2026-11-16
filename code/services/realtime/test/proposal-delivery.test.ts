@@ -95,8 +95,8 @@ describe('dispatch: proposal.seen alimente la métrique (L7-04, critère 4)', ()
     proposalDeliveryMetrics.reset();
   });
 
-  const driverCtx: ConnectionContext = Object.freeze({ userId: 'u-d', role: 'driver', driverId: 'd-1' });
-  const clientCtx: ConnectionContext = Object.freeze({ userId: 'u-c', role: 'client', driverId: null });
+  const driverCtx: ConnectionContext = Object.freeze({ userId: 'u-d', role: 'driver', driverId: 'd-1', sessionId: null });
+  const clientCtx: ConnectionContext = Object.freeze({ userId: 'u-c', role: 'client', driverId: null, sessionId: null });
   const socket = { readyState: 1, OPEN: 1, send: () => {} } as unknown as WebSocket;
 
   function seen(emittedAt: string) {

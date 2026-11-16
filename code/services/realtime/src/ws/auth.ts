@@ -37,6 +37,9 @@ export interface ConnectionContext {
    * (babana.driver.public_id contre res.users.babana_public_id).
    */
   readonly driverId: string | null;
+  /** Session du jeton (`sid`, 15 novembre : un appareil par chauffeur) ; `null` pour un client ou
+   * un jeton émis avant ce changement. */
+  readonly sessionId: string | null;
 }
 
 export type AuthenticationResult =
@@ -72,6 +75,7 @@ export function authenticateConnection(request: IncomingMessage, config: Config)
     userId: claims.sub,
     role: claims.role,
     driverId: claims.role === 'driver' ? claims.driverId ?? null : null,
+    sessionId: claims.sid ?? null,
   });
 
   return { ok: true, context, expiresAtMs: claims.exp * 1000 };
@@ -103,8 +107,15 @@ export function matchesConnectionIdentity(
 export class ConnectionRegistry {
   private readonly byUserId = new Map<string, Set<WebSocket>>();
   private readonly byDriverId = new Map<string, Set<WebSocket>>();
+  private readonly contexts = new WeakMap<WebSocket, ConnectionContext>();
+
+  /** L'identité d'une connexion ouverte (15 novembre : fermer celles d'une session remplacée). */
+  contextOf(socket: WebSocket): ConnectionContext | undefined {
+    return this.contexts.get(socket);
+  }
 
   add(context: ConnectionContext, socket: WebSocket): void {
+    this.contexts.set(socket, context);
     this.addTo(this.byUserId, context.userId, socket);
     if (context.driverId) this.addTo(this.byDriverId, context.driverId, socket);
   }

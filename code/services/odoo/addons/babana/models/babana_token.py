@@ -116,8 +116,20 @@ class BabanaToken(models.Model):
     @api.model
     def _issue_family(self, user):
         """Émet le premier jeton de renouvellement d'une nouvelle famille (L1-01, à la
-        connexion). Renvoie le jeton en clair -- seule occasion où il existe hors du hachage."""
-        return self._issue(user, family_id=str(uuid.uuid4()))
+        connexion). Renvoie le jeton en clair -- seule occasion où il existe hors du hachage.
+
+        Un chauffeur (15 novembre) n'a qu'un appareil connecté : la nouvelle famille devient sa
+        session courante, toutes les autres sont révoquées, et le service temps réel ferme la
+        connexion de l'ancien téléphone. Le client, lui, garde autant d'appareils qu'il veut."""
+        family_id = str(uuid.uuid4())
+        raw_token = self._issue(user, family_id=family_id)
+        driver = user._babana_driver() if user._babana_role() == "driver" else None
+        if driver:
+            self.sudo().search(
+                [("user_id", "=", user.id), ("family_id", "!=", family_id), ("state", "!=", "revoked")]
+            ).write({"state": "revoked"})
+            driver.sudo()._babana_start_session(family_id)
+        return raw_token
 
     @api.model
     def _issue(self, user, *, family_id: str) -> str:

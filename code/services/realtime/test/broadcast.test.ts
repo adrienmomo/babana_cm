@@ -46,7 +46,7 @@ function configWith(overrides: Partial<Record<string, string>> = {}): Config {
 }
 
 function clientContext(label: string): ConnectionContext {
-  return Object.freeze({ userId: id(label), role: 'client', driverId: null });
+  return Object.freeze({ userId: id(label), role: 'client', driverId: null, sessionId: null });
 }
 
 type PositionMessage = {
@@ -343,7 +343,7 @@ describe('TrackingManager (L3-09)', () => {
     const driverId = await positionedDriver('e2e-driver', { latitude: 4.0501, longitude: 9.7001 });
     // Relevé précédent daté de 20 s : la nouvelle position doit passer la vitesse implicite (L3-02).
     await storePosition(redis, driverId, { latitude: 4.0501, longitude: 9.7001, accuracyMeters: 10, speedMetersPerSecond: 5, headingDegrees: 0, capturedAtMs: Date.now() - 20_000 }, 60);
-    const driverCtx: ConnectionContext = Object.freeze({ userId: id('e2e-driver-user'), role: 'driver', driverId });
+    const driverCtx: ConnectionContext = Object.freeze({ userId: id('e2e-driver-user'), role: 'driver', driverId, sessionId: null });
     await startRideSession(redis, rideId, { clientUserId: clientCtx.userId, driverId, origin: { latitude: 4.05, longitude: 9.7 } });
 
     const client = fakeSocket();
