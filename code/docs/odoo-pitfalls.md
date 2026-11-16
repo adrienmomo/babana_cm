@@ -250,3 +250,23 @@ commande) qui déclenche un effet accroché à `env.cr.postcommit` doit attendre
 façon BORNÉE que cet effet se soit réellement produit avant de laisser le processus se terminer --
 en interrogeant l'état réel produit (jamais un délai fixe), avec un plafond généreux (au moins une
 minute), pas les quelques secondes qui suffiraient dans un processus HTTP de longue durée.
+
+## Un fichier de test absent de `tests/__init__.py` ne s'exécute jamais — sans rien dire
+
+Constaté le 15 novembre : `tests/test_driver_selfie.py` et `tests/test_driver_wallet.py`,
+écrits et lancés par `--test-tags /babana:TestDriverSelfie`, n'avaient **jamais tourné** —
+« 0 failed of 1048 tests » sans eux, aucune erreur, aucun avertissement. Odoo ne découvre les
+tests que par les imports du paquet `tests` ; un `--test-tags` sur une classe inconnue n'échoue
+pas, il filtre sur rien.
+
+**Règle** : tout nouveau fichier de test s'ajoute à `tests/__init__.py` dans le même geste, et un
+`--test-tags` ciblé se vérifie par le compte de tests annoncé (« N tests ») ou par le nom des
+tests dans le journal — jamais par l'absence d'échec.
+
+## Un commentaire XML ne contient jamais `--`
+
+Même jour : un tiret double dans un commentaire de `data/cron.xml`
+(`<!-- … hors ligne -- à la fin … -->`) fait échouer le chargement du module
+(`XMLSyntaxError: Comment must not contain '--'`) — donc toute la suite de tests, avant le premier
+test. Les commentaires Python et TypeScript du projet utilisent volontiers ` -- ` : ne pas
+reprendre cette habitude dans un fichier XML.

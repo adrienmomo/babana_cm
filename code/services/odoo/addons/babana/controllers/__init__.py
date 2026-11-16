@@ -13,3 +13,4 @@ from . import quote
 from . import remittance
 from . import ride
 from . import share
+from . import selfie

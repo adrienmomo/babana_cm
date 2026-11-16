@@ -1,4 +1,4 @@
-import { createDriverDocumentUploader, type DriverDocumentUploader } from '@babana/api-client';
+import { createDriverDocumentUploader, createDriverSelfieUploader, type DriverDocumentUploader, type DriverSelfieUploader } from '@babana/api-client';
 import type { http } from '@babana/contracts';
 import { API_BASE_URL } from '../config';
 import { apiClient, authClient } from './auth';
@@ -10,7 +10,7 @@ import { apiClient, authClient } from './auth';
  * passe par le client REST générique déjà enrobé de renouvellement transparent (`apiClient`).
  */
 
-export const documentUploader: DriverDocumentUploader = createDriverDocumentUploader({
+const uploaderConfig = {
   baseUrl: API_BASE_URL,
   getAccessToken: () => authClient.getAccessToken(),
   refreshAccessToken: async () => {
@@ -23,7 +23,12 @@ export const documentUploader: DriverDocumentUploader = createDriverDocumentUplo
       throw error;
     }
   },
-});
+};
+
+export const documentUploader: DriverDocumentUploader = createDriverDocumentUploader(uploaderConfig);
+
+/** Selfie de contrôle (15 novembre) : même configuration que les pièces. */
+export const selfieUploader: DriverSelfieUploader = createDriverSelfieUploader(uploaderConfig);
 
 export async function fetchDriverDocuments(): Promise<http.DriverDocument[]> {
   const response = (await apiClient.request('listDriverDocuments')) as http.ListDriverDocumentsResponse;

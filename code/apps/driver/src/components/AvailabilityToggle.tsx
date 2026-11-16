@@ -7,6 +7,8 @@ import type { http } from '@babana/contracts';
 import { apiClient } from '../auth';
 import { locationTracker } from '../location';
 import { realtimeClient } from '../realtime';
+import { takeSelfie } from '../selfie';
+import { askOverlayPermissionOnce } from '../floatingBubble';
 
 /**
  * Bascule en ligne / hors ligne (L6-11, D7). Un curseur à glisser sur toute la largeur (D20,
@@ -57,6 +59,26 @@ export function AvailabilityToggle({ inCourse, onNavigateToRemittance }: Availab
 
   const disabled = inCourse || pending;
 
+  // 15 novembre : un selfie est demandé avant de passer en ligne -- pris ici même, puis la mise en
+  // ligne repart d'elle-même.
+  const [selfieBusy, setSelfieBusy] = useState(false);
+  const [selfieError, setSelfieError] = useState<string | null>(null);
+  async function takeSelfieThenGoOnline() {
+    setSelfieError(null);
+    setSelfieBusy(true);
+    try {
+      const outcome = await takeSelfie();
+      if (outcome.kind === 'too-heavy') setSelfieError('La photo est trop lourde. Reprenez-la.');
+      if (outcome.kind !== 'sent') return;
+    } catch {
+      setSelfieError("Le selfie n'a pas pu être envoyé. Réessayez.");
+      return;
+    } finally {
+      setSelfieBusy(false);
+    }
+    await toggle();
+  }
+
   async function toggle() {
     // Filet défensif : le `disabled` du curseur empêche déjà le geste réel d'atteindre `onConfirm`,
     // mais rien ne garantit qu'un appelant (ou un test) ne rappelle jamais cette fonction
@@ -78,6 +100,8 @@ export function AvailabilityToggle({ inCourse, onNavigateToRemittance }: Availab
       // en retard (arrêt immédiat au passage hors ligne, spécification).
       locationTracker.setOnline(response.online);
       setOnline(response.online);
+      // 15 novembre : l'icône flottante a besoin d'une autorisation, demandée une seule fois.
+      if (response.online) askOverlayPermissionOnce();
     } catch (error) {
       if (error instanceof ApiError) {
         setRefusalError(error);
@@ -107,6 +131,22 @@ export function AvailabilityToggle({ inCourse, onNavigateToRemittance }: Availab
       {refusalError ? (
         <View style={styles.refusal} testID="availability-refusal">
           <Text style={styles.refusalText}>{translateApiError(refusalError)}</Text>
+          {refusalError.code === 'SELFIE_REQUIRED' ? (
+            <Pressable
+              testID="availability-take-selfie"
+              accessibilityRole="button"
+              disabled={selfieBusy}
+              onPress={takeSelfieThenGoOnline}
+              style={styles.remittanceButton}
+            >
+              <Text style={styles.remittanceButtonLabel}>{selfieBusy ? 'Envoi du selfie…' : 'Prendre mon selfie'}</Text>
+            </Pressable>
+          ) : null}
+          {selfieError ? (
+            <Text style={styles.refusalText} testID="availability-selfie-error">
+              {selfieError}
+            </Text>
+          ) : null}
           {refusalError.code === 'CASH_LIMIT_REACHED' ? (
             <Pressable testID="availability-go-to-remittance" accessibilityRole="button" onPress={onNavigateToRemittance} style={styles.remittanceButton}>
               <Text style={styles.remittanceButtonLabel}>Faire une remise</Text>

@@ -1,6 +1,11 @@
 apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
+// Firebase (15 novembre) : seulement si la configuration a été générée -- sans elle l'app se
+// construit et tourne, sans notification push (code/docs/firebase.md).
+if (file("google-services.json").exists()) {
+    apply plugin: "com.google.gms.google-services"
+}
 
 // Résolution via Node plutôt que les chemins relatifs par défaut du gabarit React Native
 // (L0-03R, amoa/questions/REPONSES-2026-08-11.md) : ../../node_modules n'existe pas dans ce

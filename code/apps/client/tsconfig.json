@@ -4,5 +4,5 @@
     "types": ["jest"]
   },
   "include": ["**/*.ts", "**/*.tsx"],
-  "exclude": ["**/node_modules", "**/Pods", "dist-web", "index.web.tsx", "src/location.web.ts", "src/screenWake.web.ts", "config.web.ts"]
+  "exclude": ["**/node_modules", "**/Pods", "dist-web", "index.web.tsx", "src/location.web.ts", "src/screenWake.web.ts", "src/push.web.ts", "config.web.ts"]
 }

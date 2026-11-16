@@ -62,8 +62,10 @@ jest.mock('../../proposalAlert', () => ({
 
 // « Encaissé aujourd'hui » du panneau du bas : lu sur GET /drivers/me/cash (`api/cash.ts`).
 const mockFetchCashSummary = jest.fn();
+const mockFetchWallet = jest.fn().mockRejectedValue(new Error('hors connexion'));
 jest.mock('../../api/cash', () => ({
   fetchCashSummary: (...args: unknown[]) => mockFetchCashSummary(...args),
+  fetchWallet: (...args: unknown[]) => mockFetchWallet(...args),
 }));
 
 const mockReplaceWithSettlement = jest.fn();
@@ -594,6 +596,24 @@ describe('HomeScreen (L6-11)', () => {
     mockFetchCashSummary.mockRejectedValue(new Error('fetch failed'));
     const { root } = await renderHome();
     expect(host(root, 'home-today-amount')[0]!.props.children).toBe('—');
+  });
+
+  it('15 novembre : le solde prépayé tel qu’Odoo le tient, en rouge quand il est épuisé', async () => {
+    mockFetchCashSummary.mockResolvedValue({ collectedToday: 0 });
+    mockFetchWallet.mockResolvedValueOnce({ balance: 4930 });
+    const { root } = await renderHome();
+    expect(host(root, 'home-wallet-balance')[0]!.props.children).toBe(`Solde prépayé : ${formatMoney(4930)}`);
+
+    mockFetchWallet.mockResolvedValueOnce({ balance: -20 });
+    const { root: emptyRoot } = await renderHome();
+    const empty = host(emptyRoot, 'home-wallet-balance')[0]!;
+    expect(empty.props.children).toBe(`Solde prépayé : ${formatMoney(-20)}`);
+  });
+
+  it('sans réponse du serveur, aucun solde inventé', async () => {
+    mockFetchWallet.mockRejectedValueOnce(new Error('fetch failed'));
+    const { root } = await renderHome();
+    expect(host(root, 'home-wallet-balance')).toHaveLength(0);
   });
 
   it("l'encaissé du jour est relu au retour sur l'accueil (après un règlement, une remise)", async () => {

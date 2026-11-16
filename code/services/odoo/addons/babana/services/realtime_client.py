@@ -340,6 +340,20 @@ def _notify_driver_available_now(driver_public_id: str) -> None:
         )
 
 
+def _notify_driver_forced_offline_now(driver_public_id: str) -> None:
+    try:
+        _post("/internal/drivers/offline", {"driverId": driver_public_id})
+    except RealtimeUnavailable:
+        _logger.warning("échec du passage hors ligne imposé au chauffeur %s (temps réel)", driver_public_id)
+
+
+def notify_driver_forced_offline(env, *, driver_public_id: str) -> None:
+    """Hors ligne imposé par le serveur (15 novembre) : le service temps réel retire le chauffeur
+    du vivier et le lui dit (`session.synced`, `driverOnline: false`) -- son interrupteur repasse
+    à « Hors ligne » sans qu'il ait rien fait. Au COMMIT (D32)."""
+    env.cr.postcommit.add(lambda: _notify_driver_forced_offline_now(driver_public_id))
+
+
 def notify_driver_available(env, *, driver_public_id: str) -> None:
     """Réactivation d'un chauffeur suspendu (D5, D31, D55, J33) : lève la non-habilitation côté
     temps réel. Symétrique de `notify_driver_unavailable`, à une différence près voulue par le

@@ -20,6 +20,7 @@ racine du dépôt pour le contexte complet.
         'data/cron.xml',
         'views/babana_motorcycle_views.xml',
         'views/babana_driver_views.xml',
+        'views/babana_driver_selfie_views.xml',
         'views/babana_assignment_views.xml',
         'data/fare_rule_default.xml',
         'views/babana_fare_rule_views.xml',

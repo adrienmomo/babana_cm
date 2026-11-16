@@ -40,7 +40,7 @@ export function isProposalHostAttached(): boolean {
 export interface ProposalWatchDeps {
   isHostAttached: () => boolean;
   route: (rideId: string, expiresAt: string) => ProposalRouteResult;
-  alert: () => void;
+  alert: (expiresAt: string) => void;
 }
 
 /** Décision pure : ouvrir l'alerte pour une proposition annoncée pendant qu'aucun écran n'écoute. */
@@ -54,7 +54,7 @@ export function handleDetachedProposalMessage(message: realtime.ServerToClientMe
         : null;
   if (!proposal) return;
   // Déjà prise en charge (même proposition rejouée par une resynchronisation) : une seule alerte.
-  if (deps.route(proposal.rideId, proposal.expiresAt) === 'shown') deps.alert();
+  if (deps.route(proposal.rideId, proposal.expiresAt) === 'shown') deps.alert(proposal.expiresAt);
 }
 
 let started = false;

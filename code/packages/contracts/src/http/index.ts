@@ -12,6 +12,8 @@ export * from './remittance';
 export * from './driver';
 export * from './documents';
 export * from './devices';
+export * from './selfie';
+export * from './wallet';
 export * from './incident';
 export * from './share';
 export * from './history';
@@ -25,6 +27,8 @@ import * as remittance from './remittance';
 import * as driver from './driver';
 import * as documents from './documents';
 import * as devices from './devices';
+import * as selfie from './selfie';
+import * as wallet from './wallet';
 import * as incident from './incident';
 import * as share from './share';
 import * as history from './history';
@@ -273,6 +277,37 @@ export const HTTP_ENDPOINTS = {
     // hors de ce registre générique qui suppose un corps JSON pur.
     requestExample: null,
     responseExample: documents.uploadDriverDocumentResponseExample,
+  },
+  driverWallet: {
+    method: 'GET',
+    path: '/api/v1/drivers/me/wallet',
+    requiresAuth: true,
+    requestSchema: null,
+    responseSchema: wallet.DriverWalletResponseSchema,
+    errors: wallet.DriverWalletErrors,
+    requestExample: null,
+    responseExample: wallet.driverWalletResponseExample,
+  },
+  driverSelfie: {
+    method: 'GET',
+    path: '/api/v1/drivers/me/selfie',
+    requiresAuth: true,
+    requestSchema: null,
+    responseSchema: selfie.GetDriverSelfieResponseSchema,
+    errors: selfie.GetDriverSelfieErrors,
+    requestExample: null,
+    responseExample: selfie.driverSelfieStatusExample,
+  },
+  uploadDriverSelfie: {
+    method: 'POST',
+    path: '/api/v1/drivers/me/selfie',
+    requiresAuth: true,
+    // multipart/form-data (fichier + contentType), comme uploadDriverDocument.
+    requestSchema: null,
+    responseSchema: selfie.UploadDriverSelfieResponseSchema,
+    errors: selfie.UploadDriverSelfieErrors,
+    requestExample: null,
+    responseExample: selfie.driverSelfieStatusExample,
   },
   listDriverDocuments: {
     method: 'GET',

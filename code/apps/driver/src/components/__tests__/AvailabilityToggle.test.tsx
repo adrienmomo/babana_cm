@@ -33,6 +33,9 @@ jest.mock('../../location', () => ({
   },
 }));
 
+const mockTakeSelfie = jest.fn();
+jest.mock('../../selfie', () => ({ takeSelfie: () => mockTakeSelfie() }));
+
 import { AvailabilityToggle } from '../AvailabilityToggle';
 import { SwipeButton } from '../SwipeButton';
 
@@ -167,6 +170,33 @@ describe('AvailabilityToggle (L6-11, D7)', () => {
       remittanceButton.props.onPress();
     });
     expect(onNavigateToRemittance).toHaveBeenCalledTimes(1);
+  });
+
+  it('15 novembre : selfie demandé -- pris depuis la bascule, puis la mise en ligne repart seule', async () => {
+    mockRequest.mockRejectedValueOnce(new ApiError('SELFIE_REQUIRED', 'x', 403)).mockResolvedValueOnce({ online: true });
+    mockTakeSelfie.mockResolvedValue({ kind: 'sent', status: { due: false } });
+    const root = await renderToggle();
+
+    await press(root);
+    expect(texts(root)).toContain('Prenez un selfie pour passer en ligne.');
+    await act(async () => {
+      root.root.findByProps({ testID: 'availability-take-selfie' }).props.onPress();
+    });
+
+    expect(mockTakeSelfie).toHaveBeenCalledTimes(1);
+    expect(mockRequest).toHaveBeenLastCalledWith('setAvailability', { body: { online: true } });
+    expect(texts(root)).toContain('En ligne · glisser pour arrêter');
+  });
+
+  it('selfie annulé : on reste hors ligne, sans nouvelle demande au serveur', async () => {
+    mockRequest.mockRejectedValueOnce(new ApiError('SELFIE_REQUIRED', 'x', 403));
+    mockTakeSelfie.mockResolvedValue({ kind: 'cancelled' });
+    const root = await renderToggle();
+    await press(root);
+    await act(async () => {
+      root.root.findByProps({ testID: 'availability-take-selfie' }).props.onPress();
+    });
+    expect(mockRequest).toHaveBeenCalledTimes(1);
   });
 
   it('un motif autre que le plafond ne propose jamais le bouton de remise', async () => {

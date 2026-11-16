@@ -3,6 +3,7 @@ import type { http } from '@babana/contracts';
 import { apiClient, signOut } from './auth';
 import { locationTracker } from './location';
 import { realtimeClient } from './realtime';
+import { pushRegistrar } from './push/firebase';
 
 export type DriverSignOutOutcome = { signedOut: true } | { signedOut: false; message: string };
 
@@ -28,6 +29,8 @@ export async function signOutDriver(): Promise<DriverSignOutOutcome> {
       if (error instanceof ApiError) return { signedOut: false, message: translateApiError(error) };
     }
   }
+  // 15 novembre : ce téléphone ne reçoit plus les notifications de ce compte.
+  await pushRegistrar.unregister();
   await signOut();
   return { signedOut: true };
 }

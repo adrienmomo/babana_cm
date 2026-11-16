@@ -25,6 +25,9 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <!-- Alerte de proposition et notification de suivi (Android 13 et plus). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 15 novembre : icône flottante du chauffeur en ligne, app en arrière-plan, et retour au premier
+         plan à l'arrivée d'une proposition (accordée par le chauffeur dans les réglages). -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <application
       android:name=".MainApplication"

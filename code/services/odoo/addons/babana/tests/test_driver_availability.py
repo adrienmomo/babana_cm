@@ -33,6 +33,10 @@ class TestDriverAvailability(TransactionCase):
         self._make_motorcycle().write({"driver_id": driver.id})
         driver.invalidate_recordset()
         driver.action_approve(new_employee_name="Chauffeur disponible")
+        # 15 novembre : un selfie récent est une condition du passage en ligne.
+        self.env["babana.driver.selfie"].create({"driver_id": driver.id, "storage_key": "test/selfie.jpg", "state": "approved"})
+        # 15 novembre : un solde prépayé positif aussi.
+        self.env["babana.driver.wallet.movement"].sudo().create({"driver_id": driver.id, "movement_type": "topup", "amount": 5000, "reference": "TEST"})
         return driver
 
     # --- Critère 1 : chaque condition de refus a un motif distinct ----------------------------

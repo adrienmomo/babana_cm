@@ -18,7 +18,7 @@ import psycopg2
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 
-from ..services import realtime_client
+from ..services import push, realtime_client
 from ..services.pricing import FareBreakdown, round_breakdown_for_wire
 
 _logger = logging.getLogger(__name__)
@@ -284,6 +284,9 @@ class BabanaRideState(models.Model):
 
         self._babana_write_transition({"state": "assigned", "assigned_at": fields.Datetime.now()})
         self._babana_journalize("acceptance", before_state="proposed")
+        self._babana_push_client(
+            "Un chauffeur arrive", "Votre course est acceptée : suivez votre chauffeur dans l'app.", "assigned"
+        )
         return self
 
     # --- 4. proposed -> rejected --------------------------------------------------------------
@@ -353,7 +356,27 @@ class BabanaRideState(models.Model):
                 arrived_at=self.arrived_at,
                 no_show_grace_seconds=self._babana_no_show_grace_seconds(),
             )
+        self._babana_push_client("Votre chauffeur est arrivé", "Il vous attend au point de prise en charge.", "arrived")
         return self
+
+    def _babana_push_client(self, title, body, kind):
+        """Notification push au client (15 novembre, réponse du maître d'ouvrage : chauffeur
+        affecté, arrivé, course terminée). Après le commit, sur un fil de fond (`push.py`) : un envoi
+        lent ou en échec ne touche jamais la transition. Contenu minimal, aucune donnée sensible
+        (L7-02) ; l'app ouverte au premier plan l'ignore -- son écran le dit déjà."""
+        users = self.client_id.user_ids[:1]
+        if not users:
+            return
+        push.notify_users_async(
+            self.env,
+            users,
+            push.PushMessage(
+                title=title,
+                body=body,
+                data={"type": "ride", "rideId": self.public_id, "event": kind},
+                collapse_key="babana-ride-%s" % self.public_id,
+            ),
+        )
 
     def action_cancel_no_show(self, *, by_driver):
         """« Client absent » : annulation par le chauffeur, permise seulement une fois le délai de
@@ -454,6 +477,13 @@ class BabanaRideState(models.Model):
             "ride_completion", before_state="in_progress", measured=bool(measurement)
         )
 
+        # 15 novembre : le client l'apprend aussi app fermée (push), son écran le dit sinon.
+        self._babana_push_client("Course terminée", "Merci d'avoir voyagé avec Babana. Le détail est dans l'app.", "completed")
+
+        # 15 novembre : commission de course sur le solde prépayé du chauffeur, dans la même
+        # transaction que la fin de course (une écriture de plus, pour la même décision).
+        self.env["babana.driver.wallet.movement"]._babana_charge_commission(self, final_amount)
+
         # L3-19 (D31, D32) : pousse ride.completed au client suivi et au chauffeur, avec le
         # détail décomposé GELÉ à la création (fare_rule_snapshot, D41) -- jamais recalculé, le
         # résumé de fin doit être ce que le serveur a réellement écrit. Aucun savepoint ici
@@ -481,6 +511,11 @@ class BabanaRideState(models.Model):
                 amount=round(final_amount),
                 breakdown=round_breakdown_for_wire(breakdown),
             )
+        # 15 novembre : un chauffeur qui ne remplit plus une condition (selfie refusé ou dû, solde
+        # épuisé par la commission de cette course…) passe hors ligne maintenant qu'elle est finie --
+        # jamais avant. Sans effet sur un chauffeur en règle.
+        if self.driver_id:
+            self.driver_id.sudo()._babana_enforce_compliance()
         return self
 
     # --- 8. completed -> settled ---------------------------------------------------------------
@@ -651,4 +686,9 @@ class BabanaRideState(models.Model):
                 notify_client_user_id=notify_client_user_id,
                 notify_driver_id=notify_driver_id,
             )
+        # 15 novembre : un chauffeur qui ne remplit plus une condition (selfie refusé ou dû, solde
+        # épuisé par la commission de cette course…) passe hors ligne maintenant qu'elle est finie --
+        # jamais avant. Sans effet sur un chauffeur en règle.
+        if self.driver_id:
+            self.driver_id.sudo()._babana_enforce_compliance()
         return self

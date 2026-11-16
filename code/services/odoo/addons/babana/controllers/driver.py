@@ -162,6 +162,7 @@ class DriverController(http.Controller):
                 code, message = refusal
                 return _common.error_payload(code, message), 403
             driver.sudo().write({"is_online": True})
+            driver.sudo()._babana_release_compliance_hold()
             return {"online": True}, 200
 
         refusal = driver.sudo()._check_offline_allowed()

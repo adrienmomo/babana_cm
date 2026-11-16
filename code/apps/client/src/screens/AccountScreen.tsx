@@ -5,6 +5,7 @@ import { AccountMenu, Avatar, ThemePicker, formatRatingSummary, makeStyles } fro
 import { apiClient, authClient, signOut } from '../auth';
 import { APP_NAME } from '../brand';
 import type { ClientParamList } from '../navigation/types';
+import { pushRegistrar } from '../push';
 
 /**
  * Profil du client (2 novembre), ouvert par l'avatar en haut à droite de l'accueil : photo, nom,
@@ -16,6 +17,8 @@ import type { ClientParamList } from '../navigation/types';
 type Props = NativeStackScreenProps<ClientParamList, 'Account'>;
 
 async function signOutClient(): Promise<null> {
+  // 15 novembre : ce téléphone ne reçoit plus les notifications de ce compte.
+  await pushRegistrar.unregister();
   await signOut();
   return null;
 }

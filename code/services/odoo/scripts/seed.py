@@ -388,6 +388,13 @@ def ensure_fleet():
             user.partner_id.sudo().write({"phone": phone})
             verify_phone(user.partner_id, phone)
 
+        # a ter. solde prépayé (15 novembre) : une recharge de démonstration, sans quoi aucun
+        #    chauffeur de démonstration ne peut passer en ligne.
+        if not env["babana.driver.wallet.movement"].sudo().search_count([("driver_id", "=", driver.id)]):
+            env["babana.driver.wallet.movement"].sudo().create(
+                {"driver_id": driver.id, "movement_type": "topup", "amount": 10000, "reference": "DEMO-%d" % suffix}
+            )
+
         # a bis. photo de profil validée (15 novembre), y compris pour un chauffeur déjà approuvé
         #    par un seed antérieur : c'est elle que le client voit sur la fiche de son chauffeur.
         if not env["babana.driver.document"].sudo().search_count(
