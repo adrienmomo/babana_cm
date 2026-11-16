@@ -21,6 +21,8 @@ export interface CancelRideSheetProps {
   title: string;
   reasons: string[];
   reasonRequired: boolean;
+  /** `false` : simple confirmation, sans liste de motifs (client qui arrête une recherche). */
+  askReason?: boolean;
   /** Libellé de l'option qui ouvre le champ libre. */
   otherLabel?: string;
   busy?: boolean;
@@ -37,6 +39,7 @@ export function CancelRideSheet({
   title,
   reasons,
   reasonRequired,
+  askReason = true,
   otherLabel = 'Autre',
   busy = false,
   error = null,
@@ -57,16 +60,18 @@ export function CancelRideSheet({
   }, [visible]);
 
   const reason = selected === OTHER ? otherText.trim() || null : selected;
-  const canConfirm = !busy && (!reasonRequired || reason !== null);
+  const canConfirm = !busy && (!askReason || !reasonRequired || reason !== null);
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
       <View style={styles.backdrop}>
         <View style={styles.sheet} testID={testID}>
           <Text style={styles.title}>{title}</Text>
-          <Text style={styles.subtitle}>{reasonRequired ? 'Pourquoi ? (obligatoire)' : 'Pourquoi ? (facultatif)'}</Text>
+          {askReason ? (
+            <Text style={styles.subtitle}>{reasonRequired ? 'Pourquoi ? (obligatoire)' : 'Pourquoi ? (facultatif)'}</Text>
+          ) : null}
 
-          {[...reasons, OTHER].map((option) => {
+          {(askReason ? [...reasons, OTHER] : []).map((option) => {
             const label = option === OTHER ? otherLabel : option;
             const active = selected === option;
             return (
@@ -105,7 +110,7 @@ export function CancelRideSheet({
             accessibilityRole="button"
             accessibilityState={{ disabled: !canConfirm }}
             disabled={!canConfirm}
-            onPress={() => onConfirm(reason)}
+            onPress={() => onConfirm(askReason ? reason : null)}
             style={({ pressed }) => [styles.confirm, !canConfirm ? styles.disabled : null, pressed ? styles.pressed : null]}
           >
             <Text style={styles.confirmLabel}>{busy ? 'Annulation…' : "Confirmer l'annulation"}</Text>

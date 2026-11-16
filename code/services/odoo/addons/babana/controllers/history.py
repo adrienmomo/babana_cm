@@ -110,7 +110,14 @@ class RideHistoryController(http.Controller):
 
     def _ride_history(self, cursor):
         env, user = _common.authenticated_user()
-        domain = [("client_id", "=", user.partner_id.id), ("state", "in", _HISTORY_STATES)]
+        # Une recherche abandonnée avant qu'un chauffeur n'accepte n'est pas une course : elle
+        # n'entre pas dans l'historique du client (16 novembre). Une course annulée après
+        # l'acceptation, elle, y reste.
+        domain = [
+            ("client_id", "=", user.partner_id.id),
+            ("state", "in", _HISTORY_STATES),
+            "|", ("state", "!=", "cancelled"), ("assigned_at", "!=", False),
+        ]
         page, next_cursor, error = _page(env, user, domain, cursor)
         if error:
             return error

@@ -45,12 +45,18 @@ class TestRideHistoryController(HttpCase):
                 "fare_rule_snapshot": json.dumps(_BREAKDOWN),
             }
         )
-        if until == "cancelled":
+        if until == "unmatched":
+            # Aucun chauffeur trouvé : le client abandonne la recherche.
             ride.action_cancel(actor_role="client", actor_record=client)
             return ride
         driver = self._driver()
         ride.action_propose(by_partner=client, driver=driver)
+        if until == "proposed":
+            return ride
         ride.action_accept(by_driver=driver)
+        if until == "cancelled":
+            ride.action_cancel(actor_role="client", actor_record=client)
+            return ride
         ride.action_start(by_driver=driver)
         if until == "in_progress":
             return ride
@@ -87,6 +93,17 @@ class TestRideHistoryController(HttpCase):
         self.assertEqual(second["dropoff"], {"latitude": 4.0622, "longitude": 9.7108})
         self.assertEqual(second["amount"], 700)
         self.assertIsNone(body["nextCursor"])
+
+    def test_a_search_abandoned_before_any_driver_accepted_is_not_history(self):
+        token, client = self._client("sub-history-unmatched")
+        unmatched = self._ride(client, until="unmatched")
+        declined = self._ride(client, until="proposed")
+        declined.action_cancel(actor_role="client", actor_record=client)
+        kept = self._ride(client, until="cancelled")
+        response = self.url_open("/api/v1/rides", headers={"Authorization": f"Bearer {token}"})
+        ids = [ride["id"] for ride in response.json()["rides"]]
+        self.assertEqual(ids, [kept.public_id])
+        self.assertNotIn(unmatched.public_id, ids)
 
     def test_history_is_ordered_by_ride_date_not_by_creation_order(self):
         # Défaut vu le 30 octobre sur les courses semées : antidatées, la dernière créée est la plus

@@ -10,7 +10,6 @@ import { apiClient } from '../auth';
 import { formatMoney } from '../format';
 import { ensureRealtimeConnected, onRealtimeMessage, realtimeClient } from '../realtime';
 import type { ClientParamList } from '../navigation/types';
-import { CLIENT_CANCEL_REASONS } from '../cancelReasons';
 import { useKeepScreenAwake } from '../keepAwake';
 
 /**
@@ -211,9 +210,10 @@ export function WaitingScreen({ route, navigation }: Props) {
       <Button testID="cancel-waiting" label="Annuler" variant="secondary" onPress={() => setCancelSheetOpen(true)} disabled={cancelling} />
       <CancelRideSheet
         visible={cancelSheetOpen}
-        title="Annuler la course ?"
-        reasons={CLIENT_CANCEL_REASONS}
+        title="Arrêter la recherche ?"
+        reasons={[]}
         reasonRequired={false}
+        askReason={false}
         busy={cancelling}
         onConfirm={handleCancel}
         onDismiss={() => setCancelSheetOpen(false)}

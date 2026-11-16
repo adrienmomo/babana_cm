@@ -170,5 +170,8 @@ class TestDriverSelfie(HttpCase):
         driver.write({"is_online": True})
         with patch.object(realtime_client, "notify_driver_forced_offline") as forced:
             self.env["babana.driver"]._cron_enforce_compliance()
-        forced.assert_not_called()
+        # La tâche parcourt TOUS les chauffeurs en ligne : sur une base peuplée (`make seed`),
+        # d'autres qu'elle peuvent légitimement être mis hors ligne -- seul celui-ci compte.
+        notified = [call.kwargs.get("driver_public_id") for call in forced.call_args_list]
+        self.assertNotIn(driver.public_id, notified)
         self.assertTrue(driver.is_online)
