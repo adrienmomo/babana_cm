@@ -610,12 +610,18 @@ L'attente à la prise en charge réutilise `arrived_at` de la course et se termi
 mouvement détecté ou au démarrage, le plus tôt des deux (événement « départ » de la prise en charge).
 
 **Horodatage.** Chaque événement chauffeur porte `occurred_at` (heure du téléphone, sérialisée
-selon D40). Le serveur le borne à [événement précédent du même point, heure de réception].
+selon D40). Le serveur le borne à [événement précédent du même point, heure de réception] et **stocke
+l'heure bornée** comme heure officielle, l'heure brute du téléphone à côté pour l'audit.
+L'heure de réception n'étant pas conservée, seul le résultat du bornage est rejouable.
 Rejouer un événement déjà enregistré ne modifie rien (idempotence).
 
 **Ajout pendant la course, en deux temps.** (1) Le client demande une cotation de l'itinéraire
 restant avec l'arrêt ajouté ; le serveur rend le nouveau prix prévu, sans rien écrire. (2) Le
-client confirme : une écriture, qui remplace la distance et le prix prévus de la course. Au
+client confirme : une écriture, qui remplace la distance et le prix prévus de la course **et
+conserve la cotation confirmée** (un enregistrement par confirmation : arrêts, distance, prix,
+heure). La nouvelle cotation utilise **toujours la version de grille gelée au premier devis**,
+jamais la version du jour, et sa distance est stockée : un rejeu ne réinterroge jamais le
+service de routage, dont le cache aura expiré. Au
 commit (D32), le chauffeur reçoit `ride.stop_added` par le temps réel et une notification push.
 Le chauffeur ne peut pas refuser. Au-delà de `max_stops_per_ride`, refus explicite.
 
@@ -630,6 +636,7 @@ Le chauffeur ne peut pas refuser. Au-delà de `max_stops_per_ride`, refus explic
 5. Rejouer un événement (même clé d'idempotence) n'écrit rien de plus.
 6. Un départ sans arrivée, une arrivée sur un arrêt déjà quitté, un événement hors `in_progress` (ou hors `assigned` pour la prise en charge) sont refusés.
 7. Aucun message de temps réel ni notification n'est envoyé au client pour une attente.
+7 bis. Une cotation en cours de course faite après une modification de la grille utilise l'ancienne version ; chaque cotation confirmée reste lisible sur la course.
 8. Les arrêts sont visibles sur la fiche de course dans Odoo, et la vue a été ouverte avec une course de démonstration qui en comporte.
 
 ### Piège
@@ -643,7 +650,8 @@ dans un savepoint (D33).
 
 ### Objectif
 
-Recalculer le prix à la fin de chaque course, une fois, à `action_complete`.
+Recalculer le prix à la fin de chaque course, une fois, à `action_complete`, par une fonction
+pure rejouable à l'identique un an plus tard.
 
 ### Contexte
 
@@ -651,6 +659,12 @@ Recalculer le prix à la fin de chaque course, une fois, à `action_complete`.
 `amoa/questions/MULTISTOP-2026-11-17.md` laissé ouvert (hausse au-delà de 100 %).
 
 ### Spécification
+
+**Fonction pure** (même règle que L2-03) :
+`compute_final_fare(frozen_rule, confirmed_quote, actual_distance_m, wait_intervals, promotion)
+-> FinalFareBreakdown`. Aucune lecture de l'heure, de la base, de la grille du jour ni du
+service de routage à l'intérieur. `action_complete` rassemble les entrées stockées, appelle la
+fonction, écrit le résultat.
 
 **Prix de distance.** r = `actual_distance_km` / distance prévue.
 - r ∈ [`distance_band_min_ratio`, `distance_band_max_ratio`] → prix de distance prévu.
@@ -682,3 +696,82 @@ Une course annulée (y compris « client absent ») ne facture aucune attente.
 6. Le reçu client, l'historique et la facture Odoo affichent les lignes séparément ; chacun a été ouvert avec une course de démonstration comportant attente et arrêts.
 7. Le plafond d'encaisse (L5) voit le montant final, attente comprise.
 8. Couverture de tous les chemins (module sensible : moteur de cotation).
+9. **Rejeu** : pour une course terminée, après modification de la grille et vidage du cache de routage, recalculer le prix à partir des seuls champs stockés donne le même montant au franc près, ligne par ligne.
+
+---
+
+## L4-16 — Enregistrement du trajet pour la sécurité
+
+### Objectif
+
+Conserver le trajet horodaté de chaque course, du démarrage à l'arrivée, rejouable pendant un
+an, et en informer le client à chaque démarrage.
+
+### Contexte
+
+**Créée le 17 novembre 2026** (`amoa/questions/MULTISTOP-2026-11-17.md` §5). Exigence de
+sécurité. Tranche le point « conservation des données de localisation » du §11 de
+`01-architecture.md` pour les trajets (CDC §VII.4). Aujourd'hui `track_polyline` est écrit à
+`action_complete` depuis le relevé du service temps réel, sans horodatage, et rien n'est écrit
+quand ce relevé manque.
+
+### Fichiers
+
+```
+services/odoo/addons/babana/models/babana_ride_track.py
+services/odoo/addons/babana/models/babana_ride_state.py
+services/odoo/addons/babana/views/            (lecture du trajet)
+services/odoo/addons/babana/data/ir_cron.xml  (purge)
+apps/driver/                                  (trace locale)
+apps/client/                                  (avis au démarrage)
+packages/contracts/                           (C-01)
+```
+
+### Spécification
+
+**Périmètre** : de `started_at` à `completed_at`, arrêts compris. Une course annulée en cours
+de trajet est enregistrée jusqu'à l'annulation.
+
+**Format** : liste de points `(lat, lng, horodatage UTC, précision)`, stockée une fois, dans un
+modèle à part (`babana.ride.track`) pour ne pas alourdir la lecture des courses.
+
+**Deux sources, une écriture.** Le service temps réel fournit sa trace au moment de la fin,
+comme aujourd'hui. Le téléphone du chauffeur garde aussi sa propre trace pendant le trajet (à
+partir du flux de positions existant, L6-05, sans cadence supplémentaire) et la téléverse
+**une fois** à la fin, par la file hors connexion. Odoo garde la trace du temps réel si elle
+existe, sinon celle du téléphone, et note la source. Aucune écriture pendant le trajet
+(invariant 1). Une course sans aucune trace est signalée au back-office.
+
+La distance mesurée (`actual_distance_km`, utilisée par L4-15) est calculée à partir de la
+trace retenue : prix et trajet racontent la même course.
+
+**Conservation** : `babana.ride_track_retention_days` (365). Une tâche planifiée supprime les
+traces plus anciennes, sauf pour les courses liées à un incident ou une contestation ouverts,
+conservées jusqu'à leur clôture. La course, son prix détaillé et ses horodatages restent.
+
+**Accès** : lecture et rejeu réservés au groupe superviseur et au-dessus (matrice L8-02).
+Chaque consultation écrit une entrée au journal d'audit (qui, quand, quelle course).
+
+**Rejeu** : la fiche de course affiche le trajet sur une carte avec un curseur temporel
+(position à un instant donné, arrêts et attentes marqués).
+
+**Avis au client** : à chaque démarrage, l'app client affiche « Votre trajet est enregistré
+pour votre sécurité », et la notification de démarrage (L3-19) le reprend. Le texte est
+traduisible et vient du serveur. La mention figure aussi dans les conditions d'utilisation.
+
+### Critères d'acceptation
+
+1. Course normale : trace horodatée stockée en une écriture, source « temps réel ».
+2. Service temps réel redémarré en plein trajet (scénario L3-14) : la trace du téléphone est stockée, source « téléphone ».
+3. Téléphone hors connexion à la fin : la trace arrive au retour du réseau, une seule fois (idempotence).
+4. Aucune écriture de trace pendant le trajet, quelle que soit sa durée.
+5. Purge : une trace de 366 jours est supprimée, une de 364 non, une liée à un incident ouvert non.
+6. Un utilisateur sans le groupe superviseur ne peut ni lire ni rejouer une trace (test d'habilitation généré, L8-02) ; chaque lecture autorisée crée une entrée d'audit.
+7. L'avis s'affiche au démarrage de chaque course, app ouverte (écran) et app fermée (notification).
+8. Écrans ouverts avec des données de démonstration contenant de vraies traces : rejeu dans Odoo, avis côté client (natif et web).
+
+### Piège
+
+La trace du téléphone vient d'un appareil qu'on ne contrôle pas : la valider comme les
+positions du temps réel (plausibilité de vitesse, L3-02) avant de la retenir, et ne jamais la
+préférer à une trace du temps réel existante.

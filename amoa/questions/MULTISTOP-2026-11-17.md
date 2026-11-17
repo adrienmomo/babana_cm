@@ -76,7 +76,35 @@ connu (cf. émulateurs).
 | L4-14 | Arrêts de course : modèle, événements, ajout en cours de course | L2-08, L4-02 |
 | L4-15 | Prix final : bande de distance, forfaits, attente | L4-14 |
 | L6-21 | Apps : saisie des arrêts, détection arrivée/départ, reçu détaillé | L4-14, L4-15 |
+| L4-16 | Enregistrement du trajet pour la sécurité, rejeu, avis au client | L4-14, L3-19, L8-02 |
 
 Contrats touchés : C-01 (requêtes et réponses), C-02 (message `ride.stop_added` au chauffeur),
 C-03 (événements d'arrêt — ce ne sont **pas** des transitions d'état ; la course reste
 `in_progress`). À inscrire au §4 de `03-decoupage-taches.md` au débrief.
+
+## 5. Rejeu des prix et enregistrement des trajets — même séance
+
+**Rejeu du prix (L2-03 : « rejouer un litige tarifaire à l'identique six mois plus tard »).**
+Trois trous relevés dans la première rédaction, corrigés dans L4-14 et L4-15 :
+(1) le prix final n'était pas déclaré fonction pure ; (2) une cotation en cours de course ne
+précisait pas quelle version de grille elle utilise, et écrasait la précédente ; (3) l'heure
+bornée d'un événement dépendait de l'heure de réception, non conservée. Désormais : fonction
+pure, grille gelée au premier devis, chaque cotation confirmée conservée, heure bornée stockée.
+
+**Enregistrement des trajets** — exigence de sécurité du maître d'ouvrage : chaque trajet est
+conservé et rejouable pendant un an ; le client en est informé à chaque démarrage.
+
+| Question | Réponse |
+|---|---|
+| Garantir la trace si le temps réel redémarre | Copie locale sur le téléphone du chauffeur, téléversée une fois à la fin |
+| Périmètre | Trajet seulement (démarrage → arrivée) |
+| Conservation | 1 an (paramètre), puis suppression ; sauf incident ou contestation ouverts |
+| Accès | Superviseurs et au-dessus, chaque consultation journalisée |
+
+> **Je propose D-suivant (bis) :** la trace horodatée de chaque trajet est conservée un an,
+> en une écriture par course, rejouable par les superviseurs sous audit ; le client en est
+> informé à chaque démarrage. Tranche, pour les trajets, le point « conservation des données
+> de localisation » du §11.
+
+Point à vérifier hors du code : conformité à la loi camerounaise n° 2024/017 sur la protection
+des données personnelles (finalité, durée, information, éventuelle déclaration à l'autorité).
