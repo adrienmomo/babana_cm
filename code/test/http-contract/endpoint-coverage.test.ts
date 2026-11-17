@@ -97,7 +97,10 @@ interface ProposedRide {
 
 /** Course réellement proposée (requested -> proposed) au chauffeur disponible le plus proche --
  * le chauffeur de l'exercice, réellement en ligne et positionné au point de prise en charge. */
-async function setupProposedRide(label: string): Promise<ProposedRide> {
+async function setupProposedRide(
+  label: string,
+  labels: Pick<http.CreateRideRequest, 'pickupLabel' | 'dropoffLabel'> = {},
+): Promise<ProposedRide> {
   const spot = nextSpot();
   const clientSession = await freshSession('client', `${label}-client`);
   const { session: driverSession, driverPublicId } = await approvedDriverSession(`${label}-driver`);
@@ -105,7 +108,7 @@ async function setupProposedRide(label: string): Promise<ProposedRide> {
 
   const client = clientFor(clientSession.accessToken);
   const quote = (await client.request('quote', { body: { origin: spot, destination: DESTINATION } })) as http.QuoteResponse;
-  const created = (await client.request('createRide', { body: { quoteId: quote.quoteId } })) as http.CreateRideResponse;
+  const created = (await client.request('createRide', { body: { quoteId: quote.quoteId, ...labels } })) as http.CreateRideResponse;
   const proposed = (await client.request('dispatchRide', {
     pathParams: { id: created.id },
     body: {},
@@ -127,8 +130,11 @@ async function settledRide(label: string): Promise<ProposedRide> {
   return rig;
 }
 
-async function setupAssignedRide(label: string): Promise<ProposedRide> {
-  const rig = await setupProposedRide(label);
+async function setupAssignedRide(
+  label: string,
+  labels: Pick<http.CreateRideRequest, 'pickupLabel' | 'dropoffLabel'> = {},
+): Promise<ProposedRide> {
+  const rig = await setupProposedRide(label, labels);
   const accept = await callInternalEndpoint(`/api/internal/rides/${rig.ride.id}/driver-accepted`, {
     driverId: rig.driverPublicId,
   });
@@ -266,13 +272,16 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
   },
 
   rideHistory: async () => {
-    const session = await freshSession('client', 'ride-history');
-    const client = clientFor(session.accessToken);
-    const quote = (await client.request('quote', { body: { origin: ORIGIN, destination: DESTINATION } })) as http.QuoteResponse;
-    const ride = (await client.request('createRide', {
-      body: { quoteId: quote.quoteId, pickupLabel: 'vers Carrefour Tiff', dropoffLabel: 'vers Rond-point Deïdo' },
-    })) as http.CreateRideResponse;
-    await client.request('cancelRide', { pathParams: { id: ride.id }, body: {} });
+    // Une course annulée APRÈS acceptation : une recherche abandonnée avant toute acceptation
+    // reste hors de l'historique (L6-10, ecd4042) -- ce scénario-là ne figure plus ici.
+    const { client, ride } = await setupAssignedRide('ride-history', {
+      pickupLabel: 'vers Carrefour Tiff',
+      dropoffLabel: 'vers Rond-point Deïdo',
+    });
+    await client.request('cancelRide', {
+      pathParams: { id: ride.id },
+      body: { reason: 'C-01 critère 6 -- exercice de contrat' },
+    });
     const history = (await client.request('rideHistory', { query: {} })) as http.RideHistoryResponse;
     const entry = history.rides.find((candidate) => candidate.id === ride.id);
     assert.ok(entry, 'la course annulée figure dans l’historique');
