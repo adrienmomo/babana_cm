@@ -106,6 +106,9 @@
                             <field name="promotion_code"/>
                             <field name="discount_amount"/>
                             <field name="final_amount"/>
+                            <field name="wait_fare_amount"/>
+                            <field name="fare_distance_source"/>
+                            <field name="fare_needs_review"/>
                             <field name="invoice_id"/>
                             <field name="invoice_email_state" widget="badge"
                                 decoration-danger="invoice_email_state == 'failed'"
@@ -162,6 +165,8 @@
                         </page>
                         <page string="Détail tarifaire figé" name="fare_snapshot">
                             <field name="fare_rule_snapshot" readonly="1"/>
+                            <separator string="Détail facturé (prix final)"/>
+                            <field name="final_fare_snapshot" readonly="1"/>
                         </page>
                         <page string="Refus" name="rejections">
                             <field name="rejection_ids" readonly="1">
@@ -205,6 +210,8 @@
                 <filter name="cancelled" string="Annulées" domain="[('state', '=', 'cancelled')]"/>
                 <filter name="rejected" string="Refusées" domain="[('state', '=', 'rejected')]"/>
                 <separator/>
+                <filter name="fare_needs_review" string="Prix à vérifier (parcours non mesuré)"
+                        domain="[('fare_needs_review', '=', True)]"/>
                 <filter name="deviation_flagged" string="Écart de distance signalé"
                     domain="[('distance_deviation_flagged', '=', True)]"/>
                 <!-- D57, critère d'acceptation 7 : domaine sur les champs STOCKÉS de la facture

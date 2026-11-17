@@ -47,13 +47,14 @@ def _amount(ride) -> int:
 
 
 def _wire_breakdown(ride) -> dict:
-    if ride.fare_rule_snapshot:
-        return round_breakdown_for_wire(FareBreakdown(**json.loads(ride.fare_rule_snapshot)))
+    breakdown = ride._babana_billed_breakdown()
+    if breakdown:
+        return round_breakdown_for_wire(breakdown)
     # Course créée hors du vrai flux /quote -> /rides (tests) : une seule composante portant le
     # montant, pour que la somme reste exacte (même dégradation que la facture, L4-06).
     return {
         "baseFare": _amount(ride), "approachFare": 0, "distanceFare": 0, "surgeAmount": 0,
-        "stopFare": 0, "discountAmount": 0, "floorAmount": 0, "roundingAmount": 0, "minimumFareApplied": False,
+        "stopFare": 0, "waitFare": 0, "discountAmount": 0, "floorAmount": 0, "roundingAmount": 0, "minimumFareApplied": False,
     }
 
 

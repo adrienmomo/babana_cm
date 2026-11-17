@@ -46,6 +46,7 @@ _FARE_LINES = (
     ("distanceFare", "Distance", False, True),
     ("surgeAmount", "Majoration", False, False),
     ("stopFare", "Arrêts", False, False),
+    ("waitFare", "Attente", False, False),
     ("discountAmount", "Remise", True, False),
     ("floorAmount", "Ajustement plancher", False, False),
     ("roundingAmount", "Arrondi", False, False),
@@ -104,8 +105,9 @@ class BabanaRide(models.Model):
             INVOICE_INCOME_ACCOUNT_PARAM, "Le compte de produit des courses"
         )
 
-        if self.fare_rule_snapshot:
-            breakdown = FareBreakdown(**json.loads(self.fare_rule_snapshot))
+        # L4-15 : le détail FACTURÉ (prix final, attente comprise) une fois la course terminée.
+        breakdown = self._babana_billed_breakdown()
+        if breakdown:
             wire = round_breakdown_for_wire(breakdown)
             line_vals = []
             for key, label, subtract, always_shown in _FARE_LINES:

@@ -439,7 +439,7 @@ class BabanaRideState(models.Model):
 
     # --- 7. in_progress -> completed ----------------------------------------------------------
 
-    def action_complete(self, *, by_driver, final_amount, measurement=None):
+    def action_complete(self, *, by_driver, final_amount=None, measurement=None):
         """Fin de course (in_progress -> completed). L'app ne porte que la décision (J24,
         amoa/questions/L6-13.md) ; `measurement` est le relevé de trajet fourni par le service
         temps réel qui l'a accumulé pendant la course (L3-10), ou `None` quand aucune accumulation
@@ -449,7 +449,14 @@ class BabanaRideState(models.Model):
         int, "polyline": str}`. Quand il vaut `None` : rien n'est écrit sur `actual_distance_km` /
         `actual_duration_minutes` / `track_polyline` -- pas une ligne droite, pas la distance de
         référence déguisée -- et `trip_measured` reste faux, ce qui désarme l'écart de distance de
-        L4-04 (une absence explicite plutôt qu'une valeur plausible et fausse, D30/D43)."""
+        L4-04 (une absence explicite plutôt qu'une valeur plausible et fausse, D30/D43).
+
+        `final_amount` (L4-15) : `None` -- le cas du contrôleur -- et le prix final est calculé
+        ICI, une fois, dans la même écriture que la transition : bande de distance, forfaits
+        d'arrêt, attente (babana_ride_stop.py::_babana_final_fare). Un montant explicite reste
+        accepté pour les courses créées hors du flux /quote (tests, sans grille gelée) ; pour
+        une course qui a une grille gelée, il est refusé s'il diffère du calcul -- le serveur
+        décide du prix, jamais l'appelant."""
         self.ensure_one()
         self._lock_for_update()
 
@@ -458,10 +465,23 @@ class BabanaRideState(models.Model):
         if by_driver != self.driver_id:
             raise RideInvalidTransition("Ce chauffeur n'est pas celui affecté à cette course.")
 
+        completed_at = fields.Datetime.now()
+        final_vals = self._babana_final_fare_vals(
+            measured_distance_m=measurement["distance_meters"] if measurement else None,
+            completed_at=completed_at,
+        )
+        if final_vals:
+            computed = final_vals["final_amount"]
+            if final_amount is not None and round(final_amount) != round(computed):
+                raise UserError("SETTLEMENT_AMOUNT_MISMATCH")
+            final_amount = computed
+        elif final_amount is None:
+            final_amount = self._babana_compute_final_amount()
         vals = {
             "state": "completed",
-            "completed_at": fields.Datetime.now(),
+            "completed_at": completed_at,
             "final_amount": final_amount,
+            **(final_vals or {}),
         }
         if measurement is not None:
             vals.update(
@@ -496,8 +516,8 @@ class BabanaRideState(models.Model):
         # disponibilité). Une vraie course, elle, passe toujours par /quote (L2-04/L4-03R) et
         # porte donc toujours ce champ.
         client_public_id = self._babana_client_public_id()
-        if client_public_id and self.fare_rule_snapshot:
-            breakdown = FareBreakdown(**json.loads(self.fare_rule_snapshot))
+        breakdown = self._babana_billed_breakdown()
+        if client_public_id and breakdown:
             realtime_client.notify_ride_completed(
                 self.env,
                 ride_public_id=self.public_id,

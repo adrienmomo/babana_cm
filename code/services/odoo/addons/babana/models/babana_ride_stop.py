@@ -18,6 +18,7 @@ from datetime import datetime, timedelta
 from odoo import fields, models
 
 from ..services import push, realtime_client, routing, stops as stops_service
+from ..services import pricing
 from ..services.pricing import FareBreakdown, compute_fare, round_breakdown_for_wire
 from .babana_quote import QUOTE_VALIDITY_DEFAULT, QUOTE_VALIDITY_PARAM
 from .babana_ride_state import RideInvalidTransition
@@ -131,6 +132,37 @@ class BabanaRide(models.Model):
         "prise en charge s'arrête à cette heure ou au démarrage, la plus tôt des deux.",
     )
     pickup_departed_at_device = fields.Datetime(readonly=True, copy=False)
+    # --- Prix final (L4-15) ----------------------------------------------------------------------
+    final_fare_snapshot = fields.Text(
+        string="Détail facturé",
+        readonly=True,
+        copy=False,
+        help="Détail du prix FINAL (JSON) : composantes, distance facturée et sa source, minutes "
+        "d'attente par point. Écrit une fois, à la fin de course. C'est lui que montrent le "
+        "résumé de fin, l'historique et la facture ; fare_rule_snapshot reste le prix prévu.",
+    )
+    fare_distance_source = fields.Selection(
+        [
+            (pricing.DISTANCE_PLANNED, "Distance prévue (dans la bande)"),
+            (pricing.DISTANCE_MEASURED, "Distance parcourue (hors bande)"),
+            (pricing.DISTANCE_UNMEASURED, "Distance prévue (parcours non mesuré)"),
+        ],
+        string="Distance facturée",
+        readonly=True,
+        copy=False,
+    )
+    fare_needs_review = fields.Boolean(
+        string="Prix à vérifier",
+        readonly=True,
+        copy=False,
+        index=True,
+        help="Le parcours n'a pas été mesuré : le prix prévu a été facturé faute de mieux "
+        "(L4-15, critère 4). À regarder au back-office.",
+    )
+    wait_fare_amount = fields.Monetary(
+        string="Attente facturée", currency_field="currency_id", readonly=True, copy=False
+    )
+
     stop_quote_ids = fields.One2many(
         "babana.quote", "ride_id", string="Cotations en cours de course",
         domain=[("confirmed_at", "!=", False)],
@@ -282,7 +314,9 @@ class BabanaRide(models.Model):
         breakdown = compute_fare(
             rule._pricing_input(),
             route.distance_meters,
-            rounding_step=rule._default_rounding_step(),
+            rounding_step=float(
+                (self._babana_frozen_pricing() or {}).get("rounding_step") or rule._default_rounding_step()
+            ),
             approach_distance_m=approach_m,
             stop_count=len(planned) + 1,
         )
@@ -407,3 +441,102 @@ class BabanaRide(models.Model):
         if not self.fare_rule_snapshot:
             return None
         return round_breakdown_for_wire(FareBreakdown(**json.loads(self.fare_rule_snapshot)))
+
+
+    # --- Prix final (L4-15) ------------------------------------------------------------------------
+
+    def _babana_frozen_pricing(self) -> dict | None:
+        """Valeurs d'arrêt et d'attente gelées au devis (L2-08), pas moins. None pour une course
+        créée hors du flux /quote, qui garde alors son ancien montant (L4-04)."""
+        if not (self.stop_wait_snapshot and self.fare_rule_id):
+            return None
+        return json.loads(self.stop_wait_snapshot)
+
+    def _babana_wait_points(self, completed_at):
+        """Attentes, en secondes, depuis les seuls horodatages stockés. Prise en charge : de
+        « Sur place » au premier mouvement ou au démarrage, le plus tôt. Arrêt : de l'arrivée au
+        départ, ou à la fin de course si le départ n'a jamais été déclaré."""
+        points = []
+        if self.arrived_at:
+            ends = [value for value in (self.pickup_departed_at, self.started_at) if value]
+            end = min(ends) if ends else completed_at
+            points.append(pricing.WaitPoint("pickup", "pickup", (end - self.arrived_at).total_seconds()))
+        for stop in self.stop_ids.sorted("sequence"):
+            if not stop.arrived_at:
+                continue
+            end = stop.departed_at or completed_at
+            points.append(pricing.WaitPoint(stop.public_id, "stop", (end - stop.arrived_at).total_seconds()))
+        return tuple(points)
+
+    def _babana_final_fare_inputs(self, *, measured_distance_m, completed_at):
+        frozen = self._babana_frozen_pricing()
+        if frozen is None:
+            return None
+        rule = self.fare_rule_id.sudo()
+        rounding_step = frozen.get("rounding_step")
+        if rounding_step is None:
+            # Devis antérieur au gel du pas (L4-15) : le pas courant, faute de mieux.
+            rounding_step = rule._default_rounding_step()
+        return pricing.FinalFareInputs(
+            rule=rule._pricing_input(),
+            planned_distance_m=(self.reference_distance_km or 0.0) * 1000.0,
+            actual_distance_m=measured_distance_m,
+            approach_distance_m=self.quote_id.approach_distance_meters or 0,
+            stop_count=len(self._babana_planned_stops()),
+            wait_points=self._babana_wait_points(completed_at),
+            wait=pricing.WaitParams(
+                rate_per_minute=frozen["wait_rate_per_minute"],
+                pickup_free_minutes=frozen["pickup_free_wait_minutes"],
+                stop_free_minutes=frozen["stop_free_wait_minutes"],
+                max_billable_minutes=frozen["max_billable_wait_minutes"],
+            ),
+            band_min_ratio=frozen["distance_band_min_ratio"],
+            band_max_ratio=frozen["distance_band_max_ratio"],
+            rounding_step=float(rounding_step),
+        )
+
+    def _babana_final_fare_vals(self, *, measured_distance_m, completed_at):
+        """Valeurs à écrire avec la transition de fin (une seule écriture, invariant 1). None
+        pour une course sans grille gelée."""
+        inputs = self._babana_final_fare_inputs(
+            measured_distance_m=measured_distance_m, completed_at=completed_at
+        )
+        if inputs is None:
+            return None
+        final = pricing.compute_final_fare(inputs)
+        return {
+            "final_amount": final.breakdown.total,
+            "wait_fare_amount": final.breakdown.wait_fare,
+            "fare_distance_source": final.distance_source,
+            "fare_needs_review": final.distance_source == pricing.DISTANCE_UNMEASURED,
+            "final_fare_snapshot": json.dumps(
+                {
+                    "breakdown": dataclasses.asdict(final.breakdown),
+                    "distance_source": final.distance_source,
+                    "billed_distance_m": final.billed_distance_m,
+                    "band_ratio": final.band_ratio,
+                    "wait_minutes": [list(item) for item in final.wait_minutes],
+                    "rounding_step": inputs.rounding_step,
+                }
+            ),
+        }
+
+    def _babana_replay_final_fare(self):
+        """Rejeu (L4-15, critère 9) : recalcule le prix final depuis les seuls champs stockés --
+        jamais la grille du jour, jamais le routage. Pour une contestation, ou pour vérifier."""
+        self.ensure_one()
+        inputs = self._babana_final_fare_inputs(
+            measured_distance_m=(self.actual_distance_km * 1000.0) if self.trip_measured else None,
+            completed_at=self.completed_at,
+        )
+        return pricing.compute_final_fare(inputs) if inputs else None
+
+    def _babana_billed_breakdown(self):
+        """Le détail montré au client, sur l'historique et sur la facture : le prix FINAL une fois
+        la course terminée, le prix prévu avant."""
+        self.ensure_one()
+        if self.final_fare_snapshot:
+            return FareBreakdown(**json.loads(self.final_fare_snapshot)["breakdown"])
+        if self.fare_rule_snapshot:
+            return FareBreakdown(**json.loads(self.fare_rule_snapshot))
+        return None

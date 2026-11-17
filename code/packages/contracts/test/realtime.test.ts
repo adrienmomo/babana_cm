@@ -328,6 +328,7 @@ describe('exemples valides — serveur vers client', () => {
       distanceFare: 900,
       surgeAmount: 0,
       stopFare: 0,
+      waitFare: 0,
       discountAmount: 0,
       floorAmount: 0,
       roundingAmount: 100,

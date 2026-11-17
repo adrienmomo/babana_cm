@@ -56,6 +56,8 @@ class FareBreakdown:
     approach_fare: float = 0.0
     # Même raison : les détails gelés avant L2-08 se relisent sans ce champ.
     stop_fare: float = 0.0
+    # Attente facturée à la fin (L4-15) -- 0 sur un devis, connue seulement après la course.
+    wait_fare: float = 0.0
 
     def sum_matches_total(self) -> bool:
         return math.isclose(
@@ -64,6 +66,7 @@ class FareBreakdown:
             + self.distance_fare
             + self.surge_amount
             + self.stop_fare
+            + self.wait_fare
             - self.discount_amount
             + self.floor_amount
             + self.rounding_amount,
@@ -146,16 +149,18 @@ def round_breakdown_for_wire(breakdown: FareBreakdown) -> dict:
     distance = round(breakdown.distance_fare)
     surge = round(breakdown.surge_amount)
     stops = round(breakdown.stop_fare)
+    wait = round(breakdown.wait_fare)
     discount = round(breakdown.discount_amount)
     floor = round(breakdown.floor_amount)
     total = round(breakdown.total)
-    rounding = total - (base + approach + distance + surge + stops - discount + floor)
+    rounding = total - (base + approach + distance + surge + stops + wait - discount + floor)
     return {
         "baseFare": base,
         "approachFare": approach,
         "distanceFare": distance,
         "surgeAmount": surge,
         "stopFare": stops,
+        "waitFare": wait,
         "discountAmount": discount,
         "floorAmount": floor,
         "roundingAmount": rounding,
@@ -185,3 +190,134 @@ def _round_up_to_step(amount: float, step: float) -> float:
     if step <= 0:
         return amount
     return math.ceil(round(amount / step, 9)) * step
+
+
+
+# --- Prix final (L4-15) ------------------------------------------------------------------------
+# Même règle que compute_fare : fonction pure, toutes les entrées en paramètre. L'appelant
+# (babana.ride._babana_final_fare_inputs) les rassemble depuis des champs STOCKÉS seulement --
+# c'est ce qui rend une course rejouable un an plus tard, grille modifiée et cache de routage vidé.
+
+DISTANCE_PLANNED = "planned"
+DISTANCE_MEASURED = "measured"
+DISTANCE_UNMEASURED = "planned_unmeasured"
+
+
+@dataclass(frozen=True)
+class WaitPoint:
+    """Une attente : à la prise en charge (`pickup`) ou à un arrêt (`stop`), en secondes
+    écoulées entre l'arrivée et le départ."""
+
+    key: str
+    kind: str
+    seconds: float
+
+
+@dataclass(frozen=True)
+class WaitParams:
+    rate_per_minute: float
+    pickup_free_minutes: int
+    stop_free_minutes: int
+    max_billable_minutes: int
+
+
+@dataclass(frozen=True)
+class FinalFareInputs:
+    rule: FareRuleInput
+    planned_distance_m: float
+    actual_distance_m: float | None
+    approach_distance_m: float
+    stop_count: int
+    wait_points: tuple[WaitPoint, ...]
+    wait: WaitParams
+    band_min_ratio: float
+    band_max_ratio: float
+    rounding_step: float
+
+
+@dataclass(frozen=True)
+class FinalFare:
+    breakdown: FareBreakdown
+    distance_source: str
+    billed_distance_m: float
+    band_ratio: float | None
+    wait_minutes: tuple[tuple[str, int], ...]
+
+
+def billable_wait_minutes(seconds: float, *, free_minutes: int, cap_minutes: int) -> int:
+    """Minutes COMPLÈTES au-delà de la gratuité, plafonnées (MULTISTOP §2, réponses 5 et 11) :
+    2 min 59 s facturables -> 2. Jamais négatif."""
+    beyond = seconds - free_minutes * 60
+    if beyond <= 0:
+        return 0
+    return min(int(beyond // 60), cap_minutes)
+
+
+def compute_final_fare(inputs: FinalFareInputs) -> FinalFare:
+    """Prix final d'une course (L4-15), dans cet ordre :
+
+    1. Distance facturée : la distance prévue si la distance mesurée est dans la bande
+       [band_min, band_max] de la prévue, ou absente ; sinon la distance mesurée.
+    2. compute_fare sur cette distance, avec l'approche gelée et les forfaits d'arrêt, SANS
+       arrondi -- base, approche, distance, pointe, forfaits, plancher : exactement le devis
+       quand la distance est la prévue.
+    3. Attente : Σ minutes facturables × tarif. Jamais réduite par une remise (étape 2 la
+       précède), jamais soumise au plancher.
+    4. Arrondi au pas, une seule fois, sur le total.
+
+    Sans attente et dans la bande, le total est donc celui du devis au franc près."""
+    planned = inputs.planned_distance_m
+    actual = inputs.actual_distance_m
+    if actual is None:
+        source, billed, ratio = DISTANCE_UNMEASURED, planned, None
+    elif planned <= 0:
+        source, billed, ratio = DISTANCE_PLANNED, planned, None
+    else:
+        ratio = actual / planned
+        if inputs.band_min_ratio <= ratio <= inputs.band_max_ratio:
+            source, billed = DISTANCE_PLANNED, planned
+        else:
+            source, billed = DISTANCE_MEASURED, actual
+
+    route = compute_fare(
+        inputs.rule,
+        billed,
+        rounding_step=0,
+        approach_distance_m=inputs.approach_distance_m,
+        stop_count=inputs.stop_count,
+    )
+
+    minutes = []
+    for point in inputs.wait_points:
+        free = (
+            inputs.wait.pickup_free_minutes if point.kind == "pickup" else inputs.wait.stop_free_minutes
+        )
+        minutes.append(
+            (point.key, billable_wait_minutes(
+                point.seconds, free_minutes=free, cap_minutes=inputs.wait.max_billable_minutes
+            ))
+        )
+    wait_fare = sum(m for _key, m in minutes) * inputs.wait.rate_per_minute
+
+    before_rounding = route.total + wait_fare
+    total = _round_up_to_step(before_rounding, inputs.rounding_step)
+    breakdown = FareBreakdown(
+        base_fare=route.base_fare,
+        distance_fare=route.distance_fare,
+        surge_amount=route.surge_amount,
+        discount_amount=route.discount_amount,
+        floor_amount=route.floor_amount,
+        rounding_amount=total - before_rounding,
+        minimum_fare_applied=route.minimum_fare_applied,
+        total=total,
+        approach_fare=route.approach_fare,
+        stop_fare=route.stop_fare,
+        wait_fare=wait_fare,
+    )
+    return FinalFare(
+        breakdown=breakdown,
+        distance_source=source,
+        billed_distance_m=billed,
+        band_ratio=ratio,
+        wait_minutes=tuple(minutes),
+    )

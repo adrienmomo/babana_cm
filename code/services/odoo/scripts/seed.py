@@ -690,7 +690,9 @@ def make_ride_with_stops(client_user, drivers, zones_by_name):
         "vehicle_class": "standard",
         "stops_json": json.dumps([{"latitude": stop_lat, "longitude": stop_lng}]),
         "stop_count": 1,
-        "stop_wait_snapshot": json.dumps(rule._stop_wait_snapshot()),
+        "stop_wait_snapshot": json.dumps(
+            {**rule._stop_wait_snapshot(), "rounding_step": rule._default_rounding_step()}
+        ),
         "distance_meters": dist_m,
         "duration_seconds": first_leg[1] + second_leg[1],
         "eta_seconds": first_leg[1] + second_leg[1],
@@ -730,36 +732,37 @@ def make_ride_with_stops(client_user, drivers, zones_by_name):
     ride.action_stop_departed(by_driver=driver, stop_public_id=added.public_id)
     unplanned = ride.action_stop_unplanned(by_driver=driver, latitude=d_lat + 0.001, longitude=d_lng)
     ride.action_stop_departed(by_driver=driver, stop_public_id=unplanned.public_id)
-    ride.action_complete(by_driver=driver, final_amount=ride._babana_compute_final_amount(), measurement=None)
-    ride.action_settle(by_driver=driver, amount_collected=ride.final_amount)
-
-    # Antidater (même raison et même exception que make_history : horodatages seulement).
-    when = now - timedelta(days=1, hours=3)
+    # Horodatages plausibles AVANT la fin de course, pour que le prix final (L4-15) facture une
+    # vraie attente : 6 min à la prise en charge (3 facturées), 5 min au premier arrêt (3), 2 min
+    # 30 au second (0, gratuité), 4 min à l'« Arrêt client » (2) -- 8 minutes en tout. Même
+    # exception à l'ORM que make_history : des horodatages seulement, jamais `state`.
+    when = datetime.now() - timedelta(minutes=40)
     env.cr.execute(
         """
         UPDATE babana_ride
-           SET create_date = %s, write_date = %s, requested_at = %s, proposed_at = %s,
-               assigned_at = %s, arrived_at = %s, pickup_departed_at = %s, started_at = %s,
-               completed_at = %s, settled_at = %s
+           SET create_date = %s, requested_at = %s, proposed_at = %s, assigned_at = %s,
+               arrived_at = %s, pickup_departed_at = %s, started_at = %s
          WHERE id = %s
         """,
-        (when, when, when, when, when, when + timedelta(minutes=6), when + timedelta(minutes=10),
-         when + timedelta(minutes=10),
-         when + timedelta(minutes=40), when + timedelta(minutes=41), ride.id),
+        (when - timedelta(minutes=8), when - timedelta(minutes=8), when - timedelta(minutes=8),
+         when - timedelta(minutes=7), when, when + timedelta(minutes=6),
+         when + timedelta(minutes=6), ride.id),
     )
-    for stop, arrived, departed in (
-        (planned, 16, 21), (added, 28, 31), (unplanned, 34, 38),
-    ):
+    for stop, arrived, departed in ((planned, 12, 17), (added, 24, 26.5), (unplanned, 30, 34)):
         env.cr.execute(
             "UPDATE babana_ride_stop SET arrived_at = %s, departed_at = %s WHERE id = %s",
             (when + timedelta(minutes=arrived), when + timedelta(minutes=departed), stop.id),
         )
     env.cr.execute(
         "UPDATE babana_quote SET confirmed_at = %s WHERE id = %s",
-        (when + timedelta(minutes=25), added_quote.id),
+        (when + timedelta(minutes=20), added_quote.id),
     )
+    env.invalidate_all()
+    ride.action_complete(by_driver=driver, measurement=None)
+    ride.action_settle(by_driver=driver, amount_collected=ride.final_amount)
     Param.set_param(marker, ride.reference)
-    info("+ course avec arrêts %s : Akwa -> Bonapriso, %d FCFA", ride.reference, round(ride.final_amount))
+    info("+ course avec arrêts %s : Akwa -> Bonapriso, %d FCFA dont %d d'attente",
+         ride.reference, round(ride.final_amount), round(ride.wait_fare_amount))
     return [ride.invoice_id.id]
 
 

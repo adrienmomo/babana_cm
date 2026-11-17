@@ -126,7 +126,11 @@ class TestQuoteStops(HttpCase):
         self.assertEqual(quote.stop_count, 1)
         self.assertEqual(json.loads(quote.stops_json), [_STOP_A])
         frozen = json.loads(quote.stop_wait_snapshot)
+        # L4-15 : le pas d'arrondi est gelé avec les valeurs de la grille.
+        rounding_step = frozen.pop("rounding_step")
+        self.assertEqual(rounding_step, quote.fare_rule_id._default_rounding_step())
         self.assertEqual(frozen, quote.fare_rule_id._stop_wait_snapshot())
+        frozen["rounding_step"] = rounding_step
 
         # La grille change ensuite -- le devis, lui, garde ce qu'il a gelé.
         quote.fare_rule_id.new_version(

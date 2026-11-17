@@ -137,7 +137,11 @@ class QuoteController(http.Controller):
                     [{"latitude": lat, "longitude": lng} for lat, lng in stops]
                 ),
                 "stop_count": len(stops),
-                "stop_wait_snapshot": json.dumps(rule._stop_wait_snapshot()),
+                # Le pas d'arrondi est gelé avec le reste (L4-15) : sans lui, changer
+                # babana.fare_rounding_step changerait le rejeu d'une course passée.
+                "stop_wait_snapshot": json.dumps(
+                    {**rule._stop_wait_snapshot(), "rounding_step": rounding_step}
+                ),
                 "distance_meters": route.distance_meters,
                 "duration_seconds": route.duration_seconds,
                 "approach_distance_meters": approach_estimate.distance_meters,

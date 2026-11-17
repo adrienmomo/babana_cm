@@ -301,7 +301,13 @@ class BabanaRide(models.Model):
         }
 
     def _babana_compute_final_amount(self):
-        """Montant final (L4-04, critère d'acceptation 2) : calculé sur la distance de
+        """Montant d'une course SANS grille gelée (créée hors du flux /quote, ou avant L2-08) :
+        l'estimé. Les courses du vrai flux sont tarifées à la fin par L4-15
+        (babana_ride_stop.py::_babana_final_fare_vals), qui remplace pour elles la règle
+        ci-dessous -- la distance parcourue y compte hors de la bande de distance (MULTISTOP §2,
+        réponse 9), ce que L4-04 excluait.
+
+        Règle d'origine (L4-04, critère d'acceptation 2) : calculé sur la distance de
         référence (L2-05), jamais sur la distance parcourue -- reproductible et connue du
         client à l'avance, contrairement à la distance parcourue qui dépend des raccourcis du
         chauffeur et de la qualité du GPS. `estimated_amount` a déjà été calculé sur cette même

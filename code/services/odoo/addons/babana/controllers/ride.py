@@ -327,14 +327,9 @@ class RideController(http.Controller):
         # (D30, D43).
         measurement = realtime_client.fetch_ride_measurement(driver_public_id=driver.public_id)
 
-        # Le montant final se calcule sur la distance de référence (gelée à la création, L2-04),
-        # jamais sur la distance parcourue -- voir babana.ride._babana_compute_final_amount.
-        final_amount = ride._babana_compute_final_amount()
-        ride.sudo().action_complete(
-            by_driver=driver,
-            final_amount=final_amount,
-            measurement=measurement,
-        )
+        # Le montant final est calculé PAR la transition de fin (L4-15) -- bande de distance,
+        # forfaits d'arrêt, attente -- jamais ici : aucune règle tarifaire dans un contrôleur.
+        ride.sudo().action_complete(by_driver=driver, measurement=measurement)
         # Sens Odoo -> temps réel (L3-17, critère 6) : efface le marqueur d'engagement -- sans
         # lui, le chauffeur ne revient jamais dans le pool (D26). Après la transition, jamais
         # avant : la course doit être réellement terminée côté Odoo (source de vérité, D27) avant

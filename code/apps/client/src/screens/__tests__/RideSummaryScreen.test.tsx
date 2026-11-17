@@ -29,6 +29,7 @@ const BREAKDOWN = {
   distanceFare: 1000,
   surgeAmount: 300,
   stopFare: 0,
+  waitFare: 0,
   discountAmount: 100,
   floorAmount: 0,
   roundingAmount: 50,
@@ -52,12 +53,13 @@ async function renderSummary(
   params: { distanceMeters: number | null; durationSeconds: number | null } = {
     distanceMeters: 4200,
     durationSeconds: 780,
-  }
+  },
+  billed: { amount: number; breakdown: typeof BREAKDOWN } = { amount: 1450, breakdown: BREAKDOWN }
 ): Promise<{ root: ReactTestRenderer; navigation: ReturnType<typeof fakeNavigation> }> {
   const route = {
     key: 'RideSummary',
     name: 'RideSummary' as const,
-    params: { rideId: RIDE_ID, amount: 1450, breakdown: BREAKDOWN, ...params },
+    params: { rideId: RIDE_ID, amount: billed.amount, breakdown: billed.breakdown, ...params },
   };
   let root!: ReactTestRenderer;
   await act(async () => {
@@ -98,6 +100,24 @@ describe('RideSummaryScreen (L6-09)', () => {
     expect(texts(root)).not.toContain('Ajustement plancher');
     expect(texts(root)).toContain('4.2 km');
     expect(texts(root)).toContain('13 min');
+  });
+
+  it("L4-15 : l'attente et les arrêts facturés sont des lignes à part, jamais fondues dans le total", async () => {
+    const { root } = await renderSummary(undefined, undefined, {
+      amount: 1750,
+      breakdown: { ...BREAKDOWN, stopFare: 100, waitFare: 240, roundingAmount: 10 },
+    });
+
+    expect(texts(root)).toContain('Attente');
+    expect(texts(root)).toContain(fcfa(240));
+    expect(texts(root)).toContain('Arrêts');
+    expect(texts(root)).toContain(fcfa(1750));
+  });
+
+  it('sans attente, aucune ligne « Attente » (L4-15)', async () => {
+    const { root } = await renderSummary();
+
+    expect(texts(root)).not.toContain('Attente');
   });
 
   it('J24 (amoa/questions/L6-13.md) : trajet non relevé -> « Trajet non relevé », jamais un chiffre faux', async () => {

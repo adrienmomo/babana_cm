@@ -49,6 +49,11 @@ export const FareBreakdownSchema = z.object({
   surgeAmount: z.number().int(),
   /** Forfait par arrêt × nombre d'arrêts (L2-08), non majoré. 0 sans arrêt. */
   stopFare: MoneyAmountSchema,
+  /**
+   * Attente facturée (L4-15) : minutes complètes au-delà de la gratuité, à la prise en charge et
+   * aux arrêts. Toujours 0 sur une estimation -- connue seulement sur le prix final.
+   */
+  waitFare: MoneyAmountSchema,
   discountAmount: MoneyAmountSchema,
   floorAmount: MoneyAmountSchema,
   roundingAmount: z.number().int(),
@@ -116,6 +121,7 @@ export const quoteResponseExample: QuoteResponse = {
     distanceFare: 1000,
     surgeAmount: 0,
     stopFare: 0,
+    waitFare: 0,
     discountAmount: 0,
     floorAmount: 0,
     roundingAmount: 0,

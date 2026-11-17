@@ -163,6 +163,7 @@ export const quoteAddedStopResponseExample: QuoteAddedStopResponse = {
     distanceFare: 560,
     surgeAmount: 0,
     stopFare: 100,
+    waitFare: 0,
     discountAmount: 0,
     floorAmount: 0,
     roundingAmount: 15,
