@@ -145,12 +145,12 @@ html.appearance-dark .leaflet-control-attribution,html.appearance-black .leaflet
   };
   // Une classe par rôle, écrite en toutes lettres (repérable dans la page comme dans le CSS).
   var KIND_CLASS = {
-    pickup: 'babana-marker--pickup', dropoff: 'babana-marker--dropoff', driver: 'babana-marker--driver',
+    pickup: 'babana-marker--pickup', dropoff: 'babana-marker--dropoff', stop: 'babana-marker--stop', driver: 'babana-marker--driver',
     client: 'babana-marker--client', reticle: 'babana-marker--reticle'
   };
   var iconFor = function (kind, color, bearing) {
     var cls = 'babana-marker ' + (KIND_CLASS[kind] || KIND_CLASS.client);
-    if (kind === 'pickup' || kind === 'dropoff') {
+    if (kind === 'pickup' || kind === 'dropoff' || kind === 'stop') {
       return L.divIcon({ className: cls, html: pinSvg(color), iconSize: [30, 40], iconAnchor: [15, 39], tooltipAnchor: [0, -34] });
     }
     if (kind === 'driver') {

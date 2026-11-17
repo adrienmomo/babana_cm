@@ -105,6 +105,20 @@ export function TrackingScreen({ route, navigation }: Props) {
   const [driverArrived, setDriverArrived] = useState(false);
   // L4-16 : avis d'enregistrement du trajet, texte du serveur reçu avec ride.started.
   const [securityNotice, setSecurityNotice] = useState<string | null>(null);
+  // Arrêts de la course (L6-21), relus du serveur à chaque retour sur l'écran -- après un ajout,
+  // notamment. Jamais d'heure ni d'attente : le client n'en est pas informé pendant la course.
+  const [rideStops, setRideStops] = useState<http.RideStop[]>([]);
+
+  useEffect(() => {
+    const load = () => {
+      apiClient
+        .request('rideStops', { pathParams: { id: rideId } })
+        .then((response) => setRideStops((response as http.RideStopsResponse | undefined)?.stops ?? []))
+        .catch(() => {});
+    };
+    load();
+    return navigation.addListener('focus', load);
+  }, [navigation, rideId]);
   // Heure d'arrivée d'Odoo et délai de grâce : le chauffeur voit le même compteur, depuis la même heure.
   const [arrival, setArrival] = useState<{ arrivedAtMs: number; graceSeconds: number } | null>(null);
   // Dernier message rapide du chauffeur, affiché jusqu'à ce que le client le ferme.
@@ -302,6 +316,9 @@ export function TrackingScreen({ route, navigation }: Props) {
   const markers: MapMarker[] = [
     ...(phase === 'course' ? [] : [{ id: 'pickup', kind: 'pickup' as const, position: origin.position, label: 'Prise en charge' }]),
     { id: 'dropoff', kind: 'dropoff' as const, position: destination.position, label: 'Arrivée' },
+    ...rideStops
+      .filter((stop) => stop.kind === 'planned' && !stop.left)
+      .map((stop) => ({ id: `stop-${stop.id}`, kind: 'stop' as const, position: stop.position, label: stop.label ?? 'Arrêt' })),
     ...(driverPosition ? [{ id: 'driver', kind: 'driver' as const, position: driverPosition, label: driver.firstName ?? undefined }] : []),
   ];
 
@@ -476,6 +493,14 @@ export function TrackingScreen({ route, navigation }: Props) {
 
       {/* Jusqu'au démarrage seulement : en course, le client ne peut plus annuler (C-03) -- le
           bouton d'urgence reste son recours. */}
+      {phase === 'course' ? (
+        <Button
+          testID="tracking-add-stop"
+          label="Ajouter un arrêt"
+          variant="secondary"
+          onPress={() => navigation.navigate('AddStop', { rideId, center: driverPosition ?? destination.position })}
+        />
+      ) : null}
       {phase !== 'course' ? (
         <Button testID="tracking-cancel" label="Annuler la course" variant="secondary" onPress={() => setCancelSheetOpen(true)} disabled={cancelling} />
       ) : null}

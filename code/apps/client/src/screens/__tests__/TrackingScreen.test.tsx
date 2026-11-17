@@ -144,6 +144,9 @@ function emitPosition(overrides: Partial<{ rideId: string; latitude: number; lon
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // Toute requête REST répond une promesse, comme le vrai client (L6-21 : les arrêts sont relus au
+  // montage) ; un test qui attend une réponse précise la pose lui-même.
+  mockRequest.mockResolvedValue(undefined);
   realtimeListener = null;
   connectionStateListener = null;
   mockConnectionState = 'connected';
@@ -214,6 +217,43 @@ describe('TrackingScreen (L6-09)', () => {
 
     expect(root.root.findAllByProps({ testID: 'tracking-eta' })).toHaveLength(0);
     expect(texts(root)).toContain('Course en cours');
+  });
+
+  it('L6-21 : les arrêts restants de la course sont dessinés, relus du serveur', async () => {
+    mockRequest.mockImplementation(async (name: string) =>
+      name === 'rideStops'
+        ? {
+            stops: [
+              { id: 's1', sequence: 1, position: { latitude: 4.055, longitude: 9.765 }, label: 'Marché', kind: 'planned', addedDuringRide: false, reached: true, left: true },
+              { id: 's2', sequence: 2, position: { latitude: 4.058, longitude: 9.772 }, label: 'Pharmacie', kind: 'planned', addedDuringRide: true, reached: false, left: false },
+            ],
+          }
+        : undefined
+    );
+    const { root } = await renderTracking();
+    // La carte n'apparaît qu'avec une position du chauffeur.
+    await act(async () => {
+      emitPosition({ etaSeconds: 300 });
+    });
+
+    expect(mockRequest).toHaveBeenCalledWith('rideStops', { pathParams: { id: RIDE_ID } });
+    expect(root).toBeTruthy();
+    const markers = (lastMapProps() as unknown as { markers: Array<{ id: string; kind: string }> }).markers;
+    expect(markers.filter((m) => m.kind === 'stop').map((m) => m.id)).toEqual(['stop-s2']);
+  });
+
+  it('L6-21 : pendant la course, « Ajouter un arrêt » ouvre l’écran d’ajout ; pas avant', async () => {
+    const { root, navigation } = await renderTracking();
+    expect(root.root.findAllByProps({ testID: 'tracking-add-stop' })).toHaveLength(0);
+
+    await act(async () => {
+      realtimeListener?.({ type: 'ride.started', id: 'm-s', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, securityNotice: '' } });
+    });
+    await act(async () => {
+      root.root.findByProps({ testID: 'tracking-add-stop' }).props.onPress();
+    });
+
+    expect(navigation.navigate).toHaveBeenCalledWith('AddStop', expect.objectContaining({ rideId: RIDE_ID }));
   });
 
   it("L4-16 : au démarrage, l'avis d'enregistrement du trajet envoyé par le serveur est affiché tel quel", async () => {
@@ -816,7 +856,10 @@ describe('15 novembre : le client revenu sur son suivi apprend que la course est
     minimumFareApplied: false,
   };
 
-  beforeEach(() => mockRequest.mockReset());
+  beforeEach(() => {
+    mockRequest.mockReset();
+    mockRequest.mockResolvedValue(undefined);
+  });
 
   it('app remise au premier plan, course terminée pendant l’arrière-plan : le résumé s’ouvre', async () => {
     mockRequest.mockResolvedValue({
@@ -905,7 +948,8 @@ describe('15 novembre : le client revenu sur son suivi apprend que la course est
         payload: { activeRideId: null, activeRideState: null, activeProposal: null, rideStateKnown: true, driverOnline: null, serverTime: new Date().toISOString() },
       });
     });
-    expect(mockRequest).toHaveBeenCalledTimes(1);
+    // La relecture de l'issue, seule -- la lecture des arrêts au montage (L6-21) est une autre requête.
+    expect(mockRequest.mock.calls.filter(([name]) => name === 'rideOutcome')).toHaveLength(1);
   });
 
   it('hors connexion : la relecture échoue sans bruit, le suivi reste affiché', async () => {

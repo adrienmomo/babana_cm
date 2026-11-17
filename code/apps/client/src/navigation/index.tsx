@@ -15,6 +15,7 @@ import { HomeScreen } from '../screens/HomeScreen';
 import { QuoteScreen } from '../screens/QuoteScreen';
 import { WaitingScreen } from '../screens/WaitingScreen';
 import { TrackingScreen } from '../screens/TrackingScreen';
+import { AddStopScreen } from '../screens/AddStopScreen';
 import { RideSummaryScreen } from '../screens/RideSummaryScreen';
 import { AccountScreen } from '../screens/AccountScreen';
 import { HistoryScreen } from '../screens/HistoryScreen';
@@ -155,6 +156,7 @@ function ClientNavigator() {
       <ClientStack.Screen name="Quote" component={QuoteScreen} />
       <ClientStack.Screen name="Waiting" component={WaitingScreen} />
       <ClientStack.Screen name="Tracking" component={TrackingScreen} />
+      <ClientStack.Screen name="AddStop" component={AddStopScreen} />
       <ClientStack.Screen name="RideSummary" component={RideSummaryScreen} />
       <ClientStack.Screen name="Account" component={AccountScreen} />
       <ClientStack.Screen name="History" component={HistoryScreen} />

@@ -31,6 +31,8 @@ export interface RidePoint {
 export interface RideRequest {
   origin: RidePoint;
   destination: RidePoint;
+  /** Arrêts intermédiaires, dans l'ordre (L6-21). Absent ou vide : course directe. */
+  stops?: RidePoint[];
 }
 
 export type ClientParamList = {
@@ -49,6 +51,11 @@ export type ClientParamList = {
     origin: RidePoint;
     destination: RidePoint;
     driver: AssignedDriverInfo;
+  };
+  /** Ajout d'un arrêt pendant la course (L6-21) -- la carte s'ouvre sur `center`. */
+  AddStop: {
+    rideId: RideId;
+    center: LatLng;
   };
   RideSummary: {
     rideId: RideId;

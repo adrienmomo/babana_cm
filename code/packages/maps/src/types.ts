@@ -17,7 +17,8 @@ export type LatLng = http.LatLng;
  * Type de marqueur, pas un style -- l'apparence (icône, couleur) est une décision du fournisseur
  * (`providers/google/MapView.tsx`), jamais de l'écran appelant.
  */
-export type MapMarkerKind = 'client' | 'driver' | 'pickup' | 'dropoff' | 'reticle';
+/** `stop` : arrêt intermédiaire d'une course (L6-21), une épingle comme départ et arrivée. */
+export type MapMarkerKind = 'client' | 'driver' | 'pickup' | 'dropoff' | 'stop' | 'reticle';
 
 export interface MapMarker {
   id: string;

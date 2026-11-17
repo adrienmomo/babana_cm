@@ -42,6 +42,8 @@ function remainingSeconds(quote: http.QuoteResponse, receivedAt: number): number
 export function QuoteScreen({ route, navigation }: Props) {
   const styles = useStyles();
   const { origin, destination } = route.params;
+  const routeStops = route.params.stops;
+  const stops = routeStops ?? [];
   const [vehicleClass, setVehicleClass] = useState<http.VehicleClass>('standard');
   const [quote, setQuote] = useState<http.QuoteResponse | null>(null);
   const receivedAt = useRef(0);
@@ -69,7 +71,13 @@ export function QuoteScreen({ route, navigation }: Props) {
       setExpired(false);
       try {
         const response = (await apiClient.request('quote', {
-          body: { origin: origin.position, destination: destination.position, vehicleClass: targetClass },
+          body: {
+            origin: origin.position,
+            destination: destination.position,
+            vehicleClass: targetClass,
+            // L6-21 : l'itinéraire coté passe par les arrêts, dans l'ordre choisi à l'accueil.
+            ...(routeStops?.length ? { stops: routeStops.map((stop) => stop.position) } : {}),
+          },
         })) as http.QuoteResponse;
         if (requestId.current !== thisRequest) return;
         receivedAt.current = Date.now();
@@ -82,7 +90,7 @@ export function QuoteScreen({ route, navigation }: Props) {
         if (requestId.current === thisRequest) setLoading(false);
       }
     },
-    [origin.position, destination.position]
+    [origin.position, destination.position, routeStops]
   );
 
   useEffect(() => {
@@ -124,6 +132,7 @@ export function QuoteScreen({ route, navigation }: Props) {
         pickupLabel: origin.label.slice(0, http.PLACE_LABEL_MAX_LENGTH),
         dropoffLabel: destination.label.slice(0, http.PLACE_LABEL_MAX_LENGTH),
         ...(note ? { pickupNote: note } : {}),
+        ...(stops.length ? { stopLabels: stops.map((stop) => stop.label.slice(0, http.PLACE_LABEL_MAX_LENGTH) || null) } : {}),
       };
       const ride = (await apiClient.request('createRide', { body })) as http.CreateRideResponse;
       // Le piège du bouton retour Android (L6-00, `navigation/transitions.ts`) : la pile
@@ -158,6 +167,11 @@ export function QuoteScreen({ route, navigation }: Props) {
         <Text style={styles.pointText} numberOfLines={1}>
           Départ : {origin.label}
         </Text>
+        {stops.map((stop, index) => (
+          <Text key={`stop-${index}`} style={styles.pointText} numberOfLines={1} testID={`quote-stop-${index}`}>
+            Arrêt {index + 1} : {stop.label}
+          </Text>
+        ))}
         <Text style={styles.pointText} numberOfLines={1}>
           Arrivée : {destination.label}
         </Text>

@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { MAP_MARKER_COLORS, MapView, reverseGeocode, type LatLng, type MapMarker } from '@babana/maps';
+import { MAP_MARKER_COLORS, MapView, type LatLng, type MapMarker } from '@babana/maps';
+import { labelFor } from '../placeLabel';
 import { Button, makeStyles, useTheme } from '@babana/ui';
 import type { http, realtime } from '@babana/contracts';
 import { StreamLivenessWatchdog } from '@babana/api-client';
@@ -24,7 +25,12 @@ import { useKeepScreenAwake } from '../keepAwake';
 // nearbyDriversQueryExample (@babana/contracts), pas une valeur inventée pour cet écran.
 const DOUALA_DEFAULT_CENTER: LatLng = { latitude: 4.0511, longitude: 9.7679 };
 
-type ActiveSlot = 'departure' | 'arrival';
+// `stop-N` : N-ième arrêt intermédiaire (L6-21), désigné comme départ et arrivée -- au réticule.
+type ActiveSlot = 'departure' | 'arrival' | `stop-${number}`;
+
+function stopIndexOf(slot: ActiveSlot): number | null {
+  return slot.startsWith('stop-') ? Number(slot.slice(5)) : null;
+}
 
 type Props = NativeStackScreenProps<ClientParamList, 'Home'>;
 
@@ -36,21 +42,6 @@ function isNearbySubscribeAckMessage(
   message: realtime.ServerToClientMessage
 ): message is realtime.NearbySubscribeAckMessage {
   return message.type === 'nearby.subscribe.ack';
-}
-
-// Doute L6-06 §1 (amoa/questions/REPONSES-2026-08-23.md §2) : hors des grands axes, le géocodage
-// inverse ne répond jamais "je ne sais pas" -- il rend le repère connu le plus proche, qui peut
-// être à plusieurs centaines de mètres du réticule. Le libellé se présente donc sous une forme
-// qui dit son approximation plutôt que le nom seul ; l'interface rappelle par ailleurs (JSX
-// ci-dessous) que c'est le point sur la carte qui fait foi, pas le texte.
-async function labelFor(position: LatLng): Promise<string> {
-  // L'échec du géocodage inverse (Odoo/Google indisponible) ne doit jamais empêcher de désigner
-  // un point -- les coordonnées elles-mêmes restent la vérité, seul le libellé se dégrade.
-  const label = await reverseGeocode(position).catch(() => null);
-  // Seul le premier segment de l'adresse (« Carrefour Tiff », pas « Carrefour Tiff, Douala,
-  // Cameroun ») : la ville est implicite, et le champ est étroit.
-  const landmark = label?.split(',')[0]?.trim();
-  return landmark ? `vers ${landmark}` : `${position.latitude.toFixed(4)}, ${position.longitude.toFixed(4)}`;
 }
 
 // Doute L6-06 §2 : les trois causes ne se règlent pas de la même façon, le message ne doit plus
@@ -72,6 +63,9 @@ export function HomeScreen({ navigation }: Props) {
   const [activeSlot, setActiveSlot] = useState<ActiveSlot>('departure');
   const [departure, setDeparture] = useState<RidePoint | null>(null);
   const [arrival, setArrival] = useState<RidePoint | null>(null);
+  // Arrêts intermédiaires (L6-21). Leur nombre maximal est une règle serveur : au-delà, le devis
+  // répond TOO_MANY_STOPS et l'écran d'estimation le dit -- aucune limite recopiée ici.
+  const [stops, setStops] = useState<RidePoint[]>([]);
   const [locating, setLocating] = useState(true);
   const [locationError, setLocationError] = useState<LocationFailureReason | null>(null);
   const [geocoding, setGeocoding] = useState(false);
@@ -213,11 +207,44 @@ export function HomeScreen({ navigation }: Props) {
   }
 
   function applyToActiveSlot(point: RidePoint) {
-    if (activeSlot === 'departure') {
+    const stopIndex = stopIndexOf(activeSlot);
+    if (stopIndex !== null) {
+      setStops((current) => current.map((stop, index) => (index === stopIndex ? point : stop)));
+    } else if (activeSlot === 'departure') {
       setDeparture(point);
     } else {
       setArrival(point);
     }
+  }
+
+  // Un arrêt naît au centre de la carte, déjà désigné : le geste qui l'ajuste est celui du départ
+  // et de l'arrivée (glisser la carte sous le réticule), jamais une adresse à saisir.
+  async function addStop() {
+    const index = stops.length;
+    const label = await labelFor(region);
+    setStops((current) => [...current, { position: region, label }]);
+    setActiveSlot(`stop-${index}`);
+  }
+
+  function removeStop(index: number) {
+    setStops((current) => current.filter((_stop, i) => i !== index));
+    setActiveSlot('arrival');
+    if (arrival) setRegion(arrival.position);
+  }
+
+  function moveStop(index: number, delta: -1 | 1) {
+    const target = index + delta;
+    if (target < 0 || target >= stops.length) return;
+    setStops((current) => {
+      const next = [...current];
+      const moved = next[index];
+      const other = next[target];
+      if (!moved || !other) return current;
+      next[index] = other;
+      next[target] = moved;
+      return next;
+    });
+    setActiveSlot('arrival');
   }
 
   // Toucher « Départ » ou « Arrivée » amène la carte sur ce point (15 novembre) : le réticule s'y
@@ -227,7 +254,8 @@ export function HomeScreen({ navigation }: Props) {
   // une désignation (`onRegionChange` ne remonte qu'un geste du doigt, @babana/maps).
   function activateSlot(slot: ActiveSlot) {
     setActiveSlot(slot);
-    const point = slot === 'departure' ? departure : arrival;
+    const stopIndex = stopIndexOf(slot);
+    const point = stopIndex !== null ? stops[stopIndex] : slot === 'departure' ? departure : arrival;
     if (point) setRegion(point.position);
   }
 
@@ -238,7 +266,7 @@ export function HomeScreen({ navigation }: Props) {
 
   function handleNext() {
     if (!departure || !arrival) return;
-    navigation.navigate('Quote', { origin: departure, destination: arrival });
+    navigation.navigate('Quote', { origin: departure, destination: arrival, ...(stops.length ? { stops } : {}) });
   }
 
   function retryLocation() {
@@ -256,6 +284,10 @@ export function HomeScreen({ navigation }: Props) {
     ...(arrival && activeSlot !== 'arrival'
       ? [{ id: 'dropoff', kind: 'dropoff' as const, position: arrival.position, label: 'Arrivée' }]
       : []),
+    ...stops
+      .map((stop, index) => ({ stop, index }))
+      .filter(({ index }) => activeSlot !== `stop-${index}`)
+      .map(({ stop, index }) => ({ id: `stop-${index}`, kind: 'stop' as const, position: stop.position, label: `Arrêt ${index + 1}` })),
     // Anonymes : le serveur n'envoie qu'une position et une distance (ni identifiant, ni prénom)
     // -- un point par chauffeur disponible, repéré par son rang.
     ...nearbyDrivers.map((driver, index) => ({
@@ -284,6 +316,33 @@ export function HomeScreen({ navigation }: Props) {
         />
       </View>
 
+      {stops.map((stop, index) => (
+        <View key={`stop-${index}`} style={styles.stopRow} testID={`stop-row-${index}`}>
+          <PointButton
+            testID={`stop-slot-${index}`}
+            title={`Arrêt ${index + 1}`}
+            value={stop.label}
+            active={activeSlot === `stop-${index}`}
+            onPress={() => activateSlot(`stop-${index}`)}
+          />
+          <Pressable testID={`stop-up-${index}`} accessibilityLabel="Monter l’arrêt" onPress={() => moveStop(index, -1)} style={styles.stopAction} disabled={index === 0}>
+            <Text style={[styles.stopActionText, index === 0 ? styles.stopActionDisabled : null]}>↑</Text>
+          </Pressable>
+          <Pressable testID={`stop-down-${index}`} accessibilityLabel="Descendre l’arrêt" onPress={() => moveStop(index, 1)} style={styles.stopAction} disabled={index === stops.length - 1}>
+            <Text style={[styles.stopActionText, index === stops.length - 1 ? styles.stopActionDisabled : null]}>↓</Text>
+          </Pressable>
+          <Pressable testID={`stop-remove-${index}`} accessibilityLabel="Retirer l’arrêt" onPress={() => removeStop(index)} style={styles.stopAction}>
+            <Text style={styles.stopActionText}>✕</Text>
+          </Pressable>
+        </View>
+      ))}
+
+      {departure && arrival ? (
+        <Pressable testID="add-stop" accessibilityRole="button" onPress={addStop} style={styles.addStop}>
+          <Text style={styles.addStopText}>+ Ajouter un arrêt</Text>
+        </Pressable>
+      ) : null}
+
       {locationError ? (
         <View style={styles.locationErrorBanner} testID="location-error">
           <Text style={styles.locationErrorText}>{LOCATION_ERROR_MESSAGES[locationError]}</Text>
@@ -293,7 +352,13 @@ export function HomeScreen({ navigation }: Props) {
 
       <PlacePicker
         key={activeSlot}
-        placeholder={activeSlot === 'departure' ? 'Rechercher le point de départ' : 'Rechercher la destination'}
+        placeholder={
+          activeSlot === 'departure'
+            ? 'Rechercher le point de départ'
+            : stopIndexOf(activeSlot) !== null
+              ? 'Rechercher l’arrêt'
+              : 'Rechercher la destination'
+        }
         onSelect={handlePlaceSelected}
       />
 
@@ -309,7 +374,14 @@ export function HomeScreen({ navigation }: Props) {
             testID="reticle-pin"
             style={[
               styles.reticlePin,
-              { backgroundColor: activeSlot === 'departure' ? MAP_MARKER_COLORS.pickup : MAP_MARKER_COLORS.dropoff },
+              {
+                backgroundColor:
+                  activeSlot === 'departure'
+                    ? MAP_MARKER_COLORS.pickup
+                    : stopIndexOf(activeSlot) !== null
+                      ? MAP_MARKER_COLORS.stop
+                      : MAP_MARKER_COLORS.dropoff,
+              },
             ]}
           >
             <View style={styles.reticlePinDot} />
@@ -381,6 +453,30 @@ const useStyles = makeStyles((c) => ({
   pointsRow: {
     flexDirection: 'row',
     gap: 8,
+  },
+  stopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  stopAction: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  stopActionText: {
+    color: c.ink,
+    fontSize: 18,
+  },
+  stopActionDisabled: {
+    color: c.subtle,
+  },
+  addStop: {
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+  },
+  addStopText: {
+    color: c.brandText,
+    fontWeight: '600',
   },
   pointButton: {
     flex: 1,

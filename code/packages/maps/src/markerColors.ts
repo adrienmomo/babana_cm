@@ -13,5 +13,7 @@ export const MAP_MARKER_COLORS: Readonly<Record<MapMarkerKind, string>> = {
   client: '#3E7BFA',
   pickup: '#3E7BFA',
   dropoff: '#E5484D',
+  // Arrêt intermédiaire (L6-21) : ambre, distinct du départ, de l'arrivée et du chauffeur.
+  stop: '#F59E0B',
   reticle: '#6B7280',
 };

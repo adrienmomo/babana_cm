@@ -48,7 +48,7 @@ function sameCenter(a: LatLng, b: LatLng): boolean {
 
 function MarkerBody({ kind }: { kind: MapMarkerKind }) {
   const color = MAP_MARKER_COLORS[kind];
-  if (kind === 'pickup' || kind === 'dropoff') {
+  if (kind === 'pickup' || kind === 'dropoff' || kind === 'stop') {
     return (
       <View style={styles.pin}>
         <View testID={`babana-marker-${kind}`} style={[styles.pinHead, { backgroundColor: color }]}>
@@ -84,7 +84,7 @@ function BabanaMarker({ marker, rotation }: { marker: MapMarker; rotation: numbe
     return () => clearTimeout(timer);
   }, []);
   const isDriver = marker.kind === 'driver';
-  const isPin = marker.kind === 'pickup' || marker.kind === 'dropoff';
+  const isPin = marker.kind === 'pickup' || marker.kind === 'dropoff' || marker.kind === 'stop';
   // La moto glisse d'une position à la suivante (14 novembre, `glide.ts`) ; les épingles restent.
   const coordinate = useGlidingPosition(marker.position, isDriver);
   return (

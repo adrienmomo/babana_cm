@@ -15,6 +15,8 @@ export function colorFor(kind: MapMarkerKind): string {
       return '#0A7D3D';
     case 'dropoff':
       return '#B91C1C';
+    case 'stop':
+      return '#B45309';
     case 'reticle':
       return '#6B7280';
   }

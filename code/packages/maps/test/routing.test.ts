@@ -52,6 +52,16 @@ describe('fetchRoute', () => {
     });
   });
 
+  it('L6-21 : les arrêts intermédiaires sont traversés dans l’ordre, dans une seule requête', async () => {
+    configureMapsProvider({ apiKey: 'k', routingUrl: ROUTING_URL });
+    const fn = mockFetch(osrmBody([[9.76, 4.05], [9.78, 4.07]]));
+
+    await fetchRoute(FROM, TO, [{ latitude: 4.055, longitude: 9.765 }, { latitude: 4.06, longitude: 9.77 }]);
+
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(String(fn.mock.calls[0][0])).toContain('/route/v1/driving/9.76,4.05;9.765,4.055;9.77,4.06;9.78,4.07?');
+  });
+
   it('renvoie null sur une erreur réseau, une réponse HTTP en échec ou un code OSRM en échec', async () => {
     configureMapsProvider({ apiKey: 'k', routingUrl: ROUTING_URL });
     global.fetch = jest.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch;

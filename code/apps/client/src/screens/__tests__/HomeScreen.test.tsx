@@ -22,7 +22,7 @@ jest.mock('@babana/maps', () => {
     },
     reverseGeocode: (point: LatLng) => mockReverseGeocode(point),
     searchPlace: (query: string) => mockSearchPlace(query),
-    MAP_MARKER_COLORS: { pickup: '#3E7BFA', dropoff: '#E5484D', driver: '#1A9E5C', client: '#3E7BFA', reticle: '#6B7280' },
+    MAP_MARKER_COLORS: { pickup: '#3E7BFA', dropoff: '#E5484D', stop: '#F59E0B', driver: '#1A9E5C', client: '#3E7BFA', reticle: '#6B7280' },
   };
 });
 
@@ -139,6 +139,88 @@ afterEach(() => {
     while (renderedRoots.length > 0) renderedRoots.pop()!.unmount();
   });
   jest.useRealTimers();
+});
+
+describe('HomeScreen -- arrêts (L6-21)', () => {
+  const STOP_A = { latitude: 4.06, longitude: 9.74 };
+  const STOP_B = { latitude: 4.065, longitude: 9.73 };
+
+  async function withDepartureAndArrival(navigation = fakeNavigation()) {
+    mockReverseGeocode.mockImplementation(async (point: LatLng) =>
+      point === STOP_A ? 'Marché, Douala' : point === STOP_B ? 'Pharmacie, Douala' : 'Repère, Douala'
+    );
+    const root = await renderHome(navigation);
+    await designate(root, 'departure-slot', DOUALA);
+    await designate(root, 'arrival-slot', ELSEWHERE);
+    return root;
+  }
+
+  async function addStopAt(root: ReactTestRenderer, index: number, point: LatLng) {
+    await act(async () => {
+      await root.root.findByProps({ testID: 'add-stop' }).props.onPress();
+    });
+    await designate(root, `stop-slot-${index}`, point);
+  }
+
+  it('« Ajouter un arrêt » n’apparaît qu’une fois départ et arrivée désignés', async () => {
+    const root = await renderHome(fakeNavigation());
+    expect(root.root.findAllByProps({ testID: 'add-stop' })).toHaveLength(0);
+    await designate(root, 'departure-slot', DOUALA);
+    await designate(root, 'arrival-slot', ELSEWHERE);
+    expect(root.root.findAllByProps({ testID: 'add-stop' }).length).toBeGreaterThan(0);
+  });
+
+  it('un arrêt se désigne comme l’arrivée -- au réticule -- et part avec l’estimation, dans l’ordre', async () => {
+    const navigation = fakeNavigation();
+    const root = await withDepartureAndArrival(navigation);
+    await addStopAt(root, 0, STOP_A);
+    await addStopAt(root, 1, STOP_B);
+
+    expect(texts(root)).toContain('vers Marché');
+    expect(texts(root)).toContain('vers Pharmacie');
+    await act(async () => {
+      root.root.findByProps({ testID: 'next-button' }).props.onPress();
+    });
+    const params = (navigation.navigate as jest.Mock).mock.calls[0][1];
+    expect(params.stops.map((stop: { position: LatLng }) => stop.position)).toEqual([STOP_A, STOP_B]);
+  });
+
+  it('un arrêt se réordonne et se retire', async () => {
+    const navigation = fakeNavigation();
+    const root = await withDepartureAndArrival(navigation);
+    await addStopAt(root, 0, STOP_A);
+    await addStopAt(root, 1, STOP_B);
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'stop-down-0' }).props.onPress();
+    });
+    await act(async () => {
+      root.root.findByProps({ testID: 'stop-remove-1' }).props.onPress();
+    });
+    await act(async () => {
+      root.root.findByProps({ testID: 'next-button' }).props.onPress();
+    });
+    const params = (navigation.navigate as jest.Mock).mock.calls[0][1];
+    expect(params.stops.map((stop: { position: LatLng }) => stop.position)).toEqual([STOP_B]);
+  });
+
+  it('sans arrêt, l’estimation part sans champ `stops`', async () => {
+    const navigation = fakeNavigation();
+    const root = await withDepartureAndArrival(navigation);
+    await act(async () => {
+      root.root.findByProps({ testID: 'next-button' }).props.onPress();
+    });
+    expect((navigation.navigate as jest.Mock).mock.calls[0][1]).not.toHaveProperty('stops');
+  });
+
+  it('les arrêts non actifs ont leur épingle d’arrêt sur la carte', async () => {
+    const root = await withDepartureAndArrival();
+    await addStopAt(root, 0, STOP_A);
+    await act(async () => {
+      root.root.findByProps({ testID: 'arrival-slot' }).props.onPress();
+    });
+    expect(capturedMarkers.filter((marker) => marker.kind === 'stop').map((marker) => marker.id)).toEqual(['stop-0']);
+  });
 });
 
 describe('HomeScreen (L6-06)', () => {

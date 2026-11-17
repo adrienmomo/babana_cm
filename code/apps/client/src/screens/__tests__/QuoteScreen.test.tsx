@@ -84,6 +84,7 @@ async function renderQuote(
   params: {
     origin?: typeof ORIGIN;
     destination?: typeof DESTINATION;
+    stops?: Array<typeof ORIGIN>;
   } = {},
   navigation = fakeNavigation()
 ): Promise<{ root: ReactTestRenderer; navigation: ReturnType<typeof fakeNavigation> }> {
@@ -93,6 +94,7 @@ async function renderQuote(
     params: {
       origin: params.origin ?? ORIGIN,
       destination: params.destination ?? DESTINATION,
+      ...(params.stops ? { stops: params.stops } : {}),
     },
   };
   let root!: ReactTestRenderer;
@@ -287,6 +289,49 @@ describe('QuoteScreen (L6-07)', () => {
 
     expect(texts(root)).toContain('Aucune moto à proximité pour le moment');
     expect(root.root.findByProps({ testID: 'order-button' }).props.disabled).toBe(false);
+  });
+
+  describe('arrêts (L6-21)', () => {
+    const STOP = { position: { latitude: 4.056, longitude: 9.76 }, label: 'vers Marché' };
+
+    it('l’estimation est demandée avec les arrêts ; ils sont listés ; la commande porte leurs libellés', async () => {
+      mockRequest.mockImplementation(async (name: string) => {
+        if (name === 'quote') return quoteResponse({ stopCount: 1 });
+        if (name === 'createRide') return { id: 'ride-1', state: 'requested', amount: 1200 };
+        throw new Error(`unexpected call: ${name}`);
+      });
+      const { root } = await renderQuote({ stops: [STOP] });
+
+      expect(mockRequest).toHaveBeenCalledWith(
+        'quote',
+        expect.objectContaining({ body: expect.objectContaining({ stops: [STOP.position] }) })
+      );
+      expect(texts(root)).toContain('Arrêt ');
+      expect(root.root.findAllByProps({ testID: 'quote-stop-0' }).length).toBeGreaterThan(0);
+
+      await act(async () => {
+        root.root.findByProps({ testID: 'order-button' }).props.onPress();
+      });
+      expect(mockRequest).toHaveBeenCalledWith(
+        'createRide',
+        expect.objectContaining({ body: expect.objectContaining({ stopLabels: ['vers Marché'] }) })
+      );
+    });
+
+    it('sans arrêt, ni `stops` dans l’estimation ni `stopLabels` dans la commande', async () => {
+      mockRequest.mockImplementation(async (name: string) => {
+        if (name === 'quote') return quoteResponse();
+        if (name === 'createRide') return { id: 'ride-1', state: 'requested', amount: 1200 };
+        throw new Error(`unexpected call: ${name}`);
+      });
+      const { root } = await renderQuote();
+      expect(mockRequest.mock.calls[0][1].body).not.toHaveProperty('stops');
+      await act(async () => {
+        root.root.findByProps({ testID: 'order-button' }).props.onPress();
+      });
+      const createCall = mockRequest.mock.calls.find(([name]) => name === 'createRide');
+      expect(createCall?.[1].body).not.toHaveProperty('stopLabels');
+    });
   });
 
   describe('indication pour le chauffeur (repère, facultatif)', () => {

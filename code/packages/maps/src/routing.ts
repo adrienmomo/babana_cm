@@ -15,12 +15,15 @@ const REQUEST_TIMEOUT_MS = 8000;
  * est indicative. Ne rejette jamais : `null` si le service n'est pas configuré, injoignable, ou
  * ne trouve aucun chemin -- l'écran garde alors la carte sans tracé, jamais un tracé inventé.
  */
-export async function fetchRoute(from: LatLng, to: LatLng): Promise<RouteResult | null> {
+export async function fetchRoute(from: LatLng, to: LatLng, via: readonly LatLng[] = []): Promise<RouteResult | null> {
   const base = getRoutingUrl();
   if (!base) return null;
 
+  // `via` (L6-21) : arrêts intermédiaires, dans l'ordre -- le service de routage au format OSRM
+  // accepte une suite de points et rend un seul itinéraire qui les traverse.
+  const coordinates = [from, ...via, to].map((point) => `${point.longitude},${point.latitude}`).join(';');
   const url =
-    `${base}/route/v1/driving/${from.longitude},${from.latitude};${to.longitude},${to.latitude}` +
+    `${base}/route/v1/driving/${coordinates}` +
     '?overview=full&geometries=geojson&alternatives=false&steps=false';
 
   try {

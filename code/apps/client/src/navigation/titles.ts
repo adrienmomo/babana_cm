@@ -12,6 +12,7 @@ export const SCREEN_TITLES: Record<keyof ClientParamList, string> = {
   Waiting: 'Recherche d’un chauffeur',
   // L'écran affiche déjà l'étape (« Votre chauffeur arrive », « Course en cours ») : la barre ne la répète pas.
   Tracking: 'Suivi de course',
+  AddStop: 'Ajouter un arrêt',
   RideSummary: 'Course terminée',
   Account: 'Mon profil',
   History: 'Mes courses',
