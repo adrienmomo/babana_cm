@@ -8,6 +8,7 @@ import { http, type realtime } from '@babana/contracts';
 import { apiClient } from '../auth';
 import { offlineRunner } from '../offline';
 import { getCurrentPosition } from '../location';
+import { rideTrace } from '../location/rideTraceSetup';
 import { CallButton } from '../components/CallButton';
 import { EmergencyButton } from '../components/EmergencyButton';
 import { SwipeButton } from '../components/SwipeButton';
@@ -433,6 +434,8 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
     setCancelError(null);
     try {
       await apiClient.request('cancelRide', { pathParams: { id: rideId }, body: { reason } });
+      // L4-16 : celui qui annule ne reçoit pas ride.cancelled -- la copie part d'ici.
+      rideTrace.finish(rideId).catch(() => {});
       setCancelSheetOpen(false);
       onEnded();
     } catch (error) {
@@ -473,6 +476,8 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
           setFinishQueued(true);
         },
       });
+      // L4-16 : la copie du trajet part après la fin (mise en file derrière elle si hors connexion).
+      rideTrace.finish(rideId).catch(() => {});
       if (resolvedRef.current) return;
       resolvedRef.current = true;
       onSettle({ rideId, amount });

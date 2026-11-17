@@ -434,7 +434,11 @@ class BabanaRideState(models.Model):
                 ride_public_id=self.public_id,
                 client_user_public_id=client_public_id,
                 driver_public_id=by_driver.public_id,
+                security_notice=self._babana_security_notice(),
             )
+        # L4-16 : pas de push au démarrage -- la décision du 15 novembre limite les push client à
+        # « affecté, arrivé, terminé » (test_client_push.py). L'avis passe par ride.started, écran
+        # ouvert ; un push « app fermée » est en question (amoa/questions/MULTISTOP-2026-11-17.md §6).
         return self
 
     # --- 7. in_progress -> completed ----------------------------------------------------------
@@ -496,6 +500,9 @@ class BabanaRideState(models.Model):
         self._babana_journalize(
             "ride_completion", before_state="in_progress", measured=bool(measurement)
         )
+        # L4-16 : le trajet horodaté du temps réel, une écriture par course.
+        if measurement:
+            self._babana_store_realtime_track(measurement)
 
         # 15 novembre : le client l'apprend aussi app fermée (push), son écran le dit sinon.
         self._babana_push_client("Course terminée", "Merci d'avoir voyagé avec Babana. Le détail est dans l'app.", "completed")

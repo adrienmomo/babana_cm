@@ -163,7 +163,17 @@ async function ingestOne(
   // ni fermer la connexion (même politique que le reste du service).
   if (accumulation) {
     try {
-      await accumulatePosition(redis, driverId, { latitude: sample.latitude, longitude: sample.longitude }, accumulation);
+      await accumulatePosition(
+        redis,
+        driverId,
+        {
+          latitude: sample.latitude,
+          longitude: sample.longitude,
+          capturedAtMs: sample.capturedAtMs,
+          accuracyMeters: sample.accuracyMeters,
+        },
+        accumulation
+      );
     } catch {
       // L'accumulation sert au contrôle et à la calibration, jamais au tarif -- un tick manqué
       // n'est pas un incident.

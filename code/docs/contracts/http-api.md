@@ -185,6 +185,7 @@ doute, le code (`packages/contracts/src/http/`) a raison, pas cette colonne.
 | `POST /rides/{id}/stops` | aucune (client confirme la cotation : prix et distance prévus, un arrêt ; `ride.stop.added` au chauffeur) | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_INVALID_TRANSITION`, `QUOTE_NOT_FOUND`, `QUOTE_EXPIRED`, `TOO_MANY_STOPS` | Oui (L4-14) |
 | `POST /rides/{id}/stops/arrived` | aucune (chauffeur, `in_progress` ; `arrived_at` de l'arrêt une fois) | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL`, `STOP_NOT_FOUND` | Oui (L4-14) |
 | `POST /rides/{id}/stops/departed` | aucune (chauffeur ; `stopId` absent = départ de la prise en charge, `assigned`) | idem | Oui (L4-14) |
+| `POST /rides/{id}/track` | aucune (chauffeur, course démarrée puis terminée ou annulée ; copie du trajet du téléphone, retenue si le temps réel n'a rien laissé — L4-16) | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui (L4-16) |
 | `POST /rides/{id}/stops/unplanned` | aucune (chauffeur, `in_progress` ; « Arrêt client », créé déjà atteint) | idem | Oui (L4-14) |
 
 `POST /rides` accepte `{ quoteId, pickupNote?, pickupLabel?, dropoffLabel? }` (libellés affichés des points, 120 caractères au plus, repris par l'historique et la facture) : `pickupNote` est un repère libre du client (« devant la pharmacie du rond-point »), 140 caractères au plus, transmis au chauffeur dès la proposition (`proposal.new.pickupNote`).

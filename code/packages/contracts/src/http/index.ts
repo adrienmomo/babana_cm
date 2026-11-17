@@ -18,6 +18,7 @@ export * from './incident';
 export * from './share';
 export * from './history';
 export * from './stops';
+export * from './track';
 
 import * as auth from './auth';
 import * as phone from './phone';
@@ -34,6 +35,7 @@ import * as incident from './incident';
 import * as share from './share';
 import * as history from './history';
 import * as stops from './stops';
+import * as track from './track';
 
 /**
  * Codes implicitement possibles sur tout endpoint, sans être répétés dans la liste
@@ -253,6 +255,16 @@ export const HTTP_ENDPOINTS = {
     errors: stops.DriverStopEventErrors,
     requestExample: stops.stopUnplannedRequestExample,
     responseExample: stops.rideWithStopsResponseExample,
+  },
+  uploadRideTrack: {
+    method: 'POST',
+    path: '/api/v1/rides/{id}/track',
+    requiresAuth: true,
+    requestSchema: track.UploadRideTrackRequestSchema,
+    responseSchema: track.UploadRideTrackResponseSchema,
+    errors: track.UploadRideTrackErrors,
+    requestExample: track.uploadRideTrackRequestExample,
+    responseExample: track.uploadRideTrackResponseExample,
   },
   rateRide: {
     method: 'POST',

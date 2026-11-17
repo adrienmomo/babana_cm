@@ -8,8 +8,8 @@ import { haversineDistanceMeters } from './validation';
  * accumulé ici n'écrit dans Odoo. Distance, durée et tracé vivent dans Redis pendant la course et
  * ne rejoignent Odoo qu'au moment de la fin de course -- une écriture, à une décision humaine
  * (le chauffeur qui appuie sur « Terminer »). Ces valeurs servent au contrôle et à la calibration
- * (L10-03), **jamais au tarif** : D15 retire le terme temps, la distance facturée est celle de
- * l'itinéraire de référence (L2-05, L4-04).
+ * (L10-03), au prix final hors de la bande de distance (L4-15), et à l'enregistrement du trajet
+ * pour la sécurité (L4-16) : chaque sommet retenu porte son heure de capture et sa précision.
  *
  * **Restart-safe (L3-14)** : tout l'état vit dans un seul HASH Redis, aucun état en mémoire du
  * processus. Le service temps réel peut tomber en pleine course : au redémarrage, les positions
@@ -49,6 +49,16 @@ export interface RideMeasurement {
    * n'a encore été retenu (course démarrée, aucune position exploitable reçue). */
   polyline: string;
   pointCount: number;
+  /** Sommets du tracé, horodatés (L4-16). Un sommet sans heure (accumulation commencée avant
+   * cette version) sort avec `capturedAtMs: null`. */
+  points: TimedPoint[];
+}
+
+export interface TimedPoint {
+  latitude: number;
+  longitude: number;
+  capturedAtMs: number | null;
+  accuracyMeters: number | null;
 }
 
 const ACCUMULATION_KEY_PREFIX = 'babana:ride:accumulation:';
@@ -57,7 +67,9 @@ export function accumulationKey(driverId: string): string {
   return `${ACCUMULATION_KEY_PREFIX}${driverId}`;
 }
 
-type Point = [number, number]; // [latitude, longitude]
+// [latitude, longitude] -- et, depuis L4-16, [latitude, longitude, capturedAtMs, accuracyMeters].
+// Les deux formes coexistent le temps d'une course commencée avant le déploiement.
+type Point = [number, number] | [number, number, number, number];
 
 /**
  * Démarre l'accumulation à `ride.start` (L3-10 : « Depuis `ride.start`, accumuler dans Redis »).
@@ -88,7 +100,7 @@ export async function startAccumulation(
 export async function accumulatePosition(
   redis: Redis,
   driverId: string,
-  sample: { latitude: number; longitude: number },
+  sample: { latitude: number; longitude: number; capturedAtMs?: number; accuracyMeters?: number },
   config: AccumulationConfig
 ): Promise<void> {
   const key = accumulationKey(driverId);
@@ -100,7 +112,10 @@ export async function accumulatePosition(
   await redis.expire(key, config.ttlSeconds);
 
   const track: Point[] = raw.track ? (JSON.parse(raw.track) as Point[]) : [];
-  const current: Point = [sample.latitude, sample.longitude];
+  const current: Point =
+    sample.capturedAtMs !== undefined
+      ? [sample.latitude, sample.longitude, sample.capturedAtMs, sample.accuracyMeters ?? 0]
+      : [sample.latitude, sample.longitude];
 
   // Premier point : rien à mesurer encore, on pose l'origine du tracé.
   if (raw.lastLat === undefined || raw.lastLng === undefined) {
@@ -178,6 +193,12 @@ export async function getAccumulation(
     durationSeconds: Math.max(0, Math.round((nowMs - startedAtMs) / 1000)),
     polyline: encodePolyline(track),
     pointCount: track.length,
+    points: track.map((point) => ({
+      latitude: point[0],
+      longitude: point[1],
+      capturedAtMs: point.length === 4 ? point[2] : null,
+      accuracyMeters: point.length === 4 ? point[3] : null,
+    })),
   };
 }
 

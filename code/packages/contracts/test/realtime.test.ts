@@ -320,7 +320,7 @@ describe('exemples valides — serveur vers client', () => {
       })
     );
     assert.doesNotThrow(() =>
-      RideStartedMessageSchema.parse({ type: 'ride.started', id: randomUUID(), emittedAt: now, payload: { rideId } })
+      RideStartedMessageSchema.parse({ type: 'ride.started', id: randomUUID(), emittedAt: now, payload: { rideId, securityNotice: '' } })
     );
     const completedBreakdown = {
       baseFare: 200,

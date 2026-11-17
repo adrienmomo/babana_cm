@@ -347,6 +347,24 @@ describe('POST /internal/rides/started|completed (sens Odoo -> temps réel, L3-1
     }
   });
 
+  test('L4-16 -- ride.started relaie au client l’avis d’enregistrement du trajet tel qu’Odoo l’envoie', async () => {
+    const rideId = randomUUID();
+    const clientUserId = randomUUID();
+    const driverId = randomUUID();
+    const securityNotice = 'Votre trajet est enregistré pour votre sécurité.';
+    const clientWs = await connectWs(tokenFor('client', clientUserId));
+    try {
+      const [clientMessage, { status }] = await Promise.all([
+        waitForMessage(clientWs, 'ride.started'),
+        post('/internal/rides/started', { rideId, clientUserId, driverId, securityNotice }),
+      ]);
+      assert.equal(status, 200);
+      assert.deepEqual(clientMessage.payload, { rideId, securityNotice });
+    } finally {
+      clientWs.close();
+    }
+  });
+
   test('driver.arrived (« Sur place », écrit par Odoo) part au client et au chauffeur avec l’heure et le délai de grâce', async () => {
     const rideId = randomUUID();
     const clientUserId = randomUUID();

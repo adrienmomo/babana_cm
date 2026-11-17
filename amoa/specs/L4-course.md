@@ -756,8 +756,10 @@ Chaque consultation écrit une entrée au journal d'audit (qui, quand, quelle co
 (position à un instant donné, arrêts et attentes marqués).
 
 **Avis au client** : à chaque démarrage, l'app client affiche « Votre trajet est enregistré
-pour votre sécurité », et la notification de démarrage (L3-19) le reprend. Le texte est
-traduisible et vient du serveur. La mention figure aussi dans les conditions d'utilisation.
+pour votre sécurité », porté par le message de démarrage (L3-19). Le texte est traduisible et
+vient du serveur. La mention figure aussi dans les conditions d'utilisation. **Pas de push au
+démarrage** (arbitrage du 17 novembre, MULTISTOP §6) : la liste des push client du 15 novembre
+reste « affecté, arrivé, terminé ».
 
 ### Critères d'acceptation
 
@@ -767,7 +769,7 @@ traduisible et vient du serveur. La mention figure aussi dans les conditions d'u
 4. Aucune écriture de trace pendant le trajet, quelle que soit sa durée.
 5. Purge : une trace de 366 jours est supprimée, une de 364 non, une liée à un incident ouvert non.
 6. Un utilisateur sans le groupe superviseur ne peut ni lire ni rejouer une trace (test d'habilitation généré, L8-02) ; chaque lecture autorisée crée une entrée d'audit.
-7. L'avis s'affiche au démarrage de chaque course, app ouverte (écran) et app fermée (notification).
+7. L'avis s'affiche au démarrage de chaque course sur l'écran de suivi ; aucun push n'est envoyé au démarrage (MULTISTOP §6).
 8. Écrans ouverts avec des données de démonstration contenant de vraies traces : rejeu dans Odoo, avis côté client (natif et web).
 
 ### Piège

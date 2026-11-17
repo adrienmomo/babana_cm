@@ -77,3 +77,7 @@ access_babana_driver_wallet_topup_wizard_manager,babana.driver.wallet.topup.wiza
 access_babana_ride_stop_supervisor,babana.ride.stop supervisor,model_babana_ride_stop,group_babana_supervisor,1,0,0,0
 access_babana_ride_stop_manager,babana.ride.stop manager,model_babana_ride_stop,group_babana_manager,1,1,1,0
 access_babana_ride_stop_admin,babana.ride.stop admin,model_babana_ride_stop,group_babana_admin,1,1,1,1
+access_babana_ride_track_admin,babana.ride.track admin,model_babana_ride_track,group_babana_admin,1,1,1,1
+access_babana_ride_track_replay_supervisor,babana.ride.track.replay supervisor,model_babana_ride_track_replay,group_babana_supervisor,1,1,1,0
+access_babana_ride_track_replay_manager,babana.ride.track.replay manager,model_babana_ride_track_replay,group_babana_manager,1,1,1,0
+access_babana_ride_track_replay_admin,babana.ride.track.replay admin,model_babana_ride_track_replay,group_babana_admin,1,1,1,1

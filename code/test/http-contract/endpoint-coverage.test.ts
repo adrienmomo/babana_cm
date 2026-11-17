@@ -343,6 +343,26 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     assert.equal(result.stops[0]?.kind, 'unplanned');
   },
 
+  uploadRideTrack: async () => {
+    // Course démarrée puis terminée : le service temps réel n'a reçu aucune position de ce
+    // chauffeur d'exercice pendant le trajet, c'est donc la copie du téléphone qui est retenue.
+    const rig = await setupStartedRide('upload-ride-track');
+    const driverClient = clientFor(rig.driverSession.accessToken);
+    await driverClient.request('completeRide', { pathParams: { id: rig.ride.id }, body: {} });
+    const now = Date.now();
+    const uploaded = (await driverClient.request('uploadRideTrack', {
+      pathParams: { id: rig.ride.id },
+      body: {
+        points: [
+          { ...STOP_POSITION, capturedAt: new Date(now - 20_000).toISOString(), accuracyMeters: 6 },
+          { latitude: STOP_POSITION.latitude + 0.0004, longitude: STOP_POSITION.longitude, capturedAt: new Date(now - 5_000).toISOString(), accuracyMeters: 7 },
+        ],
+      },
+    })) as http.UploadRideTrackResponse;
+    assert.equal(uploaded.rideId, rig.ride.id);
+    assert.equal(uploaded.recorded, true);
+  },
+
   rideHistory: async () => {
     // Une course annulée APRÈS acceptation : une recherche abandonnée avant toute acceptation
     // reste hors de l'historique (L6-10, ecd4042) -- ce scénario-là ne figure plus ici.

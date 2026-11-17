@@ -318,7 +318,8 @@ class TestRealtimeCommitHook(HttpCase):
             env.cr.commit()
         mock_post.assert_called_once_with(
             "/internal/rides/started",
-            {"rideId": "ride-1", "clientUserId": "client-1", "driverId": "driver-1"},
+            # L4-16 : l'avis d'enregistrement du trajet voyage avec ride.started (vide si non fourni).
+            {"rideId": "ride-1", "clientUserId": "client-1", "driverId": "driver-1", "securityNotice": ""},
         )
 
     def test_notify_ride_completed_does_not_call_out_if_the_transaction_rolls_back(self):
@@ -392,7 +393,8 @@ class TestRealtimeCommitHook(HttpCase):
         ) as mock_post:
             result = realtime_client.fetch_ride_measurement(driver_public_id="driver-1")
         mock_post.assert_called_once_with("/internal/rides/measurement", {"driverId": "driver-1"})
-        self.assertEqual(result, {"distance_meters": 4200, "duration_seconds": 615, "polyline": "abc"})
+        # L4-16 : `points` (sommets horodatés) s'ajoute au relevé -- absent de la réponse, liste vide.
+        self.assertEqual(result, {"distance_meters": 4200, "duration_seconds": 615, "polyline": "abc", "points": []})
 
     def test_fetch_ride_measurement_returns_none_when_nothing_was_measured(self):
         with patch.object(

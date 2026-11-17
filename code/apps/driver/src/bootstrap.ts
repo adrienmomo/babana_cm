@@ -2,6 +2,7 @@ import { configureMapsProvider } from '@babana/maps';
 import { GOOGLE_MAPS_API_KEY, MAP_TILE_ATTRIBUTION, MAP_TILE_URL, ROUTING_URL } from '../config';
 import { configureProposalAlerts } from './proposalAlert';
 import { locationTracker } from './location';
+import { startRideTrace } from './location/rideTraceSetup';
 import { startProposalWatch } from './proposalWatch';
 import { startSessionReplacedWatch } from './sessionReplaced';
 import { startFloatingBubble } from './floatingBubble';
@@ -24,6 +25,7 @@ export function bootstrap(): void {
   });
   configureProposalAlerts();
   locationTracker.start();
+  startRideTrace();
   startProposalWatch();
   startSessionReplacedWatch();
   startFloatingBubble();

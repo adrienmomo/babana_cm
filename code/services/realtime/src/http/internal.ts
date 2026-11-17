@@ -169,6 +169,8 @@ const RideStartedRequestSchema = z.object({
   rideId: z.string().min(1),
   clientUserId: z.string().min(1),
   driverId: z.string().min(1),
+  // L4-16 : avis d'enregistrement du trajet, relayé tel quel au client.
+  securityNotice: z.string().default(''),
 });
 
 const RideMeasurementRequestSchema = z.object({ driverId: z.string().min(1) });
@@ -459,6 +461,15 @@ async function handleRideMeasurement(deps: InternalRouterDeps, rawBody: unknown,
     distanceMeters: measured ? (measurement as NonNullable<typeof measurement>).distanceMeters : null,
     durationSeconds: measured ? (measurement as NonNullable<typeof measurement>).durationSeconds : null,
     polyline: measured ? (measurement as NonNullable<typeof measurement>).polyline : null,
+    // L4-16 : sommets horodatés, pour l'enregistrement du trajet (heures ISO UTC, D40).
+    points: measured
+      ? (measurement as NonNullable<typeof measurement>).points.map((point) => ({
+          latitude: point.latitude,
+          longitude: point.longitude,
+          capturedAt: point.capturedAtMs === null ? null : new Date(point.capturedAtMs).toISOString(),
+          accuracyMeters: point.accuracyMeters,
+        }))
+      : null,
   });
 }
 

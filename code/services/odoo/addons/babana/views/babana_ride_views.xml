@@ -57,6 +57,12 @@
                          changée depuis, envoi automatique en échec). -->
                     <button name="button_send_invoice_email" string="Envoyer / renvoyer la facture par email"
                         type="object" invisible="not invoice_id"/>
+                    <!-- L4-16 : seule porte d'entrée vers le trajet enregistré ; chaque ouverture
+                         est journalisée (action_open_track_replay). -->
+                    <field name="has_security_track" invisible="1"/>
+                    <button name="action_open_track_replay" string="Rejouer le trajet" type="object"
+                        groups="babana.group_babana_supervisor,babana.group_babana_manager,babana.group_babana_admin"
+                        invisible="not has_security_track"/>
                 </header>
                 <sheet>
                     <widget name="web_ribbon" title="Annulée" bg_color="text-bg-danger"
@@ -250,6 +256,27 @@
         <field name="view_mode">list,form</field>
         <field name="search_view_id" ref="babana_ride_view_search"/>
         <field name="context">{'search_default_in_progress': 1}</field>
+    </record>
+
+    <record id="babana_ride_track_replay_view_form" model="ir.ui.view">
+        <field name="name">babana.ride.track.replay.form</field>
+        <field name="model">babana.ride.track.replay</field>
+        <field name="arch" type="xml">
+            <form string="Trajet enregistré" create="false" edit="false">
+                <div class="alert alert-warning" role="alert">
+                    Donnée de localisation personnelle, conservée pour la sécurité des passagers.
+                    Cette consultation est enregistrée au journal d'audit.
+                </div>
+                <group>
+                    <field name="ride_id" readonly="1"/>
+                    <field name="source" readonly="1"/>
+                </group>
+                <field name="replay_html" readonly="1" nolabel="1"/>
+                <footer>
+                    <button string="Fermer" special="cancel" class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
     </record>
 
     <menuitem id="babana_menu_rides" name="Courses" parent="babana_menu_root"

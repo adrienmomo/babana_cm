@@ -65,6 +65,10 @@ export const SELF_SUFFICIENT_DEFAULTS: ReadonlySet<string> = new Set([
   'BABANA_LOCATION_DEGRADED_ONLINE_INTERVAL_MS',
   'BABANA_LOCATION_NOTIFICATION_REFRESH_MS',
   'BABANA_ONBOARDING_MAX_DOCUMENT_BYTES',
+  // Copie locale du trajet (L4-16) : plafond de points et cadence d'écriture -- réglages, repli
+  // numérique réel ; le serveur filtre et plafonne de son côté.
+  'BABANA_RIDE_TRACE_MAX_POINTS',
+  'BABANA_RIDE_TRACE_PERSIST_EVERY',
 ]);
 
 // Consommées par l'IMAGE tierce elle-même (postgres:16 -- POSTGRES_PASSWORD configure le mot de

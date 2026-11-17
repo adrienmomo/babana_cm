@@ -561,6 +561,29 @@ class RideController(http.Controller):
         )
         return self._stops_payload(ride), 200
 
+    # --- POST /rides/{id}/track (L4-16) : copie du trajet gardée par le téléphone -------------
+
+    @http.route("/api/v1/rides/<string:ride_id>/track", **_ROUTE)
+    def upload_ride_track(self, ride_id, **_kwargs):
+        return self._dispatch("uploadRideTrack", lambda: self._upload_ride_track(ride_id))
+
+    def _upload_ride_track(self, ride_id):
+        env, user = _common.authenticated_user()
+        ride, driver, error = self._find_ride_and_assigned_driver(env, user, ride_id)
+        if error:
+            return error
+        if not ride.started_at or ride.state not in ("completed", "settled", "cancelled"):
+            raise RideInvalidTransition("Le trajet se téléverse après la fin d'une course démarrée.")
+        points = (_common.parse_json_body() or {}).get("points")
+        if not isinstance(points, list):
+            return _common.error_payload("VALIDATION_ERROR", "points doit être une liste"), 400
+        track = ride._babana_store_phone_track(points)
+        return {
+            "rideId": ride.public_id,
+            "recorded": bool(track),
+            "source": track.source if track else None,
+        }, 200
+
     # --- POST /rides/{id}/cancel ----------------------------------------------------------------
 
     @http.route("/api/v1/rides/<string:ride_id>/cancel", **_ROUTE)
@@ -595,6 +618,13 @@ class RideController(http.Controller):
 
         reason = (_common.parse_json_body() or {}).get("reason")
         cancelled_driver = ride.driver_id  # action_cancel ne l'efface jamais (contrairement au refus)
+        # L4-16 : annulée en cours de route, la course garde son trajet jusqu'à l'annulation --
+        # lu AVANT la transition, dont le commit efface l'accumulation (clear_engagement).
+        measurement = (
+            realtime_client.fetch_ride_measurement(driver_public_id=cancelled_driver.public_id)
+            if ride.state == "in_progress" and cancelled_driver
+            else None
+        )
         if reason == NO_SHOW_REASON:
             # « Client absent » : motif réservé au chauffeur affecté, permis seulement après le
             # délai de grâce depuis « Sur place » -- tranché par action_cancel_no_show.
@@ -613,6 +643,8 @@ class RideController(http.Controller):
         # le client à attendre ce nettoyage. Au COMMIT, jamais pendant (D32) : un appel parti
         # pendant la transaction aurait déjà modifié Redis pour une annulation qui, en cas de
         # rejeu ou d'échec au commit (D25), n'aurait pas eu lieu.
+        if measurement:
+            ride._babana_store_realtime_track(measurement)
         if cancelled_driver:
             realtime_client.notify_cancellation_async(env, cancelled_driver.public_id)
         return _summary(ride), 200

@@ -36,6 +36,7 @@ from . import test_quote_controller
 from . import test_quote_stops
 from . import test_ride_stops
 from . import test_final_fare
+from . import test_ride_track
 from . import test_ride_completion
 from . import test_remittance_model
 from . import test_remittance_validation

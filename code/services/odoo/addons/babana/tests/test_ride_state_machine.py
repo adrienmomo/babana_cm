@@ -428,6 +428,8 @@ class TestRideStateMachine(TransactionCase):
             ride_public_id=ride.public_id,
             client_user_public_id=client_user.babana_public_id,
             driver_public_id=driver.public_id,
+            # L4-16 : l'avis d'enregistrement du trajet voyage avec ride.started.
+            security_notice="Votre trajet est enregistré pour votre sécurité.",
         )
 
     def test_action_start_does_not_notify_without_a_linked_user(self):

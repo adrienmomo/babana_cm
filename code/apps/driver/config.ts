@@ -166,3 +166,13 @@ export const LOCATION_NOTIFICATION_REFRESH_MS = Number(process.env.BABANA_LOCATI
  * Paramétrable (invariant 5), jamais codé en dur dans l'écran d'inscription.
  */
 export const ONBOARDING_MAX_DOCUMENT_BYTES = Number(process.env.BABANA_ONBOARDING_MAX_DOCUMENT_BYTES) || 4 * 1024 * 1024;
+
+/**
+ * Copie locale du trajet (L4-16) : au plus ce nombre de points gardés sur le téléphone pour une
+ * course -- un garde-fou mémoire et stockage, pas une règle : le serveur filtre et plafonne de
+ * son côté (`babana.track_max_points`). Au-delà, les plus récents remplacent le dernier.
+ */
+export const RIDE_TRACE_MAX_POINTS = Number(process.env.BABANA_RIDE_TRACE_MAX_POINTS) || 5000;
+/** Écrire la copie locale sur le stockage tous les N points, plutôt qu'à chaque relevé (batterie,
+ * L6-17) -- une app tuée perd au plus ces derniers points, que le service temps réel a reçus. */
+export const RIDE_TRACE_PERSIST_EVERY = Number(process.env.BABANA_RIDE_TRACE_PERSIST_EVERY) || 6;

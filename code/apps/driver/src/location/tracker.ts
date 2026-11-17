@@ -19,6 +19,7 @@ import { updateTrackingNotification, hideTrackingNotification, formatLastSentMes
 import { onRealtimeMessage, realtimeClient } from '../realtime';
 import { PositionWatcher, type RawFix } from './watcher';
 import { onSessionLost } from '../auth';
+import type { RideFix } from './rideTrace';
 
 /**
  * Capture GPS continue du chauffeur (L6-05) -- émet `position.update` (C-02), qui n'avait jamais
@@ -124,6 +125,7 @@ export interface LocalFix {
 }
 
 export class LocationTracker {
+  private rideFixListeners = new Set<(fix: RideFix) => void>();
   private online = false;
   private rideActive = false;
   private state: DriverActivityState = 'offline';
@@ -160,6 +162,14 @@ export class LocationTracker {
    * que la capture fait DÉJÀ, sans demander un second GPS (batterie, CLAUDE.md). N'ouvre aucune
    * capture : tant que le chauffeur est hors ligne, aucun relevé n'est émis.
    */
+  /** Relevés de la capture EN COURSE seulement, avec heure et précision -- la copie du trajet
+   * gardée sur le téléphone (L4-16, `rideTrace.ts`). Aucun relevé de plus : ceux-là partent déjà
+   * en `position.update`. */
+  subscribeRideFix(listener: (fix: RideFix) => void): () => void {
+    this.rideFixListeners.add(listener);
+    return () => this.rideFixListeners.delete(listener);
+  }
+
   subscribeFix(listener: (fix: LocalFix) => void): () => void {
     this.fixListeners.add(listener);
     return () => this.fixListeners.delete(listener);
@@ -384,6 +394,15 @@ export class LocationTracker {
       this.movement.record(fix, this.deps.now());
       this.fixListeners.forEach((listener) => listener({ latitude: fix.latitude, longitude: fix.longitude }));
       this.buffer.push({ ...fix, capturedAtIso });
+      if (this.state === 'in_ride') {
+        const rideFix: RideFix = {
+          latitude: fix.latitude,
+          longitude: fix.longitude,
+          accuracyMeters: fix.accuracyMeters,
+          capturedAtIso,
+        };
+        this.rideFixListeners.forEach((listener) => listener(rideFix));
+      }
       if (this.batchStartedAtMs === null) this.batchStartedAtMs = this.deps.now();
 
       // Un changement d'immobilité peut avoir eu lieu à l'instant -- recalcule l'état AVANT de

@@ -103,6 +103,8 @@ export function TrackingScreen({ route, navigation }: Props) {
   // Le tracé du chauffeur, tel quel : `phase` dit s'il mène au client ou à la destination.
   const [sharedRoute, setSharedRoute] = useState<{ phase: 'approach' | 'transit'; points: LatLng[] } | null>(null);
   const [driverArrived, setDriverArrived] = useState(false);
+  // L4-16 : avis d'enregistrement du trajet, texte du serveur reçu avec ride.started.
+  const [securityNotice, setSecurityNotice] = useState<string | null>(null);
   // Heure d'arrivée d'Odoo et délai de grâce : le chauffeur voit le même compteur, depuis la même heure.
   const [arrival, setArrival] = useState<{ arrivedAtMs: number; graceSeconds: number } | null>(null);
   // Dernier message rapide du chauffeur, affiché jusqu'à ce que le client le ferme.
@@ -229,6 +231,7 @@ export function TrackingScreen({ route, navigation }: Props) {
         setPhase('course');
         setTrace([]);
         setDriverArrived(false);
+        setSecurityNotice(message.payload.securityNotice || null);
         // Le chemin vers le client n'a plus sa place sur la carte du trajet -- mais le tracé du
         // trajet a pu arriver AVANT ce message (rien ne les ordonne) : celui-là reste.
         setSharedRoute((current) => (current && current.phase === 'transit' ? current : null));
@@ -340,6 +343,12 @@ export function TrackingScreen({ route, navigation }: Props) {
       <Text style={styles.phaseTitle} testID="tracking-phase">
         {phase === 'course' ? 'Course en cours' : driverArrived ? 'Votre chauffeur est arrivé' : 'Votre chauffeur arrive'}
       </Text>
+
+      {phase === 'course' && securityNotice ? (
+        <Text style={styles.securityNotice} testID="tracking-security-notice">
+          {securityNotice}
+        </Text>
+      ) : null}
 
       {phase === 'approach' && driverArrived ? (
         <View style={styles.arrivedBanner} testID="tracking-arrived">
@@ -532,6 +541,11 @@ const useStyles = makeStyles((c) => ({
     color: c.brandText,
     fontWeight: '700',
     marginTop: 4,
+  },
+  securityNotice: {
+    color: c.muted,
+    fontSize: 13,
+    marginBottom: 8,
   },
   arrivedHint: {
     color: c.brandText,

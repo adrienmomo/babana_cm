@@ -108,3 +108,23 @@ conservé et rejouable pendant un an ; le client en est informé à chaque déma
 
 Point à vérifier hors du code : conformité à la loi camerounaise n° 2024/017 sur la protection
 des données personnelles (finalité, durée, information, éventuelle déclaration à l'autorité).
+
+## 6. Avis d'enregistrement au démarrage : push ou pas ? — contradiction relevée pendant L4-16
+
+La réponse du 17 novembre demande que le client soit « notifié au démarrage de chaque course que
+le trajet est enregistré pour sa sécurité ». La décision du 15 novembre (rapport du 15, réponse
+« 1 Push ») limite les push client à **chauffeur affecté, arrivé, course terminée** — et
+`test_client_push.py::test_starting_the_ride_sends_nothing` la protège.
+
+Implémenté en attendant l'arbitrage : l'avis part avec `ride.started` et s'affiche sur l'écran de
+suivi, **sans push**. Un client dont l'app est fermée au démarrage ne le voit donc pas à ce
+moment-là.
+
+Options : (a) garder ainsi — l'avis figure aussi dans les conditions d'utilisation ; (b) ajouter
+le démarrage à la liste des push client (un push de plus par course) et modifier le test du
+15 novembre en conséquence. Je recommande (b) : un client qui roule a rarement l'app au premier
+plan, et c'est précisément lui que l'avis concerne.
+
+**Arbitré le 17 novembre (maître d'ouvrage) : option (a), pas de push au démarrage.** La décision
+du 15 novembre reste entière (push client : affecté, arrivé, terminé). L'avis d'enregistrement
+passe par `ride.started` et l'écran de suivi, et figure dans les conditions d'utilisation.

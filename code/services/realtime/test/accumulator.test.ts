@@ -180,6 +180,41 @@ describe('accumulateur de course (L3-10)', () => {
     assert.equal(decoded.length, 3, `un L -> 3 sommets (départ, coin, arrivée), obtenu ${decoded.length}`);
   });
 
+  test('L4-16 -- chaque sommet du tracé porte son heure de capture et sa précision', async () => {
+    await startAccumulation(redis, driverId, CONFIG.ttlSeconds, 1_000);
+    // Un L, pour garder trois sommets : départ, coin, arrivée.
+    const corner = offset(ORIGIN.latitude, ORIGIN.longitude, 0, 6 * 40);
+    for (let i = 0; i <= 6; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await accumulatePosition(
+        redis, driverId,
+        { ...offset(ORIGIN.latitude, ORIGIN.longitude, 0, i * 40), capturedAtMs: 10_000 + i * 1_000, accuracyMeters: 6 },
+        CONFIG
+      );
+    }
+    for (let i = 1; i <= 6; i += 1) {
+      // eslint-disable-next-line no-await-in-loop
+      await accumulatePosition(
+        redis, driverId,
+        { ...offset(ORIGIN.latitude, ORIGIN.longitude, i * 40, 6 * 40), capturedAtMs: 20_000 + i * 1_000, accuracyMeters: 9 },
+        CONFIG
+      );
+    }
+    const measurement = await getAccumulation(redis, driverId);
+    const points = measurement!.points;
+    assert.equal(points.length, 3);
+    assert.deepEqual(points.map((p) => p.capturedAtMs), [10_000, 16_000, 26_000]);
+    assert.equal(points[0]?.accuracyMeters, 6);
+    assert.ok(Math.abs((points[1]?.longitude ?? 0) - corner.longitude) < 1e-9, 'le coin garde l’heure à laquelle il a été atteint');
+  });
+
+  test('L4-16 -- un sommet sans heure (accumulation antérieure) sort avec capturedAtMs null', async () => {
+    await startAccumulation(redis, driverId, CONFIG.ttlSeconds, 1_000);
+    await accumulatePosition(redis, driverId, offset(ORIGIN.latitude, ORIGIN.longitude, 0, 0), CONFIG);
+    const measurement = await getAccumulation(redis, driverId);
+    assert.deepEqual(measurement!.points.map((p) => p.capturedAtMs), [null]);
+  });
+
   test('critère 4 -- une coupure suivie d’une reprise ne perd pas l’accumulation en cours', async () => {
     await startAccumulation(redis, driverId, CONFIG.ttlSeconds, 1_000);
     for (let i = 0; i <= 5; i += 1) {

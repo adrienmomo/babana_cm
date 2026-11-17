@@ -140,6 +140,9 @@ def fetch_ride_measurement(*, driver_public_id: str) -> dict | None:
         "distance_meters": int(body["distanceMeters"]),
         "duration_seconds": int(body["durationSeconds"]),
         "polyline": body.get("polyline") or "",
+        # L4-16 : sommets horodatés du tracé, pour l'enregistrement du trajet. Absents d'un
+        # service temps réel antérieur : liste vide, jamais une erreur.
+        "points": body.get("points") or [],
     }
 
 
@@ -367,7 +370,9 @@ def notify_driver_available(env, *, driver_public_id: str) -> None:
     env.cr.postcommit.add(lambda: _notify_driver_available_now(driver_public_id=driver_public_id))
 
 
-def _notify_ride_started_now(*, ride_public_id: str, client_user_public_id: str, driver_public_id: str) -> None:
+def _notify_ride_started_now(
+    *, ride_public_id: str, client_user_public_id: str, driver_public_id: str, security_notice: str
+) -> None:
     try:
         _post(
             "/internal/rides/started",
@@ -375,6 +380,7 @@ def _notify_ride_started_now(*, ride_public_id: str, client_user_public_id: str,
                 "rideId": ride_public_id,
                 "clientUserId": client_user_public_id,
                 "driverId": driver_public_id,
+                "securityNotice": security_notice,
             },
         )
     except RealtimeUnavailable:
@@ -385,7 +391,9 @@ def _notify_ride_started_now(*, ride_public_id: str, client_user_public_id: str,
         )
 
 
-def notify_ride_started(env, *, ride_public_id: str, client_user_public_id: str, driver_public_id: str) -> None:
+def notify_ride_started(
+    env, *, ride_public_id: str, client_user_public_id: str, driver_public_id: str, security_notice: str = ""
+) -> None:
     """Démarrage de course (L3-19, assigned -> in_progress) : pousse `ride.started` (C-02) au
     client déjà abonné (`ride.track`, L3-09) et au chauffeur -- même message, deux destinataires
     (spécification L3-19 : "c'est le même message poussé à deux abonnés différents", même
@@ -404,6 +412,7 @@ def notify_ride_started(env, *, ride_public_id: str, client_user_public_id: str,
             ride_public_id=ride_public_id,
             client_user_public_id=client_user_public_id,
             driver_public_id=driver_public_id,
+            security_notice=security_notice,
         )
     )
 

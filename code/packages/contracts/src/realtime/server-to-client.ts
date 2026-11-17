@@ -312,6 +312,11 @@ export type ChatMessageMessage = z.infer<typeof ChatMessageMessageSchema>;
 /** Destinataire : client. Transition -> in_progress. */
 export const RideStartedPayloadSchema = z.object({
   rideId: RideIdSchema,
+  /**
+   * Avis montré au client à chaque démarrage (L4-16) : « Votre trajet est enregistré pour votre
+   * sécurité. » Texte du serveur, traduisible -- jamais écrit dans l'app. Vide : rien à montrer.
+   */
+  securityNotice: z.string(),
 });
 export const RideStartedMessageSchema = envelopeSchema('ride.started', RideStartedPayloadSchema);
 export type RideStartedMessage = z.infer<typeof RideStartedMessageSchema>;

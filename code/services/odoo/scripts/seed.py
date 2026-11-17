@@ -760,6 +760,30 @@ def make_ride_with_stops(client_user, drivers, zones_by_name):
     env.invalidate_all()
     ride.action_complete(by_driver=driver, measurement=None)
     ride.action_settle(by_driver=driver, amount_collected=ride.final_amount)
+
+    # L4-16 : le trajet enregistré, pour que « Rejouer le trajet » montre une vraie trace. Pas de
+    # mesure temps réel ici : c'est la copie du téléphone qui est retenue, comme en vrai quand le
+    # service temps réel n'a rien laissé. Un point toutes les 30 s, le long des tronçons, immobile
+    # pendant les attentes.
+    legs = [
+        ((o_lat, o_lng), (planned.latitude, planned.longitude), 6, 12, 17),
+        ((planned.latitude, planned.longitude), (added.latitude, added.longitude), 17, 24, 26.5),
+        ((added.latitude, added.longitude), (unplanned.latitude, unplanned.longitude), 26.5, 30, 34),
+        ((unplanned.latitude, unplanned.longitude), (d_lat, d_lng), 34, 40, 40),
+    ]
+    phone_points = []
+    for (a_lat, a_lng), (b_lat, b_lng), leave, arrive, depart in legs:
+        minute = leave
+        while minute <= depart:
+            ratio = 1.0 if minute >= arrive else (minute - leave) / max(arrive - leave, 0.5)
+            phone_points.append({
+                "latitude": a_lat + (b_lat - a_lat) * ratio,
+                "longitude": a_lng + (b_lng - a_lng) * ratio,
+                "capturedAt": (when + timedelta(minutes=minute)).isoformat() + "Z",
+                "accuracyMeters": 6,
+            })
+            minute += 0.5
+    ride._babana_store_phone_track(phone_points)
     Param.set_param(marker, ride.reference)
     info("+ course avec arrêts %s : Akwa -> Bonapriso, %d FCFA dont %d d'attente",
          ride.reference, round(ride.final_amount), round(ride.wait_fare_amount))

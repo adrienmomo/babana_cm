@@ -209,11 +209,36 @@ describe('TrackingScreen (L6-09)', () => {
     expect(root.root.findByProps({ testID: 'tracking-eta' })).toBeTruthy();
 
     await act(async () => {
-      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, securityNotice: '' } });
     });
 
     expect(root.root.findAllByProps({ testID: 'tracking-eta' })).toHaveLength(0);
     expect(texts(root)).toContain('Course en cours');
+  });
+
+  it("L4-16 : au démarrage, l'avis d'enregistrement du trajet envoyé par le serveur est affiché tel quel", async () => {
+    const { root } = await renderTracking();
+    expect(root.root.findAllByProps({ testID: 'tracking-security-notice' })).toHaveLength(0);
+
+    await act(async () => {
+      realtimeListener?.({
+        type: 'ride.started',
+        id: 'm-notice',
+        emittedAt: new Date().toISOString(),
+        payload: { rideId: RIDE_ID, securityNotice: 'Votre trajet est enregistré pour votre sécurité.' },
+      });
+    });
+
+    expect(root.root.findByProps({ testID: 'tracking-security-notice' })).toBeTruthy();
+    expect(texts(root)).toContain('Votre trajet est enregistré pour votre sécurité.');
+  });
+
+  it('L4-16 : un avis vide (serveur antérieur) ne laisse aucune ligne vide', async () => {
+    const { root } = await renderTracking();
+    await act(async () => {
+      realtimeListener?.({ type: 'ride.started', id: 'm-empty', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, securityNotice: '' } });
+    });
+    expect(root.root.findAllByProps({ testID: 'tracking-security-notice' })).toHaveLength(0);
   });
 
   // 24 octobre : une fois la course commencée, l'épingle de prise en charge recouvrait le
@@ -226,7 +251,7 @@ describe('TrackingScreen (L6-09)', () => {
     expect(lastMapProps()!.markers.map((m) => m.id)).toContain('pickup');
 
     await act(async () => {
-      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, securityNotice: '' } });
     });
 
     const ids = lastMapProps()!.markers.map((m) => m.id);
@@ -473,7 +498,7 @@ describe('TrackingScreen (L6-09)', () => {
     expect(root.root.findAllByProps({ testID: 'emergency-button' }).length).toBeGreaterThan(0);
 
     await act(async () => {
-      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, securityNotice: '' } });
     });
 
     expect(root.root.findAllByProps({ testID: 'emergency-button' }).length).toBeGreaterThan(0);
@@ -510,7 +535,7 @@ describe('itinéraire du chauffeur et « Sur place » (déroulé sur la carte du
     expect(lastMapProps()?.route).toEqual({ points: APPROACH_POINTS });
 
     await act(async () => {
-      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, securityNotice: '' } });
     });
     // Le chemin vers le client n'a plus rien à faire sur la carte du trajet.
     expect(lastMapProps()?.route).toBeUndefined();
@@ -526,7 +551,7 @@ describe('itinéraire du chauffeur et « Sur place » (déroulé sur la carte du
     await act(async () => {
       emitPosition();
       emitRoute('transit', TRANSIT_POINTS);
-      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, securityNotice: '' } });
     });
     expect(lastMapProps()?.route).toEqual({ points: TRANSIT_POINTS });
   });
@@ -753,7 +778,7 @@ describe('6 novembre : annuler avec un motif, et apprendre celui du chauffeur', 
   it('en course : pas d’annulation côté client (C-03) -- l’urgence reste le recours', async () => {
     const { root } = await renderTracking();
     await act(async () => {
-      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID } });
+      realtimeListener?.({ type: 'ride.started', id: 'm2', emittedAt: new Date().toISOString(), payload: { rideId: RIDE_ID, securityNotice: '' } });
     });
     expect(root.root.findAll((n) => n.props.testID === 'tracking-cancel')).toHaveLength(0);
   });

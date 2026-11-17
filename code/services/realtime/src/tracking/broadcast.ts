@@ -190,9 +190,14 @@ function buildRideTrackAckMessage(broadcastIntervalMs: number): realtime.RideTra
  */
 export function broadcastRideStarted(
   registry: ConnectionRegistry,
-  params: { rideId: string; clientUserId: string; driverId: string }
+  params: { rideId: string; clientUserId: string; driverId: string; securityNotice: string }
 ): void {
-  sendToRideParticipants(registry, params.clientUserId, params.driverId, buildRideStartedMessage(params.rideId));
+  sendToRideParticipants(
+    registry,
+    params.clientUserId,
+    params.driverId,
+    buildRideStartedMessage(params.rideId, params.securityNotice)
+  );
 }
 
 /**
@@ -297,12 +302,12 @@ function sendToRideParticipants(
   }
 }
 
-function buildRideStartedMessage(rideId: string): realtime.RideStartedMessage {
+function buildRideStartedMessage(rideId: string, securityNotice: string): realtime.RideStartedMessage {
   return {
     type: 'ride.started',
     id: randomUUID(),
     emittedAt: new Date().toISOString(),
-    payload: { rideId },
+    payload: { rideId, securityNotice },
   };
 }
 
