@@ -11,6 +11,7 @@ from ..services.approach import (
     DEFAULT_APPROACH_DISTANCE_DEFAULT,
     DEFAULT_APPROACH_DISTANCE_PARAM,
 )
+from ..services import stops
 from ..services.dispatch import (
     DISPATCH_MAX_ATTEMPTS_DEFAULT,
     DISPATCH_MAX_ATTEMPTS_PARAM,
@@ -110,6 +111,36 @@ class ResConfigSettings(models.TransientModel):
         "peu significative.",
     )
 
+    # --- Arrêts (L2-08) ----------------------------------------------------------------------
+    babana_max_stops_per_ride = fields.Integer(
+        string="Arrêts par course (maximum)",
+        config_parameter=stops.MAX_STOPS_PARAM,
+        default=stops.MAX_STOPS_DEFAULT,
+        help="Arrêts intermédiaires qu'un client peut demander, à la commande et en cours de course.",
+    )
+    babana_stop_arrival_radius_m = fields.Integer(
+        string="Rayon d'arrivée à un arrêt (mètres)",
+        config_parameter=stops.ARRIVAL_RADIUS_PARAM,
+        default=stops.ARRIVAL_RADIUS_DEFAULT,
+        help="L'app chauffeur déclare l'arrivée d'elle-même à cette distance de l'arrêt.",
+    )
+    babana_stop_departure_distance_m = fields.Integer(
+        string="Départ d'un arrêt : distance (mètres)",
+        config_parameter=stops.DEPARTURE_DISTANCE_PARAM,
+        default=stops.DEPARTURE_DISTANCE_DEFAULT,
+        help="Avec la vitesse et la durée ci-dessous : la moto est repartie, l'attente s'arrête.",
+    )
+    babana_stop_departure_speed_kmh = fields.Integer(
+        string="Départ d'un arrêt : vitesse (km/h)",
+        config_parameter=stops.DEPARTURE_SPEED_PARAM,
+        default=stops.DEPARTURE_SPEED_DEFAULT,
+    )
+    babana_stop_departure_duration_s = fields.Integer(
+        string="Départ d'un arrêt : durée (secondes)",
+        config_parameter=stops.DEPARTURE_DURATION_PARAM,
+        default=stops.DEPARTURE_DURATION_DEFAULT,
+    )
+
     _BABANA_POSITIVE_FIELDS = (
         "babana_no_show_grace_seconds",
         "babana_quote_validity_seconds",
@@ -121,11 +152,17 @@ class ResConfigSettings(models.TransientModel):
         "babana_approach_sample_size",
         "babana_default_approach_distance_meters",
         "babana_rating_min_count",
+        "babana_stop_arrival_radius_m",
+        "babana_stop_departure_distance_m",
+        "babana_stop_departure_speed_kmh",
+        "babana_stop_departure_duration_s",
     )
 
-    @api.constrains("babana_dispatch_widenings")
+    @api.constrains("babana_dispatch_widenings", "babana_max_stops_per_ride")
     def _check_babana_widenings_not_negative(self):
         for settings in self:
+            if settings.babana_max_stops_per_ride < 0:
+                raise ValidationError(_("Le nombre d'arrêts maximal ne peut pas être négatif."))
             if settings.babana_dispatch_widenings < 0:
                 raise ValidationError(_("Le nombre d'élargissements ne peut pas être négatif."))
 

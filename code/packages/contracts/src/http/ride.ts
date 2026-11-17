@@ -352,6 +352,7 @@ export const rideOutcomeResponseExample: RideOutcomeResponse = {
     approachFare: 100,
     distanceFare: 800,
     surgeAmount: 0,
+    stopFare: 0,
     discountAmount: 0,
     floorAmount: 0,
     roundingAmount: 0,

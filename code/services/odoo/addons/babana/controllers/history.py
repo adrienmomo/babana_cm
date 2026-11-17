@@ -53,7 +53,7 @@ def _wire_breakdown(ride) -> dict:
     # montant, pour que la somme reste exacte (même dégradation que la facture, L4-06).
     return {
         "baseFare": _amount(ride), "approachFare": 0, "distanceFare": 0, "surgeAmount": 0,
-        "discountAmount": 0, "floorAmount": 0, "roundingAmount": 0, "minimumFareApplied": False,
+        "stopFare": 0, "discountAmount": 0, "floorAmount": 0, "roundingAmount": 0, "minimumFareApplied": False,
     }
 
 

@@ -28,6 +28,7 @@ const BREAKDOWN = {
   approachFare: 0,
   distanceFare: 1000,
   surgeAmount: 300,
+  stopFare: 0,
   discountAmount: 100,
   floorAmount: 0,
   roundingAmount: 50,

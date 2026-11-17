@@ -13,7 +13,7 @@ from datetime import timedelta
 from odoo import fields, http
 
 from . import _common
-from ..services import approach, routing
+from ..services import approach, routing, stops as stops_service
 from ..models.babana_quote import QUOTE_VALIDITY_DEFAULT, QUOTE_VALIDITY_PARAM
 from ..services.dispatch import search_radii
 from ..services.pricing import compute_fare, round_breakdown_for_wire
@@ -54,6 +54,9 @@ class QuoteController(http.Controller):
         origin, destination, vehicle_class, error = self._validate(body)
         if error:
             return error
+        stops, error = self._validate_stops(env, body)
+        if error:
+            return error
 
         now = fields.Datetime.now()
 
@@ -70,8 +73,8 @@ class QuoteController(http.Controller):
             zone=pickup_zone, vehicle_class=vehicle_class, at_datetime=now
         )
 
-        route = routing.get_reference_route(
-            env, origin=origin, destination=destination, vehicle_class=vehicle_class,
+        route = routing.get_reference_route_through(
+            env, points=[origin, *stops, destination], vehicle_class=vehicle_class,
             at_datetime=now,
         )
 
@@ -96,6 +99,7 @@ class QuoteController(http.Controller):
             route.distance_meters,
             rounding_step=rounding_step,
             approach_distance_m=approach_estimate.distance_meters,
+            stop_count=len(stops),
         )
 
         eta_factor = float(
@@ -129,6 +133,11 @@ class QuoteController(http.Controller):
                 "pickup_zone_id": pickup_zone.id,
                 "dropoff_zone_id": dropoff_zone.id,
                 "vehicle_class": vehicle_class,
+                "stops_json": json.dumps(
+                    [{"latitude": lat, "longitude": lng} for lat, lng in stops]
+                ),
+                "stop_count": len(stops),
+                "stop_wait_snapshot": json.dumps(rule._stop_wait_snapshot()),
                 "distance_meters": route.distance_meters,
                 "duration_seconds": route.duration_seconds,
                 "approach_distance_meters": approach_estimate.distance_meters,
@@ -151,6 +160,7 @@ class QuoteController(http.Controller):
             "currency": "XAF",
             "breakdown": wire_breakdown,
             "distanceMeters": route.distance_meters,
+            "stopCount": len(stops),
             "approachDistanceMeters": approach_estimate.distance_meters,
             "etaSeconds": eta_seconds,
             "pickupEtaSeconds": pickup_eta_seconds,
@@ -178,6 +188,29 @@ class QuoteController(http.Controller):
             )
 
         return origin, destination, vehicle_class, None
+
+    def _validate_stops(self, env, body):
+        """Arrêts intermédiaires (L2-08) : facultatifs, dans l'ordre, au plus
+        babana.max_stops_per_ride -- au-delà, TOO_MANY_STOPS plutôt qu'une troncature muette."""
+        raw = body.get("stops")
+        if raw is None:
+            return [], None
+        if not isinstance(raw, list):
+            return None, (_common.error_payload("VALIDATION_ERROR", "stops doit être une liste"), 400)
+        parsed = [self._parse_latlng(item) for item in raw]
+        if any(point is None for point in parsed):
+            return None, (
+                _common.error_payload("VALIDATION_ERROR", "chaque arrêt doit être une position"),
+                400,
+            )
+        limit = stops_service.max_stops(env)
+        if len(parsed) > limit:
+            return None, (
+                _common.error_payload(
+                    "TOO_MANY_STOPS", f"au plus {limit} arrêt(s) par course"
+                ), 400,
+            )
+        return parsed, None
 
     @staticmethod
     def _parse_latlng(value):

@@ -74,6 +74,15 @@
                             <field name="minimum_fare" readonly="locked_by_usage"/>
                             <field name="surge_multiplier" readonly="locked_by_usage"/>
                         </group>
+                        <group string="Arrêts et attente">
+                            <field name="stop_flat_fee" readonly="locked_by_usage"/>
+                            <field name="wait_rate_per_minute" readonly="locked_by_usage"/>
+                            <field name="pickup_free_wait_minutes" readonly="locked_by_usage"/>
+                            <field name="stop_free_wait_minutes" readonly="locked_by_usage"/>
+                            <field name="max_billable_wait_minutes" readonly="locked_by_usage"/>
+                            <field name="distance_band_min_ratio" readonly="locked_by_usage"/>
+                            <field name="distance_band_max_ratio" readonly="locked_by_usage"/>
+                        </group>
                         <group string="Application">
                             <field name="vehicle_class" readonly="locked_by_usage"/>
                             <field name="zone_id" readonly="locked_by_usage"/>
@@ -186,6 +195,15 @@
                             <field name="approach_price_per_km"/>
                             <field name="minimum_fare"/>
                             <field name="surge_multiplier"/>
+                        </group>
+                        <group string="Arrêts et attente">
+                            <field name="stop_flat_fee"/>
+                            <field name="wait_rate_per_minute"/>
+                            <field name="pickup_free_wait_minutes"/>
+                            <field name="stop_free_wait_minutes"/>
+                            <field name="max_billable_wait_minutes"/>
+                            <field name="distance_band_min_ratio"/>
+                            <field name="distance_band_max_ratio"/>
                         </group>
                         <group string="Application">
                             <field name="vehicle_class"/>

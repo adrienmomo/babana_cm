@@ -25,6 +25,33 @@
                             </div>
                         </setting>
                     </block>
+                    <block title="Arrêts" name="babana_stop_settings">
+                        <setting id="babana_max_stops" string="Arrêts par course"
+                                 help="Arrêts intermédiaires qu'un client peut demander, à la commande et en cours de course. Les montants (forfait, attente) sont sur la grille tarifaire.">
+                            <div class="d-flex align-items-center gap-2">
+                                <field name="babana_max_stops_per_ride" style="width: 6rem"/>
+                                <span>arrêts</span>
+                            </div>
+                        </setting>
+                        <setting id="babana_stop_arrival_radius" string="Arrivée à un arrêt"
+                                 help="L'app chauffeur déclare l'arrivée d'elle-même à cette distance.">
+                            <div class="d-flex align-items-center gap-2">
+                                <field name="babana_stop_arrival_radius_m" style="width: 6rem"/>
+                                <span>mètres</span>
+                            </div>
+                        </setting>
+                        <setting id="babana_stop_departure" string="Départ d'un arrêt"
+                                 help="La moto est repartie quand elle a parcouru cette distance, à cette vitesse, pendant cette durée : l'attente s'arrête.">
+                            <div class="d-flex align-items-center gap-2">
+                                <field name="babana_stop_departure_distance_m" style="width: 5rem"/>
+                                <span>m, à</span>
+                                <field name="babana_stop_departure_speed_kmh" style="width: 4rem"/>
+                                <span>km/h, pendant</span>
+                                <field name="babana_stop_departure_duration_s" style="width: 4rem"/>
+                                <span>s</span>
+                            </div>
+                        </setting>
+                    </block>
                     <block title="Recherche d'un chauffeur" name="babana_dispatch_settings">
                         <setting id="babana_dispatch_radius" string="Premier rayon de recherche"
                                  help="La course part au chauffeur disponible le plus proche par la route, d'abord parmi ceux de ce rayon.">

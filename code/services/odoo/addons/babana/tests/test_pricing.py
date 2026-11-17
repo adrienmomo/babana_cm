@@ -156,3 +156,57 @@ class TestPricingEngine(BaseCase):
         breakdown = FareBreakdown(**legacy)
         self.assertEqual(breakdown.approach_fare, 0.0)
         self.assertEqual(round_breakdown_for_wire(breakdown)["approachFare"], 0)
+
+
+@tagged("post_install", "-at_install")
+class TestStopFare(BaseCase):
+    """L2-08 : forfait par arrêt, ajouté après le coefficient de pointe, avant la remise."""
+
+    _RULE = FareRuleInput(
+        base_fare=200.0, price_per_km=100.0, minimum_fare=300.0, stop_flat_fee=100.0
+    )
+
+    def test_no_stop_gives_exactly_the_amount_from_before_l2_08(self):
+        without = compute_fare(self._RULE, 4000, rounding_step=25)
+        legacy_rule = FareRuleInput(base_fare=200.0, price_per_km=100.0, minimum_fare=300.0)
+        self.assertEqual(without, compute_fare(legacy_rule, 4000, rounding_step=25))
+        self.assertEqual(without.stop_fare, 0.0)
+
+    def test_each_stop_adds_the_flat_fee(self):
+        none = compute_fare(self._RULE, 4000, rounding_step=25)
+        two = compute_fare(self._RULE, 4000, rounding_step=25, stop_count=2)
+        self.assertEqual(two.stop_fare, 200.0)
+        self.assertEqual(two.total - none.total, 200.0)
+        self.assertTrue(two.sum_matches_total())
+
+    def test_stop_fee_is_not_multiplied_by_the_surge(self):
+        surged = FareRuleInput(
+            base_fare=200.0, price_per_km=100.0, minimum_fare=300.0, surge_multiplier=1.5,
+            stop_flat_fee=100.0,
+        )
+        breakdown = compute_fare(surged, 4000, rounding_step=25, stop_count=1)
+        self.assertEqual(breakdown.stop_fare, 100.0)
+        self.assertEqual(breakdown.total, (200.0 + 400.0) * 1.5 + 100.0)
+
+    def test_negative_stop_count_is_rejected(self):
+        with self.assertRaises(ValueError):
+            compute_fare(self._RULE, 4000, rounding_step=25, stop_count=-1)
+
+    def test_wire_breakdown_carries_the_stop_fare_and_still_sums_to_the_total(self):
+        breakdown = compute_fare(self._RULE, 3333, rounding_step=25, stop_count=3)
+        wire = round_breakdown_for_wire(breakdown)
+        self.assertEqual(wire["stopFare"], 300)
+        total = (
+            wire["baseFare"] + wire["approachFare"] + wire["distanceFare"] + wire["surgeAmount"]
+            + wire["stopFare"] - wire["discountAmount"] + wire["floorAmount"]
+            + wire["roundingAmount"]
+        )
+        self.assertEqual(total, round(breakdown.total))
+
+    def test_a_snapshot_frozen_before_l2_08_still_reads(self):
+        legacy = {
+            "base_fare": 200.0, "distance_fare": 400.0, "surge_amount": 0.0,
+            "discount_amount": 0.0, "floor_amount": 0.0, "rounding_amount": 0.0,
+            "minimum_fare_applied": False, "total": 600.0, "approach_fare": 0.0,
+        }
+        self.assertEqual(round_breakdown_for_wire(FareBreakdown(**legacy))["stopFare"], 0)

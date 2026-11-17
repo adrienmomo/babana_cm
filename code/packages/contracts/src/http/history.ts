@@ -164,6 +164,7 @@ export const rideInvoiceResponseExample: RideInvoiceResponse = {
     approachFare: 75,
     distanceFare: 260,
     surgeAmount: 0,
+    stopFare: 0,
     discountAmount: 0,
     floorAmount: 0,
     roundingAmount: 165,

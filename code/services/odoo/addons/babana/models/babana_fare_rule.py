@@ -41,7 +41,28 @@ _VERSIONED_FIELDS = {
     "weekday_mask",
     "surge_multiplier",
     "priority",
+    # L2-08 : arrêts et attente. Gelés avec chaque estimation (stop_wait_snapshot) ; versionnés
+    # comme le reste, pour qu'une course rejouée un an plus tard retrouve les mêmes valeurs.
+    "stop_flat_fee",
+    "wait_rate_per_minute",
+    "pickup_free_wait_minutes",
+    "stop_free_wait_minutes",
+    "max_billable_wait_minutes",
+    "distance_band_min_ratio",
+    "distance_band_max_ratio",
 }
+
+# Champs gelés par valeur sur l'estimation puis la course (L2-08) : ce que le prix final (L4-15)
+# lira, jamais la grille du jour.
+STOP_WAIT_FIELDS = (
+    "stop_flat_fee",
+    "wait_rate_per_minute",
+    "pickup_free_wait_minutes",
+    "stop_free_wait_minutes",
+    "max_billable_wait_minutes",
+    "distance_band_min_ratio",
+    "distance_band_max_ratio",
+)
 
 ALL_WEEKDAYS_MASK = 0b1111111
 
@@ -63,6 +84,46 @@ class BabanaFareRule(models.Model):
         "provisoire (D21).",
     )
     minimum_fare = fields.Float(string="Montant plancher (FCFA)", required=True)
+
+    # --- Arrêts et attente (L2-08, amoa/questions/MULTISTOP-2026-11-17.md) -----------------------
+    # Valeurs initiales données par le maître d'ouvrage le 17 novembre ; modifiables ici.
+    stop_flat_fee = fields.Float(
+        string="Forfait par arrêt (FCFA)",
+        default=100.0,
+        help="Ajouté au prix de distance pour chaque arrêt intermédiaire, non majoré par le "
+        "coefficient de pointe.",
+    )
+    wait_rate_per_minute = fields.Float(
+        string="Attente : prix par minute (FCFA)",
+        default=30.0,
+        help="Un seul tarif, à la prise en charge comme aux arrêts. Seules les minutes complètes "
+        "au-delà de la gratuité sont facturées.",
+    )
+    pickup_free_wait_minutes = fields.Integer(
+        string="Attente gratuite à la prise en charge (minutes)",
+        default=3,
+        help="Comptée depuis « Sur place ». Avec 3, la facturation commence à la 4e minute.",
+    )
+    stop_free_wait_minutes = fields.Integer(
+        string="Attente gratuite à un arrêt (minutes)",
+        default=2,
+        help="Arrêts prévus comme arrêts imprévus (« Arrêt client »).",
+    )
+    max_billable_wait_minutes = fields.Integer(
+        string="Attente facturable maximale par point (minutes)",
+        default=15,
+        help="Plafond des minutes facturées à la prise en charge, et à chaque arrêt.",
+    )
+    distance_band_min_ratio = fields.Float(
+        string="Bande de distance : borne basse",
+        default=0.6,
+        help="Distance parcourue / distance prévue. Dans la bande, le prix de distance prévu "
+        "s'applique ; hors de la bande, il est recalculé sur la distance parcourue.",
+    )
+    distance_band_max_ratio = fields.Float(
+        string="Bande de distance : borne haute",
+        default=1.0,
+    )
     zone_id = fields.Many2one(
         "babana.zone",
         string="Zone d'application",
@@ -142,7 +203,26 @@ class BabanaFareRule(models.Model):
             "Le prix au km d'approche doit être positif et ne jamais dépasser le prix au km de "
             "la course.",
         ),
+        (
+            "babana_fare_rule_stop_wait_not_negative",
+            "check(stop_flat_fee >= 0 and wait_rate_per_minute >= 0 "
+            "and pickup_free_wait_minutes >= 0 and stop_free_wait_minutes >= 0 "
+            "and max_billable_wait_minutes >= 0)",
+            "Le forfait par arrêt, le prix de l'attente et ses durées ne peuvent pas être négatifs.",
+        ),
+        (
+            "babana_fare_rule_distance_band_ordered",
+            "check(distance_band_min_ratio >= 0 "
+            "and distance_band_max_ratio >= distance_band_min_ratio)",
+            "La borne haute de la bande de distance doit être supérieure ou égale à la borne basse.",
+        ),
     ]
+
+    def _stop_wait_snapshot(self) -> dict:
+        """Valeurs d'arrêt et d'attente gelées par valeur sur l'estimation (L2-08) -- puis
+        copiées sur la course : le prix final (L4-15) ne relit jamais la grille."""
+        self.ensure_one()
+        return {name: self[name] for name in STOP_WAIT_FIELDS}
 
     def _pricing_input(self):
         """Vue pure de la règle pour services/pricing.py -- une seule correspondance, partagée par
@@ -154,6 +234,7 @@ class BabanaFareRule(models.Model):
             minimum_fare=self.minimum_fare,
             surge_multiplier=self.surge_multiplier,
             approach_price_per_km=self.approach_price_per_km,
+            stop_flat_fee=self.stop_flat_fee,
         )
 
     @api.model
@@ -286,6 +367,7 @@ class BabanaFareRule(models.Model):
                 "default_weekday_mask": self.weekday_mask,
                 "default_surge_multiplier": self.surge_multiplier,
                 "default_priority": self.priority,
+                **{f"default_{name}": self[name] for name in STOP_WAIT_FIELDS},
             },
         }
 

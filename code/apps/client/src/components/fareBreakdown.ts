@@ -23,6 +23,7 @@ export const FARE_LINES: ReadonlyArray<{
   { key: 'approachFare', label: 'Prise en charge', alwaysShown: true },
   { key: 'distanceFare', label: 'Distance', alwaysShown: true },
   { key: 'surgeAmount', label: 'Majoration' },
+  { key: 'stopFare', label: 'Arrêts' },
   { key: 'discountAmount', label: 'Remise', subtract: true },
   { key: 'floorAmount', label: 'Ajustement plancher' },
   { key: 'roundingAmount', label: 'Arrondi' },

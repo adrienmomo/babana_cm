@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from odoo import fields, models
 
+from .babana_fare_rule import STOP_WAIT_FIELDS
+
 
 class BabanaFareRuleVersionWizard(models.TransientModel):
     _name = "babana.fare.rule.version.wizard"
@@ -27,6 +29,14 @@ class BabanaFareRuleVersionWizard(models.TransientModel):
     weekday_mask = fields.Integer(string="Jours d'application (bits)")
     surge_multiplier = fields.Float(string="Coefficient heure de pointe")
     priority = fields.Integer()
+    # L2-08 -- mêmes libellés que babana.fare.rule.
+    stop_flat_fee = fields.Float(string="Forfait par arrêt (FCFA)")
+    wait_rate_per_minute = fields.Float(string="Attente : prix par minute (FCFA)")
+    pickup_free_wait_minutes = fields.Integer(string="Attente gratuite à la prise en charge (minutes)")
+    stop_free_wait_minutes = fields.Integer(string="Attente gratuite à un arrêt (minutes)")
+    max_billable_wait_minutes = fields.Integer(string="Attente facturable maximale par point (minutes)")
+    distance_band_min_ratio = fields.Float(string="Bande de distance : borne basse")
+    distance_band_max_ratio = fields.Float(string="Bande de distance : borne haute")
 
     def action_confirm(self):
         self.ensure_one()
@@ -44,6 +54,7 @@ class BabanaFareRuleVersionWizard(models.TransientModel):
                 "weekday_mask": self.weekday_mask,
                 "surge_multiplier": self.surge_multiplier,
                 "priority": self.priority,
+                **{name: self[name] for name in STOP_WAIT_FIELDS},
             }
         )
         return {

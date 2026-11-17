@@ -21,6 +21,12 @@ export const QuoteRequestSchema = z.object({
    * D17 vaut par précaution). Ajouté en implémentant L2-04, voir amoa/questions/L2-04.md.
    */
   vehicleClass: VehicleClassSchema.optional(),
+  /**
+   * Arrêts intermédiaires, dans l'ordre (L2-08). L'itinéraire coté passe par eux. Leur nombre
+   * maximal est un paramètre serveur (`babana.max_stops_per_ride`) : au-delà, `TOO_MANY_STOPS`.
+   * Absent = aucun arrêt.
+   */
+  stops: z.array(LatLngSchema).optional(),
   promoCode: z.string().min(1).optional(),
 });
 export type QuoteRequest = z.infer<typeof QuoteRequestSchema>;
@@ -41,6 +47,8 @@ export const FareBreakdownSchema = z.object({
   approachFare: MoneyAmountSchema,
   distanceFare: MoneyAmountSchema,
   surgeAmount: z.number().int(),
+  /** Forfait par arrêt × nombre d'arrêts (L2-08), non majoré. 0 sans arrêt. */
+  stopFare: MoneyAmountSchema,
   discountAmount: MoneyAmountSchema,
   floorAmount: MoneyAmountSchema,
   roundingAmount: z.number().int(),
@@ -53,7 +61,10 @@ export const QuoteResponseSchema = z.object({
   amount: MoneyAmountSchema,
   currency: z.literal('XAF'),
   breakdown: FareBreakdownSchema,
+  /** Distance de l'itinéraire complet, arrêts compris. */
   distanceMeters: z.number().int().nonnegative(),
+  /** Nombre d'arrêts cotés (L2-08). */
+  stopCount: z.number().int().nonnegative(),
   /** Distance d'approche moyenne facturée en prise en charge (voir `breakdown.approachFare`). */
   approachDistanceMeters: z.number().int().nonnegative(),
   /** Distance et durée voiture (É8) : ni Google ni Mapbox ne calculent d'itinéraire deux-roues au Cameroun. */
@@ -85,6 +96,8 @@ export const QuoteErrors = [
   // Ajouté en implémentant L2-05 : l'indisponibilité de l'API de routage doit produire une
   // erreur explicite, jamais une estimation dégradée silencieuse (amoa/questions/L2-04.md).
   'ROUTE_UNAVAILABLE',
+  // L2-08 : plus d'arrêts que babana.max_stops_per_ride.
+  'TOO_MANY_STOPS',
 ] as const;
 
 export const quoteRequestExample: QuoteRequest = {
@@ -102,12 +115,14 @@ export const quoteResponseExample: QuoteResponse = {
     approachFare: 100,
     distanceFare: 1000,
     surgeAmount: 0,
+    stopFare: 0,
     discountAmount: 0,
     floorAmount: 0,
     roundingAmount: 0,
     minimumFareApplied: false,
   },
   distanceMeters: 4200,
+  stopCount: 0,
   approachDistanceMeters: 2000,
   etaSeconds: 780,
   pickupEtaSeconds: 180,

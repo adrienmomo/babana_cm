@@ -40,9 +40,22 @@ class BabanaQuote(models.Model):
         [("standard", "Standard"), ("premium", "Premium")], default="standard", required=True
     )
 
+    # --- Arrêts intermédiaires (L2-08) ----------------------------------------------------------
+    stops_json = fields.Text(
+        help="Arrêts dans l'ordre (JSON : [{latitude, longitude}]) -- l'itinéraire coté passe par "
+        "eux. Copiés sur la course à sa création (L4-14).",
+    )
+    stop_count = fields.Integer(default=0)
+    stop_wait_snapshot = fields.Text(
+        help="Forfait par arrêt, tarif et gratuités d'attente, bande de distance (JSON), gelés "
+        "par valeur depuis la règle tarifaire : le prix final (L4-15) les relit ici, sur la "
+        "course, jamais sur la grille du jour.",
+    )
+
     # --- Distance de référence (L2-05) ----------------------------------------------------------
     distance_meters = fields.Integer(
-        help="Distance de référence, modèle voiture (É8) -- voir services/routing.py.",
+        help="Distance de référence, modèle voiture (É8), par les arrêts s'il y en a -- voir "
+        "services/routing.py.",
     )
     duration_seconds = fields.Integer(help="Durée brute renvoyée par le routeur, avant correction.")
     eta_seconds = fields.Integer(help="Durée corrigée (facteur L10-03) -- celle affichée au client.")

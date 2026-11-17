@@ -42,6 +42,8 @@ export const ErrorCode = z.enum([
   // L2-05 : indisponibilité de l'API de routage -- jamais d'estimation dégradée silencieuse
   // (amoa/questions/L2-04.md).
   'ROUTE_UNAVAILABLE',
+  // L2-08 : plus d'arrêts que babana.max_stops_per_ride.
+  'TOO_MANY_STOPS',
 
   // Cycle de vie de la course
   'RIDE_NOT_FOUND',
@@ -111,6 +113,7 @@ export const ERROR_HTTP_STATUS: Record<ErrorCode, number> = {
   QUOTE_NOT_FOUND: 404,
   PROMO_CODE_INVALID: 400,
   ROUTE_UNAVAILABLE: 503,
+  TOO_MANY_STOPS: 400,
 
   RIDE_NOT_FOUND: 404,
   INVOICE_NOT_AVAILABLE: 409,
@@ -168,6 +171,7 @@ export const ERROR_DESCRIPTION: Record<ErrorCode, string> = {
   QUOTE_NOT_FOUND: "Aucune estimation active pour cet identifiant.",
   PROMO_CODE_INVALID: "Le code promotionnel est inconnu, expiré, ou déjà épuisé.",
   ROUTE_UNAVAILABLE: "L'API de routage est indisponible ; réessayer plus tard (aucune estimation dégradée n'est produite).",
+  TOO_MANY_STOPS: "Plus d'arrêts que le maximum autorisé par course (babana.max_stops_per_ride).",
 
   RIDE_NOT_FOUND: "Aucune course pour cet identifiant.",
   INVOICE_NOT_AVAILABLE: "Cette course n'a pas de facture : seule une course encaissée en a une.",

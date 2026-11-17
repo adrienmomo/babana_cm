@@ -21,6 +21,9 @@ class FareRuleInput:
     # Prix au km de la distance d'approche moyenne (prise en charge, D-suivant proposée le 26
     # octobre) -- plus léger que price_per_km : la distance de la course pèse davantage.
     approach_price_per_km: float = 0.0
+    # Forfait par arrêt intermédiaire (L2-08, amoa/questions/MULTISTOP-2026-11-17.md) -- ajouté
+    # après le coefficient de pointe : un forfait n'est pas majoré.
+    stop_flat_fee: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -51,6 +54,8 @@ class FareBreakdown:
     # Défaut 0.0 et en dernier : les détails gelés avant la prise en charge par approche
     # (fare_rule_snapshot des courses et estimations anciennes) se relisent sans ce champ.
     approach_fare: float = 0.0
+    # Même raison : les détails gelés avant L2-08 se relisent sans ce champ.
+    stop_fare: float = 0.0
 
     def sum_matches_total(self) -> bool:
         return math.isclose(
@@ -58,6 +63,7 @@ class FareBreakdown:
             + self.approach_fare
             + self.distance_fare
             + self.surge_amount
+            + self.stop_fare
             - self.discount_amount
             + self.floor_amount
             + self.rounding_amount,
@@ -72,11 +78,12 @@ def compute_fare(
     *,
     rounding_step: float,
     approach_distance_m: float = 0.0,
+    stop_count: int = 0,
     promotion: PromotionInput | None = None,
 ) -> FareBreakdown:
     """Calcule le montant d'une course (L2-03), dans l'ordre imposé par la spécification :
     1. base + approche moyenne x prix au km d'approche + distance x prix au km ; 2. coefficient
-    d'heure de pointe ; 3. promotion éventuelle ; 4. plancher, après la promotion ; 5. arrondi
+    d'heure de pointe ; 2 bis. forfait par arrêt (L2-08), non majoré ; 3. promotion éventuelle ; 4. plancher, après la promotion ; 5. arrondi
     FCFA au pas configuré.
 
     `approach_distance_m` est la distance routière MOYENNE des chauffeurs disponibles jusqu'au
@@ -89,6 +96,10 @@ def compute_fare(
     before_surge = rule.base_fare + approach_fare + distance_fare
     subtotal = before_surge * rule.surge_multiplier
     surge_amount = subtotal - before_surge
+    if stop_count < 0:
+        raise ValueError(f"Nombre d'arrêts négatif : {stop_count}")
+    stop_fare = stop_count * rule.stop_flat_fee
+    subtotal += stop_fare
 
     discount_amount = _compute_discount(subtotal, promotion) if promotion is not None else 0.0
     after_discount = subtotal - discount_amount
@@ -112,6 +123,7 @@ def compute_fare(
         minimum_fare_applied=minimum_fare_applied,
         total=total,
         approach_fare=approach_fare,
+        stop_fare=stop_fare,
     )
 
 
@@ -133,15 +145,17 @@ def round_breakdown_for_wire(breakdown: FareBreakdown) -> dict:
     approach = round(breakdown.approach_fare)
     distance = round(breakdown.distance_fare)
     surge = round(breakdown.surge_amount)
+    stops = round(breakdown.stop_fare)
     discount = round(breakdown.discount_amount)
     floor = round(breakdown.floor_amount)
     total = round(breakdown.total)
-    rounding = total - (base + approach + distance + surge - discount + floor)
+    rounding = total - (base + approach + distance + surge + stops - discount + floor)
     return {
         "baseFare": base,
         "approachFare": approach,
         "distanceFare": distance,
         "surgeAmount": surge,
+        "stopFare": stops,
         "discountAmount": discount,
         "floorAmount": floor,
         "roundingAmount": rounding,

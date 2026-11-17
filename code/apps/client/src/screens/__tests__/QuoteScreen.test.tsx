@@ -45,12 +45,14 @@ function quoteResponse(overrides: Partial<http.QuoteResponse> = {}): http.QuoteR
       approachFare: 0,
       distanceFare: 1000,
       surgeAmount: 0,
+      stopFare: 0,
       discountAmount: 0,
       floorAmount: 0,
       roundingAmount: 0,
       minimumFareApplied: false,
     },
     distanceMeters: 4200,
+    stopCount: 0,
     approachDistanceMeters: 1500,
     etaSeconds: 780,
     pickupEtaSeconds: 180,
@@ -158,6 +160,31 @@ describe('QuoteScreen (L6-07)', () => {
     expect(root.root.findByProps({ testID: 'order-button' }).props.disabled).toBe(false);
   });
 
+  it('le forfait des arrêts est une ligne à part, absente sans arrêt (L2-08)', async () => {
+    mockRequest.mockImplementation(async (name: string) => {
+      if (name === 'quote') {
+        return quoteResponse({
+          amount: 1475,
+          stopCount: 2,
+          breakdown: { ...quoteResponse().breakdown, baseFare: 200, approachFare: 75, distanceFare: 1000, stopFare: 200 },
+        });
+      }
+      throw new Error('unexpected');
+    });
+
+    const { root } = await renderQuote();
+
+    expect(texts(root)).toContain('Arrêts');
+    expect(texts(root)).toContain(fcfa(200));
+    expect(texts(root)).toContain(fcfa(1475));
+  });
+
+  it('sans arrêt, aucune ligne « Arrêts » (L2-08)', async () => {
+    const { root } = await renderQuote();
+
+    expect(texts(root)).not.toContain('Arrêts');
+  });
+
   it('les composantes non nulles du détail somment exactement le total affiché', async () => {
     mockRequest.mockImplementation(async (name: string) => {
       if (name === 'quote') {
@@ -168,6 +195,7 @@ describe('QuoteScreen (L6-07)', () => {
             approachFare: 0,
             distanceFare: 1000,
             surgeAmount: 300,
+            stopFare: 0,
             discountAmount: 100,
             floorAmount: 0,
             roundingAmount: 50,

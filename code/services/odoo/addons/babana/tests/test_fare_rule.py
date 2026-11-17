@@ -21,13 +21,25 @@ class TestBabanaFareRule(TransactionCase):
         base.update(vals)
         return self.env["babana.fare.rule"].create(base)
 
-    # --- Critère 1 : aucun champ de prix à la minute n'existe ---------------------------------
+    # --- Critère 1 : aucun prix à la minute DE TRAJET n'existe -------------------------------
+    # D15 amendée le 17 novembre (amoa/questions/MULTISTOP-2026-11-17.md §1) : l'attente est
+    # facturée, mesurée sur des événements du chauffeur ; le trajet, jamais. Seuls les champs
+    # d'attente, nommés ici un par un, ont le droit de parler de minutes -- un prix à la minute
+    # de trajet ajouté demain fait toujours échouer ce test.
+
+    _WAIT_MINUTE_FIELDS = {
+        "wait_rate_per_minute",
+        "pickup_free_wait_minutes",
+        "stop_free_wait_minutes",
+        "max_billable_wait_minutes",
+    }
 
     def test_no_per_minute_price_field_exists(self):
         field_names = self.env["babana.fare.rule"]._fields.keys()
-        self.assertFalse(
-            any("minute" in name for name in field_names),
-            "D15 : aucun prix à la minute, même en champ inutilisé.",
+        self.assertEqual(
+            {name for name in field_names if "minute" in name},
+            self._WAIT_MINUTE_FIELDS,
+            "D15 amendée : aucun prix à la minute de trajet, même en champ inutilisé.",
         )
 
     # --- Critère 2 : sélection déterministe entre règles concurrentes -------------------------
@@ -211,3 +223,72 @@ class TestBabanaFareRule(TransactionCase):
     def test_pricing_input_carries_the_approach_rate(self):
         rule = self._make_rule(approach_price_per_km=40.0)
         self.assertEqual(rule._pricing_input().approach_price_per_km, 40.0)
+
+    # --- L2-08 : arrêts et attente -------------------------------------------------------------
+
+    def test_stop_and_wait_defaults_are_the_values_given_on_17_november(self):
+        rule = self._make_rule()
+        self.assertEqual(
+            rule._stop_wait_snapshot(),
+            {
+                "stop_flat_fee": 100.0,
+                "wait_rate_per_minute": 30.0,
+                "pickup_free_wait_minutes": 3,
+                "stop_free_wait_minutes": 2,
+                "max_billable_wait_minutes": 15,
+                "distance_band_min_ratio": 0.6,
+                "distance_band_max_ratio": 1.0,
+            },
+        )
+
+    def test_stop_and_wait_fields_are_versioned_like_the_other_pricing_fields(self):
+        rule = self._make_rule()
+        self._make_ride_using(rule)
+        for field, value in (
+            ("stop_flat_fee", 150.0),
+            ("wait_rate_per_minute", 40.0),
+            ("pickup_free_wait_minutes", 5),
+            ("stop_free_wait_minutes", 4),
+            ("max_billable_wait_minutes", 20),
+            ("distance_band_min_ratio", 0.5),
+            ("distance_band_max_ratio", 1.2),
+        ):
+            with self.subTest(field=field), self.assertRaises(UserError):
+                rule.write({field: value})
+
+    def test_new_version_carries_the_stop_and_wait_values(self):
+        rule = self._make_rule(stop_flat_fee=120.0, wait_rate_per_minute=35.0)
+        self._make_ride_using(rule)
+
+        new_rule = rule.new_version({"wait_rate_per_minute": 50.0})
+
+        self.assertEqual(rule.wait_rate_per_minute, 35.0)
+        self.assertEqual(new_rule.wait_rate_per_minute, 50.0)
+        self.assertEqual(new_rule.stop_flat_fee, 120.0)
+
+    def test_version_wizard_proposes_and_applies_the_stop_and_wait_values(self):
+        rule = self._make_rule(stop_flat_fee=120.0)
+        self._make_ride_using(rule)
+        context = rule.action_open_new_version_wizard()["context"]
+        self.assertEqual(context["default_stop_flat_fee"], 120.0)
+
+        wizard = self.env["babana.fare.rule.version.wizard"].with_context(**context).create(
+            {"stop_flat_fee": 175.0}
+        )
+        new_rule = self.env["babana.fare.rule"].browse(wizard.action_confirm()["res_id"])
+
+        self.assertEqual(new_rule.stop_flat_fee, 175.0)
+        self.assertEqual(new_rule.wait_rate_per_minute, rule.wait_rate_per_minute)
+
+    def test_stop_and_wait_amounts_are_never_negative(self):
+        for field in ("stop_flat_fee", "wait_rate_per_minute", "pickup_free_wait_minutes"):
+            with self.subTest(field=field), self.assertRaises(Exception), self.env.cr.savepoint():
+                self._make_rule(**{field: -1})
+
+    def test_distance_band_upper_bound_is_not_below_the_lower_bound(self):
+        with self.assertRaises(Exception), self.env.cr.savepoint():
+            self._make_rule(distance_band_min_ratio=0.9, distance_band_max_ratio=0.8)
+
+    def test_pricing_input_carries_the_stop_fee(self):
+        rule = self._make_rule(stop_flat_fee=125.0)
+        self.assertEqual(rule._pricing_input().stop_flat_fee, 125.0)

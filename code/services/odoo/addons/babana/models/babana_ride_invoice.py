@@ -45,6 +45,7 @@ _FARE_LINES = (
     ("approachFare", "Prise en charge", False, True),
     ("distanceFare", "Distance", False, True),
     ("surgeAmount", "Majoration", False, False),
+    ("stopFare", "Arrêts", False, False),
     ("discountAmount", "Remise", True, False),
     ("floorAmount", "Ajustement plancher", False, False),
     ("roundingAmount", "Arrondi", False, False),

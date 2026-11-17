@@ -473,6 +473,7 @@ class TestRideStateMachine(TransactionCase):
                 "approachFare": 0,
                 "distanceFare": 1000,
                 "surgeAmount": 0,
+                "stopFare": 0,
                 "discountAmount": 0,
                 "floorAmount": 0,
                 "roundingAmount": 0,

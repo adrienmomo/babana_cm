@@ -123,6 +123,35 @@ def get_reference_route(
     return result
 
 
+def get_reference_route_through(
+    env, *, points, vehicle_class: str, at_datetime: datetime
+) -> RouteResult:
+    """Itinéraire de référence passant par `points` dans l'ordre (L2-08 : prise en charge ->
+    arrêts -> arrivée). L'API de routage ne connaît que le couple origine-destination : chaque
+    tronçon est demandé, et mis en cache, séparément, puis les distances et durées s'additionnent.
+    Deux listes d'arrêts différentes ne partagent donc jamais une entrée de cache -- seuls des
+    tronçons identiques le font, et ils ont légitimement la même longueur.
+
+    Le tracé n'est pas reconstitué : un tracé encodé ne se concatène pas, et la cotation n'en a
+    pas l'usage. Un seul tronçon (aucun arrêt) rend exactement get_reference_route."""
+    if len(points) < 2:
+        raise ValueError("Un itinéraire demande au moins deux points.")
+    legs = [
+        get_reference_route(
+            env, origin=origin, destination=destination, vehicle_class=vehicle_class,
+            at_datetime=at_datetime,
+        )
+        for origin, destination in zip(points, points[1:])
+    ]
+    if len(legs) == 1:
+        return legs[0]
+    return RouteResult(
+        distance_meters=sum(leg.distance_meters for leg in legs),
+        duration_seconds=sum(leg.duration_seconds for leg in legs),
+        polyline="",
+    )
+
+
 def measure_route(env, *, origin, destination) -> RouteResult:
     """Mesure SANS cache, pour la distance d'approche d'un chauffeur (services/approach.py). La
     grille du cache (~100 m) convient à la cotation, où deux points voisins doivent recevoir le même
