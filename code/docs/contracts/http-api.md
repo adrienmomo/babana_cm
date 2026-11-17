@@ -181,6 +181,7 @@ doute, le code (`packages/contracts/src/http/`) a raison, pas cette colonne.
 | `POST /rides/{id}/start` | `assigned → in_progress` | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui |
 | `POST /rides/{id}/arrived` | aucune (`assigned`, écrit `arrived_at` une fois) | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui |
 | `POST /rides/{id}/complete` | `in_progress → completed` | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL` | Oui |
+| `GET /rides/{id}/stops` | aucune (client ou chauffeur de la course ; arrêts atteints/quittés sans heure, départ de la prise en charge, seuils de détection de Paramètres > Babana — L6-21) | `RIDE_NOT_FOUND` | Oui (L6-21) |
 | `POST /rides/{id}/stops/quote` | aucune (client, `in_progress` ; crée une cotation liée à la course, n'écrit rien sur elle) | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_INVALID_TRANSITION`, `TOO_MANY_STOPS`, `ROUTE_UNAVAILABLE` | Oui (L4-14) |
 | `POST /rides/{id}/stops` | aucune (client confirme la cotation : prix et distance prévus, un arrêt ; `ride.stop.added` au chauffeur) | `RIDE_NOT_FOUND`, `RIDE_NOT_OWNED`, `RIDE_INVALID_TRANSITION`, `QUOTE_NOT_FOUND`, `QUOTE_EXPIRED`, `TOO_MANY_STOPS` | Oui (L4-14) |
 | `POST /rides/{id}/stops/arrived` | aucune (chauffeur, `in_progress` ; `arrived_at` de l'arrêt une fois) | `RIDE_NOT_FOUND`, `RIDE_INVALID_TRANSITION`, `DRIVER_NOT_IN_PROPOSAL`, `STOP_NOT_FOUND` | Oui (L4-14) |

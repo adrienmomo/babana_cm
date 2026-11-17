@@ -161,3 +161,59 @@ class TestQuoteStops(HttpCase):
         self.assertEqual(ride.stop_wait_snapshot, quote.stop_wait_snapshot)
         self.assertEqual(ride.reference_distance_km, quote_body["distanceMeters"] / 1000.0)
         self.assertEqual(round(ride.estimated_amount), quote_body["amount"])
+
+    # --- L6-21 : libellés des arrêts à la commande, lecture des arrêts et des seuils ---------
+
+    def _create_ride(self, token, quote_id, **extra):
+        return self.url_open(
+            "/api/v1/rides",
+            data=json.dumps({"quoteId": quote_id, **extra}).encode(),
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        )
+
+    def test_stop_labels_given_at_booking_are_kept_in_order(self):
+        token = self._sign_in_client("sub-stops-labels")
+        quote = self._quote(token, {"stops": [_STOP_A, _STOP_B]}).json()
+        response = self._create_ride(token, quote["quoteId"], stopLabels=["Marché Deïdo", None])
+        self.assertEqual(response.status_code, 201, response.text)
+        ride = self.env["babana.ride"].sudo().search([("public_id", "=", response.json()["id"])])
+        self.assertEqual(ride.stop_ids.sorted("sequence").mapped("label"), ["Marché Deïdo", False])
+
+    def test_a_blank_stop_label_is_refused(self):
+        token = self._sign_in_client("sub-stops-labels-bad")
+        quote = self._quote(token, {"stops": [_STOP_A]}).json()
+        response = self._create_ride(token, quote["quoteId"], stopLabels=["   "])
+        self.assertEqual(response.status_code, 400)
+
+    def _get_stops(self, token, ride_public_id):
+        return self.url_open(
+            f"/api/v1/rides/{ride_public_id}/stops",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    def test_the_ride_stops_carry_the_detection_thresholds_set_in_odoo(self):
+        token = self._sign_in_client("sub-stops-get")
+        quote = self._quote(token, {"stops": [_STOP_A]}).json()
+        ride_id = self._create_ride(token, quote["quoteId"]).json()["id"]
+        Param = self.env["ir.config_parameter"].sudo()
+        Param.set_param("babana.stop_arrival_radius_m", "75")
+        Param.set_param("babana.stop_departure_speed_kmh", "12")
+
+        response = self._get_stops(token, ride_id)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(len(body["stops"]), 1)
+        self.assertEqual(body["stops"][0]["reached"], False)
+        self.assertEqual(body["pickupDeparted"], False)
+        self.assertEqual(body["detection"]["arrivalRadiusMeters"], 75)
+        self.assertEqual(body["detection"]["departureSpeedKmh"], 12)
+        # Aucune heure ni durée : le client ne peut rien en déduire sur l'attente.
+        self.assertNotIn("arrivedAt", json.dumps(body))
+
+    def test_a_stranger_cannot_read_the_stops_of_a_ride(self):
+        owner = self._sign_in_client("sub-stops-owner")
+        quote = self._quote(owner, {"stops": [_STOP_A]}).json()
+        ride_id = self._create_ride(owner, quote["quoteId"]).json()["id"]
+        stranger = self._sign_in_client("sub-stops-stranger")
+        self.assertEqual(self._get_stops(stranger, ride_id).status_code, 404)

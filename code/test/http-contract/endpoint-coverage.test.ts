@@ -297,6 +297,15 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     assert.equal(settled.state, 'settled');
   },
 
+  rideStops: async () => {
+    const rig = await startedRideWithAddedStop('ride-stops');
+    const stops = (await clientFor(rig.driverSession.accessToken).request('rideStops', {
+      pathParams: { id: rig.ride.id },
+    })) as http.RideStopsResponse;
+    assert.equal(stops.stops.length, 1);
+    assert.ok(stops.detection.arrivalRadiusMeters > 0);
+  },
+
   quoteAddedStop: async () => {
     const rig = await setupStartedRide('quote-added-stop');
     const quote = (await rig.client.request('quoteAddedStop', {

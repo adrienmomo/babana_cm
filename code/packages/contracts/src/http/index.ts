@@ -206,6 +206,16 @@ export const HTTP_ENDPOINTS = {
     requestExample: ride.cancelRideRequestExample,
     responseExample: ride.cancelRideResponseExample,
   },
+  rideStops: {
+    method: 'GET',
+    path: '/api/v1/rides/{id}/stops',
+    requiresAuth: true,
+    requestSchema: stops.RideStopsRequestSchema,
+    responseSchema: stops.RideStopsResponseSchema,
+    errors: stops.RideStopsErrors,
+    requestExample: stops.rideStopsRequestExample,
+    responseExample: stops.rideStopsResponseExample,
+  },
   quoteAddedStop: {
     method: 'POST',
     path: '/api/v1/rides/{id}/stops/quote',

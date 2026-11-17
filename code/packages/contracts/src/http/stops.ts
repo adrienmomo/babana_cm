@@ -22,6 +22,10 @@ export const RideStopSchema = z.object({
   /** `planned` : coté (devis ou ajout confirmé). `unplanned` : « Arrêt client » du chauffeur. */
   kind: z.enum(['planned', 'unplanned']),
   addedDuringRide: z.boolean(),
+  /** Atteint / quitté (L6-21), sans heure : de quoi reprendre après une relance, rien de quoi
+   * calculer une attente. */
+  reached: z.boolean(),
+  left: z.boolean(),
 });
 export type RideStop = z.infer<typeof RideStopSchema>;
 
@@ -142,6 +146,8 @@ const exampleStop: RideStop = {
   label: 'Pharmacie du rond-point',
   kind: 'planned',
   addedDuringRide: true,
+  reached: false,
+  left: false,
 };
 
 export const quoteAddedStopRequestExample: QuoteAddedStopRequest = {
@@ -195,4 +201,36 @@ export const stopDepartedRequestExample: StopDepartedRequest = {
 export const stopUnplannedRequestExample: StopUnplannedRequest = {
   position: { latitude: 4.0580, longitude: 9.7800 },
   occurredAt: '2026-11-17T07:25:00Z',
+};
+
+/**
+ * GET /rides/{id}/stops -- client ou chauffeur de la course (L6-21). Les arrêts et les seuils de
+ * détection que l'app chauffeur applique : changés dans Odoo (Paramètres > Babana), ils changent
+ * le comportement sans nouvelle version de l'app.
+ */
+export const StopDetectionConfigSchema = z.object({
+  arrivalRadiusMeters: z.number().positive(),
+  departureDistanceMeters: z.number().positive(),
+  departureSpeedKmh: z.number().positive(),
+  departureDurationSeconds: z.number().positive(),
+});
+export type StopDetectionConfig = z.infer<typeof StopDetectionConfigSchema>;
+
+export const RideStopsRequestSchema = z.object({});
+export type RideStopsRequest = z.infer<typeof RideStopsRequestSchema>;
+
+export const RideStopsResponseSchema = RideWithStopsResponseSchema.extend({
+  pickupDeparted: z.boolean(),
+  detection: StopDetectionConfigSchema,
+});
+export type RideStopsResponse = z.infer<typeof RideStopsResponseSchema>;
+
+export const RideStopsErrors = ['RIDE_NOT_FOUND'] as const;
+
+export const rideStopsRequestExample: RideStopsRequest = {};
+
+export const rideStopsResponseExample: RideStopsResponse = {
+  ...rideWithStopsResponseExample,
+  pickupDeparted: true,
+  detection: { arrivalRadiusMeters: 50, departureDistanceMeters: 60, departureSpeedKmh: 8, departureDurationSeconds: 10 },
 };

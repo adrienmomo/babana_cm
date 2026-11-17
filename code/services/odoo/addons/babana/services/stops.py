@@ -21,3 +21,21 @@ DEPARTURE_DURATION_DEFAULT = 10
 
 def max_stops(env) -> int:
     return int(env["ir.config_parameter"].sudo().get_param(MAX_STOPS_PARAM, MAX_STOPS_DEFAULT))
+
+
+def detection_config(env) -> dict:
+    """Seuils de détection d'arrivée et de départ lus par l'app chauffeur (L6-21)."""
+    param = env["ir.config_parameter"].sudo().get_param
+
+    def number(name, default):
+        try:
+            return float(param(name, default))
+        except (TypeError, ValueError):
+            return float(default)
+
+    return {
+        "arrivalRadiusMeters": number(ARRIVAL_RADIUS_PARAM, ARRIVAL_RADIUS_DEFAULT),
+        "departureDistanceMeters": number(DEPARTURE_DISTANCE_PARAM, DEPARTURE_DISTANCE_DEFAULT),
+        "departureSpeedKmh": number(DEPARTURE_SPEED_PARAM, DEPARTURE_SPEED_DEFAULT),
+        "departureDurationSeconds": number(DEPARTURE_DURATION_PARAM, DEPARTURE_DURATION_DEFAULT),
+    }

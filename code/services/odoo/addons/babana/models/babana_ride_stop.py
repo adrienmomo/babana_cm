@@ -101,6 +101,10 @@ class BabanaRideStop(models.Model):
             "label": self.label or None,
             "kind": self.kind,
             "addedDuringRide": self.added_during_ride,
+            # Atteint / quitté, sans heure (L6-21) : l'app chauffeur sait où elle en est après une
+            # relance ; aucune durée ne sort, donc aucune attente calculable côté client.
+            "reached": bool(self.arrived_at),
+            "left": bool(self.departed_at),
         }
 
 

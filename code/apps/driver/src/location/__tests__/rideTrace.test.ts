@@ -26,7 +26,7 @@ function message(type: 'ride.started' | 'ride.completed' | 'ride.cancelled', rid
 }
 
 async function settle() {
-  await new Promise((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => setImmediate(() => resolve()));
 }
 
 describe('RideTraceRecorder (L4-16)', () => {

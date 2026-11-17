@@ -55,6 +55,8 @@ export const CreateRideRequestSchema = z.object({
   pickupNote: PickupNoteSchema.optional(),
   pickupLabel: PlaceLabelSchema.optional(),
   dropoffLabel: PlaceLabelSchema.optional(),
+  /** Libellés des arrêts du devis, dans le même ordre (L6-21) -- montrés au chauffeur. */
+  stopLabels: z.array(PlaceLabelSchema.nullable()).optional(),
 });
 export type CreateRideRequest = z.infer<typeof CreateRideRequestSchema>;
 

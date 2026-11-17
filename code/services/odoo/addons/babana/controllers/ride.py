@@ -25,7 +25,7 @@ from ..models.babana_ride import PICKUP_NOTE_MAX_LENGTH, PLACE_LABEL_MAX_LENGTH
 from ..models.babana_rating import RatingAlreadySubmitted, RatingNotAllowed
 from ..models.babana_ride_state import NO_SHOW_REASON, RideInvalidTransition, RideNoShowTooEarly
 from ..models.babana_ride_stop import StopNotFound, StopQuoteExpired, TooManyStops
-from ..services import dispatch, realtime_client
+from ..services import dispatch, realtime_client, stops as stops_service
 from ..services.pricing import FareBreakdown, round_breakdown_for_wire
 
 RATING_COMMENT_MAX_LENGTH = 500
@@ -174,6 +174,16 @@ class RideController(http.Controller):
                 ), 400
             labels[field] = value.strip()
 
+        # Libellés des arrêts, dans l'ordre du devis (L6-21) -- facultatifs, même règle.
+        stop_labels = (body or {}).get("stopLabels") or []
+        if not isinstance(stop_labels, list) or any(
+            label is not None and (not isinstance(label, str) or not label.strip() or len(label.strip()) > PLACE_LABEL_MAX_LENGTH)
+            for label in stop_labels
+        ):
+            return _common.error_payload(
+                "VALIDATION_ERROR", f"stopLabels : libellés de 1 à {PLACE_LABEL_MAX_LENGTH} caractères"
+            ), 400
+
         # Un client ne peut référencer que sa propre estimation -- traité comme "introuvable",
         # pas comme un défaut d'appartenance distinct : le catalogue de createRide (C-01) ne
         # prévoit que QUOTE_EXPIRED et QUOTE_NOT_FOUND, pas de RIDE_NOT_OWNED équivalent pour
@@ -217,7 +227,11 @@ class RideController(http.Controller):
                         "sequence": index,
                         "latitude": stop["latitude"],
                         "longitude": stop["longitude"],
-                        "label": stop.get("label") or False,
+                        "label": (
+                            stop_labels[index - 1].strip()
+                            if index - 1 < len(stop_labels) and stop_labels[index - 1]
+                            else stop.get("label") or False
+                        ),
                         "kind": "planned",
                     })
                     for index, stop in enumerate(json.loads(quote.stops_json or "[]"), start=1)
@@ -445,6 +459,31 @@ class RideController(http.Controller):
                 _common.error_payload("VALIDATION_ERROR", "occurredAt doit être une date ISO 8601 avec fuseau"),
                 400,
             )
+
+    @http.route("/api/v1/rides/<string:ride_id>/stops", type="http", auth="none", methods=["GET"], csrf=False)
+    def ride_stops(self, ride_id, **_kwargs):
+        try:
+            payload, status = self._ride_stops(ride_id)
+            return _common.json_response(payload, status)
+        except _common.AuthenticationFailed as exc:
+            return _common.error_response(exc.code, "authentification requise", exc.status)
+        except Exception:
+            _logger.exception("erreur interne dans GET /rides/{id}/stops")
+            return _common.error_response("INTERNAL_ERROR", "erreur interne", 500)
+
+    def _ride_stops(self, ride_id):
+        """Arrêts d'une course et seuils de détection (L6-21) : l'app chauffeur les relit à
+        l'affectation, après `ride.stop.added` et après une resynchronisation -- les seuils
+        viennent du serveur, jamais d'une constante de l'app. Lecture par l'utilisateur (D54) :
+        client ou chauffeur de la course seulement."""
+        env, user = _common.authenticated_user()
+        ride = self._find_ride(env, user, ride_id)
+        if not ride:
+            return _common.error_payload("RIDE_NOT_FOUND", "course inconnue"), 404
+        payload = self._stops_payload(ride.sudo())
+        payload["pickupDeparted"] = bool(ride.sudo().pickup_departed_at)
+        payload["detection"] = stops_service.detection_config(env)
+        return payload, 200
 
     @http.route("/api/v1/rides/<string:ride_id>/stops/quote", **_ROUTE)
     def quote_added_stop(self, ride_id, **_kwargs):
