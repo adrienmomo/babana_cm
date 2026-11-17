@@ -564,3 +564,121 @@ Chaque scénario vérifie l'état final en base, pas seulement les codes de reto
 ### Piège
 
 Le critère 5 est ce qui distingue un test utile d'un test décoratif — même exigence que L3-13. Un test de concurrence qui passerait aussi sans verrou ne teste rien.
+
+---
+
+## L4-14 — Arrêts de course : modèle, événements, ajout en cours de course
+
+### Objectif
+
+Porter les arrêts d'une course et les événements d'attente, en une écriture par décision.
+
+### Contexte
+
+**Créée le 17 novembre 2026** (`amoa/questions/MULTISTOP-2026-11-17.md`). Dépend de L2-08.
+
+### Fichiers
+
+```
+services/odoo/addons/babana/models/babana_ride_stop.py
+services/odoo/addons/babana/models/babana_ride_state.py
+services/odoo/addons/babana/controllers/
+packages/contracts/   (C-01, C-02)
+services/realtime/    (relais de ride.stop_added)
+services/odoo/addons/babana/tests/test_ride_stops.py
+```
+
+### Spécification
+
+**Modèle `babana.ride.stop`** : `ride_id`, `sequence`, position, libellé, `kind`
+(`planned` | `unplanned`), `added_during_ride`, `arrived_at`, `departed_at`.
+
+**Ce ne sont pas des transitions** : la course reste `in_progress` (C-03 inchangée). Mais ces
+écritures passent par des méthodes du modèle de course, sous le même verrou
+(`_lock_for_update`), jamais par un `write` direct depuis un contrôleur — invariant 2 par analogie.
+
+**Événements**, une écriture chacun :
+
+| Événement | Acteur | Effet |
+|---|---|---|
+| Ajout d'arrêt pendant la course | client | crée un `planned` avec `added_during_ride` |
+| Arrivée à un arrêt prévu | chauffeur (auto ou bouton) | `arrived_at` |
+| Arrêt client imprévu | chauffeur (bouton « Arrêt client ») | crée un `unplanned` avec `arrived_at` |
+| Départ | chauffeur (auto ou bouton « Repartir ») | `departed_at` |
+
+L'attente à la prise en charge réutilise `arrived_at` de la course et se termine au premier
+mouvement détecté ou au démarrage, le plus tôt des deux (événement « départ » de la prise en charge).
+
+**Horodatage.** Chaque événement chauffeur porte `occurred_at` (heure du téléphone, sérialisée
+selon D40). Le serveur le borne à [événement précédent du même point, heure de réception].
+Rejouer un événement déjà enregistré ne modifie rien (idempotence).
+
+**Ajout pendant la course, en deux temps.** (1) Le client demande une cotation de l'itinéraire
+restant avec l'arrêt ajouté ; le serveur rend le nouveau prix prévu, sans rien écrire. (2) Le
+client confirme : une écriture, qui remplace la distance et le prix prévus de la course. Au
+commit (D32), le chauffeur reçoit `ride.stop_added` par le temps réel et une notification push.
+Le chauffeur ne peut pas refuser. Au-delà de `max_stops_per_ride`, refus explicite.
+
+**Le client n'est jamais notifié de l'attente** — ni à l'arrivée à un arrêt, ni au départ.
+
+### Critères d'acceptation
+
+1. Une course avec k arrêts produit au plus 2k + 1 écritures d'arrêt, quelle que soit la durée des attentes.
+2. Un ajout confirmé met à jour le prix prévu et la distance prévue en une écriture ; une cotation non confirmée n'écrit rien.
+3. Le chauffeur reçoit `ride.stop_added` et une notification push après le commit, jamais avant (test : transaction annulée → aucun message).
+4. Un `occurred_at` antérieur à l'événement précédent ou postérieur à la réception est ramené à la borne.
+5. Rejouer un événement (même clé d'idempotence) n'écrit rien de plus.
+6. Un départ sans arrivée, une arrivée sur un arrêt déjà quitté, un événement hors `in_progress` (ou hors `assigned` pour la prise en charge) sont refusés.
+7. Aucun message de temps réel ni notification n'est envoyé au client pour une attente.
+8. Les arrêts sont visibles sur la fiche de course dans Odoo, et la vue a été ouverte avec une course de démonstration qui en comporte.
+
+### Piège
+
+`ride.stop_added` passe par l'accroche au commit, et l'écriture de l'arrêt ne doit pas se faire
+dans un savepoint (D33).
+
+---
+
+## L4-15 — Prix final : bande de distance, forfaits, attente
+
+### Objectif
+
+Recalculer le prix à la fin de chaque course, une fois, à `action_complete`.
+
+### Contexte
+
+**Créée le 17 novembre 2026.** Dépend de L4-14. Point 3.1 de
+`amoa/questions/MULTISTOP-2026-11-17.md` laissé ouvert (hausse au-delà de 100 %).
+
+### Spécification
+
+**Prix de distance.** r = `actual_distance_km` / distance prévue.
+- r ∈ [`distance_band_min_ratio`, `distance_band_max_ratio`] → prix de distance prévu.
+- r hors de la bande → même formule (base + km × prix au km × coefficients) avec la distance
+  mesurée et **les paramètres gelés au devis**, jamais ceux du jour.
+- distance mesurée absente → prix prévu, et la course est signalée au back-office.
+
+L'approche (D81) et les forfaits d'arrêt ne dépendent pas de la bande.
+
+**Attente.** Pour la prise en charge et chaque arrêt :
+`minutes = min(floor((départ − arrivée − gratuité) / 60 s), max_billable_wait_minutes)`, et 0 si
+négatif. Gratuité : `pickup_free_wait_minutes` à la prise en charge, `stop_free_wait_minutes`
+aux arrêts (prévus ou non). Montant = Σ minutes × `wait_rate_per_minute`.
+Un point sans départ enregistré compte jusqu'à `completed_at`.
+
+**Montant final** = prix de distance + approche + forfaits d'arrêt + attente − remise.
+La remise promotionnelle ne s'applique pas à l'attente. Chaque composante est stockée
+séparément et figure en ligne distincte sur le reçu, l'historique et la facture.
+
+Une course annulée (y compris « client absent ») ne facture aucune attente.
+
+### Critères d'acceptation
+
+1. Bande : tests aux bornes exactes (60 %, 100 %), juste dedans, juste dehors, de chaque côté.
+2. Hors bande, le recalcul utilise les paramètres gelés : modifier la grille entre le devis et la fin ne change rien.
+3. Attente : 3 min 00 s à la prise en charge → 0 ; 6 min 59 s → 3 min ; 40 min → plafond ; arrêt de 2 min 59 s → 0.
+4. Distance absente → prix prévu et course signalée.
+5. Le montant est calculé et écrit une seule fois, dans la transition de fin.
+6. Le reçu client, l'historique et la facture Odoo affichent les lignes séparément ; chacun a été ouvert avec une course de démonstration comportant attente et arrêts.
+7. Le plafond d'encaisse (L5) voit le montant final, attente comprise.
+8. Couverture de tous les chemins (module sensible : moteur de cotation).

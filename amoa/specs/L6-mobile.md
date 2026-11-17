@@ -852,3 +852,50 @@ La prévisualisation par branche, elle, appartient à l'intégration continue (L
 ### Piège
 
 Le critère 2 est celui qui donne sa valeur à la tâche. S'il faut modifier des écrans, c'est que `packages/maps` ou `packages/ui` fuit — et cette fuite coûtera aussi cher le jour où D13 sera rouverte en faveur de Mapbox. Corriger l'abstraction, pas l'écran.
+
+---
+
+## L6-21 — Arrêts dans les apps : saisie, détection, reçu
+
+### Objectif
+
+Exposer les arrêts côté client et chauffeur, et détecter arrivée et départ sur le téléphone du chauffeur.
+
+### Contexte
+
+**Créée le 17 novembre 2026.** Dépend de L4-14 et L4-15. Aucune règle métier dans les apps
+(invariant 3) : le téléphone mesure, le serveur facture.
+
+### Spécification
+
+**Client.**
+- Avant la demande : ajouter, retirer, réordonner jusqu'à `max_stops_per_ride` arrêts, par
+  désignation sur la carte en priorité (pas de saisie d'adresse obligatoire). Le prix affiché est
+  celui de l'estimation serveur.
+- Pendant la course : « Ajouter un arrêt » → nouveau prix rendu par le serveur → confirmation.
+- **Aucune** indication d'attente pendant la course. Le reçu de fin affiche chaque ligne
+  (distance, approche, arrêts, attente, remise).
+
+**Chauffeur.**
+- Arrêts affichés dans l'ordre sur la carte et dans le tracé (D83). Un arrêt ajouté en cours
+  de course apparaît avec une alerte et redessine le tracé.
+- Arrivée : automatique dans `stop_arrival_radius_m`, bouton « Arrivé » en secours.
+- Départ : automatique quand la moto a parcouru plus de `stop_departure_distance_m` à plus de
+  `stop_departure_speed_kmh` pendant `stop_departure_duration_s` ; bouton « Repartir » en secours.
+  L'événement porte l'heure du **début** du mouvement.
+- Bouton « Arrêt client » pendant une course, pour une attente imprévue.
+- Les seuils viennent du serveur, jamais d'une constante de l'app.
+- Hors connexion : les événements passent par la file locale existante, avec leur heure d'origine.
+
+La détection réutilise le flux de positions déjà produit (L6-05) : aucun capteur ni cadence
+GPS supplémentaire.
+
+### Critères d'acceptation
+
+1. Les seuils de détection sont lus depuis le serveur ; les changer dans Odoo change le comportement sans nouvelle version de l'app.
+2. Un mouvement continu au-delà des seuils produit exactement un événement de départ ; un mouvement plus court n'en produit aucun.
+3. Un événement émis hors connexion arrive après reconnexion avec son heure d'origine.
+4. L'app client ne contient aucun calcul de prix ni d'attente (vérifié par le lint ou par revue).
+5. Les écrans ont été ouverts : saisie d'arrêts (client natif et export web), ajout en cours de course, alerte chauffeur, reçu détaillé.
+6. Aucun `Platform.OS` dans les écrans ; les différences vivent dans `@babana/maps`.
+7. Mesure batterie (L6-17) refaite sur une course à 3 arrêts : pas de régression.

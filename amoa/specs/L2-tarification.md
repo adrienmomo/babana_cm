@@ -305,3 +305,78 @@ Couvrir au minimum :
 2. Chaque cas de la liste est couvert.
 3. Ajouter un scénario ne demande pas de modifier le code de test.
 4. Un changement du moteur de cotation qui casserait un montant fait échouer la suite.
+
+---
+
+## L2-08 — Paramètres d'arrêt et d'attente, cotation multi-arrêts
+
+### Objectif
+
+Coter une course comportant jusqu'à N arrêts, et porter les paramètres qui permettront de
+facturer l'attente à la fin (L4-15).
+
+### Contexte
+
+**Créée le 17 novembre 2026** (`amoa/questions/MULTISTOP-2026-11-17.md`). Amende D15 : pas de
+prix à la minute de trajet, mais une attente facturée et un forfait par arrêt.
+
+### Fichiers
+
+```
+services/odoo/addons/babana/models/babana_fare_rule.py
+services/odoo/addons/babana/models/babana_quote.py
+services/odoo/addons/babana/models/res_config_settings.py
+services/odoo/addons/babana/views/
+services/odoo/addons/babana/tests/test_quote_stops.py
+```
+
+### Spécification
+
+**Paramètres tarifaires**, sur `babana.fare.rule` (versionnés et gelés avec le devis, comme le
+reste de la grille) :
+
+| Champ | Valeur initiale |
+|---|---|
+| `stop_flat_fee` | 100 F |
+| `wait_rate_per_minute` | 30 F |
+| `pickup_free_wait_minutes` | 3 |
+| `stop_free_wait_minutes` | 2 |
+| `max_billable_wait_minutes` | 15 (par point d'attente) |
+| `distance_band_min_ratio` | 0,60 |
+| `distance_band_max_ratio` | 1,00 |
+
+**Paramètres d'exploitation**, dans Paramètres > Babana (`ir.config_parameter`) :
+`babana.max_stops_per_ride` (3), `babana.stop_arrival_radius_m`, et les seuils de détection
+de départ `babana.stop_departure_distance_m`, `babana.stop_departure_speed_kmh`,
+`babana.stop_departure_duration_s`.
+
+**Cotation.** La demande d'estimation accepte une liste ordonnée d'arrêts (0 à
+`max_stops_per_ride`). La distance de référence est celle de l'itinéraire
+prise en charge → arrêts dans l'ordre → arrivée, par le même service de routage et le même cache
+(L2-05). Prix :
+
+```
+base + distance × prix au km  (× coefficients de zone et de pointe)
++ approche (D81)
++ nombre d'arrêts × stop_flat_fee
+```
+
+Le devis gèle la liste des arrêts, la distance prévue, et les paramètres du tableau ci-dessus.
+L'attente n'apparaît pas dans le devis : elle est inconnue d'avance.
+
+### Critères d'acceptation
+
+1. Une estimation sans arrêt donne exactement le même montant qu'avant cette tâche.
+2. Une estimation avec k arrêts ajoute k × `stop_flat_fee` et utilise la distance de
+   l'itinéraire passant par les arrêts dans l'ordre.
+3. Au-delà de `max_stops_per_ride` arrêts, l'estimation est refusée avec un code explicite (C-01).
+4. Modifier un paramètre du tableau crée une nouvelle version de la grille ; un devis existant
+   garde les valeurs qu'il a gelées.
+5. Tous les paramètres sont visibles et modifiables dans le back-office Odoo, et la vue a été ouverte.
+6. Aucune de ces valeurs n'est écrite en dur ailleurs que dans les données initiales.
+
+### Piège
+
+La distance multi-arrêts n'est pas la somme de distances à vol d'oiseau, ni la somme de trajets
+mis en cache séparément si le cache est indexé sur le couple origine-destination : vérifier que
+la clé du cache couvre l'itinéraire entier, sinon deux listes d'arrêts différentes partagent un prix.
