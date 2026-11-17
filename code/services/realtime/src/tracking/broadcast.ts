@@ -262,6 +262,26 @@ export function broadcastRideCompleted(
   );
 }
 
+/**
+ * Arrêt ajouté par le client en cours de course (L4-14) : `ride.stop.added` au SEUL chauffeur,
+ * au commit de `action_confirm_added_stop` (D32). Le client vient de confirmer : il le sait.
+ */
+export function broadcastStopAdded(
+  registry: ConnectionRegistry,
+  params: { rideId: string; driverId: string; stops: http.RideStop[] }
+): void {
+  const message: realtime.RideStopAddedMessage = {
+    type: 'ride.stop.added',
+    id: randomUUID(),
+    emittedAt: new Date().toISOString(),
+    payload: { rideId: params.rideId, stops: params.stops },
+  };
+  const payload = JSON.stringify(message);
+  for (const socket of registry.getByDriverId(params.driverId)) {
+    if (socket.readyState === socket.OPEN) socket.send(payload);
+  }
+}
+
 function sendToRideParticipants(
   registry: ConnectionRegistry,
   clientUserId: string,

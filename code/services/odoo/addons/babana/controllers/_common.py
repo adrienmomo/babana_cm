@@ -243,3 +243,19 @@ def run_idempotent(endpoint: str, handler):
     else:
         release_idempotency_slot(key, endpoint)
     return payload, status
+
+
+def parse_iso_datetime(value):
+    """Date ISO 8601 venue du client (D40 : offset obligatoire) -> datetime naïf en UTC, la
+    convention interne d'Odoo. `None` si absente ; ValueError si illisible ou sans fuseau.
+    Inverse de iso_datetime ; L4-14 (heure d'un événement d'arrêt mesurée par le téléphone)."""
+    from datetime import datetime as _datetime, timezone as _timezone
+
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError("date ISO attendue")
+    parsed = _datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        raise ValueError("date ISO sans fuseau")
+    return parsed.astimezone(_timezone.utc).replace(tzinfo=None)

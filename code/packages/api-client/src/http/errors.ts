@@ -53,6 +53,7 @@ export const USER_MESSAGES = {
   QUOTE_NOT_FOUND: "Cette estimation n'est plus disponible.",
   PROMO_CODE_INVALID: "Ce code promotionnel n'est pas valide.",
   ROUTE_UNAVAILABLE: "Impossible de calculer l'itinéraire pour le moment. Réessayez.",
+  STOP_NOT_FOUND: "Cet arrêt n'existe plus. Actualisez la course.",
   TOO_MANY_STOPS: "Trop d'arrêts pour une seule course.",
 
   RIDE_NOT_FOUND: "Cette course n'existe pas ou n'est plus disponible.",

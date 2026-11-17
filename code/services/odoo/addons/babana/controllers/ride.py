@@ -11,6 +11,7 @@
 # reste `settled`, la note vit dans babana.rating.
 from __future__ import annotations
 
+import json
 import logging
 from datetime import timedelta
 
@@ -23,7 +24,9 @@ from . import _common
 from ..models.babana_ride import PICKUP_NOTE_MAX_LENGTH, PLACE_LABEL_MAX_LENGTH
 from ..models.babana_rating import RatingAlreadySubmitted, RatingNotAllowed
 from ..models.babana_ride_state import NO_SHOW_REASON, RideInvalidTransition, RideNoShowTooEarly
+from ..models.babana_ride_stop import StopNotFound, StopQuoteExpired, TooManyStops
 from ..services import dispatch, realtime_client
+from ..services.pricing import FareBreakdown, round_breakdown_for_wire
 
 RATING_COMMENT_MAX_LENGTH = 500
 
@@ -56,6 +59,19 @@ def _summary(ride) -> dict:
     }
 
 
+def _parse_position(value):
+    if not isinstance(value, dict):
+        return None
+    try:
+        latitude = float(value["latitude"])
+        longitude = float(value["longitude"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
+        return None
+    return latitude, longitude
+
+
 def _map_user_error(message: str) -> tuple[str, int]:
     """Les deux UserError "littérales" que les méthodes de transition peuvent lever en dehors
     de RideInvalidTransition, documentées comme telles à leur point de levée
@@ -83,6 +99,12 @@ class RideController(http.Controller):
             return _common.json_response(payload, status)
         except _common.AuthenticationFailed as exc:
             return _common.error_response(exc.code, "authentification requise", exc.status)
+        except StopNotFound as exc:
+            return _common.error_response("STOP_NOT_FOUND", str(exc), 404)
+        except TooManyStops as exc:
+            return _common.error_response("TOO_MANY_STOPS", str(exc), 400)
+        except StopQuoteExpired as exc:
+            return _common.error_response("QUOTE_EXPIRED", str(exc), 410)
         except RideNoShowTooEarly as exc:
             return _common.error_response("NO_SHOW_TOO_EARLY", str(exc), 409)
         except RideInvalidTransition as exc:
@@ -188,6 +210,18 @@ class RideController(http.Controller):
                 "fare_rule_snapshot": quote.fare_rule_snapshot,
                 "promotion_code": quote.promo_code,
                 "discount_amount": quote.discount_amount,
+                # L4-14 : les arrêts cotés et les valeurs d'attente gelées voyagent avec la course.
+                "stop_wait_snapshot": quote.stop_wait_snapshot,
+                "stop_ids": [
+                    (0, 0, {
+                        "sequence": index,
+                        "latitude": stop["latitude"],
+                        "longitude": stop["longitude"],
+                        "label": stop.get("label") or False,
+                        "kind": "planned",
+                    })
+                    for index, stop in enumerate(json.loads(quote.stops_json or "[]"), start=1)
+                ],
             }
         )
         return _summary(ride), 201
@@ -385,6 +419,152 @@ class RideController(http.Controller):
                 403,
             )
         return ride.sudo(), driver, None
+
+    # --- Arrêts (L4-14) ----------------------------------------------------------------------
+    # Client : coter puis confirmer un arrêt ajouté pendant la course. Chauffeur : arrivée,
+    # départ, « Arrêt client ». Aucune règle ici -- elles vivent dans babana_ride_stop.py.
+
+    def _find_client_ride(self, env, user, ride_id):
+        ride = self._find_ride(env, user, ride_id)
+        if not ride:
+            return None, (_common.error_payload("RIDE_NOT_FOUND", "course inconnue"), 404)
+        if ride.sudo().client_id != user.partner_id:
+            return None, (
+                _common.error_payload("RIDE_NOT_OWNED", "cette course n'appartient pas à l'appelant"),
+                403,
+            )
+        return ride.sudo(), None
+
+    @staticmethod
+    def _stops_payload(ride):
+        payload = _summary(ride)
+        payload["stops"] = [stop._wire() for stop in ride.stop_ids.sorted("sequence")]
+        return payload
+
+    @staticmethod
+    def _occurred_at(body):
+        try:
+            return _common.parse_iso_datetime(body.get("occurredAt")), None
+        except ValueError:
+            return None, (
+                _common.error_payload("VALIDATION_ERROR", "occurredAt doit être une date ISO 8601 avec fuseau"),
+                400,
+            )
+
+    @http.route("/api/v1/rides/<string:ride_id>/stops/quote", **_ROUTE)
+    def quote_added_stop(self, ride_id, **_kwargs):
+        return self._dispatch("quoteAddedStop", lambda: self._quote_added_stop(ride_id))
+
+    def _quote_added_stop(self, ride_id):
+        env, user = _common.authenticated_user()
+        ride, error = self._find_client_ride(env, user, ride_id)
+        if error:
+            return error
+        body = _common.parse_json_body() or {}
+        position = _parse_position(body.get("position"))
+        if position is None:
+            return _common.error_payload("VALIDATION_ERROR", "position est requise"), 400
+        label = body.get("label")
+        if label is not None and (
+            not isinstance(label, str) or not label.strip() or len(label.strip()) > PLACE_LABEL_MAX_LENGTH
+        ):
+            return _common.error_payload(
+                "VALIDATION_ERROR", f"label doit contenir de 1 à {PLACE_LABEL_MAX_LENGTH} caractères"
+            ), 400
+        quote = ride.action_quote_added_stop(
+            by_partner=user.partner_id, latitude=position[0], longitude=position[1],
+            label=label.strip() if label else None,
+        )
+        return {
+            "quoteId": quote.public_id,
+            "rideId": ride.public_id,
+            "amount": round(quote.amount),
+            "currency": "XAF",
+            "previousAmount": round(ride.estimated_amount or 0),
+            "distanceMeters": quote.distance_meters,
+            "stopCount": quote.stop_count,
+            "breakdown": round_breakdown_for_wire(FareBreakdown(**json.loads(quote.fare_rule_snapshot))),
+            "expiresAt": _common.iso_datetime(quote.expires_at),
+        }, 200
+
+    @http.route("/api/v1/rides/<string:ride_id>/stops", **_ROUTE)
+    def confirm_added_stop(self, ride_id, **_kwargs):
+        return self._dispatch("confirmAddedStop", lambda: self._confirm_added_stop(ride_id))
+
+    def _confirm_added_stop(self, ride_id):
+        env, user = _common.authenticated_user()
+        ride, error = self._find_client_ride(env, user, ride_id)
+        if error:
+            return error
+        quote_id = (_common.parse_json_body() or {}).get("quoteId")
+        if not quote_id:
+            return _common.error_payload("VALIDATION_ERROR", "quoteId est requis"), 400
+        quote = env["babana.quote"].sudo().search(
+            [("public_id", "=", quote_id), ("ride_id", "=", ride.id)], limit=1
+        )
+        if not quote:
+            return _common.error_payload("QUOTE_NOT_FOUND", "cotation inconnue pour cette course"), 404
+        ride.action_confirm_added_stop(by_partner=user.partner_id, quote=quote)
+        return self._stops_payload(ride), 200
+
+    @http.route("/api/v1/rides/<string:ride_id>/stops/arrived", **_ROUTE)
+    def stop_arrived(self, ride_id, **_kwargs):
+        return self._dispatch("stopArrived", lambda: self._stop_arrived(ride_id))
+
+    def _stop_arrived(self, ride_id):
+        env, user = _common.authenticated_user()
+        ride, driver, error = self._find_ride_and_assigned_driver(env, user, ride_id)
+        if error:
+            return error
+        body = _common.parse_json_body() or {}
+        stop_id = body.get("stopId")
+        if not isinstance(stop_id, str) or not stop_id:
+            return _common.error_payload("VALIDATION_ERROR", "stopId est requis"), 400
+        occurred_at, error = self._occurred_at(body)
+        if error:
+            return error
+        ride.action_stop_arrived(by_driver=driver, stop_public_id=stop_id, occurred_at=occurred_at)
+        return self._stops_payload(ride), 200
+
+    @http.route("/api/v1/rides/<string:ride_id>/stops/departed", **_ROUTE)
+    def stop_departed(self, ride_id, **_kwargs):
+        return self._dispatch("stopDeparted", lambda: self._stop_departed(ride_id))
+
+    def _stop_departed(self, ride_id):
+        env, user = _common.authenticated_user()
+        ride, driver, error = self._find_ride_and_assigned_driver(env, user, ride_id)
+        if error:
+            return error
+        body = _common.parse_json_body() or {}
+        stop_id = body.get("stopId")
+        if stop_id is not None and (not isinstance(stop_id, str) or not stop_id):
+            return _common.error_payload("VALIDATION_ERROR", "stopId doit être un identifiant"), 400
+        occurred_at, error = self._occurred_at(body)
+        if error:
+            return error
+        ride.action_stop_departed(by_driver=driver, stop_public_id=stop_id, occurred_at=occurred_at)
+        return self._stops_payload(ride), 200
+
+    @http.route("/api/v1/rides/<string:ride_id>/stops/unplanned", **_ROUTE)
+    def stop_unplanned(self, ride_id, **_kwargs):
+        return self._dispatch("stopUnplanned", lambda: self._stop_unplanned(ride_id))
+
+    def _stop_unplanned(self, ride_id):
+        env, user = _common.authenticated_user()
+        ride, driver, error = self._find_ride_and_assigned_driver(env, user, ride_id)
+        if error:
+            return error
+        body = _common.parse_json_body() or {}
+        position = _parse_position(body.get("position"))
+        if position is None:
+            return _common.error_payload("VALIDATION_ERROR", "position est requise"), 400
+        occurred_at, error = self._occurred_at(body)
+        if error:
+            return error
+        ride.action_stop_unplanned(
+            by_driver=driver, latitude=position[0], longitude=position[1], occurred_at=occurred_at
+        )
+        return self._stops_payload(ride), 200
 
     # --- POST /rides/{id}/cancel ----------------------------------------------------------------
 

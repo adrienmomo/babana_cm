@@ -24,7 +24,10 @@ const map = JSON.parse(
 function extractMessageNames(relativePath, direction) {
   const source = fs.readFileSync(path.join(ROOT, relativePath), 'utf8');
   const names = [];
-  const pattern = /envelopeSchema\(\s*'([a-z]+(?:\.[a-z]+)*)'/g;
+  // Tout nom, quelle que soit sa forme : un motif plus étroit (minuscules et points seulement)
+  // laissait un nom hors convention -- `ride.stop_added`, L4-14 -- sortir du décompte EN
+  // SILENCE, sans entrée exigée. La forme est vérifiée plus bas, et elle échoue bruyamment.
+  const pattern = /envelopeSchema\(\s*'([^']+)'/g;
   let match;
   while ((match = pattern.exec(source)) !== null) {
     names.push({ name: match[1], direction });
@@ -48,6 +51,13 @@ const failures = [];
 const assert = (condition, message) => {
   if (!condition) failures.push(message);
 };
+
+for (const message of contractMessages) {
+  assert(
+    /^[a-z]+(?:\.[a-z]+)*$/.test(message.name),
+    `"${message.name}" ne suit pas la convention des noms de message (minuscules séparées par des points)`
+  );
+}
 
 const byName = new Map();
 for (const entry of map.messages) {

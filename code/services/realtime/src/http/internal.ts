@@ -12,7 +12,13 @@ import { reintegrateIfEligible } from '../redis/pool-eligibility';
 import { findNearby } from '../redis/geo-index';
 import { blockForCash, unblockForCash } from '../driver/cash-guard';
 import { holdDriver, releaseHold } from '../driver/admin-hold';
-import { broadcastRideStarted, broadcastRideCompleted, broadcastRideCancelled, broadcastRideUnmatched } from '../tracking/broadcast';
+import {
+  broadcastRideStarted,
+  broadcastRideCompleted,
+  broadcastRideCancelled,
+  broadcastRideUnmatched,
+  broadcastStopAdded,
+} from '../tracking/broadcast';
 import { startAccumulation, getAccumulation, endAccumulation } from '../tracking/accumulator';
 import { recordDriverArrived } from '../tracking/route';
 import { scheduleOutboxWrite } from '../odoo/outbox';
@@ -166,6 +172,13 @@ const RideStartedRequestSchema = z.object({
 });
 
 const RideMeasurementRequestSchema = z.object({ driverId: z.string().min(1) });
+
+// L4-14 : la liste d'arrêts suit le contrat (@babana/contracts, D17) -- jamais redéclarée ici.
+const StopAddedRequestSchema = z.object({
+  rideId: z.string().min(1),
+  driverId: z.string().min(1),
+  stops: z.array(httpContract.RideStopSchema),
+});
 
 const RideCompletedRequestSchema = z.object({
   rideId: z.string().min(1),
@@ -543,6 +556,16 @@ export function createInternalHandler(deps: InternalRouterDeps) {
       case '/internal/rides/started':
         await handleRideStarted(deps, body, res);
         return;
+      case '/internal/rides/stop-added': {
+        const parsed = StopAddedRequestSchema.safeParse(body);
+        if (!parsed.success) {
+          sendJson(res, 400, { error: 'VALIDATION_ERROR', details: parsed.error.issues });
+          return;
+        }
+        broadcastStopAdded(deps.registry, parsed.data);
+        sendJson(res, 200, { notified: true });
+        return;
+      }
       case '/internal/rides/measurement':
         await handleRideMeasurement(deps, body, res);
         return;

@@ -45,15 +45,31 @@ class BabanaQuote(models.Model):
         help="Arrêts dans l'ordre (JSON : [{latitude, longitude}]) -- l'itinéraire coté passe par "
         "eux. Copiés sur la course à sa création (L4-14).",
     )
-    stop_count = fields.Integer(default=0)
+    stop_count = fields.Integer(string="Arrêts", default=0)
     stop_wait_snapshot = fields.Text(
         help="Forfait par arrêt, tarif et gratuités d'attente, bande de distance (JSON), gelés "
         "par valeur depuis la règle tarifaire : le prix final (L4-15) les relit ici, sur la "
         "course, jamais sur la grille du jour.",
     )
 
+    # --- Cotation d'un arrêt ajouté en cours de course (L4-14) ---------------------------------
+    ride_id = fields.Many2one(
+        "babana.ride",
+        index=True,
+        ondelete="cascade",
+        help="Renseigné pour une cotation demandée pendant la course (ajout d'arrêt) : elle "
+        "porte l'itinéraire prévu complet avec l'arrêt ajouté. Vide pour un devis de commande.",
+    )
+    confirmed_at = fields.Datetime(
+        string="Acceptée le",
+        readonly=True,
+        help="Heure à laquelle le client a accepté ce prix. Une cotation confirmée est "
+        "conservée : c'est ce que le client a accepté en cours de course.",
+    )
+
     # --- Distance de référence (L2-05) ----------------------------------------------------------
     distance_meters = fields.Integer(
+        string="Distance (m)",
         help="Distance de référence, modèle voiture (É8), par les arrêts s'il y en a -- voir "
         "services/routing.py.",
     )
@@ -86,7 +102,7 @@ class BabanaQuote(models.Model):
     currency_id = fields.Many2one(
         "res.currency", default=lambda self: self.env.company.currency_id.id, required=True
     )
-    amount = fields.Monetary(currency_field="currency_id")
+    amount = fields.Monetary(string="Montant", currency_field="currency_id")
 
     promo_code = fields.Char()
     promo_applied = fields.Boolean(

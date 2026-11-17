@@ -649,3 +649,29 @@ def schedule_search_widening(
             client_user_public_id=client_user_public_id,
         )
     )
+
+
+def _notify_stop_added_now(*, ride_public_id: str, driver_public_id: str, stops: list) -> None:
+    try:
+        _post(
+            "/internal/rides/stop-added",
+            {"rideId": ride_public_id, "driverId": driver_public_id, "stops": stops},
+        )
+    except RealtimeUnavailable:
+        _logger.warning(
+            "échec de la notification ride.stop.added pour la course %s -- le chauffeur a reçu "
+            "le push, et retrouvera les arrêts à sa prochaine resynchronisation (L3-11).",
+            ride_public_id,
+        )
+
+
+def notify_stop_added(env, *, ride_public_id: str, driver_public_id: str, stops: list) -> None:
+    """Arrêt ajouté par le client en cours de course (L4-14) : pousse `ride.stop.added` (C-02)
+    au SEUL chauffeur, avec la liste à jour des arrêts prévus -- le client, qui vient de
+    confirmer, le sait déjà. **D32** : au commit, jamais pendant ; **D33** :
+    `action_confirm_added_stop` ne porte aucun savepoint."""
+    env.cr.postcommit.add(
+        lambda: _notify_stop_added_now(
+            ride_public_id=ride_public_id, driver_public_id=driver_public_id, stops=stops
+        )
+    )

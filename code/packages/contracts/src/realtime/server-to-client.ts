@@ -5,6 +5,7 @@ import { NearbyDriverSchema } from '../http/driver';
 import { PICKUP_NOTE_MAX_LENGTH, RideStateSchema } from '../http/ride';
 import { FareBreakdownSchema, VehicleClassSchema } from '../http/quote';
 import { QuickMessageCodeSchema, RideRouteSchema } from './client-to-server';
+import { RideStopSchema } from '../http/stops';
 
 /**
  * Tous les messages émis DEPUIS le serveur, à destination de l'application Chauffeur ou de
@@ -316,6 +317,19 @@ export const RideStartedMessageSchema = envelopeSchema('ride.started', RideStart
 export type RideStartedMessage = z.infer<typeof RideStartedMessageSchema>;
 
 /**
+ * Destinataire : chauffeur seul. Le client a ajouté un arrêt en cours de course (L4-14) et
+ * confirmé le nouveau prix ; le chauffeur ne peut pas refuser. Porte la liste à jour des arrêts
+ * PRÉVUS, dans l'ordre -- l'app redessine l'itinéraire depuis elle (D83). Aucun montant : le prix
+ * n'est pas l'affaire de cet écran.
+ */
+export const RideStopAddedPayloadSchema = z.object({
+  rideId: RideIdSchema,
+  stops: z.array(RideStopSchema),
+});
+export const RideStopAddedMessageSchema = envelopeSchema('ride.stop.added', RideStopAddedPayloadSchema);
+export type RideStopAddedMessage = z.infer<typeof RideStopAddedMessageSchema>;
+
+/**
  * Destinataire : client. Transition -> completed.
  *
  * `breakdown` ajouté le 25 août (amoa/questions/REPONSES-2026-08-25.md §2) : le résumé de fin
@@ -450,6 +464,7 @@ export const ServerToClientMessageSchema = z.discriminatedUnion('type', [
   DriverArrivedMessageSchema,
   ChatMessageMessageSchema,
   RideStartedMessageSchema,
+  RideStopAddedMessageSchema,
   RideCompletedMessageSchema,
   SessionSyncedMessageSchema,
   SessionReplacedMessageSchema,

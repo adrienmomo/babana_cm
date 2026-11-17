@@ -127,6 +127,35 @@
                         <field name="cancel_reason"/>
                     </group>
                     <notebook>
+                        <page string="Arrêts" name="stops">
+                            <group>
+                                <field name="pickup_departed_at" readonly="1"/>
+                            </group>
+                            <field name="stop_ids" readonly="1">
+                                <list>
+                                    <field name="sequence"/>
+                                    <field name="kind"/>
+                                    <field name="label"/>
+                                    <field name="added_during_ride"/>
+                                    <field name="arrived_at"/>
+                                    <field name="departed_at"/>
+                                    <field name="arrived_at_device" optional="hide"/>
+                                    <field name="departed_at_device" optional="hide"/>
+                                    <field name="latitude" optional="hide"/>
+                                    <field name="longitude" optional="hide"/>
+                                </list>
+                            </field>
+                            <separator string="Cotations acceptées en cours de course"/>
+                            <field name="stop_quote_ids" readonly="1">
+                                <list>
+                                    <field name="confirmed_at"/>
+                                    <field name="stop_count"/>
+                                    <field name="distance_meters"/>
+                                    <field name="amount"/>
+                                    <field name="currency_id" column_invisible="1"/>
+                                </list>
+                            </field>
+                        </page>
                         <page string="Tracé" name="track">
                             <field name="track_polyline" readonly="1"
                                 placeholder="Polyline encodé du tracé réel (L4-04), vide si la course s'est terminée sans accumulation temps réel."/>

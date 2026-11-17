@@ -78,7 +78,7 @@ connu (cf. émulateurs).
 | L6-21 | Apps : saisie des arrêts, détection arrivée/départ, reçu détaillé | L4-14, L4-15 |
 | L4-16 | Enregistrement du trajet pour la sécurité, rejeu, avis au client | L4-14, L3-19, L8-02 |
 
-Contrats touchés : C-01 (requêtes et réponses), C-02 (message `ride.stop_added` au chauffeur),
+Contrats touchés : C-01 (requêtes et réponses), C-02 (message `ride.stop.added` au chauffeur),
 C-03 (événements d'arrêt — ce ne sont **pas** des transitions d'état ; la course reste
 `in_progress`). À inscrire au §4 de `03-decoupage-taches.md` au débrief.
 

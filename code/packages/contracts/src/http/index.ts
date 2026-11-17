@@ -17,6 +17,7 @@ export * from './wallet';
 export * from './incident';
 export * from './share';
 export * from './history';
+export * from './stops';
 
 import * as auth from './auth';
 import * as phone from './phone';
@@ -32,6 +33,7 @@ import * as wallet from './wallet';
 import * as incident from './incident';
 import * as share from './share';
 import * as history from './history';
+import * as stops from './stops';
 
 /**
  * Codes implicitement possibles sur tout endpoint, sans être répétés dans la liste
@@ -201,6 +203,56 @@ export const HTTP_ENDPOINTS = {
     errors: ride.CancelRideErrors,
     requestExample: ride.cancelRideRequestExample,
     responseExample: ride.cancelRideResponseExample,
+  },
+  quoteAddedStop: {
+    method: 'POST',
+    path: '/api/v1/rides/{id}/stops/quote',
+    requiresAuth: true,
+    requestSchema: stops.QuoteAddedStopRequestSchema,
+    responseSchema: stops.QuoteAddedStopResponseSchema,
+    errors: stops.QuoteAddedStopErrors,
+    requestExample: stops.quoteAddedStopRequestExample,
+    responseExample: stops.quoteAddedStopResponseExample,
+  },
+  confirmAddedStop: {
+    method: 'POST',
+    path: '/api/v1/rides/{id}/stops',
+    requiresAuth: true,
+    requestSchema: stops.ConfirmAddedStopRequestSchema,
+    responseSchema: stops.RideWithStopsResponseSchema,
+    errors: stops.ConfirmAddedStopErrors,
+    requestExample: stops.confirmAddedStopRequestExample,
+    responseExample: stops.rideWithStopsResponseExample,
+  },
+  stopArrived: {
+    method: 'POST',
+    path: '/api/v1/rides/{id}/stops/arrived',
+    requiresAuth: true,
+    requestSchema: stops.StopArrivedRequestSchema,
+    responseSchema: stops.RideWithStopsResponseSchema,
+    errors: stops.DriverStopEventErrors,
+    requestExample: stops.stopArrivedRequestExample,
+    responseExample: stops.rideWithStopsResponseExample,
+  },
+  stopDeparted: {
+    method: 'POST',
+    path: '/api/v1/rides/{id}/stops/departed',
+    requiresAuth: true,
+    requestSchema: stops.StopDepartedRequestSchema,
+    responseSchema: stops.RideWithStopsResponseSchema,
+    errors: stops.DriverStopEventErrors,
+    requestExample: stops.stopDepartedRequestExample,
+    responseExample: stops.rideWithStopsResponseExample,
+  },
+  stopUnplanned: {
+    method: 'POST',
+    path: '/api/v1/rides/{id}/stops/unplanned',
+    requiresAuth: true,
+    requestSchema: stops.StopUnplannedRequestSchema,
+    responseSchema: stops.RideWithStopsResponseSchema,
+    errors: stops.DriverStopEventErrors,
+    requestExample: stops.stopUnplannedRequestExample,
+    responseExample: stops.rideWithStopsResponseExample,
   },
   rateRide: {
     method: 'POST',

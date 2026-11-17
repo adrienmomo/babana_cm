@@ -133,3 +133,27 @@ class TestQuoteStops(HttpCase):
             {"wait_rate_per_minute": frozen["wait_rate_per_minute"] + 10}
         )
         self.assertEqual(json.loads(quote.stop_wait_snapshot), frozen)
+
+    # --- L4-14 : la course créée depuis ce devis porte ses arrêts et ses valeurs gelées ---------
+
+    def test_ride_created_from_a_quote_carries_its_stops_and_frozen_values(self):
+        token = self._sign_in_client("sub-stops-ride")
+        quote_body = self._quote(token, {"stops": [_STOP_A, _STOP_B]}).json()
+
+        response = self.url_open(
+            "/api/v1/rides",
+            data=json.dumps({"quoteId": quote_body["quoteId"]}).encode(),
+            headers={"Content-Type": "application/json", "Authorization": f"Bearer {token}"},
+        )
+
+        self.assertEqual(response.status_code, 201, response.text)
+        ride = self.env["babana.ride"].sudo().search([("public_id", "=", response.json()["id"])])
+        quote = self.env["babana.quote"].sudo().search([("public_id", "=", quote_body["quoteId"])])
+        stops = ride.stop_ids.sorted("sequence")
+        self.assertEqual(
+            [(s.latitude, s.longitude, s.kind) for s in stops],
+            [(_STOP_A["latitude"], _STOP_A["longitude"], "planned"), (_STOP_B["latitude"], _STOP_B["longitude"], "planned")],
+        )
+        self.assertEqual(ride.stop_wait_snapshot, quote.stop_wait_snapshot)
+        self.assertEqual(ride.reference_distance_km, quote_body["distanceMeters"] / 1000.0)
+        self.assertEqual(round(ride.estimated_amount), quote_body["amount"])

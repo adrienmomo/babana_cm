@@ -652,6 +652,117 @@ def make_history(client_user, drivers, zones_by_name):
     return made, new_invoice_ids
 
 
+def make_ride_with_stops(client_user, drivers, zones_by_name):
+    """Une course réglée qui peuple l'onglet « Arrêts » de la fiche de course (L4-14) : un
+    arrêt prévu à la commande, un arrêt ajouté en cours de course (sa cotation acceptée
+    conservée), un « Arrêt client » imprévu. Passe par les vraies méthodes du modèle, puis
+    antidate les horodatages comme make_history. Rejouable (marqueur)."""
+    from odoo.addons.babana.services import pricing
+
+    Param = env["ir.config_parameter"].sudo()
+    marker = "babana.seed_stops_ride"
+    if Param.get_param(marker):
+        return []
+    partner = client_user.partner_id
+    driver = drivers[0]
+    _, (o_lat, o_lng) = zones_by_name["Akwa"]
+    _, (d_lat, d_lng) = zones_by_name["Bonapriso"]
+    stop_lat, stop_lng = (o_lat + d_lat) / 2 + 0.004, (o_lng + d_lng) / 2
+    pickup_zone = env["babana.zone"].sudo().resolve_point(latitude=o_lat, longitude=o_lng)
+    dropoff_zone = env["babana.zone"].sudo().resolve_point(latitude=d_lat, longitude=d_lng)
+    now = datetime.now()
+    rule = env["babana.fare.rule"].sudo()._find_applicable_rule(
+        zone=pickup_zone, vehicle_class="standard", at_datetime=now
+    )
+    first_leg = reference_route((o_lat, o_lng), (stop_lat, stop_lng))
+    second_leg = reference_route((stop_lat, stop_lng), (d_lat, d_lng))
+    dist_m = first_leg[0] + second_leg[0]
+    breakdown = pricing.compute_fare(
+        rule._pricing_input(), dist_m,
+        rounding_step=rule._default_rounding_step(), approach_distance_m=800, stop_count=1,
+    )
+    snapshot = json.dumps(_breakdown_dict(breakdown))
+    quote = env["babana.quote"].sudo().create({
+        "client_id": partner.id,
+        "pickup_latitude": o_lat, "pickup_longitude": o_lng,
+        "dropoff_latitude": d_lat, "dropoff_longitude": d_lng,
+        "pickup_zone_id": pickup_zone.id, "dropoff_zone_id": dropoff_zone.id,
+        "vehicle_class": "standard",
+        "stops_json": json.dumps([{"latitude": stop_lat, "longitude": stop_lng}]),
+        "stop_count": 1,
+        "stop_wait_snapshot": json.dumps(rule._stop_wait_snapshot()),
+        "distance_meters": dist_m,
+        "duration_seconds": first_leg[1] + second_leg[1],
+        "eta_seconds": first_leg[1] + second_leg[1],
+        "approach_distance_meters": 800, "approach_driver_count": 1,
+        "fare_rule_id": rule.id, "fare_rule_snapshot": snapshot,
+        "amount": breakdown.total, "discount_amount": breakdown.discount_amount,
+        "expires_at": now + timedelta(minutes=5),
+    })
+    ride = env["babana.ride"].sudo().action_request({
+        "client_id": partner.id,
+        "pickup_latitude": o_lat, "pickup_longitude": o_lng, "pickup_label": "Akwa",
+        "dropoff_latitude": d_lat, "dropoff_longitude": d_lng, "dropoff_label": "Bonapriso",
+        "pickup_zone_id": pickup_zone.id, "dropoff_zone_id": dropoff_zone.id,
+        "quote_id": quote.id, "currency_id": quote.currency_id.id,
+        "estimated_amount": quote.amount, "reference_distance_km": dist_m / 1000.0,
+        "estimated_duration_minutes": quote.eta_seconds / 60.0,
+        "fare_rule_id": rule.id, "fare_rule_snapshot": snapshot,
+        "stop_wait_snapshot": quote.stop_wait_snapshot,
+        "stop_ids": [(0, 0, {
+            "sequence": 1, "latitude": stop_lat, "longitude": stop_lng,
+            "label": "Marché Deïdo", "kind": "planned",
+        })],
+    })
+    ride.action_propose(by_partner=partner, driver=driver)
+    ride.action_accept(by_driver=driver)
+    ride.action_mark_arrived(by_driver=driver)
+    ride.action_stop_departed(by_driver=driver)  # départ de la prise en charge
+    ride.action_start(by_driver=driver)
+    planned = ride.stop_ids
+    ride.action_stop_arrived(by_driver=driver, stop_public_id=planned.public_id)
+    ride.action_stop_departed(by_driver=driver, stop_public_id=planned.public_id)
+    added_quote = ride.action_quote_added_stop(
+        by_partner=partner, latitude=d_lat + 0.003, longitude=d_lng - 0.003, label="Pharmacie Bonapriso"
+    )
+    added = ride.action_confirm_added_stop(by_partner=partner, quote=added_quote)
+    ride.action_stop_arrived(by_driver=driver, stop_public_id=added.public_id)
+    ride.action_stop_departed(by_driver=driver, stop_public_id=added.public_id)
+    unplanned = ride.action_stop_unplanned(by_driver=driver, latitude=d_lat + 0.001, longitude=d_lng)
+    ride.action_stop_departed(by_driver=driver, stop_public_id=unplanned.public_id)
+    ride.action_complete(by_driver=driver, final_amount=ride._babana_compute_final_amount(), measurement=None)
+    ride.action_settle(by_driver=driver, amount_collected=ride.final_amount)
+
+    # Antidater (même raison et même exception que make_history : horodatages seulement).
+    when = now - timedelta(days=1, hours=3)
+    env.cr.execute(
+        """
+        UPDATE babana_ride
+           SET create_date = %s, write_date = %s, requested_at = %s, proposed_at = %s,
+               assigned_at = %s, arrived_at = %s, pickup_departed_at = %s, started_at = %s,
+               completed_at = %s, settled_at = %s
+         WHERE id = %s
+        """,
+        (when, when, when, when, when, when + timedelta(minutes=6), when + timedelta(minutes=10),
+         when + timedelta(minutes=10),
+         when + timedelta(minutes=40), when + timedelta(minutes=41), ride.id),
+    )
+    for stop, arrived, departed in (
+        (planned, 16, 21), (added, 28, 31), (unplanned, 34, 38),
+    ):
+        env.cr.execute(
+            "UPDATE babana_ride_stop SET arrived_at = %s, departed_at = %s WHERE id = %s",
+            (when + timedelta(minutes=arrived), when + timedelta(minutes=departed), stop.id),
+        )
+    env.cr.execute(
+        "UPDATE babana_quote SET confirmed_at = %s WHERE id = %s",
+        (when + timedelta(minutes=25), added_quote.id),
+    )
+    Param.set_param(marker, ride.reference)
+    info("+ course avec arrêts %s : Akwa -> Bonapriso, %d FCFA", ride.reference, round(ride.final_amount))
+    return [ride.invoice_id.id]
+
+
 def _wait_for_pending_invoice_emails(invoice_ids, *, timeout_seconds=120.0):
     """D57 : l'envoi automatique de la facture part en fil démon APRÈS le commit
     (`babana_ride_invoice.py::_babana_settle_send_invoice_email_async`, même patron que
@@ -696,17 +807,11 @@ def _wait_for_pending_invoice_emails(invoice_ids, *, timeout_seconds=120.0):
 
 
 def _breakdown_dict(b):
-    return {
-        "base_fare": b.base_fare,
-        "approach_fare": b.approach_fare,
-        "distance_fare": b.distance_fare,
-        "surge_amount": b.surge_amount,
-        "discount_amount": b.discount_amount,
-        "floor_amount": b.floor_amount,
-        "rounding_amount": b.rounding_amount,
-        "minimum_fare_applied": b.minimum_fare_applied,
-        "total": b.total,
-    }
+    # Tous les champs du détail, comme controllers/quote.py -- une liste recopiée ici avait perdu
+    # `stop_fare` (L2-08) : le détail gelé d'une course à arrêts ne sommait plus à son total.
+    import dataclasses
+
+    return dataclasses.asdict(b)
 
 
 # --------------------------------------------------------------------------------------------
@@ -721,6 +826,7 @@ def main():
     ensure_supervisor()
     drivers = ensure_fleet()
     n_hist, new_invoice_ids = make_history(client, drivers, zones_by_name)
+    new_invoice_ids += make_ride_with_stops(client, drivers, zones_by_name)
 
     env["ir.config_parameter"].sudo().set_param(
         "babana.seed_done", datetime.now().isoformat(timespec="seconds")

@@ -74,3 +74,6 @@ access_babana_driver_wallet_movement_supervisor,babana.driver.wallet.movement su
 access_babana_driver_wallet_movement_manager,babana.driver.wallet.movement manager,model_babana_driver_wallet_movement,group_babana_manager,1,0,1,0
 access_babana_driver_wallet_movement_admin,babana.driver.wallet.movement admin,model_babana_driver_wallet_movement,group_babana_admin,1,0,1,0
 access_babana_driver_wallet_topup_wizard_manager,babana.driver.wallet.topup.wizard manager,model_babana_driver_wallet_topup_wizard,group_babana_manager,1,1,1,1
+access_babana_ride_stop_supervisor,babana.ride.stop supervisor,model_babana_ride_stop,group_babana_supervisor,1,0,0,0
+access_babana_ride_stop_manager,babana.ride.stop manager,model_babana_ride_stop,group_babana_manager,1,1,1,0
+access_babana_ride_stop_admin,babana.ride.stop admin,model_babana_ride_stop,group_babana_admin,1,1,1,1

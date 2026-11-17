@@ -584,7 +584,7 @@ services/odoo/addons/babana/models/babana_ride_stop.py
 services/odoo/addons/babana/models/babana_ride_state.py
 services/odoo/addons/babana/controllers/
 packages/contracts/   (C-01, C-02)
-services/realtime/    (relais de ride.stop_added)
+services/realtime/    (relais de ride.stop.added)
 services/odoo/addons/babana/tests/test_ride_stops.py
 ```
 
@@ -622,7 +622,7 @@ conserve la cotation confirmée** (un enregistrement par confirmation : arrêts,
 heure). La nouvelle cotation utilise **toujours la version de grille gelée au premier devis**,
 jamais la version du jour, et sa distance est stockée : un rejeu ne réinterroge jamais le
 service de routage, dont le cache aura expiré. Au
-commit (D32), le chauffeur reçoit `ride.stop_added` par le temps réel et une notification push.
+commit (D32), le chauffeur reçoit `ride.stop.added` par le temps réel et une notification push.
 Le chauffeur ne peut pas refuser. Au-delà de `max_stops_per_ride`, refus explicite.
 
 **Le client n'est jamais notifié de l'attente** — ni à l'arrivée à un arrêt, ni au départ.
@@ -631,7 +631,7 @@ Le chauffeur ne peut pas refuser. Au-delà de `max_stops_per_ride`, refus explic
 
 1. Une course avec k arrêts produit au plus 2k + 1 écritures d'arrêt, quelle que soit la durée des attentes.
 2. Un ajout confirmé met à jour le prix prévu et la distance prévue en une écriture ; une cotation non confirmée n'écrit rien.
-3. Le chauffeur reçoit `ride.stop_added` et une notification push après le commit, jamais avant (test : transaction annulée → aucun message).
+3. Le chauffeur reçoit `ride.stop.added` et une notification push après le commit, jamais avant (test : transaction annulée → aucun message).
 4. Un `occurred_at` antérieur à l'événement précédent ou postérieur à la réception est ramené à la borne.
 5. Rejouer un événement (même clé d'idempotence) n'écrit rien de plus.
 6. Un départ sans arrivée, une arrivée sur un arrêt déjà quitté, un événement hors `in_progress` (ou hors `assigned` pour la prise en charge) sont refusés.
@@ -641,7 +641,7 @@ Le chauffeur ne peut pas refuser. Au-delà de `max_stops_per_ride`, refus explic
 
 ### Piège
 
-`ride.stop_added` passe par l'accroche au commit, et l'écriture de l'arrêt ne doit pas se faire
+`ride.stop.added` passe par l'accroche au commit, et l'écriture de l'arrêt ne doit pas se faire
 dans un savepoint (D33).
 
 ---

@@ -36,6 +36,9 @@ import { bringDriverOnline } from './helpers/realtime-ws';
 import { spotSequence } from '../concurrency/helpers/spots';
 
 type EndpointName = keyof typeof http.HTTP_ENDPOINTS;
+
+// Un arrêt plausible entre le départ et l'arrivée des exercices (L4-14).
+const STOP_POSITION = { latitude: 4.056, longitude: 9.75 };
 type HttpClient = ReturnType<typeof createHttpClient>;
 
 // Point DISTINCT de concurrency/ride-transitions.test.ts, concurrency/select-driver-replay.test.ts
@@ -120,6 +123,29 @@ async function setupProposedRide(
 /** Course affectée (proposed -> assigned), par le seul chemin d'écriture réel (D31) : le canal
  * interne, comme le ferait le service temps réel après une acceptation résolue atomiquement --
  * jamais un second chemin HTTP public qui ignorerait la réservation. */
+/** Course démarrée (assigned -> in_progress) -- pour les arrêts (L4-14). */
+async function setupStartedRide(label: string): Promise<ProposedRide> {
+  const rig = await setupAssignedRide(label);
+  await clientFor(rig.driverSession.accessToken).request('startRide', { pathParams: { id: rig.ride.id } });
+  return rig;
+}
+
+/** Course démarrée avec un arrêt ajouté par le client (cotation puis confirmation, L4-14). */
+async function startedRideWithAddedStop(label: string): Promise<ProposedRide & { stopId: string }> {
+  const rig = await setupStartedRide(label);
+  const quote = (await rig.client.request('quoteAddedStop', {
+    pathParams: { id: rig.ride.id },
+    body: { position: STOP_POSITION, label: 'Pharmacie du rond-point' },
+  })) as http.QuoteAddedStopResponse;
+  const confirmed = (await rig.client.request('confirmAddedStop', {
+    pathParams: { id: rig.ride.id },
+    body: { quoteId: quote.quoteId },
+  })) as http.RideWithStopsResponse;
+  const stop = confirmed.stops[0];
+  assert.ok(stop, 'l’arrêt confirmé figure sur la course');
+  return { ...rig, stopId: stop.id };
+}
+
 /** Course encaissée de bout en bout (facture émise) -- pour les endpoints de facture (L6-10). */
 async function settledRide(label: string): Promise<ProposedRide> {
   const rig = await setupAssignedRide(label);
@@ -269,6 +295,52 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
       body: { amountCollected: completed.amount },
     })) as http.SettleRideResponse;
     assert.equal(settled.state, 'settled');
+  },
+
+  quoteAddedStop: async () => {
+    const rig = await setupStartedRide('quote-added-stop');
+    const quote = (await rig.client.request('quoteAddedStop', {
+      pathParams: { id: rig.ride.id },
+      body: { position: STOP_POSITION },
+    })) as http.QuoteAddedStopResponse;
+    assert.equal(quote.rideId, rig.ride.id);
+    assert.equal(quote.stopCount, 1);
+    assert.ok(quote.breakdown.stopFare > 0, 'le forfait d’arrêt figure dans le détail');
+  },
+
+  confirmAddedStop: async () => {
+    const rig = await startedRideWithAddedStop('confirm-added-stop');
+    assert.ok(rig.stopId);
+  },
+
+  stopArrived: async () => {
+    const rig = await startedRideWithAddedStop('stop-arrived');
+    const arrived = (await clientFor(rig.driverSession.accessToken).request('stopArrived', {
+      pathParams: { id: rig.ride.id },
+      body: { stopId: rig.stopId, occurredAt: new Date().toISOString() },
+    })) as http.RideWithStopsResponse;
+    assert.equal(arrived.stops.length, 1);
+  },
+
+  stopDeparted: async () => {
+    const rig = await startedRideWithAddedStop('stop-departed');
+    const driverClient = clientFor(rig.driverSession.accessToken);
+    await driverClient.request('stopArrived', { pathParams: { id: rig.ride.id }, body: { stopId: rig.stopId } });
+    const departed = (await driverClient.request('stopDeparted', {
+      pathParams: { id: rig.ride.id },
+      body: { stopId: rig.stopId, occurredAt: new Date().toISOString() },
+    })) as http.RideWithStopsResponse;
+    assert.equal(departed.state, 'in_progress');
+  },
+
+  stopUnplanned: async () => {
+    const rig = await setupStartedRide('stop-unplanned');
+    const result = (await clientFor(rig.driverSession.accessToken).request('stopUnplanned', {
+      pathParams: { id: rig.ride.id },
+      body: { position: STOP_POSITION },
+    })) as http.RideWithStopsResponse;
+    assert.equal(result.stops.length, 1);
+    assert.equal(result.stops[0]?.kind, 'unplanned');
   },
 
   rideHistory: async () => {

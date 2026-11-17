@@ -115,6 +115,14 @@
       "consumer": "apps/client/src/screens/TrackingScreen.tsx -- crée/redémarre le StreamLivenessWatchdog de driver.position à la cadence annoncée. apps/client/src/screens/__tests__/TrackingScreen.test.tsx."
     },
     {
+      "name": "ride.stop.added",
+      "direction": "server-to-client",
+      "status": "pending",
+      "emitter": "réel et testé (L4-14) : babana_ride_stop.py::action_confirm_added_stop appelle realtime_client.notify_stop_added (postcommit, D32/D33) ; services/realtime/src/http/internal.ts (POST /internal/rides/stop-added) -> tracking/broadcast.ts::broadcastStopAdded, au seul chauffeur. Testé par test_ride_stops.py et services/realtime/test/internal.test.ts.",
+      "consumer": "aucun encore : l'app chauffeur doit redessiner l'itinéraire avec les arrêts reçus.",
+      "reason": "Consommateur chauffeur à construire par L6-21 (arrêts dans les apps), qui suit L4-14 et L4-15. Le chauffeur reçoit déjà le push « Arrêt ajouté » d'ici là."
+    },
+    {
       "name": "ride.proposed",
       "direction": "server-to-client",
       "status": "pending",

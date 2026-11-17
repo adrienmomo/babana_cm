@@ -374,6 +374,46 @@ describe('POST /internal/rides/started|completed (sens Odoo -> temps réel, L3-1
     }
   });
 
+  test('ride.stop.added (L4-14) part au seul chauffeur, avec les arrêts -- jamais au client', async () => {
+    const rideId = randomUUID();
+    const clientUserId = randomUUID();
+    const driverId = randomUUID();
+    const stops = [
+      {
+        id: randomUUID(),
+        sequence: 1,
+        position: { latitude: 4.056, longitude: 9.775 },
+        label: 'Pharmacie du rond-point',
+        kind: 'planned',
+        addedDuringRide: true,
+      },
+    ];
+    const clientWs = await connectWs(tokenFor('client', clientUserId));
+    const driverWs = await connectWs(tokenFor('driver', driverId, driverId));
+
+    try {
+      const [driverMessage, { status }] = await Promise.all([
+        waitForMessage(driverWs, 'ride.stop.added'),
+        post('/internal/rides/stop-added', { rideId, driverId, stops }),
+      ]);
+      assert.equal(status, 200);
+      assert.deepEqual(driverMessage.payload, { rideId, stops });
+      await assertNoMessage(clientWs, 'ride.stop.added');
+    } finally {
+      clientWs.close();
+      driverWs.close();
+    }
+  });
+
+  test('/internal/rides/stop-added refuse un arrêt hors contrat (400)', async () => {
+    const { status } = await post('/internal/rides/stop-added', {
+      rideId: randomUUID(),
+      driverId: randomUUID(),
+      stops: [{ id: 'pas-un-uuid' }],
+    });
+    assert.equal(status, 400);
+  });
+
   test('/internal/rides/arrived refuse un corps incomplet (400)', async () => {
     const { status } = await post('/internal/rides/arrived', { rideId: randomUUID(), clientUserId: 'c', driverId: 'd' });
     assert.equal(status, 400);
