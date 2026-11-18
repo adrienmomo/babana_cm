@@ -91,6 +91,10 @@ export type ProposalRejectMessage = z.infer<typeof ProposalRejectMessageSchema>;
 export const ProposalSeenPayloadSchema = z.object({
   rideId: RideIdSchema,
   emittedAt: IsoDateTimeSchema,
+  /** Échéance de la proposition (celle de `proposal.new`) : avec `emittedAt`, le délai que CETTE
+   * proposition laissait -- le budget de la métrique de dépassement. Le service temps réel n'a pas
+   * de délai à lui depuis le 18 novembre (Odoo, `babana.proposal_window_seconds`). */
+  expiresAt: IsoDateTimeSchema,
 });
 export const ProposalSeenMessageSchema = envelopeSchema('proposal.seen', ProposalSeenPayloadSchema);
 export type ProposalSeenMessage = z.infer<typeof ProposalSeenMessageSchema>;

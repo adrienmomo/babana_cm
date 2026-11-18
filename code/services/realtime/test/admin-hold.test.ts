@@ -153,6 +153,7 @@ describe('admin-hold (suspension / rejet, J33)', () => {
       distanceMeters: 3_400,
       clientPhoneNumber: '+237691234567',
       pickupNote: null,
+      acceptanceTimeoutSeconds: 15,
     } satisfies ProposalDetails);
     assert.equal(proposeOutcome.proposed, true);
 

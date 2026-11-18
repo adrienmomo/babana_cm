@@ -94,7 +94,9 @@ function fakeSocket() {
   return { socket: socket as unknown as WebSocket, messages };
 }
 
-function proposalDetails(rideId: string, clientUserId: string, clientPhoneNumber: string | null = '+237691234567'): ProposalDetails {
+/** Le délai d'acceptation vient d'Odoo avec chaque proposition (18 novembre : Odoo seule source,
+ * `babana.proposal_window_seconds`) -- 15 s ici comme le défaut d'Odoo, sauf scénario contraire. */
+function proposalDetails(rideId: string, clientUserId: string, acceptanceTimeoutSeconds = 15): ProposalDetails {
   return {
     rideId,
     clientUserId,
@@ -102,8 +104,9 @@ function proposalDetails(rideId: string, clientUserId: string, clientPhoneNumber
     destination: { latitude: 4.06, longitude: 9.72 },
     amount: 1_200,
     distanceMeters: 3_400,
-    clientPhoneNumber,
+    clientPhoneNumber: '+237691234567',
     pickupNote: null,
+    acceptanceTimeoutSeconds,
   };
 }
 
@@ -240,7 +243,7 @@ describe('ProposalLifecycle (L3-07)', () => {
   });
 
   test('critère 3 -- l\'expiration libère le chauffeur et notifie client (ride.rejected) et chauffeur (proposal.expired)', async () => {
-    const config = configWith({ PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: '1', RESERVATION_TTL_SECONDS: '30' });
+    const config = configWith();
     const registry = new ConnectionRegistry();
     const lifecycle = new ProposalLifecycle(config, redis, registry);
 
@@ -253,7 +256,7 @@ describe('ProposalLifecycle (L3-07)', () => {
     registry.add(driverContext(driverId), driverSocket.socket);
     registry.add(clientContext(clientUserId), clientSocket.socket);
 
-    await lifecycle.propose(driverId, proposalDetails(rideId, clientUserId));
+    await lifecycle.propose(driverId, proposalDetails(rideId, clientUserId, 1));
 
     // Délai configuré à 1 s ci-dessus : laisser largement le temps au minuteur de se déclencher.
     await new Promise((resolve) => setTimeout(resolve, 1_500));
@@ -271,7 +274,7 @@ describe('ProposalLifecycle (L3-07)', () => {
   });
 
   test("critère 4 -- une acceptation arrivant après l'expiration échoue proprement, sans engagement ni message supplémentaire", async () => {
-    const config = configWith({ PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: '1', RESERVATION_TTL_SECONDS: '30' });
+    const config = configWith();
     const registry = new ConnectionRegistry();
     const lifecycle = new ProposalLifecycle(config, redis, registry);
 
@@ -284,7 +287,7 @@ describe('ProposalLifecycle (L3-07)', () => {
     registry.add(driverContext(driverId), driverSocket.socket);
     registry.add(clientContext(clientUserId), clientSocket.socket);
 
-    await lifecycle.propose(driverId, proposalDetails(rideId, clientUserId));
+    await lifecycle.propose(driverId, proposalDetails(rideId, clientUserId, 1));
     await new Promise((resolve) => setTimeout(resolve, 1_500));
 
     const messagesBeforeLateAccept = clientSocket.messages.length;
@@ -361,7 +364,7 @@ describe('ProposalLifecycle (L3-07)', () => {
   });
 
   test("une acceptation pour une autre course ne désarme pas l'échéance de la proposition en cours", async () => {
-    const config = configWith({ PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: '1', RESERVATION_TTL_SECONDS: '30' });
+    const config = configWith();
     const registry = new ConnectionRegistry();
     const lifecycle = new ProposalLifecycle(config, redis, registry);
     const driverId = await availableDriver('stale-accept-driver');
@@ -371,7 +374,7 @@ describe('ProposalLifecycle (L3-07)', () => {
     const clientSocket = fakeSocket();
     registry.add(driverContext(driverId), driverSocket.socket);
     registry.add(clientContext(clientUserId), clientSocket.socket);
-    await lifecycle.propose(driverId, proposalDetails(rideId, clientUserId));
+    await lifecycle.propose(driverId, proposalDetails(rideId, clientUserId, 1));
 
     assert.equal(await lifecycle.accept(driverId, randomUUID()), false);
     await new Promise((resolve) => setTimeout(resolve, 1_500));
@@ -383,23 +386,32 @@ describe('ProposalLifecycle (L3-07)', () => {
     assert.ok(clientSocket.messages.some((m) => m.type === 'ride.rejected'));
   });
 
-  test('critère 6 -- le délai est lu depuis la configuration, pas codé en dur', async () => {
-    const shortConfig = configWith({ PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: '1', RESERVATION_TTL_SECONDS: '30' });
-    const longConfig = configWith({ PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: '20', RESERVATION_TTL_SECONDS: '30' });
+  test('critère 6 -- le délai est celui que transmet Odoo avec la proposition, pas une valeur du service', async () => {
+    // Même service, même configuration : seul le délai porté par chaque proposition diffère.
     const registry = new ConnectionRegistry();
+    const lifecycle = new ProposalLifecycle(configWith(), redis, registry);
 
-    const shortLived = new ProposalLifecycle(shortConfig, redis, registry);
     const driverShort = await availableDriver('config-short-driver');
-    await shortLived.propose(driverShort, proposalDetails(randomUUID(), id('config-short-client')));
+    await lifecycle.propose(driverShort, proposalDetails(randomUUID(), id('config-short-client'), 1));
 
-    const longLived = new ProposalLifecycle(longConfig, redis, registry);
     const driverLong = await availableDriver('config-long-driver');
-    await longLived.propose(driverLong, proposalDetails(randomUUID(), id('config-long-client')));
+    await lifecycle.propose(driverLong, proposalDetails(randomUUID(), id('config-long-client'), 20));
 
     await new Promise((resolve) => setTimeout(resolve, 1_500));
 
     assert.equal(await isReserved(redis, driverShort), false, 'expiré : le délai court doit avoir déclenché la libération');
     assert.equal(await isReserved(redis, driverLong), true, 'pas expiré : le délai long ne doit pas encore avoir déclenché');
+  });
+
+  test('la réservation dure le délai transmis plus la marge du service -- le filet Redis tombe toujours après le minuteur', async () => {
+    const lifecycle = new ProposalLifecycle(configWith({ RESERVATION_TTL_MARGIN_SECONDS: '10' }), redis, new ConnectionRegistry());
+    const driverId = await availableDriver('ttl-margin-driver');
+    await lifecycle.propose(driverId, proposalDetails(randomUUID(), id('ttl-margin-client'), 5));
+
+    for (const key of [proposalRecordKey(driverId), `babana:driver:proposal:rideId:${driverId}`]) {
+      const ttl = await redis.ttl(key);
+      assert.ok(ttl > 12 && ttl <= 15, `${key} : 5 s + 10 s de marge, obtenu ${ttl} s`);
+    }
   });
 
   test('D51 -- proposal.new porte la distance à vide (Haversine) jusqu\'au point de prise en charge', async () => {
@@ -499,9 +511,9 @@ describe('ProposalLifecycle -- notification push et relecture (L7-04)', () => {
   });
 
   test("aligne les deux durées -- l'enregistrement stocke l'échéance d'acceptation, pas le TTL de réservation", async () => {
-    // Délais volontairement écartés : acceptation 20 s, réservation 40 s. Prendre l'un pour
-    // l'autre donnerait vingt secondes d'erreur sur le compte à rebours.
-    const config = configWith({ PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: '20', RESERVATION_TTL_SECONDS: '40' });
+    // Délais volontairement écartés : acceptation 20 s, réservation 20 + 20 = 40 s. Prendre l'un
+    // pour l'autre donnerait vingt secondes d'erreur sur le compte à rebours.
+    const config = configWith({ RESERVATION_TTL_MARGIN_SECONDS: '20' });
     const registry = new ConnectionRegistry();
     const { notifier } = capturingNotifier();
     const lifecycle = new ProposalLifecycle(config, redis, registry, notifier);
@@ -509,7 +521,7 @@ describe('ProposalLifecycle -- notification push et relecture (L7-04)', () => {
     const driverId = await availableDriver('l704-durations');
     const rideId = randomUUID();
     const before = Date.now();
-    await lifecycle.propose(driverId, proposalDetails(rideId, id('l704-durations-client')));
+    await lifecycle.propose(driverId, proposalDetails(rideId, id('l704-durations-client'), 20));
 
     const raw = await redis.get(proposalRecordKey(driverId));
     assert.ok(raw, "l'enregistrement de proposition existe");
@@ -541,16 +553,16 @@ describe('ProposalLifecycle -- notification push et relecture (L7-04)', () => {
   });
 
   test('peekActiveProposal restitue la proposition vivante avec son échéance réelle -- pas trente secondes fraîches', async () => {
-    // Délai posé ici (D76) : le scénario raisonne sur 30 s, quel que soit le défaut du service
-    // (15 s depuis le 18 novembre).
-    const config = configWith({ PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: '30' });
+    // Délai posé ici (D76) : le scénario raisonne sur 30 s, quel que soit le défaut d'Odoo
+    // (15 s depuis le 18 novembre). Réservation : 30 + 30 s de marge.
+    const config = configWith();
     const registry = new ConnectionRegistry();
     const { notifier } = capturingNotifier();
     const lifecycle = new ProposalLifecycle(config, redis, registry, notifier);
 
     const driverId = await availableDriver('l704-peek-live');
     const rideId = randomUUID();
-    await lifecycle.propose(driverId, proposalDetails(rideId, id('l704-peek-live-client')));
+    await lifecycle.propose(driverId, proposalDetails(rideId, id('l704-peek-live-client'), 30));
 
     // 25 s après l'émission : il doit rester ~5 s, pas 30.
     const twentyFiveSecondsLater = Date.now() + 25_000;
@@ -563,18 +575,18 @@ describe('ProposalLifecycle -- notification push et relecture (L7-04)', () => {
   });
 
   test('peekActiveProposal renvoie null pour une proposition déjà échue -- une notification ouverte trop tard n’affiche pas les boutons (critère 3)', async () => {
-    // Délai posé ici (D76) : le scénario raisonne sur 30 s, quel que soit le défaut du service
-    // (15 s depuis le 18 novembre).
-    const config = configWith({ PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: '30' });
+    // Délai posé ici (D76) : le scénario raisonne sur 30 s, quel que soit le défaut d'Odoo
+    // (15 s depuis le 18 novembre). Réservation : 30 + 30 s de marge.
+    const config = configWith();
     const registry = new ConnectionRegistry();
     const { notifier } = capturingNotifier();
     const lifecycle = new ProposalLifecycle(config, redis, registry, notifier);
 
     const driverId = await availableDriver('l704-peek-expired');
     const rideId = randomUUID();
-    await lifecycle.propose(driverId, proposalDetails(rideId, id('l704-peek-expired-client')));
+    await lifecycle.propose(driverId, proposalDetails(rideId, id('l704-peek-expired-client'), 30));
 
-    // Bien après l'échéance d'acceptation (30 s) mais avant l'expiration Redis (45 s) :
+    // Bien après l'échéance d'acceptation (30 s) mais avant l'expiration Redis (60 s) :
     // l'enregistrement est encore là, mais la proposition n'est plus à prendre.
     const wellAfterDeadline = Date.now() + 40_000;
     assert.equal(await lifecycle.peekActiveProposal(driverId, wellAfterDeadline), null);

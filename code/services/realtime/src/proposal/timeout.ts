@@ -1,7 +1,7 @@
 /**
  * Minuteurs de délai d'acceptation, un par chauffeur (L3-07, critère d'acceptation 6 : le délai
- * est lu depuis la configuration, jamais codé en dur -- voir `config.ts`,
- * `PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS`). Même forme que
+ * n'est jamais codé en dur -- c'est `acceptanceTimeoutSeconds`, transmis par Odoo avec chaque
+ * proposition, `proposal/lifecycle.ts`). Même forme que
  * `driver/availability.ts::DisconnectGraceTimers` : programmer un nouveau minuteur pour un
  * chauffeur annule silencieusement le précédent -- ne devrait de toute façon jamais arriver tant
  * qu'une proposition est active, un chauffeur réservé n'étant plus dans le pool, donc pas

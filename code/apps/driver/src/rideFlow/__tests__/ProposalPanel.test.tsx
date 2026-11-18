@@ -447,7 +447,7 @@ describe('ProposalPanel (L6-12)', () => {
 
     const seenCalls = mockSend.mock.calls.filter((c) => c[0] === 'proposal.seen');
     expect(seenCalls).toHaveLength(1);
-    expect(seenCalls[0][1]).toEqual({ rideId: RIDE_ID, emittedAt: PARAMS.emittedAt });
+    expect(seenCalls[0][1]).toEqual({ rideId: RIDE_ID, emittedAt: PARAMS.emittedAt, expiresAt: PARAMS.expiresAt });
 
     // Un tick de plus ne le renvoie pas.
     await act(async () => {
@@ -503,7 +503,7 @@ describe('ProposalPanel (L6-12)', () => {
 
     const seenCalls = mockSend.mock.calls.filter((c) => c[0] === 'proposal.seen');
     expect(seenCalls).toHaveLength(1);
-    expect(seenCalls[0][1]).toEqual({ rideId: RIDE_ID, emittedAt: active.emittedAt });
+    expect(seenCalls[0][1]).toEqual({ rideId: RIDE_ID, emittedAt: active.emittedAt, expiresAt: active.expiresAt });
   });
 
   it('mode notification -- session.synced sans activeProposal dit « plus à prendre », sans boutons, et revient (critère 3)', async () => {

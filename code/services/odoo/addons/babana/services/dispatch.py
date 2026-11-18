@@ -53,6 +53,11 @@ DISPATCH_WIDENING_DELAY_PARAM = "babana.dispatch_widening_delay_seconds"
 DISPATCH_WIDENING_DELAY_DEFAULT = 5
 DISPATCH_MAX_ATTEMPTS_PARAM = "babana.dispatch_max_attempts"
 DISPATCH_MAX_ATTEMPTS_DEFAULT = 3
+# Délai laissé au chauffeur pour accepter (L9-06). Odoo en est la seule source depuis le 18
+# novembre : transmis au service temps réel avec chaque proposition, qui en tire son minuteur,
+# l'échéance affichée et la durée de la réservation -- il n'a plus de valeur à lui.
+PROPOSAL_WINDOW_PARAM = "babana.proposal_window_seconds"
+PROPOSAL_WINDOW_DEFAULT = 15
 
 
 def _positive_int_param(env, name: str, default: int) -> int:
@@ -75,6 +80,10 @@ def _non_negative_int_param(env, name: str, default: int) -> int:
     except (TypeError, ValueError):
         return default
     return value if value >= 0 else default
+
+
+def proposal_window_seconds(env) -> int:
+    return _positive_int_param(env, PROPOSAL_WINDOW_PARAM, PROPOSAL_WINDOW_DEFAULT)
 
 
 def search_radii(env) -> list[int]:
@@ -106,6 +115,7 @@ def _reserve_and_propose(env, ride, *, radius_meters, exclude, idempotency_key, 
         exclude_driver_public_ids=exclude,
         idempotency_key=idempotency_key,
         preferred_driver_public_ids=_road_ranking(env, ride, radius_meters=radius_meters, exclude=exclude),
+        acceptance_timeout_seconds=proposal_window_seconds(env),
     )
     outcome = reservation.get("outcome")
     if outcome == "NO_DRIVER_AVAILABLE":

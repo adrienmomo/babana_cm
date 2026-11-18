@@ -73,18 +73,14 @@ const ConfigSchema = z.object({
   /** Période de grâce avant sortie du pool sur déconnexion réseau (L3-04). */
   AVAILABILITY_DISCONNECT_GRACE_SECONDS: z.coerce.number().int().positive().default(45),
 
-  /** Durée de vie d'une réservation de chauffeur (L3-06) avant libération automatique -- doit
-   * couvrir au moins le délai d'acceptation de la proposition (L3-07), avec marge incluse plutôt
-   * qu'une valeur strictement égale : c'est le filet de sécurité qui survit à un redémarrage du
-   * service (le minuteur JS de PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS, lui, ne survit pas). Vérifié
-   * au niveau du schéma ci-dessous (`.refine`), pas seulement documenté ici. */
-  RESERVATION_TTL_SECONDS: z.coerce.number().int().positive().default(45),
-
-  /** Délai d'acceptation d'une proposition (L3-07). Seul juge de l'expiration côté serveur -- le
-   * compte à rebours affiché côté chauffeur en découle (`expiresAt`). **15 s depuis le 18 novembre**
-   * (maître d'ouvrage : le chauffeur ne refuse plus, la proposition passe au suivant plus vite et
-   * le client attend moins) ; 30 s auparavant (L9-06). */
-  PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(15),
+  /** Marge du filet de sécurité Redis (L3-06) : une réservation dure le délai d'acceptation de
+   * SA proposition plus cette marge, pour expirer toujours APRÈS le minuteur JS qui doit trancher
+   * en premier (proposal/timeout.ts) -- sans quoi une proposition expirerait sans que personne
+   * n'émette ride.rejected/proposal.expired. Le filet survit à un redémarrage du service ; le
+   * minuteur, non. Valeur technique, donc ici ; le délai d'acceptation lui-même est une valeur
+   * métier et n'est PAS une variable de ce service (18 novembre) : Odoo le transmet avec chaque
+   * proposition (`babana.proposal_window_seconds`, L9-06). */
+  RESERVATION_TTL_MARGIN_SECONDS: z.coerce.number().int().positive().default(30),
 
   /** Fréquence de diffusion des mises à jour nearby.drivers pendant un abonnement actif (L3-05). */
   NEARBY_BROADCAST_INTERVAL_SECONDS: z.coerce.number().positive().default(5),
@@ -195,14 +191,6 @@ const ConfigSchema = z.object({
    * `driver/reconcile.ts`, qui répare ET dénonce). */
   OUTBOX_ALERT_QUEUE_SIZE_THRESHOLD: z.coerce.number().int().positive().default(20),
   OUTBOX_ALERT_ATTEMPTS_THRESHOLD: z.coerce.number().int().positive().default(5),
-}).refine((config) => config.RESERVATION_TTL_SECONDS > config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS, {
-  // Sans cette marge, le filet de sécurité Redis (RESERVATION_TTL_SECONDS) pourrait expirer une
-  // réservation AVANT le minuteur JS qui doit normalement trancher en premier (proposal/timeout.ts)
-  // -- une proposition expirerait alors sans que personne n'émette ride.rejected/proposal.expired,
-  // silencieusement (L3-07).
-  message:
-    'RESERVATION_TTL_SECONDS doit être strictement supérieur à PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS (marge de sécurité, L3-07)',
-  path: ['RESERVATION_TTL_SECONDS'],
 }).refine((config) => config.NEARBY_EXPAND_MAX_RADIUS_METERS > config.NEARBY_MAX_RADIUS_METERS, {
   // Sans cette marge, l'élargissement (L3-08) partirait déjà à son propre plafond et ne
   // produirait jamais un second palier -- un client dont les 5 chauffeurs refusent reviendrait

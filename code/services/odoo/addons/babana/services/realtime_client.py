@@ -65,6 +65,7 @@ def reserve_nearest_and_propose(
     radius_meters: int,
     exclude_driver_public_ids: list[str],
     idempotency_key: str,
+    acceptance_timeout_seconds: int,
     preferred_driver_public_ids: list[str] | None = None,
 ) -> dict:
     """Le serveur choisit le chauffeur (le client ne désigne plus personne) : le service temps réel
@@ -73,6 +74,9 @@ def reserve_nearest_and_propose(
     d'oiseau -- hors `exclude_driver_public_ids`, et lui adresse la proposition -- un seul geste atomique
     (`ride/state.lua`, action `reserve-nearest`). PRÉCÈDE la transition
     `action_propose` (son résultat la désigne), et repose sur la même idempotence (D25).
+
+    `acceptance_timeout_seconds` : le délai laissé au chauffeur (services/dispatch.py,
+    `babana.proposal_window_seconds`) -- Odoo en est la seule source, le service n'en a pas d'autre.
 
     Renvoie `{"outcome": "PROPOSED", "driverId": ..., "expiresAt": ...}` ou
     `{"outcome": "NO_DRIVER_AVAILABLE"}` ; lève RealtimeUnavailable sur une vraie panne."""
@@ -86,6 +90,7 @@ def reserve_nearest_and_propose(
             "radiusMeters": radius_meters,
             "excludeDriverIds": list(exclude_driver_public_ids),
             "preferredDriverIds": list(preferred_driver_public_ids or []),
+            "acceptanceTimeoutSeconds": acceptance_timeout_seconds,
         },
     )
 

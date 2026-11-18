@@ -99,12 +99,14 @@ describe('dispatch: proposal.seen alimente la métrique (L7-04, critère 4)', ()
   const clientCtx: ConnectionContext = Object.freeze({ userId: 'u-c', role: 'client', driverId: null, sessionId: null });
   const socket = { readyState: 1, OPEN: 1, send: () => {} } as unknown as WebSocket;
 
-  function seen(emittedAt: string) {
+  function seen(emittedAt: string, windowMs = 15_000) {
+    const emitted = Date.parse(emittedAt);
+    const expiresAt = Number.isNaN(emitted) ? new Date().toISOString() : new Date(emitted + windowMs).toISOString();
     return JSON.stringify({
       type: 'proposal.seen',
       id: randomUUID(),
       emittedAt: new Date().toISOString(),
-      payload: { rideId: '11111111-1111-4111-8111-111111111111', emittedAt },
+      payload: { rideId: '11111111-1111-4111-8111-111111111111', emittedAt, expiresAt },
     });
   }
 
@@ -113,6 +115,14 @@ describe('dispatch: proposal.seen alimente la métrique (L7-04, critère 4)', ()
     const s = proposalDeliveryMetrics.snapshot();
     assert.equal(s.count, 1);
     assert.ok(s.maxMs >= 7_000 && s.maxMs <= 12_000, `délai proche de 8 s (${s.maxMs} ms)`);
+  });
+
+  test('le budget de dépassement est le délai de CETTE proposition (expiresAt − emittedAt), pas une valeur du service', async () => {
+    const eightSecondsAgo = new Date(Date.now() - 8_000).toISOString();
+    await dispatch(driverCtx, socket, seen(eightSecondsAgo, 5_000));
+    assert.equal(proposalDeliveryMetrics.snapshot().overAcceptanceBudget, 1, '8 s de trajet pour 5 s de délai');
+    await dispatch(driverCtx, socket, seen(eightSecondsAgo, 30_000));
+    assert.equal(proposalDeliveryMetrics.snapshot().overAcceptanceBudget, 1, '8 s de trajet pour 30 s : pas de dépassement');
   });
 
   test('un proposal.seen émis par un contexte client est ignoré (garde de rôle, L3-01)', async () => {

@@ -246,11 +246,12 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
 
   // Signale au serveur l'affichage réel de la proposition (L7-04, critère 4) -- dès que les
   // détails et les boutons sont là, une seule fois. C'est ce chiffre, mesuré côté serveur à la
-  // réception, qui dit si le délai d'acceptation de trente secondes est réaliste.
+  // réception, qui dit si le délai d'acceptation est réaliste -- `expiresAt` lui donne le délai de
+  // CETTE proposition (fixé par Odoo, 18 novembre).
   useEffect(() => {
     if (!details || decision !== 'idle' || resolutionMessage || seenSignalledRef.current) return;
     seenSignalledRef.current = true;
-    realtimeClient.send('proposal.seen', { rideId, emittedAt: details.emittedAt });
+    realtimeClient.send('proposal.seen', { rideId, emittedAt: details.emittedAt, expiresAt: details.expiresAt });
   }, [details, decision, resolutionMessage, rideId]);
 
   // Toutes les issues d'une proposition passent par le fil (D49) -- plus aucun délai deviné :

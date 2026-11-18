@@ -76,6 +76,13 @@
                                 </div>
                             </div>
                         </setting>
+                        <setting id="babana_proposal_window_seconds" string="Délai d'acceptation par le chauffeur"
+                                 help="Temps laissé au chauffeur pour glisser « Accepter ». Passé ce délai, la course part au chauffeur suivant.">
+                            <div class="d-flex align-items-center gap-2">
+                                <field name="babana_proposal_window_seconds" style="width: 6rem"/>
+                                <span>secondes</span>
+                            </div>
+                        </setting>
                         <setting id="babana_dispatch_max_attempts" string="Chauffeurs sollicités par demande"
                                  help="Après autant de refus ou d'absences de réponse, le client est prévenu qu'aucun chauffeur n'est disponible et peut réessayer.">
                             <div class="d-flex align-items-center gap-2">

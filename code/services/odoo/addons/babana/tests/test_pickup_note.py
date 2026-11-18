@@ -28,7 +28,8 @@ class TestPickupNoteReachesTheDriver(TransactionCase):
         client_user = self.env.user
         with patch.object(realtime_client, "_post", return_value={"outcome": "NO_DRIVER_AVAILABLE"}) as post:
             realtime_client.reserve_nearest_and_propose(
-                ride=ride, client_user=client_user, radius_meters=500, exclude_driver_public_ids=[], idempotency_key="k"
+                ride=ride, client_user=client_user, radius_meters=500, exclude_driver_public_ids=[], idempotency_key="k",
+                acceptance_timeout_seconds=15,
             )
         return post.call_args.args[1]
 

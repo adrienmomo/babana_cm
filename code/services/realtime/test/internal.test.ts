@@ -694,6 +694,7 @@ function nearestBody(origin: { latitude: number; longitude: number }, overrides:
     pickupNote: null,
     radiusMeters: 500,
     excludeDriverIds: [],
+    acceptanceTimeoutSeconds: 15,
     ...overrides,
   };
 }
@@ -704,6 +705,33 @@ const metersNorth = (at: { latitude: number; longitude: number }, meters: number
 });
 
 describe('POST /internal/reservations/nearest (le serveur choisit le chauffeur le plus proche)', () => {
+  test('18 novembre -- le délai d\'acceptation est celui transmis par Odoo : échéance et compte à rebours en découlent', async () => {
+    const pickup = nearestSpot();
+    const driverId = await availableDriverAt(randomUUID(), pickup);
+    const driverWs = await connectWs(tokenFor('driver', randomUUID(), driverId));
+    try {
+      const before = Date.now();
+      const [proposal, { status, body }] = await Promise.all([
+        waitForMessage(driverWs, 'proposal.new'),
+        post('/internal/reservations/nearest', nearestBody(pickup, { acceptanceTimeoutSeconds: 22 })),
+      ]);
+      assert.equal(status, 200);
+      assert.equal(body.driverId, driverId);
+      const remainingMs = Date.parse(body.expiresAt as string) - before;
+      assert.ok(remainingMs > 20_000 && remainingMs <= 23_000, `~22 s, obtenu ${remainingMs} ms`);
+      assert.equal((proposal.payload as { expiresAt: string }).expiresAt, body.expiresAt);
+    } finally {
+      driverWs.close();
+    }
+  });
+
+  test('sans délai d\'acceptation, la demande est refusée (400) : le service n\'a pas de valeur à lui', async () => {
+    const pickup = nearestSpot();
+    const { acceptanceTimeoutSeconds: _omitted, ...body } = nearestBody(pickup);
+    const { status } = await post('/internal/reservations/nearest', body);
+    assert.equal(status, 400);
+  });
+
   test('propose au plus proche : proposal.new lui parvient, la réponse le nomme', async () => {
     const pickup = nearestSpot();
     const closest = await availableDriverAt(randomUUID(), metersNorth(pickup, 40));

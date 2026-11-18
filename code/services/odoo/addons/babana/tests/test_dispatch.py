@@ -72,6 +72,29 @@ class TestDispatch(TransactionCase):
     def _excluded_in_call(self, index):
         return self.reserve.call_args_list[index].kwargs["exclude_driver_public_ids"]
 
+    # --- Délai d'acceptation : Odoo seule source (18 novembre) ----------------------------------
+
+    def test_the_acceptance_delay_is_sent_with_every_proposal(self):
+        self.env["ir.config_parameter"].sudo().set_param("babana.proposal_window_seconds", "22")
+        ride = self._ride()
+        dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
+        self.assertEqual(self.reserve.call_args.kwargs["acceptance_timeout_seconds"], 22)
+
+    def test_the_acceptance_delay_defaults_to_15_seconds(self):
+        self.env["ir.config_parameter"].sudo().set_param("babana.proposal_window_seconds", False)
+        self.assertEqual(dispatch.proposal_window_seconds(self.env), 15)
+        self.env["ir.config_parameter"].sudo().set_param("babana.proposal_window_seconds", "0")
+        self.assertEqual(dispatch.proposal_window_seconds(self.env), 15)
+
+    def test_the_next_driver_gets_the_same_delay_after_an_expiry(self):
+        self.env["ir.config_parameter"].sudo().set_param("babana.proposal_window_seconds", "18")
+        ride = self._ride()
+        dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
+        dispatch.handle_driver_rejection(self.env, ride, self.drivers[0], reason=None, expired=True)
+        self.assertEqual(
+            [call.kwargs["acceptance_timeout_seconds"] for call in self.reserve.call_args_list], [18, 18]
+        )
+
     # --- Commande du client ------------------------------------------------------------------
 
     def test_the_ride_is_proposed_to_the_driver_the_service_chose(self):
@@ -288,6 +311,27 @@ class TestDispatch(TransactionCase):
 
 
 @tagged("post_install", "-at_install")
+class TestReservationPayload(TransactionCase):
+    def test_the_delay_travels_to_the_realtime_service(self):
+        client = self.env["res.partner"].create({"name": "Client"})
+        user = self.env["res.users"].sudo().create(
+            {"name": "Client", "login": f"payload-{client.id}@example.invalid", "partner_id": client.id}
+        )
+        ride = self.env["babana.ride"].action_request(
+            {"client_id": client.id, "pickup_latitude": 4.05, "pickup_longitude": 9.70,
+             "dropoff_latitude": 4.06, "dropoff_longitude": 9.77}
+        )
+        with patch.object(realtime_client, "_post", return_value={"outcome": "NO_DRIVER_AVAILABLE"}) as post:
+            realtime_client.reserve_nearest_and_propose(
+                ride=ride, client_user=user, radius_meters=2000, exclude_driver_public_ids=[],
+                idempotency_key="k", acceptance_timeout_seconds=17,
+            )
+        path, payload = post.call_args.args
+        self.assertEqual(path, "/internal/reservations/nearest")
+        self.assertEqual(payload["acceptanceTimeoutSeconds"], 17)
+
+
+@tagged("post_install", "-at_install")
 class TestDispatchSettings(TransactionCase):
     def test_radius_and_attempts_are_babana_settings(self):
         self.env["res.config.settings"].create(
@@ -297,7 +341,14 @@ class TestDispatchSettings(TransactionCase):
         self.assertEqual(get("babana.dispatch_radius_meters"), "3500")
         self.assertEqual(get("babana.dispatch_max_attempts"), "4")
 
+    def test_the_acceptance_delay_is_a_babana_setting(self):
+        self.env["res.config.settings"].create({"babana_proposal_window_seconds": 20}).execute()
+        self.assertEqual(self.env["ir.config_parameter"].sudo().get_param("babana.proposal_window_seconds"), "20")
+        self.assertEqual(dispatch.proposal_window_seconds(self.env), 20)
+
     def test_they_must_be_positive(self):
+        with self.assertRaises(ValidationError):
+            self.env["res.config.settings"].create({"babana_proposal_window_seconds": 0}).execute()
         with self.assertRaises(ValidationError):
             self.env["res.config.settings"].create({"babana_dispatch_max_attempts": 0}).execute()
         with self.assertRaises(ValidationError):

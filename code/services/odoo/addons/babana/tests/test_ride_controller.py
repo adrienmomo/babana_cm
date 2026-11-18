@@ -297,8 +297,8 @@ class TestRideController(HttpCase):
         self.assertNotEqual(body["assignedDriverId"], farther.public_id)
         self.assertTrue(body["proposalExpiresAt"])
         self.assertFalse(body["searching"])
-        # 18 novembre : 15 s par défaut, aligné sur PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS du service
-        # temps réel -- qui reste seul juge de l'expiration.
+        # 18 novembre : 15 s par défaut (babana.proposal_window_seconds) -- le délai même qu'Odoo
+        # transmet au service temps réel avec la proposition.
         expires_at = datetime.fromisoformat(body["proposalExpiresAt"].replace("Z", "+00:00"))
         ride.invalidate_recordset()
         proposed_at = ride.proposed_at.replace(tzinfo=timezone.utc)

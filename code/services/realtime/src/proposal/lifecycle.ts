@@ -48,6 +48,11 @@ export interface ProposalDetails {
    * comme le reste ; `null` s'il n'en a pas laissé. Rendue au chauffeur dans `proposal.new` et à la
    * resynchronisation (`peekActiveProposal`). */
   pickupNote: string | null;
+  /** Délai d'acceptation de CETTE proposition, en secondes -- transmis par Odoo, seule source
+   * (`babana.proposal_window_seconds`, réglable dans Paramètres > Babana, L9-06 ; 18 novembre).
+   * Le service n'a pas de valeur à lui : minuteur, échéance affichée et durée de la réservation
+   * (ce délai + `RESERVATION_TTL_MARGIN_SECONDS`) en découlent. */
+  acceptanceTimeoutSeconds: number;
 }
 
 export type ProposeOutcome = { proposed: true; expiresAt: string } | { proposed: false };
@@ -67,9 +72,9 @@ export interface NearestSearch {
  * champs que seule cette écriture connaît et qu'une resynchronisation devra restituer (L7-04) --
  *
  * - `expiresAt` : la **véritable** échéance d'acceptation (`Date.now() +
- *   PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS`). Stockée explicitement, jamais redérivée du TTL Redis de
- *   `proposalRideIdKey` : ce TTL est `RESERVATION_TTL_SECONDS`, une durée VOISINE mais distincte
- *   (marge de sécurité qui doit survivre au minuteur JS, voir config.ts `.refine`). Prendre l'une
+ *   acceptanceTimeoutSeconds`). Stockée explicitement, jamais redérivée du TTL Redis de
+ *   `proposalRideIdKey` : ce TTL est le délai plus `RESERVATION_TTL_MARGIN_SECONDS`, une durée
+ *   VOISINE mais distincte (marge qui doit survivre au minuteur JS, voir config.ts). Prendre l'une
  *   pour l'autre donnerait un compte à rebours « honnête » honnêtement faux -- trente-cinq
  *   secondes affichées quand il en reste vingt.
  * - `emittedAt` : l'instant d'émission d'origine, pour le délai d'acheminement (`proposal.seen`,
@@ -120,7 +125,7 @@ export class ProposalLifecycle {
    * cette tâche, ce soir seule l'émission WebSocket est câblée.
    */
   async propose(driverId: string, details: ProposalDetails): Promise<ProposeOutcome> {
-    const reservation = await reserveDriver(this.redis, driverId, this.config.RESERVATION_TTL_SECONDS);
+    const reservation = await reserveDriver(this.redis, driverId, this.reservationTtlSeconds(details));
     if (!reservation.reserved) {
       return { proposed: false };
     }
@@ -137,7 +142,7 @@ export class ProposalLifecycle {
     const driverId = await reserveNearestDriver(this.redis, {
       origin: details.origin,
       radiusMeters: search.radiusMeters,
-      ttlSeconds: this.config.RESERVATION_TTL_SECONDS,
+      ttlSeconds: this.reservationTtlSeconds(details),
       excludeDriverIds: search.excludeDriverIds,
       preferredDriverIds: search.preferredDriverIds ?? [],
     });
@@ -146,10 +151,16 @@ export class ProposalLifecycle {
     return { proposed: true, driverId, expiresAt };
   }
 
+  /** Le filet Redis tombe toujours après le minuteur de la proposition (L3-07). */
+  private reservationTtlSeconds(details: ProposalDetails): number {
+    return details.acceptanceTimeoutSeconds + this.config.RESERVATION_TTL_MARGIN_SECONDS;
+  }
+
   /** Après réservation : enregistre la proposition, l'émet au chauffeur, arme son délai. */
   private async announce(driverId: string, details: ProposalDetails): Promise<{ proposed: true; expiresAt: string }> {
     const emittedAt = new Date().toISOString();
-    const expiresAt = new Date(Date.now() + this.config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + details.acceptanceTimeoutSeconds * 1000).toISOString();
+    const ttlSeconds = this.reservationTtlSeconds(details);
 
     // D51 (31 août) : distance à vide jusqu'au client -- calculée ici depuis la position du
     // chauffeur (le même geo-index qui vient de le faire apparaître dans nearby.drivers), pas
@@ -167,8 +178,8 @@ export class ProposalLifecycle {
     const stored: StoredProposal = { ...details, expiresAt, emittedAt, distanceToOriginMeters };
 
     await Promise.all([
-      this.redis.set(proposalRideIdKey(driverId), details.rideId, 'EX', this.config.RESERVATION_TTL_SECONDS),
-      this.redis.set(proposalRecordKey(driverId), JSON.stringify(stored), 'EX', this.config.RESERVATION_TTL_SECONDS),
+      this.redis.set(proposalRideIdKey(driverId), details.rideId, 'EX', ttlSeconds),
+      this.redis.set(proposalRecordKey(driverId), JSON.stringify(stored), 'EX', ttlSeconds),
     ]);
 
     this.sendToDriver(driverId, {
@@ -194,7 +205,7 @@ export class ProposalLifecycle {
     // parcours (L7-06), et un envoi lent ne doit pas retarder la réservation.
     this.notifier(this.config, { driverId, rideId: details.rideId, expiresAt });
 
-    this.timers.schedule(driverId, this.config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS, () => {
+    this.timers.schedule(driverId, details.acceptanceTimeoutSeconds, () => {
       this.expire(driverId).catch(() => {
         // Filet défensif, même politique que le reste du service (ws/connection.ts) : une panne
         // Redis passagère ici ne doit jamais faire planter le processus.
@@ -209,7 +220,7 @@ export class ProposalLifecycle {
    * `http/internal.ts::/internal/reservations/release`, le chemin de compensation quand la
    * réservation côté temps réel a réussi mais que la transition Odoo `requested -> proposed` qui
    * devait suivre échoue -- sans ce nettoyage, le chauffeur resterait hors du pool jusqu'à
-   * l'expiration de la réservation (`RESERVATION_TTL_SECONDS`), sans course correspondante nulle
+   * l'expiration de la réservation (délai + `RESERVATION_TTL_MARGIN_SECONDS`), sans course correspondante nulle
    * part (même défaut que celui déjà couvert par `reserveDriver`/`releaseDriver`, critère 4 de
    * L3-06, une couche plus haut : à l'échelle du cycle de proposition entier plutôt que de la
    * seule réservation Redis).

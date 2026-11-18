@@ -118,12 +118,16 @@ describe('exemples valides — chauffeur vers serveur', () => {
         type: 'proposal.seen',
         id: randomUUID(),
         emittedAt: now,
-        payload: { rideId, emittedAt: now },
+        payload: { rideId, emittedAt: now, expiresAt: now },
       })
     );
     // `emittedAt` de la charge utile est requis : sans lui, aucun délai à mesurer.
     assert.throws(() =>
-      ProposalSeenMessageSchema.parse({ type: 'proposal.seen', id: randomUUID(), emittedAt: now, payload: { rideId } })
+      ProposalSeenMessageSchema.parse({ type: 'proposal.seen', id: randomUUID(), emittedAt: now, payload: { rideId, expiresAt: now } })
+    );
+    // `expiresAt` aussi (18 novembre) : c'est le délai de la proposition, que le service n'a plus.
+    assert.throws(() =>
+      ProposalSeenMessageSchema.parse({ type: 'proposal.seen', id: randomUUID(), emittedAt: now, payload: { rideId, emittedAt: now } })
     );
   });
 });

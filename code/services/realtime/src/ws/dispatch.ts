@@ -119,11 +119,11 @@ export function createMessageDispatcher(
         // l'affichage. Un client qui forgerait ce message est ignoré (garde de rôle, L3-01).
         if (context.role !== 'driver') return;
         const emittedAtMs = Date.parse(message.payload.emittedAt);
-        if (Number.isNaN(emittedAtMs)) return;
-        proposalDeliveryMetrics.record(
-          Date.now() - emittedAtMs,
-          config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS * 1000
-        );
+        const expiresAtMs = Date.parse(message.payload.expiresAt);
+        if (Number.isNaN(emittedAtMs) || Number.isNaN(expiresAtMs)) return;
+        // Budget : le délai de CETTE proposition, fixé par Odoo (18 novembre) -- le service n'en a
+        // plus d'autre.
+        proposalDeliveryMetrics.record(Date.now() - emittedAtMs, expiresAtMs - emittedAtMs);
         return;
       }
       case 'route.share':

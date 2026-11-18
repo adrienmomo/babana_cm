@@ -13,6 +13,8 @@ from ..services.approach import (
 )
 from ..services import stops
 from ..services.dispatch import (
+    PROPOSAL_WINDOW_DEFAULT,
+    PROPOSAL_WINDOW_PARAM,
     DISPATCH_MAX_ATTEMPTS_DEFAULT,
     DISPATCH_MAX_ATTEMPTS_PARAM,
     DISPATCH_RADIUS_DEFAULT,
@@ -103,6 +105,14 @@ class ResConfigSettings(models.TransientModel):
         help="Après autant de refus ou d'absences de réponse, le client est prévenu qu'aucun chauffeur n'est disponible.",
     )
 
+    babana_proposal_window_seconds = fields.Integer(
+        string="Délai d'acceptation par le chauffeur (secondes)",
+        config_parameter=PROPOSAL_WINDOW_PARAM,
+        default=PROPOSAL_WINDOW_DEFAULT,
+        help="Temps laissé au chauffeur pour glisser « Accepter ». Passé ce délai, la course part au "
+        "chauffeur suivant.",
+    )
+
     babana_rating_min_count = fields.Integer(
         string="Avis avant d'afficher une note",
         config_parameter=RATING_MIN_COUNT_PARAM,
@@ -149,6 +159,7 @@ class ResConfigSettings(models.TransientModel):
         "babana_dispatch_radius_step_meters",
         "babana_dispatch_widening_delay_seconds",
         "babana_dispatch_max_attempts",
+        "babana_proposal_window_seconds",
         "babana_approach_sample_size",
         "babana_default_approach_distance_meters",
         "babana_rating_min_count",

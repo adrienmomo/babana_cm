@@ -121,6 +121,9 @@ const NearestReservationRequestSchema = z.object({
   // puis repli sur le vol d'oiseau. Absent ou vide : vol d'oiseau seul (Odoo antérieur, ou
   // routage indisponible).
   preferredDriverIds: z.array(z.string().min(1)).default([]),
+  // Délai d'acceptation de cette proposition (18 novembre) : Odoo en est la seule source
+  // (`babana.proposal_window_seconds`). Obligatoire -- le service n'a plus de valeur de repli.
+  acceptanceTimeoutSeconds: z.number().int().positive(),
 });
 
 // Lecture seule : les chauffeurs disponibles les plus proches à vol d'oiseau, avec leur position,
@@ -247,6 +250,7 @@ async function handleNearestReservation(deps: InternalRouterDeps, rawBody: unkno
         distanceMeters: body.distanceMeters,
         clientPhoneNumber: body.clientPhoneNumber,
         pickupNote: body.pickupNote,
+        acceptanceTimeoutSeconds: body.acceptanceTimeoutSeconds,
       };
       const proposed = await deps.proposals.proposeNearest(details, {
         radiusMeters: body.radiusMeters,

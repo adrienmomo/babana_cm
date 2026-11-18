@@ -34,26 +34,22 @@ describe('critère 3 — le service refuse de démarrer si une variable requise 
 });
 
 describe('L3-07 -- marge entre le filet Redis et le délai d\'acceptation', () => {
-  test('18 novembre : une proposition expire après 15 s par défaut (le chauffeur ne refuse plus)', () => {
-    const config = parseConfig(VALID_ENV);
-    assert.equal(config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS, 15);
+  test('18 novembre : le délai d\'acceptation n\'est plus une variable du service -- Odoo en est la seule source', () => {
+    const config = parseConfig({ ...VALID_ENV, PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: '99', RESERVATION_TTL_SECONDS: '99' });
+    assert.equal('PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS' in config, false);
+    assert.equal('RESERVATION_TTL_SECONDS' in config, false);
   });
 
-  test('les valeurs par défaut respectent la marge (RESERVATION_TTL_SECONDS > PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS)', () => {
-    const config = parseConfig(VALID_ENV);
-    assert.ok(
-      config.RESERVATION_TTL_SECONDS > config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS,
-      'sans cette marge, le filet Redis pourrait expirer une proposition avant le minuteur JS qui doit trancher en premier'
-    );
+  test('la marge du filet Redis vaut 30 s par défaut', () => {
+    assert.equal(parseConfig(VALID_ENV).RESERVATION_TTL_MARGIN_SECONDS, 30);
   });
 
-  test('refuse une configuration où le filet Redis expirerait avant (ou avec) le délai d\'acceptation', () => {
-    const env = { ...VALID_ENV, RESERVATION_TTL_SECONDS: '30', PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: '30' };
+  test('refuse une marge nulle : le filet Redis expirerait avec le minuteur au lieu d\'après lui', () => {
     assert.throws(
-      () => parseConfig(env),
+      () => parseConfig({ ...VALID_ENV, RESERVATION_TTL_MARGIN_SECONDS: '0' }),
       (err: unknown) => {
         assert.ok(err instanceof ConfigError);
-        assert.ok((err as Error).message.includes('RESERVATION_TTL_SECONDS'));
+        assert.ok((err as Error).message.includes('RESERVATION_TTL_MARGIN_SECONDS'));
         return true;
       }
     );
