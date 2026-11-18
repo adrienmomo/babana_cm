@@ -80,9 +80,11 @@ const ConfigSchema = z.object({
    * au niveau du schéma ci-dessous (`.refine`), pas seulement documenté ici. */
   RESERVATION_TTL_SECONDS: z.coerce.number().int().positive().default(45),
 
-  /** Délai d'acceptation d'une proposition (L3-07), 30 s par défaut (L9-06). Seul juge de
-   * l'expiration côté serveur -- le compte à rebours affiché côté chauffeur est indicatif. */
-  PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
+  /** Délai d'acceptation d'une proposition (L3-07). Seul juge de l'expiration côté serveur -- le
+   * compte à rebours affiché côté chauffeur en découle (`expiresAt`). **15 s depuis le 18 novembre**
+   * (maître d'ouvrage : le chauffeur ne refuse plus, la proposition passe au suivant plus vite et
+   * le client attend moins) ; 30 s auparavant (L9-06). */
+  PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(15),
 
   /** Fréquence de diffusion des mises à jour nearby.drivers pendant un abonnement actif (L3-05). */
   NEARBY_BROADCAST_INTERVAL_SECONDS: z.coerce.number().positive().default(5),

@@ -216,15 +216,20 @@ describe('ProposalPanel (L6-12)', () => {
     expect(texts(root2)).toContain('Distance jusqu’au client indisponible');
   });
 
-  it('critère 2 -- accepter et refuser respectent une taille minimale de cible tactile', async () => {
+  it('18 novembre -- le chauffeur ne peut plus refuser : aucun bouton « Refuser », accepter se glisse', async () => {
     const { root } = await renderProposal();
 
+    expect(root.root.findAllByProps({ testID: 'proposal-reject' })).toHaveLength(0);
+    expect(texts(root)).not.toContain('Refuser');
     const accept = root.root.findByProps({ testID: 'proposal-accept' });
-    const reject = root.root.findByProps({ testID: 'proposal-reject' });
-    const flatten = (style: unknown) => (Array.isArray(style) ? Object.assign({}, ...style.filter(Boolean)) : style);
+    // Un glissement (SwipeButton, `onConfirm`), jamais un simple appui.
+    expect(typeof accept.props.onConfirm).toBe('function');
+    expect(accept.props.onPress).toBeUndefined();
+  });
 
-    expect(flatten(accept.props.style({ pressed: false })).minHeight).toBeGreaterThanOrEqual(56);
-    expect(flatten(reject.props.style({ pressed: false })).minHeight).toBeGreaterThanOrEqual(56);
+  it('18 novembre -- sans réponse, la proposition expire ; le chauffeur n’envoie jamais proposal.reject', async () => {
+    await renderProposal();
+    expect(mockSend).not.toHaveBeenCalledWith('proposal.reject', expect.anything());
   });
 
   it('L6-16 -- accepter hors connexion est refusé tout de suite, avec explication, jamais mis en file', async () => {
@@ -234,7 +239,7 @@ describe('ProposalPanel (L6-12)', () => {
       setConnectionState('offline');
     });
     await act(async () => {
-      root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
+      root.root.findByProps({ testID: 'proposal-accept' }).props.onConfirm();
     });
 
     // Aucun envoi -- ni maintenant, ni plus tard : "accepter" ne doit jamais rejoindre la file
@@ -245,23 +250,6 @@ describe('ProposalPanel (L6-12)', () => {
     expect(root.root.findByProps({ testID: 'proposal-accept' }).props.disabled).toBe(false);
   });
 
-  it('L6-16 -- refuser hors connexion est également bloqué tout de suite', async () => {
-    const { root, navigation } = await renderProposal();
-
-    await act(async () => {
-      setConnectionState('offline');
-    });
-    await act(async () => {
-      root.root.findByProps({ testID: 'proposal-reject' }).props.onPress();
-    });
-
-    expect(mockSend).not.toHaveBeenCalledWith('proposal.reject', expect.anything());
-    expect(root.root.findByProps({ testID: 'proposal-offline-blocked' })).toBeTruthy();
-    // Refuser reste possible : la proposition n'a pas été abandonnée par erreur (goBack n'a
-    // jamais été appelé -- contrairement à un refus réel, qui y appelle toujours goBack()).
-    expect(navigation.goBack).not.toHaveBeenCalled();
-  });
-
   it('L6-16 -- une reconnexion efface l’explication ; accepter fonctionne normalement ensuite', async () => {
     const { root } = await renderProposal();
 
@@ -269,7 +257,7 @@ describe('ProposalPanel (L6-12)', () => {
       setConnectionState('offline');
     });
     await act(async () => {
-      root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
+      root.root.findByProps({ testID: 'proposal-accept' }).props.onConfirm();
     });
     expect(root.root.findByProps({ testID: 'proposal-offline-blocked' })).toBeTruthy();
 
@@ -279,7 +267,7 @@ describe('ProposalPanel (L6-12)', () => {
     expect(root.root.findAllByProps({ testID: 'proposal-offline-blocked' })).toHaveLength(0);
 
     await act(async () => {
-      root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
+      root.root.findByProps({ testID: 'proposal-accept' }).props.onConfirm();
     });
     expect(mockSend).toHaveBeenCalledWith('proposal.accept', { rideId: RIDE_ID });
   });
@@ -288,7 +276,7 @@ describe('ProposalPanel (L6-12)', () => {
     const { root, navigation } = await renderProposal();
 
     await act(async () => {
-      root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
+      root.root.findByProps({ testID: 'proposal-accept' }).props.onConfirm();
     });
     expect(mockSend).toHaveBeenCalledWith('proposal.accept', { rideId: RIDE_ID });
     expect(texts(root)).toContain('Envoi de votre acceptation…');
@@ -319,7 +307,7 @@ describe('ProposalPanel (L6-12)', () => {
   it('D49 -- proposal.accepted pour une autre course est ignoré', async () => {
     const { root, navigation } = await renderProposal();
     await act(async () => {
-      root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
+      root.root.findByProps({ testID: 'proposal-accept' }).props.onConfirm();
     });
     await act(async () => {
       emitAccepted(asRideId('another-ride'));
@@ -330,7 +318,7 @@ describe('ProposalPanel (L6-12)', () => {
   it('D49 -- filet : session.synced confirmant la course démarre la course si proposal.accepted s’est perdu', async () => {
     const { navigation, root } = await renderProposal();
     await act(async () => {
-      root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
+      root.root.findByProps({ testID: 'proposal-accept' }).props.onConfirm();
     });
 
     // Un session.synced qui ne concerne pas cette course, ou dont l'état n'est pas affecté, ne fait rien.
@@ -376,7 +364,7 @@ describe('ProposalPanel (L6-12)', () => {
     const { root, navigation } = await renderProposal();
 
     await act(async () => {
-      root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
+      root.root.findByProps({ testID: 'proposal-accept' }).props.onConfirm();
     });
 
     await act(async () => {
@@ -439,17 +427,6 @@ describe('ProposalPanel (L6-12)', () => {
 
     expect(root.root.findAllByProps({ testID: 'proposal-resolution' })).toHaveLength(0);
     expect(navigation.goBack).not.toHaveBeenCalled();
-  });
-
-  it('refuser -- envoie proposal.reject et revient immédiatement à l’accueil', async () => {
-    const { root, navigation } = await renderProposal();
-
-    await act(async () => {
-      root.root.findByProps({ testID: 'proposal-reject' }).props.onPress();
-    });
-
-    expect(mockSend).toHaveBeenCalledWith('proposal.reject', { rideId: RIDE_ID });
-    expect(navigation.goBack).toHaveBeenCalledTimes(1);
   });
 
   it('le compte à rebours affiché décroît avec le temps', async () => {
@@ -580,7 +557,7 @@ describe('repère laissé par le client (pickupNote)', () => {
     expect(texts(root)).toContain('Devant la pharmacie du rond-point');
 
     await act(async () => {
-      root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
+      root.root.findByProps({ testID: 'proposal-accept' }).props.onConfirm();
     });
     await act(async () => {
       emitAccepted();

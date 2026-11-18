@@ -178,7 +178,7 @@ async function renderActiveRide(
 
 // Sur place / Commencer / Terminer se confirment d'un glissement (SwipeButton, `onConfirm`) ; les
 // autres boutons restent des appuis (`onPress`).
-const SWIPES = new Set(['active-ride-arrived', 'active-ride-start', 'active-ride-finish']);
+const SWIPES = new Set(['active-ride-arrived', 'active-ride-start', 'active-ride-finish', 'active-ride-stop-depart']);
 const press = (root: ReactTestRenderer, testID: string) =>
   act(async () => {
     const node = root.root.findByProps({ testID });

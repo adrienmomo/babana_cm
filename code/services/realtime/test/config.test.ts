@@ -34,6 +34,11 @@ describe('critère 3 — le service refuse de démarrer si une variable requise 
 });
 
 describe('L3-07 -- marge entre le filet Redis et le délai d\'acceptation', () => {
+  test('18 novembre : une proposition expire après 15 s par défaut (le chauffeur ne refuse plus)', () => {
+    const config = parseConfig(VALID_ENV);
+    assert.equal(config.PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS, 15);
+  });
+
   test('les valeurs par défaut respectent la marge (RESERVATION_TTL_SECONDS > PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS)', () => {
     const config = parseConfig(VALID_ENV);
     assert.ok(

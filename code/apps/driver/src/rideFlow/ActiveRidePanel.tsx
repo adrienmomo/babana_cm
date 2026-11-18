@@ -613,14 +613,16 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
         {stage === 'transit' ? (
           <View style={styles.noShowRow}>
             {rideStops.openStop ? (
-              <Pressable
-                testID="active-ride-stop-depart"
-                accessibilityRole="button"
-                onPress={rideStops.depart}
-                style={({ pressed }) => [buttons.base, buttons.md, buttons.secondary, buttons.floating, pressed ? buttons.pressed : null]}
-              >
-                <Text style={[buttonLabels.base, buttonLabels.secondary]}>Repartir</Text>
-              </Pressable>
+              // 18 novembre : « Repartir » se glisse, comme les autres décisions de la course --
+              // un appui accidentel déclarerait un départ, et arrêterait l'attente facturée.
+              <View style={styles.stopDepart}>
+                <SwipeButton
+                  testID="active-ride-stop-depart"
+                  label="Repartir"
+                  accessibilityLabel="Je repars de cet arrêt"
+                  onConfirm={rideStops.depart}
+                />
+              </View>
             ) : (
               <>
                 {rideStops.nextStop ? (
@@ -773,6 +775,9 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
 }
 
 const useStyles = makeStyles((c) => ({
+  stopDepart: {
+    flex: 1,
+  },
   stopAlert: {
     marginTop: 8,
     padding: 10,

@@ -274,8 +274,11 @@ class RideController(http.Controller):
         if not driver:
             return _common.error_payload("NO_DRIVER_AVAILABLE", "aucun chauffeur disponible à proximité"), 404
 
+        # Indicatif : le service temps réel est seul juge de l'expiration
+        # (PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS, 15 s depuis le 18 novembre). Les deux défauts doivent
+        # rester alignés tant que la valeur a deux sources (voir amoa/questions/PROPOSAL-2026-11-18.md).
         window_seconds = int(
-            env["ir.config_parameter"].sudo().get_param("babana.proposal_window_seconds", 30)
+            env["ir.config_parameter"].sudo().get_param("babana.proposal_window_seconds", 15)
         )
         payload = _summary(ride)
         payload["proposalExpiresAt"] = _common.iso_datetime(

@@ -541,7 +541,9 @@ describe('ProposalLifecycle -- notification push et relecture (L7-04)', () => {
   });
 
   test('peekActiveProposal restitue la proposition vivante avec son échéance réelle -- pas trente secondes fraîches', async () => {
-    const config = configWith();
+    // Délai posé ici (D76) : le scénario raisonne sur 30 s, quel que soit le défaut du service
+    // (15 s depuis le 18 novembre).
+    const config = configWith({ PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: '30' });
     const registry = new ConnectionRegistry();
     const { notifier } = capturingNotifier();
     const lifecycle = new ProposalLifecycle(config, redis, registry, notifier);
@@ -561,7 +563,9 @@ describe('ProposalLifecycle -- notification push et relecture (L7-04)', () => {
   });
 
   test('peekActiveProposal renvoie null pour une proposition déjà échue -- une notification ouverte trop tard n’affiche pas les boutons (critère 3)', async () => {
-    const config = configWith();
+    // Délai posé ici (D76) : le scénario raisonne sur 30 s, quel que soit le défaut du service
+    // (15 s depuis le 18 novembre).
+    const config = configWith({ PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS: '30' });
     const registry = new ConnectionRegistry();
     const { notifier } = capturingNotifier();
     const lifecycle = new ProposalLifecycle(config, redis, registry, notifier);

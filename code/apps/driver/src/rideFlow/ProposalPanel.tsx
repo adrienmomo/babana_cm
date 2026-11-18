@@ -1,16 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { reverseGeocode } from '@babana/maps';
 import type { LatLng } from '@babana/maps';
 import type { realtime } from '@babana/contracts';
 import { CountdownRing } from '../components/CountdownRing';
+import { SwipeButton } from '../components/SwipeButton';
 import { formatDistance, formatMoney } from '../format';
 import type { ConnectionState } from '@babana/api-client';
 import { alertIncomingProposal, dismissProposalAlert } from '../proposalAlert';
 import { onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { markProposalHandled, forgetProposal } from '../proposalDedup';
+
 import type { ActiveRideParams, ProposalParams } from '../navigation/types';
-import { cardsOf, makeStyles, useButtonLabels, useButtons } from '../theme';
+import { cardsOf, makeStyles } from '../theme';
 
 /**
  * Réception de proposition (L6-12) : un panneau posé sur la carte de Home (`rideFlow/`) -- la
@@ -48,7 +50,8 @@ export interface ProposalPanelProps {
   onAccepted: (ride: ActiveRideParams) => void;
 }
 
-type Decision = 'idle' | 'accepting' | 'rejecting' | 'resolved';
+// Plus de « refus » côté chauffeur depuis le 18 novembre : accepter, ou laisser expirer.
+type Decision = 'idle' | 'accepting' | 'resolved';
 
 /** Détails complets d'une proposition affichable -- présents d'emblée en mode `realtime`,
  * remplis par la revalidation en mode `notification`. */
@@ -142,8 +145,6 @@ function detailsFromActiveProposal(active: realtime.ActiveProposal): ProposalDis
 }
 
 export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelProps) {
-  const buttonLabels = useButtonLabels();
-  const buttons = useButtons();
   const styles = useStyles();
   const rideId = params.rideId;
   const fromNotification = params.source === 'notification';
@@ -316,7 +317,7 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
       }
 
       if (isProposalAcceptedMessage(message) && message.payload.rideId === rideId) {
-        if (decisionRef.current === 'rejecting' || decisionRef.current === 'resolved') return;
+        if (decisionRef.current === 'resolved') return;
         updateDecision('resolved');
         navigateToActiveRide(message.payload.clientPhoneNumber);
         return;
@@ -385,19 +386,6 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
     // `proposal.accepted` (ou de `session.synced` en filet), jamais après un délai deviné (D49).
   }
 
-  function handleReject() {
-    if (decision !== 'idle') return;
-    if (connectionState !== 'connected') {
-      setOfflineActionBlocked(true);
-      return;
-    }
-    updateDecision('rejecting');
-    realtimeClient.send('proposal.reject', { rideId });
-    // Une proposition refusée peut être re-proposée plus tard (cas rare) : le registre de
-    // déduplication ne doit pas l'avaler en silence.
-    forgetProposal(rideId);
-    onDismiss();
-  }
 
   const provisionalExpiresAt = details?.expiresAt ?? (fromNotification && params.expiresAt ? params.expiresAt : null);
   const canRespond = !resolutionMessage && details !== null;
@@ -474,31 +462,20 @@ export function ProposalPanel({ params, onDismiss, onAccepted }: ProposalPanelPr
         ) : null}
       </View>
 
-      {/* Refuser / Accepter prennent la place des deux boutons flottants de l'accueil, aux mêmes
-          coins du bas : au pouce, sans quitter la carte des yeux (D20). */}
+      {/* 18 novembre (maître d'ouvrage) : le chauffeur ne refuse plus une course -- plus de bouton
+          « Refuser ». Accepter se confirme d'un glissement, comme les décisions de la course :
+          rien ne se déclenche par un appui accidentel, en roulant ou avec des gants. Sans
+          réponse, la proposition expire (délai du serveur) et passe au chauffeur suivant. */}
       {canRespond ? (
-        <>
-          <Pressable
-            testID="proposal-reject"
-            accessibilityRole="button"
-            accessibilityLabel="Refuser la proposition"
-            disabled={decision !== 'idle'}
-            onPress={handleReject}
-            style={({ pressed }) => [buttons.base, buttons.lg, buttons.secondary, buttons.floating, styles.cornerButton, styles.leftCorner, pressed ? buttons.pressed : null]}
-          >
-            <Text style={[buttonLabels.lg, buttonLabels.secondary]}>Refuser</Text>
-          </Pressable>
-          <Pressable
+        <View style={styles.acceptAction}>
+          <SwipeButton
             testID="proposal-accept"
-            accessibilityRole="button"
+            label={decision === 'accepting' ? 'Acceptation…' : 'Accepter la course'}
             accessibilityLabel="Accepter la proposition"
             disabled={decision !== 'idle'}
-            onPress={handleAccept}
-            style={({ pressed }) => [buttons.base, buttons.lg, buttons.primary, buttons.floating, styles.cornerButton, styles.rightCorner, pressed ? buttons.pressed : null]}
-          >
-            <Text style={[buttonLabels.lg, buttonLabels.primary]}>Accepter</Text>
-          </Pressable>
-        </>
+            onConfirm={handleAccept}
+          />
+        </View>
       ) : null}
     </View>
   );
@@ -558,17 +535,12 @@ const useStyles = makeStyles((c) => ({
   revalidating: {
     color: c.muted,
   },
-  // D20 -- cibles tactiles larges, le chauffeur est sur sa moto, parfois avec des gants (L6-12).
-  cornerButton: {
+  // D20 -- cible large en bas d'écran, au pouce (L6-12) ; même place que les glissements de course.
+  acceptAction: {
     position: 'absolute',
-    bottom: 28,
-    minWidth: 148,
-  },
-  leftCorner: {
     left: 16,
-  },
-  rightCorner: {
     right: 16,
+    bottom: 28,
   },
   pending: {
     color: c.muted,

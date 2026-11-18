@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import itertools
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import os
 import random
 import uuid
@@ -297,6 +297,12 @@ class TestRideController(HttpCase):
         self.assertNotEqual(body["assignedDriverId"], farther.public_id)
         self.assertTrue(body["proposalExpiresAt"])
         self.assertFalse(body["searching"])
+        # 18 novembre : 15 s par défaut, aligné sur PROPOSAL_ACCEPTANCE_TIMEOUT_SECONDS du service
+        # temps réel -- qui reste seul juge de l'expiration.
+        expires_at = datetime.fromisoformat(body["proposalExpiresAt"].replace("Z", "+00:00"))
+        ride.invalidate_recordset()
+        proposed_at = ride.proposed_at.replace(tzinfo=timezone.utc)
+        self.assertEqual(expires_at - proposed_at, timedelta(seconds=15))
 
     def test_dispatch_with_nobody_nearby_is_no_driver_available(self):
         client_token, client_public_id = self._sign_in("sub-dispatch-alone", "client")

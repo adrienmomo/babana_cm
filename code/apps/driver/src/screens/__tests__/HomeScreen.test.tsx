@@ -303,7 +303,7 @@ describe('HomeScreen (L6-11)', () => {
     expect(texts(root)).toContain('Devant la pharmacie du rond-point');
   });
 
-  it('Refuser / Accepter prennent la place du panneau du bas, puis celui-ci revient', async () => {
+  it('le glissement « Accepter » prend la place du panneau du bas (18 novembre : plus de « Refuser »)', async () => {
     mockConnectionState = 'connected';
     const { root } = await renderHome();
     expect(shown(root, 'home-bottom-panel')).toBe(true);
@@ -312,14 +312,8 @@ describe('HomeScreen (L6-11)', () => {
       emitProposal('ride-swap');
     });
     expect(shown(root, 'proposal-accept')).toBe(true);
-    expect(shown(root, 'proposal-reject')).toBe(true);
+    expect(shown(root, 'proposal-reject')).toBe(false);
     expect(shown(root, 'home-bottom-panel')).toBe(false);
-
-    await act(async () => {
-      root.root.findByProps({ testID: 'proposal-reject' }).props.onPress();
-    });
-    expect(shown(root, 'proposal-screen')).toBe(false);
-    expect(shown(root, 'home-bottom-panel')).toBe(true);
   });
 
   it("critère 5 (L6-12) -- une seconde proposition n'est pas ouverte par-dessus une déjà affichée", async () => {
@@ -448,7 +442,7 @@ describe('HomeScreen (L6-11)', () => {
         emitProposal(rideId);
       });
       await act(async () => {
-        root.root.findByProps({ testID: 'proposal-accept' }).props.onPress();
+        root.root.findByProps({ testID: 'proposal-accept' }).props.onConfirm();
       });
       await act(async () => {
         realtimeListener?.({
