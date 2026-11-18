@@ -404,6 +404,9 @@ describe('POST /internal/rides/started|completed (sens Odoo -> temps réel, L3-1
         label: 'Pharmacie du rond-point',
         kind: 'planned',
         addedDuringRide: true,
+        // L6-21 : atteint / quitté font partie du contrat d'un arrêt.
+        reached: false,
+        left: false,
       },
     ];
     const clientWs = await connectWs(tokenFor('client', clientUserId));

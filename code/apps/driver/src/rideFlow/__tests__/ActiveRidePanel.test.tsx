@@ -28,19 +28,33 @@ jest.mock('../../offline', () => ({
 }));
 
 const mockGetPosition = jest.fn().mockResolvedValue({ latitude: 4.05, longitude: 9.7 });
+// Relevés de la capture en course, pour la détection des arrêts (L6-21) -- le test les pousse.
+let mockRideFixListener: ((fix: unknown) => void) | null = null;
 jest.mock('../../location', () => ({
   getCurrentPosition: () => mockGetPosition(),
+  locationTracker: {
+    subscribeRideFix: (listener: (fix: unknown) => void) => {
+      mockRideFixListener = listener;
+      return () => {
+        mockRideFixListener = null;
+      };
+    },
+  },
 }));
 
 let realtimeListener: ((message: unknown) => void) | null = null;
 let connectionListener: ((state: string) => void) | null = null;
 let mockConnectionState: 'offline' | 'connecting' | 'connected' = 'connected';
 const mockSend = jest.fn();
+// Plusieurs abonnés, comme le vrai client temps réel : le panneau ET ses arrêts (L6-21).
+const mockRealtimeListeners = new Set<(message: unknown) => void>();
 jest.mock('../../realtime', () => ({
   onRealtimeMessage: (listener: (message: unknown) => void) => {
-    realtimeListener = listener;
+    mockRealtimeListeners.add(listener);
+    realtimeListener = (message: unknown) => mockRealtimeListeners.forEach((l) => l(message));
     return () => {
-      realtimeListener = null;
+      mockRealtimeListeners.delete(listener);
+      if (mockRealtimeListeners.size === 0) realtimeListener = null;
     };
   },
   onRealtimeConnectionStateChange: (listener: (state: string) => void) => {
@@ -197,7 +211,8 @@ describe('ActiveRidePanel (L6-13)', () => {
   it('invariant 1 -- le passage en course est une décision (bouton), jamais déduit : au montage on reste en approche', async () => {
     const { root } = await renderActiveRide();
     expect(texts(root)).toContain('En route vers le client');
-    expect(mockRequest).not.toHaveBeenCalled();
+    // Aucune écriture : la seule requête au montage est la LECTURE des arrêts (L6-21).
+    expect(mockRequest.mock.calls.filter(([name]) => name !== 'rideStops')).toEqual([]);
     // Même à proximité du client, « Commencer » n'apparaît qu'après « Sur place ».
     expect(has(root, 'active-ride-start')).toBe(false);
   });
@@ -826,5 +841,132 @@ describe('6 novembre : le chauffeur annule en disant pourquoi, et lit pourquoi l
     });
     expect(texts(root)).toContain('Le client a annulé la course.');
     expect(texts(root)).toContain("J'ai changé d'avis");
+  });
+});
+
+describe('arrêts de la course (L6-21)', () => {
+  const STOP_A = { latitude: 4.0555, longitude: 9.705 };
+  const STOP_B = { latitude: 4.058, longitude: 9.707 };
+  const DETECTION = { arrivalRadiusMeters: 50, departureDistanceMeters: 60, departureSpeedKmh: 8, departureDurationSeconds: 10 };
+
+  function stop(id: string, position: { latitude: number; longitude: number }, extra: Record<string, unknown> = {}) {
+    return { id, sequence: id === 'a' ? 1 : 2, position, label: id === 'a' ? 'Marché' : 'Pharmacie', kind: 'planned', addedDuringRide: false, reached: false, left: false, ...extra };
+  }
+
+  // Un faux serveur qui tient l'état des arrêts, comme le vrai : chaque événement le fait avancer.
+  function serveStops(initial: Array<ReturnType<typeof stop>>, detection = DETECTION) {
+    let stops = initial.map((s) => ({ ...s }));
+    mockRequest.mockImplementation(async (name: string, options?: { body?: { stopId?: string } }) => {
+      if (name === 'rideStops') return { stops, pickupDeparted: false, detection };
+      if (name === 'stopArrived') stops = stops.map((s) => (s.id === options?.body?.stopId ? { ...s, reached: true } : s));
+      if (name === 'stopDeparted') stops = stops.map((s) => (s.id === options?.body?.stopId ? { ...s, left: true } : s));
+      if (name === 'stopArrived' || name === 'stopDeparted' || name === 'stopUnplanned') return { stops };
+      if (name === 'driverArrived') return { arrivedAt: new Date(Date.now()).toISOString(), noShowGraceSeconds: GRACE_SECONDS };
+      return {};
+    });
+  }
+
+  function feed(position: { latitude: number; longitude: number }, atMs: number, speed: number | null) {
+    mockRideFixListener?.({ ...position, accuracyMeters: 5, speedMetersPerSecond: speed, capturedAtIso: new Date(atMs).toISOString() });
+  }
+
+  const callsOf = (name: string) => mockRequest.mock.calls.filter(([n]) => n === name);
+
+  it('au trajet : les arrêts prévus sont listés, sur la carte et dans l’itinéraire, dans l’ordre', async () => {
+    serveStops([stop('a', STOP_A), stop('b', STOP_B)]);
+    const { root, callbacks } = await renderActiveRide();
+    await reachTransit(root);
+
+    expect(texts(root)).toContain('Arrêt 1 · Marché · prochain');
+    expect(texts(root)).toContain('Arrêt 2 · Pharmacie');
+    expect(callbacks.mapStates.at(-1)?.stops.map((s) => s.id)).toEqual(['a', 'b']);
+    expect(mockFetchRoute).toHaveBeenCalledWith(expect.anything(), DESTINATION, [STOP_A, STOP_B]);
+  });
+
+  it('« Arrivé à l’arrêt », puis « Repartir » : deux événements horodatés pour le prochain arrêt', async () => {
+    serveStops([stop('a', STOP_A)]);
+    const { root } = await renderActiveRide();
+    await reachTransit(root);
+
+    await press(root, 'active-ride-stop-arrive');
+    expect(callsOf('stopArrived')[0][1].body).toEqual({ stopId: 'a', occurredAt: expect.any(String) });
+    expect(has(root, 'active-ride-stop-depart')).toBe(true);
+
+    await press(root, 'active-ride-stop-depart');
+    expect(callsOf('stopDeparted')[0][1].body).toEqual({ stopId: 'a', occurredAt: expect.any(String) });
+  });
+
+  it('« Arrêt client » envoie un arrêt imprévu à la position du chauffeur', async () => {
+    serveStops([]);
+    const { root } = await renderActiveRide();
+    await reachTransit(root);
+    await press(root, 'active-ride-stop-unplanned');
+    expect(callsOf('stopUnplanned')[0][1].body).toEqual({ position: NEAR, occurredAt: expect.any(String) });
+  });
+
+  it('critère 1 : détection automatique avec les seuils DU SERVEUR -- les changer change le comportement', async () => {
+    // Rayon serveur de 50 m : un relevé à ~30 m de l'arrêt le déclare atteint.
+    serveStops([stop('a', STOP_A)]);
+    const first = await renderActiveRide();
+    await reachTransit(first.root);
+    await act(async () => feed({ latitude: STOP_A.latitude + 0.00027, longitude: STOP_A.longitude }, Date.now(), 0));
+    expect(callsOf('stopArrived')).toHaveLength(1);
+    await act(async () => first.root.unmount());
+
+    // Même relevé, rayon serveur ramené à 10 m : rien.
+    mockRequest.mockReset();
+    serveStops([stop('a', STOP_A)], { ...DETECTION, arrivalRadiusMeters: 10 });
+    const second = await renderActiveRide();
+    await reachTransit(second.root);
+    await act(async () => feed({ latitude: STOP_A.latitude + 0.00027, longitude: STOP_A.longitude }, Date.now(), 0));
+    expect(callsOf('stopArrived')).toHaveLength(0);
+  });
+
+  it('départ détecté : un seul événement, à l’heure du début du mouvement', async () => {
+    serveStops([stop('a', STOP_A, { reached: true })]);
+    const { root } = await renderActiveRide();
+    await reachTransit(root);
+    const start = Date.now();
+    await act(async () => {
+      for (let t = 0; t <= 30; t += 2) {
+        feed({ latitude: STOP_A.latitude + (t * 4) / 111_320, longitude: STOP_A.longitude }, start + t * 1000, 4);
+      }
+    });
+    const departures = callsOf('stopDeparted');
+    expect(departures).toHaveLength(1);
+    expect(departures[0][1].body).toEqual({ stopId: 'a', occurredAt: new Date(start).toISOString() });
+  });
+
+  it('critère 3 : hors connexion, l’événement attend en file et part au retour avec son heure d’origine', async () => {
+    serveStops([stop('a', STOP_A)]);
+    const { root } = await renderActiveRide();
+    await reachTransit(root);
+    const happened = Date.now() - 60_000;
+    mockRequest.mockRejectedValueOnce(new Error('network down'));
+    await act(async () => feed({ latitude: STOP_A.latitude, longitude: STOP_A.longitude }, happened, 0));
+
+    const { offlineRunner } = require('../../offline');
+    await act(async () => {
+      await offlineRunner.flush();
+    });
+    const sent = callsOf('stopArrived');
+    expect(sent).toHaveLength(2);
+    expect(sent[1][1].body.occurredAt).toBe(new Date(happened).toISOString());
+    expect(sent[0][1].idempotencyKey).toBe(sent[1][1].idempotencyKey);
+  });
+
+  it('ride.stop.added : alerte, arrêts relus, itinéraire recalculé par le nouvel arrêt', async () => {
+    serveStops([stop('a', STOP_A)]);
+    const { root } = await renderActiveRide();
+    await reachTransit(root);
+    serveStops([stop('a', STOP_A), stop('b', STOP_B, { addedDuringRide: true })]);
+    await act(async () => {
+      emit({ type: 'ride.stop.added', payload: { rideId: RIDE_ID, stops: [stop('a', STOP_A), stop('b', STOP_B, { addedDuringRide: true })] } });
+    });
+    await act(async () => {});
+
+    expect(root.root.findByProps({ testID: 'active-ride-stop-alert' })).toBeTruthy();
+    expect(texts(root)).toContain('Pharmacie');
+    expect(mockFetchRoute).toHaveBeenLastCalledWith(expect.anything(), DESTINATION, [STOP_A, STOP_B]);
   });
 });

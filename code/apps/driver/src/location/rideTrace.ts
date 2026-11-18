@@ -32,6 +32,8 @@ export interface RideFix {
   latitude: number;
   longitude: number;
   accuracyMeters: number;
+  /** Vitesse rapportée par le GPS, `null` si inconnue (L6-21 : détection de départ). */
+  speedMetersPerSecond: number | null;
   capturedAtIso: string;
 }
 

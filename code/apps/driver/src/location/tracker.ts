@@ -399,6 +399,7 @@ export class LocationTracker {
           latitude: fix.latitude,
           longitude: fix.longitude,
           accuracyMeters: fix.accuracyMeters,
+          speedMetersPerSecond: fix.speedMetersPerSecond ?? null,
           capturedAtIso,
         };
         this.rideFixListeners.forEach((listener) => listener(rideFix));

@@ -309,6 +309,10 @@ export function HomeScreen({ navigation, route }: Props) {
         ? { id: 'dropoff', kind: 'dropoff', position: ride.destination }
         : { id: 'pickup', kind: 'pickup', position: ride.origin }
     );
+    // L6-21 : les arrêts prévus restants, une épingle chacun, dès qu'ils sont connus.
+    for (const stop of rideMap.stops) {
+      markers.push({ id: `stop-${stop.id}`, kind: 'stop', position: stop.position, label: stop.label ?? undefined });
+    }
   }
   // La carte suit toujours le chauffeur, course comprise (demande du 6 novembre) : elle cadre
   // l'itinéraire quand il change (fournisseur de carte), puis revient sur son repère au relevé

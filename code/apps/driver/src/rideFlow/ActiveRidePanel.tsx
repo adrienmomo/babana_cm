@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { fetchRoute, reverseGeocode, type LatLng, type MapRoute } from '@babana/maps';
 import { ApiError, QUICK_MESSAGE_LABELS, quickMessagesFor, translateApiError } from '@babana/api-client';
@@ -15,6 +15,7 @@ import { SwipeButton } from '../components/SwipeButton';
 import { onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { formatDistance } from '../format';
 import { distanceToRouteMeters, isWithinRadius, remainingRouteFraction } from './proximity';
+import { useRideStops } from './useRideStops';
 import type { ActiveRideParams } from '../navigation/types';
 import { cardsOf, makeStyles, useButtonLabels, useButtons } from '../theme';
 
@@ -62,6 +63,8 @@ export type RideStage = 'approach' | 'arrived' | 'transit';
 export interface RideMapState {
   stage: RideStage;
   route: MapRoute | null;
+  /** Arrêts prévus restant à faire (L6-21), dans l'ordre. */
+  stops: Array<{ id: string; position: LatLng; label: string | null }>;
 }
 
 export interface RideFlowSettings {
@@ -201,6 +204,16 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
   // du chemin d'approche déjà parcouru.
   const phase: 'approach' | 'transit' = stage === 'approach' ? 'approach' : 'transit';
 
+  // L6-21 : arrêts de la course, détection d'arrivée et de départ, secours manuel.
+  const rideStops = useRideStops({ rideId, stage, origin, position });
+  const remainingStops = useMemo(
+    () => rideStops.stops.filter((stop) => stop.kind === 'planned' && !stop.left),
+    [rideStops.stops]
+  );
+  const remainingStopsKey = remainingStops.map((stop) => stop.id).join(',');
+  // La liste d'arrêts pour laquelle le tracé courant a été calculé.
+  const routeStopsKeyRef = useRef(remainingStopsKey);
+
   // `arrivedAtMs` est une heure de CE téléphone : jamais l'heure du serveur comparée à l'horloge
   // locale (deux horloges qui dérivent -- l'attente afficherait 0:00 ou un délai déjà écoulé).
   const enterArrived = useCallback((localArrivedAtMs: number, graceSeconds: number) => {
@@ -234,8 +247,12 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
 
   // La carte de Home dessine ce que ce panneau lui rapporte.
   useEffect(() => {
-    onMapState({ stage, route: route ? { points: route.points } : null });
-  }, [stage, route, onMapState]);
+    onMapState({
+      stage,
+      route: route ? { points: route.points } : null,
+      stops: remainingStops.map((stop) => ({ id: stop.id, position: stop.position, label: stop.label })),
+    });
+  }, [stage, route, onMapState, remainingStops]);
 
   const shareRoute = useCallback(
     (shared: SharedRoute) => {
@@ -272,7 +289,11 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
     const lastFailure = lastRouteFailureAtRef.current;
     if (lastFailure !== null && Date.now() - lastFailure < settings.routeRetryCooldownMs) return;
 
-    const current = routeRef.current && routeRef.current.phase === phase ? routeRef.current : null;
+    // Un tracé calculé pour une autre liste d'arrêts (ajout, arrêt passé) est périmé (L6-21).
+    const current =
+      routeRef.current && routeRef.current.phase === phase && routeStopsKeyRef.current === remainingStopsKey
+        ? routeRef.current
+        : null;
     if (current) {
       if (stage === 'arrived' || !position) return;
       const offRoute = distanceToRouteMeters(position, current.points) > settings.routeDeviationMeters;
@@ -284,7 +305,9 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
 
     inFlightPhaseRef.current = phase;
     const target = phase === 'approach' ? origin : destination;
-    fetchRoute(start, target).then((result) => {
+    // Au trajet, l'itinéraire traverse les arrêts prévus restants, dans l'ordre (L6-21, D83).
+    const via = phase === 'transit' ? remainingStops.map((stop) => stop.position) : [];
+    (via.length ? fetchRoute(start, target, via) : fetchRoute(start, target)).then((result) => {
       if (inFlightPhaseRef.current === phase) inFlightPhaseRef.current = null;
       if (!mountedRef.current) return;
       if (!result) {
@@ -295,6 +318,7 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
       const nowPhase = stageRef.current === 'approach' ? 'approach' : 'transit';
       if (nowPhase !== phase) return;
       lastRouteFailureAtRef.current = null;
+      routeStopsKeyRef.current = remainingStopsKey;
       const shared: SharedRoute = { phase, ...result };
       routeRef.current = shared;
       routeFetchedAtRef.current = Date.now();
@@ -311,7 +335,10 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
     settings.routeDeviationMeters,
     settings.routeRefreshMs,
     shareRoute,
+    remainingStops,
+    remainingStopsKey,
   ]);
+
 
   // Changement de phase : le tracé de l'approche n'a plus rien à faire sur la carte du trajet.
   const previousPhaseRef = useRef(phase);
@@ -566,6 +593,58 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
             )}
           </View>
         ) : null}
+        {/* L6-21 : arrêts du trajet, alerte d'ajout, secours manuel de la détection. */}
+        {rideStops.alert ? (
+          <Pressable testID="active-ride-stop-alert" accessibilityRole="button" onPress={rideStops.dismissAlert} style={styles.stopAlert}>
+            <Text style={styles.stopAlertText}>{rideStops.alert}</Text>
+          </Pressable>
+        ) : null}
+        {stage === 'transit' && rideStops.stops.some((stop) => stop.kind === 'planned') ? (
+          <View testID="active-ride-stops">
+            {rideStops.stops
+              .filter((stop) => stop.kind === 'planned')
+              .map((stop, index) => (
+                <Text key={stop.id} style={[styles.stopLine, stop.left ? styles.stopLineDone : null]} numberOfLines={1}>
+                  {`Arrêt ${index + 1} · ${stop.label ?? 'sans repère'}${stop.left ? ' · fait' : stop.reached ? ' · sur place' : stop.id === rideStops.nextStop?.id ? ' · prochain' : ''}`}
+                </Text>
+              ))}
+          </View>
+        ) : null}
+        {stage === 'transit' ? (
+          <View style={styles.noShowRow}>
+            {rideStops.openStop ? (
+              <Pressable
+                testID="active-ride-stop-depart"
+                accessibilityRole="button"
+                onPress={rideStops.depart}
+                style={({ pressed }) => [buttons.base, buttons.md, buttons.secondary, buttons.floating, pressed ? buttons.pressed : null]}
+              >
+                <Text style={[buttonLabels.base, buttonLabels.secondary]}>Repartir</Text>
+              </Pressable>
+            ) : (
+              <>
+                {rideStops.nextStop ? (
+                  <Pressable
+                    testID="active-ride-stop-arrive"
+                    accessibilityRole="button"
+                    onPress={rideStops.arrive}
+                    style={({ pressed }) => [buttons.base, buttons.md, buttons.secondary, buttons.floating, pressed ? buttons.pressed : null]}
+                  >
+                    <Text style={[buttonLabels.base, buttonLabels.secondary]}>Arrivé à l’arrêt</Text>
+                  </Pressable>
+                ) : null}
+                <Pressable
+                  testID="active-ride-stop-unplanned"
+                  accessibilityRole="button"
+                  onPress={rideStops.unplanned}
+                  style={({ pressed }) => [buttons.base, buttons.md, buttons.secondary, buttons.floating, pressed ? buttons.pressed : null]}
+                >
+                  <Text style={[buttonLabels.base, buttonLabels.secondary]}>Arrêt client</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+        ) : null}
         {/* Le repère du client sert à le trouver : montré jusqu'au départ, pas pendant le trajet. */}
         {ride.pickupNote && stage !== 'transit' ? (
           <Text style={styles.pickupNote} numberOfLines={2} testID="active-ride-pickup-note">
@@ -694,6 +773,23 @@ export function ActiveRidePanel({ ride, position, settings, onMapState, onSettle
 }
 
 const useStyles = makeStyles((c) => ({
+  stopAlert: {
+    marginTop: 8,
+    padding: 10,
+    borderRadius: 8,
+    backgroundColor: c.warningSoft,
+  },
+  stopAlertText: {
+    color: c.warningText,
+    fontWeight: '600',
+  },
+  stopLine: {
+    color: c.ink,
+    marginTop: 4,
+  },
+  stopLineDone: {
+    color: c.muted,
+  },
   overlay: {
     position: 'absolute',
     top: 0,

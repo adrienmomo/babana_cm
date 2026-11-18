@@ -15,12 +15,16 @@ let connectionStateListener: ((state: string) => void) | null = null;
 const mockEnsureConnected = jest.fn();
 const mockSend = jest.fn();
 let mockConnectionState: 'offline' | 'connecting' | 'connected' = 'offline';
+// Plusieurs abonnés, comme le vrai client temps réel : l'écran, le panneau de course, ses arrêts.
+const mockRealtimeListeners = new Set<(message: unknown) => void>();
 jest.mock('../../realtime', () => ({
   ensureRealtimeConnected: () => mockEnsureConnected(),
   onRealtimeMessage: (listener: (message: unknown) => void) => {
-    realtimeListener = listener;
+    mockRealtimeListeners.add(listener);
+    realtimeListener = (message: unknown) => mockRealtimeListeners.forEach((l) => l(message));
     return () => {
-      realtimeListener = null;
+      mockRealtimeListeners.delete(listener);
+      if (mockRealtimeListeners.size === 0) realtimeListener = null;
     };
   },
   onRealtimeConnectionStateChange: (listener: (state: string) => void) => {
@@ -50,6 +54,8 @@ jest.mock('../../location', () => ({
         fixListener = null;
       };
     },
+    // Relevés en course pour la détection des arrêts (L6-21) -- non exercés ici.
+    subscribeRideFix: () => () => {},
   },
   getCurrentPosition: (...args: unknown[]) => mockGetCurrentPosition(...args),
 }));

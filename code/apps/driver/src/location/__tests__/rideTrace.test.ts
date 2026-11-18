@@ -18,7 +18,7 @@ function memoryStorage(initial: StoredTrace | null = null) {
 }
 
 function fix(i: number) {
-  return { latitude: 4.05 + i * 0.0001, longitude: 9.7, accuracyMeters: 5, capturedAtIso: new Date(1_000_000 + i * 5_000).toISOString() };
+  return { latitude: 4.05 + i * 0.0001, longitude: 9.7, accuracyMeters: 5, speedMetersPerSecond: null, capturedAtIso: new Date(1_000_000 + i * 5_000).toISOString() };
 }
 
 function message(type: 'ride.started' | 'ride.completed' | 'ride.cancelled', rideId: string) {
