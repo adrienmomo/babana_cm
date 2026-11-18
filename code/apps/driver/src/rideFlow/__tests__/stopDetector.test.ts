@@ -60,6 +60,17 @@ describe('StopDetector (L6-21)', () => {
     expect(event).toEqual({ type: 'departed', stopId: null, atMs: 2000 });
   });
 
+  it('vitesse GPS à 0 alors que la moto avance (Android sans vitesse) : le départ est quand même détecté', () => {
+    // Trouvé sur émulateur le 18 novembre : la bibliothèque de géolocalisation transmet
+    // `getSpeed()` tel quel, et Android rend 0 quand le relevé n'a pas de vitesse -- fréquent
+    // pour les relevés réseau ou fusionnés. « Inconnue » arrivait comme « à l'arrêt ».
+    const detector = new StopDetector(CONFIG);
+    const target = { kind: 'departure' as const, stopId: 's1', anchor: STOP };
+    const events = [];
+    for (let t = 0; t <= 30; t += 3) events.push(detector.feed(fix(t * 15, t, 0), target));
+    expect(events.filter(Boolean)).toEqual([{ type: 'departed', stopId: 's1', atMs: 3000 }]);
+  });
+
   it('une nouvelle cible repart de zéro (arrêt suivant)', () => {
     const detector = new StopDetector(CONFIG);
     expect(detector.feed(fix(10, 0), { kind: 'arrival', stopId: 's1', position: STOP })).not.toBeNull();

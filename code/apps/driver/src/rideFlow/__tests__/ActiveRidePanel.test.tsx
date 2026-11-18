@@ -955,6 +955,36 @@ describe('arrêts de la course (L6-21)', () => {
     expect(sent[0][1].idempotencyKey).toBe(sent[1][1].idempotencyKey);
   });
 
+  it('dernier arrêt quitté : l’itinéraire va droit à l’arrivée, sans repasser par lui', async () => {
+    serveStops([stop('a', STOP_A, { reached: true })]);
+    const { root } = await renderActiveRide();
+    await reachTransit(root);
+    expect(mockFetchRoute).toHaveBeenLastCalledWith(expect.anything(), DESTINATION, [STOP_A]);
+
+    await press(root, 'active-ride-stop-depart');
+    await act(async () => {});
+
+    expect(mockFetchRoute).toHaveBeenLastCalledWith(expect.anything(), DESTINATION);
+  });
+
+  it('arrêts changés PENDANT un calcul d’itinéraire : le tracé arrivé ensuite est recalculé (trouvé sur émulateur)', async () => {
+    serveStops([stop('a', STOP_A, { reached: true })]);
+    let releaseStale: (value: unknown) => void = () => {};
+    const { root, rerender } = await renderActiveRide();
+    await reachTransit(root);
+    // Le prochain calcul reste en vol...
+    mockFetchRoute.mockImplementationOnce(() => new Promise((resolve) => (releaseStale = resolve)));
+    await rerender(FAR);
+    // ...pendant que l'arrêt est quitté.
+    await press(root, 'active-ride-stop-depart');
+    await act(async () => {
+      releaseStale(TRANSIT_ROUTE);
+    });
+    await rerender(NEAR);
+
+    expect(mockFetchRoute).toHaveBeenLastCalledWith(expect.anything(), DESTINATION);
+  });
+
   it('ride.stop.added : alerte, arrêts relus, itinéraire recalculé par le nouvel arrêt', async () => {
     serveStops([stop('a', STOP_A)]);
     const { root } = await renderActiveRide();

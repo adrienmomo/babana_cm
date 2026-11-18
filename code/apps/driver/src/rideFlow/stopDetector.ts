@@ -71,7 +71,13 @@ export class StopDetector {
       return null;
     }
 
-    const speed = fix.speedMetersPerSecond ?? impliedSpeed(previous, fix);
+    // La plus grande des deux : la vitesse rapportée, et celle que donnent deux relevés successifs.
+    // Android rend 0 -- pas « inconnue » -- pour un relevé sans vitesse (réseau, fusionné) :
+    // s'y fier seule laissait une moto qui roule « à l'arrêt » (trouvé sur émulateur, 18 novembre).
+    // Le bruit GPS à l'arrêt ne déclenche rien : il faut aussi s'éloigner de la distance minimale.
+    const reported = fix.speedMetersPerSecond;
+    const implied = impliedSpeed(previous, fix);
+    const speed = reported === null && implied === null ? null : Math.max(reported ?? 0, implied ?? 0);
     const threshold = this.config.departureSpeedKmh / 3.6;
     if (speed !== null && speed >= threshold) {
       // Le mouvement commence au premier relevé rapide de la série -- c'est l'heure envoyée.
