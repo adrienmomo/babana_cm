@@ -63,6 +63,7 @@
                 <field name="is_online"/>
                 <field name="motorcycle_id"/>
                 <field name="rating_avg" string="Note"/>
+                <field name="priority_total"/>
                 <field name="ride_count" string="Courses"/>
                 <field name="cash_balance"/>
                 <field name="cash_limit" optional="hide"/>
@@ -134,6 +135,27 @@
                             <field name="rating_count"/>
                         </group>
                     </group>
+                    <!-- Priorité à l'affectation (19 novembre, services/priority.py) : ce qui décide
+                         quel chauffeur reçoit une course à moins de 2 km du client. -->
+                    <group string="Priorité" name="priority">
+                        <group>
+                            <label for="priority_total"/>
+                            <div class="d-flex gap-1">
+                                <field name="priority_total" class="oe_inline fw-bold"/>
+                                <span>/</span>
+                                <field name="priority_max_total" class="oe_inline"/>
+                            </div>
+                            <field name="ride_points"/>
+                            <field name="priority_new_driver_points"/>
+                            <field name="priority_star_points"/>
+                        </group>
+                        <group>
+                            <field name="approved_at"/>
+                            <field name="priority_new_driver_until"
+                                invisible="not priority_new_driver_points"/>
+                            <field name="priority_star_average"/>
+                        </group>
+                    </group>
                     <group string="Caisse">
                         <field name="currency_id" invisible="1"/>
                         <field name="cash_balance"/>
@@ -153,6 +175,18 @@
                                     <button name="action_preview" type="object" string="Voir la pièce"
                                         icon="fa-external-link"
                                         groups="babana.group_babana_manager"/>
+                                </list>
+                            </field>
+                        </page>
+                        <!-- Le journal que le chauffeur lit dans « Ma priorité › Courses acceptées ». -->
+                        <page string="Points de course" name="priority_movements">
+                            <field name="priority_movement_ids" readonly="1">
+                                <list decoration-danger="delta &lt; 0" decoration-success="delta &gt; 0">
+                                    <field name="occurred_at"/>
+                                    <field name="kind"/>
+                                    <field name="ride_id"/>
+                                    <field name="delta"/>
+                                    <field name="balance_after"/>
                                 </list>
                             </field>
                         </page>

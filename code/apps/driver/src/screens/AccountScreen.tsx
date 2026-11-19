@@ -16,7 +16,7 @@ import type { DriverParamList } from '../navigation/types';
 
 /**
  * Profil du chauffeur (2 novembre), ouvert par l'avatar en haut à droite de la carte : photo, nom,
- * sa note reçue des clients, puis « Ma caisse », « Mes courses » (où il corrige les notes données
+ * sa note reçue des clients, puis « Ma priorité » (19 novembre), « Ma caisse », « Mes courses » (où il corrige les notes données
  * à ses clients) et « Mes documents » -- chaque pièce avec son état et, pour le permis, sa date
  * d'expiration, telle qu'Odoo la connaît (`GET /driver/documents`). Le ⋮ de la barre porte la
  * déconnexion, qui passe d'abord hors ligne (`signOut.ts`).
@@ -112,6 +112,22 @@ export function AccountScreen({ navigation }: Props) {
       </View>
 
       <View style={styles.list}>
+        {user?.driverPriority ? (
+          <Pressable
+            testID="account-row-priority"
+            accessibilityRole="button"
+            onPress={() => navigation.navigate('Priority')}
+            style={({ pressed }) => [styles.row, pressed ? styles.pressed : null]}
+          >
+            <Text style={styles.rowLabel}>Priorité</Text>
+            <View style={styles.rowEnd}>
+              <Text testID="account-priority-value" style={styles.rowValue}>
+                {`${user.driverPriority.total}/${user.driverPriority.max}`}
+              </Text>
+              <Text style={styles.chevron}>›</Text>
+            </View>
+          </Pressable>
+        ) : null}
         <Pressable
           testID="account-row-cash"
           accessibilityRole="button"
@@ -203,6 +219,8 @@ const useStyles = makeStyles((c) => ({
   pressed: { backgroundColor: c.canvas },
   rowLabel: { color: c.ink, fontSize: 17, fontWeight: '600' },
   chevron: { color: c.subtle, fontSize: 24 },
+  rowEnd: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  rowValue: { color: c.ink, fontSize: 17, fontWeight: '700' },
   photoButton: {
     marginTop: 10,
     alignSelf: 'flex-start',

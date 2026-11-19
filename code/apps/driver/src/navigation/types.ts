@@ -106,6 +106,12 @@ export type DriverParamList = {
   /** « Mes courses » (2 novembre) : l'historique du chauffeur, où il pose ou corrige la note
    * donnée à chaque client. */
   RideHistory: undefined;
+  /** « Ma priorité » (19 novembre) : ouverte depuis la carte et depuis le profil. */
+  Priority: undefined;
+  /** « Courses acceptées » : le journal des points de course (+1 / −1). */
+  RidePoints: undefined;
+  /** « Note des clients » : le calcul des points de note, sans la liste des avis. */
+  StarPoints: undefined;
 };
 
 /**

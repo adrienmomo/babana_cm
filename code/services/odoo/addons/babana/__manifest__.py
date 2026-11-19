@@ -18,6 +18,7 @@ racine du dépôt pour le contexte complet.
         'data/babana_ride_sequence.xml',
         'data/babana_cash_remittance_sequence.xml',
         'data/cron.xml',
+        'data/driver_priority.xml',
         'views/babana_motorcycle_views.xml',
         'views/babana_driver_views.xml',
         'views/babana_driver_selfie_views.xml',

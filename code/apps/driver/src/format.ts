@@ -22,6 +22,12 @@ function twoDigits(n: number): string {
   return n < 10 ? `0${n}` : String(n);
 }
 
+/** Jour d'un instant UTC, dans le fuseau du téléphone : « 19/12/2026 ». */
+export function formatLocalDay(iso: string): string {
+  const date = new Date(iso);
+  return `${twoDigits(date.getDate())}/${twoDigits(date.getMonth() + 1)}/${date.getFullYear()}`;
+}
+
 /** Date et heure d'une course (historique), dans le fuseau du téléphone : « 29/10/2026 · 18:12 »
  * -- même forme que l'historique du client (`apps/client/src/format.ts`). */
 export function formatRideDate(iso: string): string {

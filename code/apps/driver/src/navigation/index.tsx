@@ -15,6 +15,9 @@ import { CashScreen } from '../screens/CashScreen';
 import { RemittanceScreen } from '../screens/RemittanceScreen';
 import { AccountScreen } from '../screens/AccountScreen';
 import { RideHistoryScreen } from '../screens/RideHistoryScreen';
+import { PriorityScreen } from '../screens/PriorityScreen';
+import { RidePointsScreen } from '../screens/RidePointsScreen';
+import { StarPointsScreen } from '../screens/StarPointsScreen';
 import { ProfileScreen } from '../screens/onboarding/ProfileScreen';
 import { DocumentsScreen } from '../screens/onboarding/DocumentsScreen';
 import { PendingScreen } from '../screens/onboarding/PendingScreen';
@@ -192,6 +195,9 @@ function DriverNavigator() {
       <DriverStack.Screen name="Remittance" component={RemittanceScreen} options={{ title: 'Déclarer une remise' }} />
       <DriverStack.Screen name="Account" component={AccountScreen} options={{ title: 'Mon profil' }} />
       <DriverStack.Screen name="RideHistory" component={RideHistoryScreen} options={{ title: 'Mes courses' }} />
+      <DriverStack.Screen name="Priority" component={PriorityScreen} options={{ title: 'Ma priorité' }} />
+      <DriverStack.Screen name="RidePoints" component={RidePointsScreen} options={{ title: 'Courses acceptées' }} />
+      <DriverStack.Screen name="StarPoints" component={StarPointsScreen} options={{ title: 'Note des clients' }} />
     </DriverStack.Navigator>
   );
 }

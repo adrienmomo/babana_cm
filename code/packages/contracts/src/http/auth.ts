@@ -34,6 +34,27 @@ export const RatingSummarySchema = z.object({
 });
 export type RatingSummary = z.infer<typeof RatingSummarySchema>;
 
+/**
+ * Priorité à l'affectation (19 novembre, amoa/questions/PRIORITE-2026-11-19.md) : ce qui décide
+ * quel chauffeur reçoit une course à moins de 2 km du client. Chaque valeur et chaque maximum
+ * viennent du serveur -- l'app affiche, elle ne calcule ni ne connaît aucun barème (invariant 3).
+ */
+export const DriverPrioritySchema = z.object({
+  total: z.number().int().nonnegative(),
+  max: z.number().int().positive(),
+  /** Points de course : perdus à chaque proposition expirée, regagnés à chaque course terminée. */
+  ridePoints: z.number().int().nonnegative(),
+  ridePointsMax: z.number().int().positive(),
+  /** Bonus des premiers jours après l'approbation du dossier ; 0 une fois la période passée. */
+  newDriverPoints: z.number().int().nonnegative(),
+  newDriverPointsMax: z.number().int().nonnegative(),
+  /** Fin du bonus « nouveau », `null` quand il ne s'applique pas (ou plus). */
+  newDriverUntil: z.string().datetime().nullable(),
+  starPoints: z.number().int().nonnegative(),
+  starPointsMax: z.number().int().nonnegative(),
+});
+export type DriverPriority = z.infer<typeof DriverPrioritySchema>;
+
 export const AuthenticatedUserSchema = z.object({
   id: UserIdSchema,
   role: z.enum(['client', 'driver']),
@@ -61,6 +82,8 @@ export const AuthenticatedUserSchema = z.object({
    * l'ouverture, sans attendre une notification qui a pu se perdre.
    */
   driverRejectionReason: z.string().nullable().optional(),
+  /** Priorité à l'affectation -- présente seulement quand role vaut 'driver' (19 novembre). */
+  driverPriority: DriverPrioritySchema.optional(),
 });
 export type AuthenticatedUser = z.infer<typeof AuthenticatedUserSchema>;
 

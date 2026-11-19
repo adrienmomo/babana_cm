@@ -15,7 +15,7 @@ import pytz
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
 
-from ..services import realtime_client
+from ..services import priority, realtime_client
 
 # D28 (amoa/questions/REPONSES-2026-08-18.md, 01-architecture.md §7) : plafond FIXE POUR TOUTE LA
 # FLOTTE, jamais par chauffeur -- un plafond individuel créerait une inégalité que quelqu'un
@@ -139,6 +139,40 @@ class BabanaDriver(models.Model):
     rating_count = fields.Integer(
         string="Nombre d'avis",
         compute="_compute_rating",
+    )
+    # Priorité à l'affectation (19 novembre, services/priority.py). Les points de course sont le
+    # seul élément stocké : la règle « +1 par course terminée sans dépasser le maximum » les rend
+    # dépendants de l'ordre des événements. Écrits par les transitions d'expiration et de fin de
+    # course seulement (_babana_adjust_ride_points), jamais à la main.
+    ride_points = fields.Integer(
+        string="Points de course",
+        default=lambda self: priority.ride_points_max(self.env),
+        readonly=True,
+        copy=False,
+        help="Un point perdu à chaque proposition expirée, un regagné à chaque course terminée, "
+        "entre 0 et le maximum réglé (Paramètres > Babana > Priorité des chauffeurs).",
+    )
+    approved_at = fields.Datetime(
+        string="Approuvé le",
+        readonly=True,
+        copy=False,
+        help="Première approbation du dossier : début de la période « nouveau chauffeur ». Une "
+        "réactivation après suspension ne la change pas.",
+    )
+    priority_movement_ids = fields.One2many(
+        "babana.driver.priority.movement", "driver_id", string="Mouvements de points de course", readonly=True
+    )
+    priority_total = fields.Integer(string="Priorité", compute="_compute_priority")
+    priority_max_total = fields.Integer(string="Priorité maximale", compute="_compute_priority")
+    priority_new_driver_points = fields.Integer(string="Points « nouveau chauffeur »", compute="_compute_priority")
+    priority_new_driver_until = fields.Datetime(string="Nouveau chauffeur jusqu'au", compute="_compute_priority")
+    priority_star_points = fields.Integer(string="Points de note", compute="_compute_priority")
+    priority_star_average = fields.Float(
+        string="Note lissée",
+        compute="_compute_priority",
+        digits=(3, 2),
+        help="Moyenne des avis clients, comptée avec les notes imaginaires de départ : c'est elle "
+        "qui décide des points de note.",
     )
     ride_count = fields.Integer(
         string="Nombre de courses",
@@ -389,6 +423,69 @@ class BabanaDriver(models.Model):
             average, count = by_driver.get(record.id, (0.0, 0))
             record.rating_avg = average or 0.0
             record.rating_count = count
+
+    def _compute_priority(self):
+        breakdown = priority.compute(self.filtered("id"))
+        for record in self:
+            entry = breakdown.get(record.id)
+            record.priority_total = entry.total if entry else 0
+            record.priority_max_total = entry.max_total if entry else 0
+            record.priority_new_driver_points = entry.new_driver_points if entry else 0
+            record.priority_new_driver_until = entry.new_driver_until if entry else False
+            record.priority_star_points = entry.star_points if entry else 0
+            record.priority_star_average = entry.star_average if entry else 0.0
+
+    def _babana_adjust_ride_points(self, delta, *, kind, ride=None, occurred_at=None):
+        """Appelé par les transitions de course seulement (expiration : −pénalité, `kind`
+        'missed' ; fin de course : +récompense, 'completed'), dans leur propre transaction -- le
+        compteur et sa ligne de journal, aucune écriture de plus par événement (invariant 1).
+        Le solde reste dans [0, maximum]."""
+        Movement = self.env["babana.driver.priority.movement"].sudo()
+        for record in self.sudo():
+            balance = priority.clamp_ride_points(self.env, record.ride_points + delta)
+            record.write({"ride_points": balance})
+            Movement.create(
+                {
+                    "driver_id": record.id,
+                    "ride_id": ride.id if ride else False,
+                    "kind": kind,
+                    "delta": delta,
+                    "balance_after": balance,
+                    "occurred_at": occurred_at or fields.Datetime.now(),
+                }
+            )
+
+    @api.model
+    def _babana_rebuild_ride_points_once(self):
+        """Une fois par base (data/driver_priority.xml, à chaque mise à jour du module) : les
+        approuvés sans date d'approbation reçoivent leur date de création, et les points de course
+        de chaque chauffeur -- compteur et journal -- sont reconstitués en rejouant son historique
+        dans l'ordre : les propositions expirées et les courses terminées d'avant le 19 novembre
+        comptent."""
+        params = self.env["ir.config_parameter"].sudo()
+        if params.get_param(priority.RIDE_POINTS_REBUILT_PARAM):
+            return
+        drivers = self.sudo().with_context(active_test=False).search([])
+        for driver in drivers.filtered(lambda d: d.state in ("approved", "suspended") and not d.approved_at):
+            driver.approved_at = driver.create_date
+        Movement = self.env["babana.driver.priority.movement"].sudo()
+        Movement.search([("driver_id", "in", drivers.ids)]).unlink()
+        penalty, reward = priority.miss_penalty(self.env), priority.completion_reward(self.env)
+        for driver in drivers:
+            events = [
+                (rejection.rejected_at, -penalty, "missed", rejection.ride_id)
+                for rejection in self.env["babana.ride.rejection"].sudo().search([("driver_id", "=", driver.id)])
+            ]
+            events += [
+                (ride.completed_at, reward, "completed", ride)
+                for ride in self.env["babana.ride"].sudo().search(
+                    [("driver_id", "=", driver.id), ("completed_at", "!=", False)]
+                )
+            ]
+            driver.ride_points = priority.ride_points_max(self.env)
+            for occurred_at, delta, kind, ride in sorted(events, key=lambda event: event[0]):
+                driver._babana_adjust_ride_points(delta, kind=kind, ride=ride, occurred_at=occurred_at)
+        params.set_param(priority.RIDE_POINTS_REBUILT_PARAM, "1")
 
     def _compute_ride_count(self):
         for record in self:
@@ -881,9 +978,12 @@ class BabanaDriver(models.Model):
 
         # rejection_reason effacé : un dossier d'abord rejeté puis approuvé ne doit pas continuer
         # de porter son ancien motif jusqu'à l'app (AuthenticatedUser.driverRejectionReason).
-        self.write(
-            {"employee_id": employee.id, "state": "approved", "rejection_reason": False}
-        )
+        vals = {"employee_id": employee.id, "state": "approved", "rejection_reason": False}
+        # Début de la période « nouveau chauffeur » (priorité, 19 novembre) : la première
+        # approbation seulement -- un dossier rejeté puis approuvé n'en a eu qu'une.
+        if not self.approved_at:
+            vals["approved_at"] = fields.Datetime.now()
+        self.write(vals)
         self.message_post(body=f"Dossier approuvé, rattaché à l'employé « {employee.name} ».")
         return self
 

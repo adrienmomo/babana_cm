@@ -4,9 +4,11 @@
 # - l'estimation (controllers/quote.py) : la prise en charge est facturée sur la distance MOYENNE
 #   des chauffeurs disponibles, mesurée au moment où le prix est montré et gelée avec lui -- le
 #   client paie ce qu'il a vu, jamais l'approche du chauffeur finalement affecté, inconnue alors ;
-# - l'affectation (services/dispatch.py) : la course part au plus proche PAR LA ROUTE, pas à vol
-#   d'oiseau. Le classement est transmis au service temps réel, qui garde seul le choix ET la
-#   réservation dans un script Lua (invariant 4) : un classé déjà pris entre-temps est passé.
+# - l'affectation (services/dispatch.py) : depuis le 19 novembre, la priorité décide parmi les
+#   chauffeurs proches (services/priority.py) ; la distance routière départage les égalités et
+#   ordonne les chauffeurs au-delà du rayon de priorité. Le classement est transmis au service
+#   temps réel, qui garde seul le choix ET la réservation dans un script Lua (invariant 4) : un
+#   classé déjà pris entre-temps est passé.
 #
 # Le service temps réel fournit les positions (il est le seul à les connaître, invariant 1) ;
 # Odoo mesure les distances avec la même API de routage que la cotation, mais SANS son cache
@@ -93,9 +95,21 @@ def road_ranked_candidates(
     drivers = realtime_client.fetch_nearby_drivers(
         origin=pickup,
         radius_meters=radius_meters,
-        limit=_positive_int_param(env, APPROACH_SAMPLE_SIZE_PARAM, APPROACH_SAMPLE_SIZE_DEFAULT),
+        limit=sample_size(env),
         exclude_driver_public_ids=exclude_driver_public_ids,
     )
+    return measure_road(env, drivers=drivers, pickup=pickup)
+
+
+def sample_size(env) -> int:
+    return _positive_int_param(env, APPROACH_SAMPLE_SIZE_PARAM, APPROACH_SAMPLE_SIZE_DEFAULT)
+
+
+def measure_road(env, *, drivers: list[dict], pickup: tuple[float, float]) -> list[RoadCandidate]:
+    """Distance routière de chacun des `drivers` (réponse de fetch_nearby_drivers), classés par
+    distance routière croissante ; un chauffeur non mesurable est omis. Un appel de routage par
+    chauffeur : à l'appelant de borner la liste. Sert aussi la priorité (services/dispatch.py),
+    qui départage par la route les chauffeurs à égalité de points."""
     ranked = []
     for driver in drivers:
         route = _road_route(env, driver=driver, pickup=pickup)

@@ -14,3 +14,4 @@ from . import remittance
 from . import ride
 from . import share
 from . import selfie
+from . import priority

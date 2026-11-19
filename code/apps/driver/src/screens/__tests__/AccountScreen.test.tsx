@@ -41,6 +41,11 @@ const EMMANUEL: AuthUser = {
   driverRejectionReason: null,
 };
 
+const PRIORITY: http.DriverPriority = {
+  total: 112, max: 120, ridePoints: 92, ridePointsMax: 100, newDriverPoints: 10, newDriverPointsMax: 10,
+  newDriverUntil: '2026-12-17T20:06:53Z', starPoints: 10, starPointsMax: 10,
+};
+
 function doc(overrides: Partial<http.DriverDocument>): http.DriverDocument {
   return {
     id: 1,
@@ -126,6 +131,28 @@ describe('AccountScreen -- profil du chauffeur', () => {
     expect(texts(root)).toContain('Emmanuel Ebongue');
     expect(root.root.findByProps({ testID: 'account-avatar-initials' }).props.children).toBe('EE');
     expect(texts(root)).toContain('Compte chauffeur validé');
+  });
+
+  // 19 novembre : la priorité est une ligne de menu, « Priorité   112/120 », qui ouvre « Ma priorité ».
+  it('« Priorité » est en tête de la liste, avec le total du serveur, et ouvre « Ma priorité »', async () => {
+    mockRequest.mockResolvedValue({ documents: [] });
+    const { root, navigation } = await renderAccount({ ...EMMANUEL, driverPriority: PRIORITY });
+
+    expect(root.root.findByProps({ testID: 'account-priority-value' }).props.children).toBe('112/120');
+    const rows = root.root
+      .findAll((node) => typeof node.props.testID === 'string' && node.props.testID.startsWith('account-row-'))
+      .map((node) => node.props.testID as string);
+    expect(rows[0]).toBe('account-row-priority');
+    await act(async () => {
+      root.root.findByProps({ testID: 'account-row-priority' }).props.onPress();
+    });
+    expect(navigation.navigate).toHaveBeenCalledWith('Priority');
+  });
+
+  it('sans priorité dans la session (serveur ancien), pas de ligne « Priorité »', async () => {
+    mockRequest.mockResolvedValue({ documents: [] });
+    const { root } = await renderAccount();
+    expect(root.root.findAllByProps({ testID: 'account-row-priority' })).toHaveLength(0);
   });
 
   it('« Ma caisse » est dans la liste et ouvre la recette', async () => {

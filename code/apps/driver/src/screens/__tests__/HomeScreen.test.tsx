@@ -3,10 +3,13 @@ import { StyleSheet, Text } from 'react-native';
 import { act, create, type ReactTestRenderer } from 'react-test-renderer';
 
 const mockRequest = jest.fn();
+// 19 novembre : l'accueil relit la priorité (`GET /me`) à chaque retour, comme la recette.
+const mockRefreshUser = jest.fn();
 jest.mock('../../auth', () => ({
   apiClient: { request: (...args: unknown[]) => mockRequest(...args) },
   authClient: {
     getUser: () => ({ id: 'd1', role: 'driver', displayName: 'Emmanuel Ebongue', photoUrl: null, phoneVerified: true }),
+    refreshUser: (...args: unknown[]) => mockRefreshUser(...args),
   },
 }));
 
@@ -95,6 +98,11 @@ const shown = (root: ReactTestRenderer, testID: string) => host(root, testID).le
 
 const renderedRoots: ReactTestRenderer[] = [];
 
+const PRIORITY = {
+  total: 112, max: 120, ridePoints: 92, ridePointsMax: 100, newDriverPoints: 10, newDriverPointsMax: 10,
+  newDriverUntil: '2026-12-17T20:06:53Z', starPoints: 10, starPointsMax: 10,
+};
+
 afterEach(async () => {
   await act(async () => {
     for (const root of renderedRoots.splice(0)) root.unmount();
@@ -176,6 +184,8 @@ beforeEach(() => {
   mockGetCurrentPosition.mockResolvedValue(null);
   mockFetchCashSummary.mockReset();
   mockFetchCashSummary.mockResolvedValue({ collectedToday: 0 });
+  mockRefreshUser.mockReset();
+  mockRefreshUser.mockResolvedValue({ user: null });
   realtimeListener = null;
   connectionStateListener = null;
   fixListener = null;
@@ -573,7 +583,7 @@ describe('HomeScreen (L6-11)', () => {
     expect(shown(root, 'home-open-profile')).toBe(false);
   });
 
-  it("L5-07 -- « Ma caisse » navigue vers l'écran de recette, accessible en permanence depuis l'accueil", async () => {
+  it("L5-07 -- l'encaissé du jour navigue vers « Ma caisse », accessible en permanence depuis l'accueil", async () => {
     const { root, navigation } = await renderHome();
 
     await act(async () => {
@@ -581,6 +591,25 @@ describe('HomeScreen (L6-11)', () => {
     });
 
     expect(navigation.navigate).toHaveBeenCalledWith('Cash');
+  });
+
+  it('19 novembre -- la priorité est affichée telle que le serveur la renvoie, et mène à « Ma priorité »', async () => {
+    mockRefreshUser.mockResolvedValue({ user: { driverPriority: PRIORITY } });
+    const { root, navigation } = await renderHome();
+    expect(texts(root)).toContain('Priorité');
+    const value = host(root, 'home-priority-value')[0]!.findAllByType(Text).map((node) => node.props.children);
+    expect(value).toEqual(['112', '/ 120']);
+
+    await act(async () => {
+      root.root.findByProps({ testID: 'home-go-to-priority' }).props.onPress();
+    });
+    expect(navigation.navigate).toHaveBeenCalledWith('Priority');
+  });
+
+  it('sans réponse du serveur, la priorité reste un tiret -- jamais un chiffre inventé', async () => {
+    mockRefreshUser.mockRejectedValue(new Error('fetch failed'));
+    const { root } = await renderHome();
+    expect(host(root, 'home-priority-value')[0]!.findAllByType(Text).map((node) => node.props.children)).toEqual(['—']);
   });
 
   it("affiche la recette encaissée aujourd'hui telle qu'Odoo l'a calculée (GET /drivers/me/cash)", async () => {
@@ -658,26 +687,32 @@ describe('HomeScreen (L6-11)', () => {
       expect(style.borderBottomRightRadius ?? 0).toBe(0);
     });
 
-    it("le panneau porte « Ma caisse » à gauche et l'encaissé du jour à droite, au-dessus de la bascule", async () => {
+    // 19 novembre : le bouton « Ma caisse » laisse la place à la priorité ; l'encaissé du jour
+    // devient lui-même l'accès à « Ma caisse ».
+    it("le panneau porte la priorité à gauche et l'encaissé du jour à droite, au-dessus de la bascule", async () => {
       const { root } = await renderHome();
       const panel = host(root, 'home-bottom-panel')[0]!;
       const order = panel
         .findAll((node) => typeof node.type === 'string' && typeof node.props.testID === 'string')
         .map((node) => node.props.testID as string);
       const index = (id: string) => order.indexOf(id);
-      expect(index('home-go-to-cash')).toBeGreaterThanOrEqual(0);
+      expect(index('home-go-to-priority')).toBeGreaterThanOrEqual(0);
+      expect(index('home-go-to-cash')).toBeGreaterThan(index('home-go-to-priority'));
       expect(index('home-today-total')).toBeGreaterThan(index('home-go-to-cash'));
       expect(index('availability-toggle')).toBeGreaterThan(index('home-today-total'));
       const row = flat(root, 'home-panel-row');
       expect(row.flexDirection).toBe('row');
       expect(row.justifyContent).toBe('space-between');
+      expect(texts(root)).not.toContain('"Ma caisse"');
     });
 
-    it('« Ma caisse » est compact : entre 48 et 56 dp de haut', async () => {
+    it('les deux accès du panneau restent compacts : entre 48 et 56 dp de haut', async () => {
       const { root } = await renderHome();
-      const style = flat(root, 'home-go-to-cash');
-      expect(style.minHeight).toBeGreaterThanOrEqual(48);
-      expect(style.minHeight).toBeLessThanOrEqual(56);
+      for (const id of ['home-go-to-cash', 'home-go-to-priority']) {
+        const style = flat(root, id);
+        expect(style.minHeight).toBeGreaterThanOrEqual(48);
+        expect(style.minHeight).toBeLessThanOrEqual(56);
+      }
     });
 
     it("l'état de connexion reste affiché, en puce flottante", async () => {

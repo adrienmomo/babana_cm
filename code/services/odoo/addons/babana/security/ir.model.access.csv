@@ -81,3 +81,5 @@ access_babana_ride_track_admin,babana.ride.track admin,model_babana_ride_track,g
 access_babana_ride_track_replay_supervisor,babana.ride.track.replay supervisor,model_babana_ride_track_replay,group_babana_supervisor,1,1,1,0
 access_babana_ride_track_replay_manager,babana.ride.track.replay manager,model_babana_ride_track_replay,group_babana_manager,1,1,1,0
 access_babana_ride_track_replay_admin,babana.ride.track.replay admin,model_babana_ride_track_replay,group_babana_admin,1,1,1,1
+access_babana_driver_priority_movement_supervisor,babana.driver.priority.movement supervisor read-only,model_babana_driver_priority_movement,group_babana_supervisor,1,0,0,0
+access_babana_driver_priority_movement_manager,babana.driver.priority.movement manager read-only,model_babana_driver_priority_movement,group_babana_manager,1,0,0,0

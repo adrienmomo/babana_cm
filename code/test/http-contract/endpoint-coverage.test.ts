@@ -442,6 +442,29 @@ const EXERCISES: Partial<Record<EndpointName, () => Promise<void>>> = {
     assert.equal(entry.clientRatingAllowed, true);
   },
 
+  // 19 novembre : priorité -- le journal des points de course (la fin de course y a écrit +1) et
+  // le détail des points de note.
+  driverRidePointsLog: async () => {
+    const rig = await settledRide('driver-ride-points-log');
+    const log = (await clientFor(rig.driverSession.accessToken).request('driverRidePointsLog', {
+      query: {},
+    })) as http.RidePointsLogResponse;
+    assert.ok(log.ridePointsMax > 0);
+    const completed = log.entries.find((entry) => entry.kind === 'completed');
+    assert.ok(completed, 'la course terminée figure au journal de son chauffeur');
+    assert.ok(completed.delta > 0);
+    assert.equal(completed.balanceAfter, log.ridePoints);
+  },
+
+  driverStarPoints: async () => {
+    const { session } = await approvedDriverSession('star-points');
+    const stars = (await clientFor(session.accessToken).request('driverStarPoints')) as http.StarPointsResponse;
+    assert.ok(stars.tiers.length > 0);
+    assert.ok(stars.tiers.filter((tier) => tier.applied).length <= 1, 'un seul palier compté');
+    assert.equal(stars.ratingCount, 0);
+    assert.equal(stars.ratingAverage, null);
+  },
+
   sendInvoiceEmail: async () => {
     const rig = await settledRide('send-invoice-email');
     const sent = (await rig.client.request('sendInvoiceEmail', { pathParams: { id: rig.ride.id } })) as http.SendInvoiceEmailResponse;

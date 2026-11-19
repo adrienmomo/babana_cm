@@ -643,6 +643,11 @@ def make_history(client_user, drivers, zones_by_name):
             "UPDATE babana_cash_movement SET create_date = %s WHERE ride_id = %s",
             (when + timedelta(minutes=18), ride.id),
         )
+        # Le +1 de la fin de course (priorité, 19 novembre) date de la fin de course, pas du seed.
+        env.cr.execute(
+            "UPDATE babana_driver_priority_movement SET occurred_at = %s WHERE ride_id = %s",
+            (when + timedelta(minutes=17), ride.id),
+        )
         seen_markers.add(marker)
         made += 1
         info("+ course %s : %s -> %s, %d FCFA (%s)", ride.reference, from_name, to_name,
@@ -650,6 +655,65 @@ def make_history(client_user, drivers, zones_by_name):
 
     Param.set_param("babana.seed_history_markers", json.dumps(sorted(seen_markers)))
     return made, new_invoice_ids
+
+
+# Notes données par la cliente de démonstration à ses courses encaissées, dans l'ordre.
+DEMO_RATINGS = [5, 4, 5, 3, 5, 4, 5, 5, 4, 2, 5, 4]
+# Propositions laissées sans réponse par Cédric Ewané (index 2), il y a autant de jours.
+DEMO_MISSED_DAYS_AGO = [6, 4, 1]
+# Aristide Mbarga (index 1) : approuvé il y a plus de 30 jours, son bonus « nouveau » est verrouillé.
+DEMO_VETERAN_DAYS = 45
+
+
+def make_priority_demo(client_user, drivers, zones_by_name):
+    """« Ma priorité » (19 novembre) peuplée dans chacun de ses états : des avis réels (détail de
+    la note), des −1 dans le journal (propositions expirées, par les vraies transitions), et un
+    chauffeur dont la période « nouveau » est passée (piste verrouillée). Rejouable."""
+    partner = client_user.partner_id
+    Rating = env["babana.rating"].sudo()
+    settled = env["babana.ride"].sudo().search(
+        [("client_id", "=", partner.id), ("state", "=", "settled")], order="requested_at asc, id asc"
+    )
+    rated = 0
+    for ride, value in zip(settled, DEMO_RATINGS):
+        if not Rating.search_count([("ride_id", "=", ride.id)]):
+            Rating._rate_ride(ride, partner, value)
+            rated += 1
+
+    veteran = drivers[1]
+    veteran.sudo().write({"approved_at": datetime.now() - timedelta(days=DEMO_VETERAN_DAYS)})
+
+    Param = env["ir.config_parameter"].sudo()
+    if not Param.get_param("babana.seed_priority_missed"):
+        driver = drivers[2]
+        _, (o_lat, o_lng) = zones_by_name["Akwa"]
+        _, (d_lat, d_lng) = zones_by_name["Bonapriso"]
+        for days_ago in DEMO_MISSED_DAYS_AGO:
+            ride = env["babana.ride"].sudo().action_request(
+                {
+                    "client_id": partner.id,
+                    "pickup_latitude": o_lat, "pickup_longitude": o_lng, "pickup_label": "Akwa",
+                    "dropoff_latitude": d_lat, "dropoff_longitude": d_lng, "dropoff_label": "Bonapriso",
+                }
+            )
+            ride.action_propose(by_partner=partner, driver=driver)
+            ride.action_reject(by_driver=None, expired=True)
+            # La cliente abandonne : sa course ouverte ne doit pas bloquer la commande suivante.
+            ride.action_cancel(actor_role="client", actor_record=partner)
+            when = datetime.now() - timedelta(days=days_ago, hours=3)
+            env.cr.execute(
+                "UPDATE babana_ride SET create_date = %s, requested_at = %s, proposed_at = %s, cancelled_at = %s WHERE id = %s",
+                (when, when, when, when + timedelta(minutes=1), ride.id),
+            )
+            env.cr.execute(
+                "UPDATE babana_ride_rejection SET rejected_at = %s WHERE ride_id = %s", (when, ride.id)
+            )
+            env.cr.execute(
+                "UPDATE babana_driver_priority_movement SET occurred_at = %s WHERE ride_id = %s", (when, ride.id)
+            )
+        Param.set_param("babana.seed_priority_missed", "1")
+        info("+ priorité : %d propositions expirées pour %s", len(DEMO_MISSED_DAYS_AGO), driver.employee_id.name)
+    info("+ priorité : %d avis posés, %s hors de sa période « nouveau »", rated, veteran.employee_id.name)
 
 
 def make_ride_with_stops(client_user, drivers, zones_by_name):
@@ -854,6 +918,7 @@ def main():
     drivers = ensure_fleet()
     n_hist, new_invoice_ids = make_history(client, drivers, zones_by_name)
     new_invoice_ids += make_ride_with_stops(client, drivers, zones_by_name)
+    make_priority_demo(client, drivers, zones_by_name)
 
     env["ir.config_parameter"].sudo().set_param(
         "babana.seed_done", datetime.now().isoformat(timespec="seconds")

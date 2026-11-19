@@ -19,6 +19,7 @@ export * from './share';
 export * from './history';
 export * from './stops';
 export * from './track';
+export * from './priority';
 
 import * as auth from './auth';
 import * as phone from './phone';
@@ -34,6 +35,7 @@ import * as wallet from './wallet';
 import * as incident from './incident';
 import * as share from './share';
 import * as history from './history';
+import * as priority from './priority';
 import * as stops from './stops';
 import * as track from './track';
 
@@ -452,6 +454,26 @@ export const HTTP_ENDPOINTS = {
     errors: history.DriverRideHistoryErrors,
     requestExample: history.driverRideHistoryRequestExample,
     responseExample: history.driverRideHistoryResponseExample,
+  },
+  driverRidePointsLog: {
+    method: 'GET',
+    path: '/api/v1/drivers/me/priority/ride-points',
+    requiresAuth: true,
+    requestSchema: priority.RidePointsLogQuerySchema,
+    responseSchema: priority.RidePointsLogResponseSchema,
+    errors: priority.RidePointsLogErrors,
+    requestExample: priority.driverRidePointsLogRequestExample,
+    responseExample: priority.driverRidePointsLogResponseExample,
+  },
+  driverStarPoints: {
+    method: 'GET',
+    path: '/api/v1/drivers/me/priority/stars',
+    requiresAuth: true,
+    requestSchema: null,
+    responseSchema: priority.StarPointsResponseSchema,
+    errors: priority.StarPointsErrors,
+    requestExample: null,
+    responseExample: priority.driverStarPointsResponseExample,
   },
   rideOutcome: {
     method: 'GET',

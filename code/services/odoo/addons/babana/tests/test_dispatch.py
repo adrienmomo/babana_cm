@@ -144,14 +144,21 @@ class TestDispatch(TransactionCase):
         self.assertEqual(nearby_kwargs["origin"], (4.05, 9.70))
         self.assertEqual(nearby_kwargs["radius_meters"], 4000)
 
-    def test_a_driver_whose_road_distance_cannot_be_measured_is_left_to_the_beeline_fallback(self):
+    def test_a_driver_whose_road_distance_cannot_be_measured_comes_after_the_measured_ones(self):
+        # Depuis la priorité (19 novembre) : un chauffeur non mesurable reste dans le classement --
+        # à points égaux, après les mesurés, à vol d'oiseau. Avant, il en était retiré et le repli
+        # à vol d'oiseau du script de réservation le retrouvait au même rang : le choix effectif
+        # est inchangé, mais un chauffeur prioritaire ne doit pas disparaître d'une panne de routage.
         self._nearby(self.drivers[0], self.drivers[1])
         self._road({4.05: None, 4.051: 800})
         ride = self._ride()
 
         dispatch.propose_to_closest_driver(self.env, ride, by_partner=ride.client_id)
 
-        self.assertEqual(self.reserve.call_args.kwargs["preferred_driver_public_ids"], [self.drivers[1].public_id])
+        self.assertEqual(
+            self.reserve.call_args.kwargs["preferred_driver_public_ids"],
+            [self.drivers[1].public_id, self.drivers[0].public_id],
+        )
 
     def test_an_unreadable_realtime_service_still_attempts_the_reservation_by_beeline(self):
         self.nearby.side_effect = realtime_client.RealtimeUnavailable("panne simulée")

@@ -18,7 +18,7 @@ import psycopg2
 from odoo import api, fields, models
 from odoo.exceptions import UserError
 
-from ..services import push, realtime_client
+from ..services import priority, push, realtime_client
 from ..services.pricing import FareBreakdown, round_breakdown_for_wire
 
 _logger = logging.getLogger(__name__)
@@ -315,6 +315,9 @@ class BabanaRideState(models.Model):
             }
         )
         self._babana_write_transition({"state": "rejected", "driver_id": False})
+        # Priorité (19 novembre) : une course non acceptée coûte des points de course -- dans
+        # l'écriture du refus, jamais une de plus (invariant 1).
+        rejected_driver._babana_adjust_ride_points(-priority.miss_penalty(self.env), kind="missed", ride=self)
         self._babana_journalize(
             "refusal", before_state="proposed", driver=rejected_driver.id, expired=expired
         )
@@ -497,6 +500,9 @@ class BabanaRideState(models.Model):
                 }
             )
         self._babana_write_transition(vals)
+        # Priorité (19 novembre) : une course terminée rend des points de course, sans dépasser
+        # le maximum -- dans l'écriture de la fin de course (invariant 1).
+        self.driver_id._babana_adjust_ride_points(priority.completion_reward(self.env), kind="completed", ride=self)
         self._babana_journalize(
             "ride_completion", before_state="in_progress", measured=bool(measurement)
         )

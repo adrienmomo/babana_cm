@@ -1,14 +1,16 @@
-# La course part au chauffeur disponible le plus proche -- le serveur choisit, jamais le client
-# (le choix par le client, D10, et la resélection manuelle après un refus, D11, sont retirés).
+# La course part au chauffeur disponible le plus prioritaire près du client -- le serveur choisit,
+# jamais le client (le choix par le client, D10, et la resélection manuelle après un refus, D11,
+# sont retirés).
 #
 # Partage des rôles :
-# - le service temps réel CHOISIT et RÉSERVE, en un seul geste atomique, le plus proche dans le
-#   vivier : c'est lui qui connaît les positions (invariant 1), et le choix suivi d'une réservation
-#   séparée laisserait deux courses prendre le même chauffeur (invariant 4) ;
-# - « le plus proche » s'entend PAR LA ROUTE (demande produit du 26 octobre) : Odoo mesure la
-#   distance routière des plus proches à vol d'oiseau (services/approach.py) et transmet ce
-#   classement ; le script de réservation l'essaie dans l'ordre, puis se replie sur le vol
-#   d'oiseau -- un routage indisponible dégrade le choix, jamais l'affectation ;
+# - le service temps réel CHOISIT et RÉSERVE, en un seul geste atomique, le premier libre d'un
+#   classement transmis par Odoo : c'est lui qui connaît les positions (invariant 1), et le choix
+#   suivi d'une réservation séparée laisserait deux courses prendre le même chauffeur (invariant 4) ;
+# - le classement est celui de la PRIORITÉ (demande du 19 novembre, services/priority.py, remplace
+#   « le plus proche par la route » de D78) : à moins de 2 km, le plus prioritaire d'abord ; à
+#   égalité et au-delà, le plus proche par la route (services/approach.py), puis à vol d'oiseau. Le
+#   script de réservation essaie la liste dans l'ordre, puis se replie sur le vol d'oiseau -- un
+#   service injoignable dégrade le choix, jamais l'affectation ;
 # - Odoo décide QUI ÉCARTER (les chauffeurs déjà sollicités dans le tour en cours), QUAND S'ARRÊTER
 #   (babana.dispatch_max_attempts) et DANS QUEL RAYON chercher -- des règles métier, réglables dans
 #   Paramètres > Babana (invariant 5).
@@ -39,7 +41,7 @@ import uuid
 from odoo.exceptions import UserError
 from odoo.service.model import PG_CONCURRENCY_EXCEPTIONS_TO_RETRY
 
-from . import approach, realtime_client
+from . import approach, priority, realtime_client
 
 _logger = logging.getLogger(__name__)
 
@@ -105,7 +107,7 @@ def _client_user(env, ride):
 
 
 def _reserve_and_propose(env, ride, *, radius_meters, exclude, idempotency_key, new_round):
-    """Demande au service temps réel le plus proche (par la route) hors `exclude`, dans
+    """Demande au service temps réel le premier libre du classement de priorité hors `exclude`, dans
     `radius_meters`, puis écrit la transition. Renvoie le chauffeur, ou un recordset vide si
     personne."""
     reservation = realtime_client.reserve_nearest_and_propose(
@@ -114,7 +116,7 @@ def _reserve_and_propose(env, ride, *, radius_meters, exclude, idempotency_key, 
         radius_meters=radius_meters,
         exclude_driver_public_ids=exclude,
         idempotency_key=idempotency_key,
-        preferred_driver_public_ids=_road_ranking(env, ride, radius_meters=radius_meters, exclude=exclude),
+        preferred_driver_public_ids=_priority_ranking(env, ride, radius_meters=radius_meters, exclude=exclude),
         acceptance_timeout_seconds=proposal_window_seconds(env),
     )
     outcome = reservation.get("outcome")
@@ -140,20 +142,37 @@ def _reserve_and_propose(env, ride, *, radius_meters, exclude, idempotency_key, 
     return driver
 
 
-def _road_ranking(env, ride, *, radius_meters, exclude) -> list[str]:
-    """Classement routier des candidats (services/approach.py). Vide si le service temps réel ne
-    répond pas à la lecture : la réservation qui suit tranchera (et lèvera si la panne persiste)."""
+def _priority_ranking(env, ride, *, radius_meters, exclude) -> list[str]:
+    """Classement des candidats du cercle (services/priority.py) : la distance routière n'est
+    mesurée que pour les plus proches (babana.approach_sample_size), elle ne sert qu'à départager.
+    Vide si le service temps réel ne répond pas à la lecture : la réservation qui suit tranchera à
+    vol d'oiseau (et lèvera si la panne persiste)."""
+    pickup = (ride.pickup_latitude, ride.pickup_longitude)
     try:
-        candidates = approach.road_ranked_candidates(
-            env,
-            pickup=(ride.pickup_latitude, ride.pickup_longitude),
+        nearby = realtime_client.fetch_nearby_drivers(
+            origin=pickup,
             radius_meters=radius_meters,
+            limit=priority.candidate_limit(env),
             exclude_driver_public_ids=list(exclude),
         )
     except realtime_client.RealtimeUnavailable:
-        _logger.warning("classement routier impossible pour la course %s : vol d'oiseau", ride.public_id)
+        _logger.warning("classement de priorité impossible pour la course %s : vol d'oiseau", ride.public_id)
         return []
-    return [candidate.driver_public_id for candidate in candidates]
+    road = {
+        measured.driver_public_id: measured.road_distance_meters
+        for measured in approach.measure_road(env, drivers=nearby[: approach.sample_size(env)], pickup=pickup)
+    }
+    return priority.rank_candidates(
+        env,
+        [
+            priority.Candidate(
+                driver_public_id=driver["driverId"],
+                beeline_meters=float(driver.get("distanceMeters") or 0),
+                road_meters=road.get(driver["driverId"]),
+            )
+            for driver in nearby
+        ],
+    )
 
 
 def _search(env, ride, *, ring, exclude, idempotency_key, new_round, chain=None):

@@ -12,9 +12,9 @@ import { ARRIVAL_RADIUS_METERS, ROUTE_DEVIATION_METERS, ROUTE_REFRESH_MS, ROUTE_
 import { ProposalPanel } from '../rideFlow/ProposalPanel';
 import { ActiveRidePanel, type ActiveRideResume, type RideFlowSettings, type RideMapState } from '../rideFlow/ActiveRidePanel';
 import { replaceWithSettlement } from '../navigation/transitions';
-import { buttonLabelsOf, buttonsOf, cardsOf, makeStyles, radius, shadow, useColors } from '../theme';
+import { cardsOf, makeStyles, radius, shadow, useColors } from '../theme';
 import { fetchCashSummary, fetchWallet } from '../api/cash';
-import { authClient } from '../auth';
+import { apiClient, authClient } from '../auth';
 import { formatMoney } from '../format';
 import { ensureRealtimeConnected, onRealtimeConnectionStateChange, onRealtimeMessage, realtimeClient } from '../realtime';
 import { isProposalHandled, markProposalHandled } from '../proposalDedup';
@@ -129,6 +129,9 @@ export function HomeScreen({ navigation, route }: Props) {
   // 15 novembre : le solde prépayé, même discipline -- le chiffre d'Odoo, jamais recalculé ici (la
   // commission d'une course est débitée côté serveur, à la fin de la course).
   const [walletBalance, setWalletBalance] = useState<number | null>(null);
+  // 19 novembre : la priorité du chauffeur, telle que le serveur l'envoie (`GET /me`), relue avec
+  // la recette -- une course terminée ou une proposition expirée la fait bouger.
+  const [priority, setPriority] = useState(() => user?.driverPriority);
 
   const changeFlow = useCallback((next: Flow) => {
     flowRef.current = next;
@@ -259,6 +262,12 @@ export function HomeScreen({ navigation, route }: Props) {
         },
         () => undefined
       );
+      authClient.refreshUser(apiClient).then(
+        (state) => {
+          if (!cancelled && state.user?.driverPriority) setPriority(state.user.driverPriority);
+        },
+        () => undefined
+      );
     };
     load();
     const unsubscribeFocus = navigation.addListener('focus', load);
@@ -354,30 +363,50 @@ export function HomeScreen({ navigation, route }: Props) {
             </Text>
           </View>
 
-          {/* Panneau du bas, collé au bord de l'écran : « Ma caisse » et l'encaissé du jour sur une
-              ligne, la bascule à glisser dessous -- au pouce, sur une moto, sans quitter la carte
+          {/* Panneau du bas, collé au bord de l'écran : la priorité (vers « Ma priorité ») et l'encaissé
+              du jour (vers « Ma caisse ») sur une ligne, la bascule à glisser dessous -- au pouce, sur une moto, sans quitter la carte
               des yeux (D20). Pendant une proposition ou une course, le panneau du déroulé prend sa place. */}
           <View style={styles.bottomPanel} testID="home-bottom-panel">
             <View style={styles.panelRow} testID="home-panel-row">
               <Pressable
+                testID="home-go-to-priority"
+                accessibilityRole="button"
+                accessibilityLabel={priority ? `Priorité : ${priority.total} sur ${priority.max} points` : 'Priorité'}
+                onPress={() => navigation.navigate('Priority')}
+                android_ripple={{ color: colors.border }}
+                style={styles.panelTile}
+              >
+                <View style={styles.tileLine}>
+                  <Text style={styles.todayLabel}>Priorité</Text>
+                  <Text style={styles.chevron}>›</Text>
+                </View>
+                <View style={styles.tileLine} testID="home-priority-value">
+                  <Text style={styles.todayAmount}>{priority ? String(priority.total) : '—'}</Text>
+                  {priority ? <Text style={styles.priorityMax}>{`/ ${priority.max}`}</Text> : null}
+                </View>
+              </Pressable>
+              <Pressable
                 testID="home-go-to-cash"
                 accessibilityRole="button"
                 onPress={() => navigation.navigate('Cash')}
-                style={styles.cashButton}
+                android_ripple={{ color: colors.border }}
+                style={[styles.panelTile, styles.todayTotal]}
               >
-                <Text style={styles.cashLinkLabel}>Ma caisse</Text>
-              </Pressable>
-              <View style={styles.todayTotal} testID="home-today-total">
-                <Text style={styles.todayLabel}>Encaissé aujourd’hui</Text>
-                <Text style={styles.todayAmount} testID="home-today-amount">
-                  {collectedToday === null ? '—' : formatMoney(collectedToday)}
-                </Text>
-                {walletBalance !== null ? (
-                  <Text style={[styles.walletLabel, walletBalance <= 0 ? styles.walletEmpty : null]} testID="home-wallet-balance">
-                    {`Solde prépayé : ${formatMoney(walletBalance)}`}
+                <View testID="home-today-total" style={styles.todayTotal}>
+                  <View style={styles.tileLine}>
+                    <Text style={styles.todayLabel}>Encaissé aujourd’hui</Text>
+                    <Text style={styles.chevron}>›</Text>
+                  </View>
+                  <Text style={styles.todayAmount} testID="home-today-amount">
+                    {collectedToday === null ? '—' : formatMoney(collectedToday)}
                   </Text>
-                ) : null}
-              </View>
+                  {walletBalance !== null ? (
+                    <Text style={[styles.walletLabel, walletBalance <= 0 ? styles.walletEmpty : null]} testID="home-wallet-balance">
+                      {`Solde prépayé : ${formatMoney(walletBalance)}`}
+                    </Text>
+                  ) : null}
+                </View>
+              </Pressable>
             </View>
             <AvailabilityToggle inCourse={inCourse} onNavigateToRemittance={goToRemittance} />
           </View>
@@ -467,11 +496,26 @@ const useStyles = makeStyles((c) => ({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  cashButton: {
-    ...buttonsOf(c).base,
-    ...buttonsOf(c).md,
-    ...buttonsOf(c).secondary,
-    minWidth: 112,
+  panelTile: {
+    minHeight: 48,
+    justifyContent: 'center',
+    borderRadius: radius.card,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  tileLine: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+  },
+  chevron: {
+    color: c.subtle,
+    fontSize: 13,
+  },
+  priorityMax: {
+    color: c.muted,
+    fontSize: 15,
+    fontWeight: '600',
   },
   todayTotal: {
     alignItems: 'flex-end',
@@ -493,9 +537,5 @@ const useStyles = makeStyles((c) => ({
     color: c.ink,
     fontSize: 20,
     fontWeight: '700',
-  },
-  cashLinkLabel: {
-    ...buttonLabelsOf(c).base,
-    ...buttonLabelsOf(c).secondary,
   },
 }));

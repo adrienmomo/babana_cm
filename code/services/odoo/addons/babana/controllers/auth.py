@@ -17,6 +17,7 @@ from odoo.http import request
 from . import _common
 from ..models.babana_driver import DriverCandidacyRateLimited
 from ..models.babana_token import TokenExpired, TokenNotFound, TokenReused
+from ..services import priority
 from ..services.google_identity import InvalidGoogleToken, verify_google_id_token
 
 _logger = logging.getLogger(__name__)
@@ -236,7 +237,25 @@ def _build_user_payload(user, *, picture=None) -> dict:
             payload["driverRejectionReason"] = driver.rejection_reason or None
         else:
             payload["driverRejectionReason"] = None
+        payload["driverPriority"] = _priority_payload(driver)
     return payload
+
+
+def _priority_payload(driver) -> dict:
+    # Priorité à l'affectation (19 novembre) : chaque valeur ET chaque maximum viennent du serveur,
+    # l'app n'affiche que ce qu'on lui envoie (invariant 3) -- aucun seuil ni barème côté app.
+    entry = priority.compute(driver.sudo())[driver.id]
+    return {
+        "total": entry.total,
+        "max": entry.max_total,
+        "ridePoints": entry.ride_points,
+        "ridePointsMax": entry.ride_points_max,
+        "newDriverPoints": entry.new_driver_points,
+        "newDriverPointsMax": entry.new_driver_points_max,
+        "newDriverUntil": _common.iso_datetime(entry.new_driver_until) if entry.new_driver_points else None,
+        "starPoints": entry.star_points,
+        "starPointsMax": entry.star_points_max,
+    }
 
 
 def _build_session(user, refresh_token: str, *, picture=None) -> dict:

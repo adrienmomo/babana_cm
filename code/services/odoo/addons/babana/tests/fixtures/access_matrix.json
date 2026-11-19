@@ -54,6 +54,7 @@
     "babana.driver.selfie":       { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.driver.selfie.reject.wizard": { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.driver.wallet.movement": { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
+    "babana.driver.priority.movement": { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.driver.wallet.topup.wizard": { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.fare.simulator":      { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },
     "babana.audit.log":           { "client": ["none", "none", "none", "none"], "driver": ["none", "none", "none", "none"] },

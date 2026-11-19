@@ -6,6 +6,7 @@ from . import babana_audit_log
 from . import babana_audit_log_health
 from . import babana_token
 from . import babana_driver
+from . import babana_driver_priority_movement
 from . import babana_driver_document
 from . import babana_driver_decision
 from . import babana_motorcycle

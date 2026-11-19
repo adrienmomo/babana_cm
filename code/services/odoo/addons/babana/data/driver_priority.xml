@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!-- Priorité des chauffeurs (19 novembre) : reconstitue une fois par base les points de course
+         et la date d'approbation des chauffeurs existants (babana.driver._babana_rebuild_ride_points_once,
+         gardé par babana.priority_ride_points_rebuilt). Chargé à chaque installation et mise à jour :
+         une base déjà peuplée y passe à sa première mise à jour, ensuite c'est sans effet. -->
+    <function model="babana.driver" name="_babana_rebuild_ride_points_once"/>
+</odoo>
