@@ -10,11 +10,11 @@
 # - note : moyenne des avis CLIENTS, lissée par 50 notes imaginaires de 5 ; strictement au-dessus
 #   de 4,5 -> 10, strictement au-dessus de 4 -> 5, sinon 0.
 #
-# Ordre de sollicitation (rank_candidates) : les chauffeurs à moins de babana.priority_radius_meters
-# (2 km, à vol d'oiseau) d'abord, du plus prioritaire au moins prioritaire ; à égalité, le plus
-# proche par la route quand il a été mesuré, puis à vol d'oiseau. Ensuite seulement ceux au-delà,
-# du plus proche au plus loin -- la priorité ne fait jamais attendre le client pour un chauffeur
-# lointain. Le choix final et la réservation restent un seul script Redis (invariant 4).
+# Ordre de sollicitation (rank_candidates, resserré le 19 novembre au soir) : un chauffeur à moins
+# de babana.priority_closest_radius_meters (500 m, à vol d'oiseau) du client passe d'abord -- le plus
+# proche d'entre eux en premier, la priorité ne joue pas : il est déjà là. Sinon, dans chaque cercle
+# de recherche, le plus prioritaire ; à égalité, le plus proche par la route quand il a été mesuré,
+# puis à vol d'oiseau. Le choix final et la réservation restent un seul script Redis (invariant 4).
 #
 # Tous les nombres sont des réglages (invariant 5), Paramètres > Babana > Priorité des chauffeurs.
 from __future__ import annotations
@@ -48,8 +48,9 @@ STAR_PRIOR_VALUE_PARAM = "babana.priority_star_prior_value"
 STAR_PRIOR_VALUE_DEFAULT = 5
 MAX_TOTAL_PARAM = "babana.priority_max_total"
 MAX_TOTAL_DEFAULT = 120
-PRIORITY_RADIUS_PARAM = "babana.priority_radius_meters"
-PRIORITY_RADIUS_DEFAULT = 2000
+# En deçà, le plus proche gagne, quelle que soit sa priorité.
+CLOSEST_RADIUS_PARAM = "babana.priority_closest_radius_meters"
+CLOSEST_RADIUS_DEFAULT = 500
 # Chauffeurs du cercle lus pour le classement : tous, en pratique ; la borne évite qu'un cercle
 # très peuplé ne fasse lire toute la flotte à chaque commande.
 CANDIDATE_LIMIT_PARAM = "babana.priority_candidate_limit"
@@ -95,8 +96,8 @@ def completion_reward(env) -> int:
     return _int_param(env, COMPLETION_REWARD_PARAM, COMPLETION_REWARD_DEFAULT)
 
 
-def priority_radius_meters(env) -> int:
-    return _int_param(env, PRIORITY_RADIUS_PARAM, PRIORITY_RADIUS_DEFAULT, minimum=1)
+def closest_radius_meters(env) -> int:
+    return _int_param(env, CLOSEST_RADIUS_PARAM, CLOSEST_RADIUS_DEFAULT, minimum=1)
 
 
 def candidate_limit(env) -> int:
@@ -194,10 +195,11 @@ class Candidate:
 
 
 def rank_candidates(env, candidates: list[Candidate]) -> list[str]:
-    """Ordre de sollicitation des `candidates` (identifiants publics) : à moins du rayon de
-    priorité, par priorité décroissante ; au-delà, par distance. À égalité de priorité ou au-delà
-    du rayon : le plus proche par la route s'il a été mesuré, puis à vol d'oiseau. Un candidat
-    inconnu d'Odoo est laissé de côté : le repli à vol d'oiseau du script de réservation existe."""
+    """Ordre de sollicitation des `candidates` (identifiants publics) : à moins du rayon « le plus
+    proche gagne », par distance ; au-delà, par priorité décroissante. Distance : par la route si
+    elle a été mesurée, puis à vol d'oiseau -- c'est aussi le départage à priorité égale. Un
+    candidat inconnu d'Odoo est laissé de côté : le repli à vol d'oiseau du script de réservation
+    existe."""
     by_public_id = {
         driver.public_id: driver
         for driver in env["babana.driver"].sudo().search(
@@ -205,21 +207,23 @@ def rank_candidates(env, candidates: list[Candidate]) -> list[str]:
         )
     }
     priorities = compute(env["babana.driver"].sudo().browse([d.id for d in by_public_id.values()]))
-    radius = priority_radius_meters(env)
+    closest_radius = closest_radius_meters(env)
 
     def proximity(candidate: Candidate):
         measured = candidate.road_meters is not None
         return (0 if measured else 1, candidate.road_meters if measured else 0, candidate.beeline_meters)
 
-    near, far = [], []
+    closest, others = [], []
     for candidate in candidates:
         driver = by_public_id.get(candidate.driver_public_id)
         if not driver:
             continue
-        (near if candidate.beeline_meters < radius else far).append((candidate, priorities[driver.id].total))
-    near.sort(key=lambda entry: (-entry[1], *proximity(entry[0])))
-    far.sort(key=lambda entry: proximity(entry[0]))
-    return [candidate.driver_public_id for candidate, _total in near + far]
+        (closest if candidate.beeline_meters < closest_radius else others).append(
+            (candidate, priorities[driver.id].total)
+        )
+    closest.sort(key=lambda entry: proximity(entry[0]))
+    others.sort(key=lambda entry: (-entry[1], *proximity(entry[0])))
+    return [candidate.driver_public_id for candidate, _total in closest + others]
 
 
 @dataclass(frozen=True)

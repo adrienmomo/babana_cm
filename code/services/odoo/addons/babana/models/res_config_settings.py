@@ -122,11 +122,11 @@ class ResConfigSettings(models.TransientModel):
     )
 
     # --- Priorité des chauffeurs (19 novembre, services/priority.py) -------------------------
-    babana_priority_radius_meters = fields.Integer(
-        string="Rayon de priorité (mètres)",
-        config_parameter=priority.PRIORITY_RADIUS_PARAM,
-        default=priority.PRIORITY_RADIUS_DEFAULT,
-        help="À moins de cette distance du client (à vol d'oiseau), la course va au chauffeur le plus prioritaire ; au-delà, au plus proche par la route.",
+    babana_priority_closest_radius_meters = fields.Integer(
+        string="Le plus proche gagne en deçà de (mètres)",
+        config_parameter=priority.CLOSEST_RADIUS_PARAM,
+        default=priority.CLOSEST_RADIUS_DEFAULT,
+        help="Un chauffeur à moins de cette distance du client (à vol d'oiseau) reçoit la course en premier, le plus proche d'abord. Au-delà, dans chaque cercle de recherche, celui qui a le plus de points.",
     )
     babana_priority_ride_points_max = fields.Integer(
         string="Points de course (maximum)",
@@ -250,7 +250,7 @@ class ResConfigSettings(models.TransientModel):
         "babana_stop_departure_distance_m",
         "babana_stop_departure_speed_kmh",
         "babana_stop_departure_duration_s",
-        "babana_priority_radius_meters",
+        "babana_priority_closest_radius_meters",
         "babana_priority_ride_points_max",
         "babana_priority_star_high_threshold",
         "babana_priority_star_mid_threshold",

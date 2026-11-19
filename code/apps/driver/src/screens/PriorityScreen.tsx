@@ -83,7 +83,7 @@ export function PriorityScreen({ navigation }: Props) {
         </Text>
         <PriorityBar priority={priority} />
         <Text style={styles.muted}>
-          À proximité d'un client, la course est proposée d'abord au chauffeur qui a le plus de points.
+          Un chauffeur tout près du client reçoit la course en premier. Sinon, elle est proposée d'abord au chauffeur qui a le plus de points.
         </Text>
       </View>
 

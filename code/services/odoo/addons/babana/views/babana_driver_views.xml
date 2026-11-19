@@ -136,7 +136,7 @@
                         </group>
                     </group>
                     <!-- Priorité à l'affectation (19 novembre, services/priority.py) : ce qui décide
-                         quel chauffeur reçoit une course à moins de 2 km du client. -->
+                         quel chauffeur reçoit une course quand aucun n'est à moins de 500 m du client. -->
                     <group string="Priorité" name="priority">
                         <group>
                             <label for="priority_total"/>

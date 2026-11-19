@@ -6,10 +6,11 @@
 # - le service temps réel CHOISIT et RÉSERVE, en un seul geste atomique, le premier libre d'un
 #   classement transmis par Odoo : c'est lui qui connaît les positions (invariant 1), et le choix
 #   suivi d'une réservation séparée laisserait deux courses prendre le même chauffeur (invariant 4) ;
-# - le classement est celui de la PRIORITÉ (demande du 19 novembre, services/priority.py, remplace
-#   « le plus proche par la route » de D78) : à moins de 2 km, le plus prioritaire d'abord ; à
-#   égalité et au-delà, le plus proche par la route (services/approach.py), puis à vol d'oiseau. Le
-#   script de réservation essaie la liste dans l'ordre, puis se replie sur le vol d'oiseau -- un
+# - le classement est celui de la PRIORITÉ (demande du 19 novembre, resserrée le soir même,
+#   services/priority.py, remplace « le plus proche par la route » de D78) : à moins de 500 m, le
+#   plus proche d'abord ; sinon, dans chaque cercle, le plus prioritaire -- à égalité, le plus
+#   proche par la route (services/approach.py), puis à vol d'oiseau. Le script de réservation
+#   essaie la liste dans l'ordre, puis se replie sur le vol d'oiseau -- un
 #   service injoignable dégrade le choix, jamais l'affectation ;
 # - Odoo décide QUI ÉCARTER (les chauffeurs déjà sollicités dans le tour en cours), QUAND S'ARRÊTER
 #   (babana.dispatch_max_attempts) et DANS QUEL RAYON chercher -- des règles métier, réglables dans

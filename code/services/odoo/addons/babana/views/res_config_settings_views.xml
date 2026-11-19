@@ -107,10 +107,10 @@
                     </block>
                     <!-- Priorité des chauffeurs (19 novembre, services/priority.py). -->
                     <block title="Priorité des chauffeurs" name="babana_priority_settings">
-                        <setting id="babana_priority_radius" string="Rayon de priorité"
-                                 help="À moins de cette distance du client (à vol d'oiseau), la course va au chauffeur qui a le plus de points ; à égalité, au plus proche par la route. Au-delà, au plus proche par la route.">
+                        <setting id="babana_priority_closest_radius" string="Le plus proche gagne"
+                                 help="Un chauffeur à moins de cette distance du client (à vol d'oiseau) reçoit la course en premier, le plus proche d'abord. Au-delà, dans chaque cercle de recherche, la course va au chauffeur qui a le plus de points ; à égalité, au plus proche par la route.">
                             <div class="d-flex align-items-center gap-2">
-                                <field name="babana_priority_radius_meters" style="width: 6rem"/>
+                                <field name="babana_priority_closest_radius_meters" style="width: 6rem"/>
                                 <span>mètres</span>
                             </div>
                         </setting>

@@ -36,7 +36,7 @@ export type RatingSummary = z.infer<typeof RatingSummarySchema>;
 
 /**
  * Priorité à l'affectation (19 novembre, amoa/questions/PRIORITE-2026-11-19.md) : ce qui décide
- * quel chauffeur reçoit une course à moins de 2 km du client. Chaque valeur et chaque maximum
+ * quel chauffeur reçoit une course quand aucun n'est tout près du client. Chaque valeur et chaque maximum
  * viennent du serveur -- l'app affiche, elle ne calcule ni ne connaît aucun barème (invariant 3).
  */
 export const DriverPrioritySchema = z.object({

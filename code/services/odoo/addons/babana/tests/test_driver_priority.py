@@ -1,7 +1,7 @@
 # Priorité des chauffeurs à l'affectation (19 novembre, amoa/questions/PRIORITE-2026-11-19.md) :
 # le score (services/priority.py), le compteur et le journal des points de course tenus par les
 # transitions, la reconstitution depuis l'historique, le classement transmis à la réservation, les
-# réglages, et ce que l'app lit (GET /me, journal, détail de la note).
+# réglages (le plus proche gagne à moins de 500 m, sinon la priorité), et ce que l'app lit (GET /me, journal, détail de la note).
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -242,10 +242,27 @@ class TestPriorityRanking(_PriorityFixtures, TransactionCase):
     def _candidate(self, driver, beeline, road=None):
         return priority.Candidate(driver.public_id, beeline, road)
 
-    def test_within_2_km_the_highest_priority_wins_even_if_further(self):
+    # Resserré le 19 novembre au soir : à moins de 500 m, le plus proche gagne ; sinon, dans chaque
+    # cercle, le plus prioritaire.
+
+    def test_within_500_m_the_closest_wins_whatever_its_priority(self):
+        close_low, closer_lowest, far_high = (
+            self._driver(ride_points=40), self._driver(ride_points=0), self._driver(ride_points=100)
+        )
+        order = priority.rank_candidates(
+            self.env,
+            [
+                self._candidate(far_high, 800, 900),
+                self._candidate(close_low, 450, 600),
+                self._candidate(closer_lowest, 300, 350),
+            ],
+        )
+        self.assertEqual(order, [closer_lowest.public_id, close_low.public_id, far_high.public_id])
+
+    def test_beyond_500_m_the_highest_priority_wins_even_if_further(self):
         close, far_but_better = self._driver(ride_points=80), self._driver(ride_points=100)
         order = priority.rank_candidates(
-            self.env, [self._candidate(close, 200, 250), self._candidate(far_but_better, 1500, 1900)]
+            self.env, [self._candidate(close, 600, 700), self._candidate(far_but_better, 3500, 4100)]
         )
         self.assertEqual(order, [far_but_better.public_id, close.public_id])
 
@@ -253,35 +270,30 @@ class TestPriorityRanking(_PriorityFixtures, TransactionCase):
         a, b, c = self._driver(), self._driver(), self._driver()
         order = priority.rank_candidates(
             self.env,
-            [self._candidate(a, 100, 900), self._candidate(b, 300, 400), self._candidate(c, 200)],
+            [self._candidate(a, 600, 1900), self._candidate(b, 900, 1000), self._candidate(c, 700)],
         )
         self.assertEqual(order, [b.public_id, a.public_id, c.public_id], "mesurés d'abord, puis à vol d'oiseau")
 
-    def test_beyond_2_km_priority_no_longer_counts_and_comes_after(self):
-        near_low = self._driver(ride_points=10)
-        far_high, far_low_closer = self._driver(ride_points=100), self._driver(ride_points=10)
-        order = priority.rank_candidates(
-            self.env,
-            [
-                self._candidate(far_high, 3500, 4000),
-                self._candidate(far_low_closer, 2500, 3000),
-                self._candidate(near_low, 1999),
-            ],
-        )
-        self.assertEqual(order, [near_low.public_id, far_low_closer.public_id, far_high.public_id])
+    def test_within_500_m_too_the_road_decides_before_the_beeline(self):
+        a, b = self._driver(), self._driver()
+        order = priority.rank_candidates(self.env, [self._candidate(a, 100, 900), self._candidate(b, 400, 450)])
+        self.assertEqual(order, [b.public_id, a.public_id])
 
-    def test_exactly_2_km_is_outside_the_priority_zone(self):
-        at_edge_high, inside_low = self._driver(ride_points=100), self._driver(ride_points=50)
+    def test_exactly_500_m_is_not_close_enough(self):
+        at_edge_low, beyond_high = self._driver(ride_points=10), self._driver(ride_points=100)
         order = priority.rank_candidates(
-            self.env, [self._candidate(at_edge_high, 2000), self._candidate(inside_low, 1900)]
+            self.env, [self._candidate(at_edge_low, 500), self._candidate(beyond_high, 1500)]
         )
-        self.assertEqual(order, [inside_low.public_id, at_edge_high.public_id])
+        self.assertEqual(order, [beyond_high.public_id, at_edge_low.public_id])
 
-    def test_the_priority_radius_is_a_setting(self):
-        self._param(priority.PRIORITY_RADIUS_PARAM, "500")
-        low_close, high_far = self._driver(ride_points=10), self._driver(ride_points=100)
-        order = priority.rank_candidates(self.env, [self._candidate(low_close, 400), self._candidate(high_far, 600)])
-        self.assertEqual(order, [low_close.public_id, high_far.public_id])
+    def test_the_closest_wins_radius_is_a_setting(self):
+        self._param(priority.CLOSEST_RADIUS_PARAM, "1000")
+        close_low, high = self._driver(ride_points=10), self._driver(ride_points=100)
+        order = priority.rank_candidates(self.env, [self._candidate(close_low, 900), self._candidate(high, 1100)])
+        self.assertEqual(order, [close_low.public_id, high.public_id])
+        self.assertEqual(priority.closest_radius_meters(self.env), 1000)
+        self._param(priority.CLOSEST_RADIUS_PARAM, False)
+        self.assertEqual(priority.closest_radius_meters(self.env), 500)
 
     def test_a_driver_unknown_to_odoo_is_left_to_the_beeline_fallback(self):
         known = self._driver()
@@ -290,10 +302,29 @@ class TestPriorityRanking(_PriorityFixtures, TransactionCase):
         )
         self.assertEqual(order, [known.public_id])
 
+    def test_dispatch_hands_the_closest_within_500_m_first(self):
+        close_low, far_high = self._driver(ride_points=10), self._driver(ride_points=100)
+        nearby = [
+            {"driverId": close_low.public_id, "latitude": 4.05, "longitude": 9.70, "distanceMeters": 200},
+            {"driverId": far_high.public_id, "latitude": 4.06, "longitude": 9.70, "distanceMeters": 1500},
+        ]
+        client = self._client()
+        self.env["res.users"].sudo().create({"name": "C", "login": f"prio-close-{client.id}@example.invalid", "partner_id": client.id})
+        ride = self.env["babana.ride"].action_request(
+            {"client_id": client.id, "pickup_latitude": 4.05, "pickup_longitude": 9.70,
+             "dropoff_latitude": 4.06, "dropoff_longitude": 9.77}
+        )
+        with patch.object(realtime_client, "fetch_nearby_drivers", return_value=nearby), \
+                patch.object(realtime_client, "reserve_nearest_and_propose", return_value={"outcome": "PROPOSED", "driverId": close_low.public_id}) as reserve, \
+                patch.object(realtime_client, "schedule_search_widening"), \
+                patch("odoo.addons.babana.services.approach._road_route", return_value=None):
+            dispatch.propose_to_closest_driver(self.env, ride, by_partner=client)
+        self.assertEqual(reserve.call_args.kwargs["preferred_driver_public_ids"], [close_low.public_id, far_high.public_id])
+
     def test_dispatch_hands_the_priority_order_to_the_reservation(self):
         close, better = self._driver(ride_points=70), self._driver(ride_points=100)
         nearby = [
-            {"driverId": close.public_id, "latitude": 4.05, "longitude": 9.70, "distanceMeters": 150},
+            {"driverId": close.public_id, "latitude": 4.05, "longitude": 9.70, "distanceMeters": 650},
             {"driverId": better.public_id, "latitude": 4.06, "longitude": 9.70, "distanceMeters": 1200},
         ]
         client = self._client()
@@ -316,16 +347,16 @@ class TestPriorityRanking(_PriorityFixtures, TransactionCase):
 class TestPrioritySettings(TransactionCase):
     def test_the_priority_settings_are_editable_and_checked(self):
         settings = self.env["res.config.settings"].create(
-            {"babana_priority_radius_meters": 1500, "babana_priority_new_driver_days": 45}
+            {"babana_priority_closest_radius_meters": 300, "babana_priority_new_driver_days": 45}
         )
         settings.execute()
         params = self.env["ir.config_parameter"].sudo()
-        self.assertEqual(params.get_param(priority.PRIORITY_RADIUS_PARAM), "1500")
+        self.assertEqual(params.get_param(priority.CLOSEST_RADIUS_PARAM), "300")
         self.assertEqual(params.get_param(priority.NEW_DRIVER_DAYS_PARAM), "45")
         with self.assertRaises(ValidationError):
             self.env["res.config.settings"].create({"babana_priority_miss_penalty": -1})
         with self.assertRaises(ValidationError):
-            self.env["res.config.settings"].create({"babana_priority_radius_meters": 0})
+            self.env["res.config.settings"].create({"babana_priority_closest_radius_meters": 0})
         with self.assertRaises(ValidationError):
             self.env["res.config.settings"].create(
                 {"babana_priority_star_high_threshold": 4.0, "babana_priority_star_mid_threshold": 4.0}
